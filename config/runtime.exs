@@ -1,6 +1,15 @@
 import Config
 
 # CRITICAL: Send logs to stderr so stdout remains clean for MCP JSON-RPC
+# Also respect LOGGER_LEVEL env var for stdio mode
+log_level = case System.get_env("LOGGER_LEVEL") do
+  "error" -> :error
+  "warn" -> :warning
+  "none" -> :none
+  _ -> :info
+end
+
+config :logger, level: log_level
 config :logger, :console,
   device: :standard_error,
   format: "$time $metadata[$level] $message\n"
