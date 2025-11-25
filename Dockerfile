@@ -36,19 +36,19 @@ RUN apk add --no-cache \
     nodejs \
     npm
 
-# Create non-root user
-RUN addgroup -S mimo && adduser -S mimo -G mimo -h /app
+# Install hex and rebar in runtime too
+RUN mix local.hex --force && mix local.rebar --force
 
 WORKDIR /app
 
-# Copy from builder
-COPY --from=builder --chown=mimo:mimo /app /app
+# Copy compiled app from builder
+COPY --from=builder /app /app
+
+# Copy Mix archives (hex, rebar) from builder
+COPY --from=builder /root/.mix /root/.mix
 
 # Create writable directories
-RUN mkdir -p priv/repo && chown -R mimo:mimo /app
-
-# Switch to unprivileged user
-USER mimo
+RUN mkdir -p priv/repo && chmod -R 777 priv
 
 # Expose MCP port
 EXPOSE 9000
@@ -58,4 +58,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:9000 || exit 1
 
 # Run setup and start
-CMD ["sh", "-c", "mix ecto.create && mix ecto.migrate && mix run --no-halt"]
+CMD ["sh", "-c", "mix ecto.create && mix ecto.migrate && MIX_ENV=prod mix run --no-halt"]
