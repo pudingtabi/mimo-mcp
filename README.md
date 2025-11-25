@@ -207,7 +207,7 @@ chmod +x /usr/local/bin/mimo-mcp-stdio
       "args": [
         "-o", "BatchMode=yes",
         "-o", "StrictHostKeyChecking=no",
-        "root@172.18.0.1",
+        "root@<YOUR_VPS_IP>",
         "/usr/local/bin/mimo-mcp-stdio"
       ]
     }
@@ -266,7 +266,7 @@ chmod +x /usr/local/bin/mimo-mcp-stdio
 ### SSH connection fails
 ```bash
 # Test SSH from VS Code container
-ssh -o BatchMode=yes root@172.18.0.1 "echo connected"
+ssh -o BatchMode=yes root@<YOUR_VPS_IP> "echo connected"
 ```
 
 ### Skills not loading

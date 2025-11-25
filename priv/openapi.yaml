@@ -33,8 +33,8 @@ info:
 servers:
   - url: http://localhost:4000
     description: Local development server
-  - url: http://172.18.0.1:4000
-    description: VPS deployment
+  - url: http://your-vps-ip:4000
+    description: VPS deployment (replace with your IP)
 
 paths:
   /health:

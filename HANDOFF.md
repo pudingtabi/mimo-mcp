@@ -222,7 +222,7 @@ cd cmd/mimo && go build -o mimo .
 
 # Deploy to VPS
 git push origin main
-ssh root@172.18.0.1 "cd /root/mrc-server/mimo-mcp && git pull && mix deps.get && mix compile"
+ssh root@<YOUR_VPS_IP> "cd /root/mrc-server/mimo-mcp && git pull && mix deps.get && mix compile"
 ```
 
 ---

@@ -10,7 +10,7 @@ Usage:
     python debug_stream.py [--host HOST] [--wrapper PATH]
 
 Example:
-    python debug_stream.py --host root@172.18.0.1
+    python debug_stream.py --host root@<YOUR_VPS_IP>
 """
 
 import subprocess
@@ -67,7 +67,7 @@ def send_request(proc, request_dict, timeout=30):
 
 def main():
     parser = argparse.ArgumentParser(description="VS Code MCP Client Simulator")
-    parser.add_argument("--host", default="root@172.18.0.1", help="SSH host")
+    parser.add_argument("--host", default="root@localhost", help="SSH host (e.g., root@your-vps-ip)")
     parser.add_argument("--wrapper", default="/usr/local/bin/mimo-mcp-stdio", help="Path to wrapper script")
     args = parser.parse_args()
     
@@ -207,7 +207,7 @@ def main():
     else:
         log("❌ SOME TESTS FAILED", "ERROR")
         log("")
-        log("Check the VPS logs: ssh root@172.18.0.1 cat /tmp/mcp-wrapper.log")
+        log("Check the VPS logs: ssh root@<YOUR_VPS_IP> cat /tmp/mcp-wrapper.log")
     
     # Close connection gracefully
     log("")
