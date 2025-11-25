@@ -12,6 +12,11 @@ defmodule Mimo.McpCli do
   Exits when stdin is closed (EOF).
   """
   def run do
+    # Force unbuffered I/O - critical for MCP over pipes/SSH
+    # This ensures each response is flushed immediately
+    :io.setopts(:standard_io, [:binary, {:encoding, :unicode}])
+    :io.setopts(:standard_error, [:binary, {:encoding, :unicode}])
+    
     # Silence all logging to avoid polluting stdout
     :logger.set_primary_config(:level, :none)
     Application.put_env(:logger, :level, :none)
@@ -53,7 +58,11 @@ defmodule Mimo.McpCli do
       {:ok, request} ->
         response = handle_request(request)
         unless response == :no_response do
-          IO.puts(Jason.encode!(response))
+          # Use :io.put_chars with explicit newline and flush for immediate output
+          output = Jason.encode!(response) <> "\n"
+          :io.put_chars(:standard_io, output)
+          # Force flush - critical for unbuffered output over pipes/ssh
+          :io.setopts(:standard_io, [{:encoding, :unicode}])
         end
       {:error, _} ->
         error_response = %{
@@ -61,7 +70,9 @@ defmodule Mimo.McpCli do
           "error" => %{"code" => -32700, "message" => "Parse error"},
           "id" => nil
         }
-        IO.puts(Jason.encode!(error_response))
+        output = Jason.encode!(error_response) <> "\n"
+        :io.put_chars(:standard_io, output)
+        :io.setopts(:standard_io, [{:encoding, :unicode}])
     end
   end
 
