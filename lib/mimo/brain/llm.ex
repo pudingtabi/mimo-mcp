@@ -43,7 +43,7 @@ defmodule Mimo.Brain.LLM do
   end
 
   defp call_openrouter(system_prompt, query, api_key) do
-    payload = %{
+    payload = Jason.encode!(%{
       "model" => @default_model,
       "messages" => [
         %{"role" => "system", "content" => system_prompt},
@@ -51,7 +51,7 @@ defmodule Mimo.Brain.LLM do
       ],
       "temperature" => 0.1,
       "max_tokens" => 200
-    }
+    })
 
     headers = [
       {"Authorization", "Bearer #{api_key}"},
@@ -60,19 +60,26 @@ defmodule Mimo.Brain.LLM do
       {"Content-Type", "application/json"}
     ]
 
-    case Req.post(@openrouter_url, json: payload, headers: headers, receive_timeout: 30_000) do
-      {:ok, %{status: 200, body: %{"choices" => [%{"message" => %{"content" => content}} | _]}}} ->
-        # Remove thinking tags if present
-        clean_content = content 
-          |> String.replace(~r/<think>.*?<\/think>/s, "") 
-          |> String.trim()
-        {:ok, clean_content}
+    case HTTPoison.post(@openrouter_url, payload, headers, recv_timeout: 30_000) do
+      {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
+        case Jason.decode(body) do
+          {:ok, %{"choices" => [%{"message" => %{"content" => content}} | _]}} ->
+            # Remove thinking tags if present
+            clean_content = content 
+              |> String.replace(~r/<think>.*?<\/think>/s, "") 
+              |> String.trim()
+            {:ok, clean_content}
+          {:ok, _} ->
+            {:error, {:openrouter_error, "Unexpected response format"}}
+          {:error, reason} ->
+            {:error, {:json_decode_error, reason}}
+        end
 
-      {:ok, %{status: status, body: body}} ->
-        Logger.error("OpenRouter error #{status}: #{inspect(body)}")
+      {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
+        Logger.error("OpenRouter error #{status}: #{body}")
         {:error, {:openrouter_error, status, body}}
 
-      {:error, reason} ->
+      {:error, %HTTPoison.Error{reason: reason}} ->
         Logger.error("OpenRouter request failed: #{inspect(reason)}")
         {:error, {:request_failed, reason}}
     end
@@ -85,20 +92,27 @@ defmodule Mimo.Brain.LLM do
   def generate_embedding(text) when is_binary(text) do
     ollama_url = Application.get_env(:mimo_mcp, :ollama_url, "http://localhost:11434")
     
-    payload = %{
+    payload = Jason.encode!(%{
       "model" => "nomic-embed-text",
       "prompt" => text
-    }
+    })
 
-    case Req.post("#{ollama_url}/api/embeddings", json: payload, receive_timeout: 30_000) do
-      {:ok, %{status: 200, body: %{"embedding" => embedding}}} -> 
-        {:ok, embedding}
+    headers = [{"Content-Type", "application/json"}]
+
+    case HTTPoison.post("#{ollama_url}/api/embeddings", payload, headers, recv_timeout: 30_000) do
+      {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
+        case Jason.decode(body) do
+          {:ok, %{"embedding" => embedding}} -> {:ok, embedding}
+          _ -> 
+            Logger.warning("Ollama embedding unexpected response")
+            {:ok, fallback_embedding(text)}
+        end
       
-      {:ok, %{status: status, body: body}} ->
-        Logger.warning("Ollama embedding failed (#{status}): #{inspect(body)}")
+      {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
+        Logger.warning("Ollama embedding failed (#{status}): #{body}")
         {:ok, fallback_embedding(text)}
       
-      {:error, reason} -> 
+      {:error, %HTTPoison.Error{reason: reason}} -> 
         Logger.warning("Ollama unavailable: #{inspect(reason)}, using fallback")
         {:ok, fallback_embedding(text)}
     end

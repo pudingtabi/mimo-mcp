@@ -1,218 +1,229 @@
 # Mimo-MCP Handoff Document
 
-## Current Status: ❌ VS Code MCP Still Hanging
+## Current Status: ✅ Universal Aperture Architecture Implemented
 
-**Last Updated:** 2025-11-25 10:46 UTC
-
----
-
-## The Problem
-
-**VS Code MCP hangs indefinitely when calling MIMO tools.** Terminal tests work perfectly.
-
-### What Works ✅
-- Terminal single-request tests (via `echo | ssh`)
-- `debug_stream.py` test script (sends requests one-at-a-time with waits)
-- Docker container is healthy
-- Elixir MCP server returns correct JSON-RPC responses
-- All 46 tools are available
-
-### What Fails ❌
-- VS Code MCP integration hangs on `tools/list` response
-- Never receives response, eventually cancels after ~60s timeout
+**Last Updated:** 2025-11-25  
+**Version:** 2.2.0
 
 ---
 
-## Root Cause Analysis
+## New Architecture: Universal Aperture Protocol
 
-### The Symptom (from wrapper log)
+The MCP-only architecture has been upgraded to support **multiple protocol adapters** while preserving the core Memory OS functionality.
+
+### Architecture Overview
 
 ```
-[1228153] 10:45:19 [OUT] {"id":1,...}                    # initialize response SENT ✅
-[1228153] 10:45:19 [IN] notifications/initialized        # notification received
-[1228153] 10:45:19 [IN] tools/list (id=2)               # request received
-[1228153] 10:45:19 [IN] tools/call ask_mimo (id=3)      # request received
-                        ^^^ NO [OUT] for tools/list! ^^^
-[1228153] 10:46:29 [IN] notifications/cancelled          # VS Code gives up after ~70s
+┌─────────────────────────────────────────────────────────────────┐
+│                        Client Layer                              │
+├─────────────┬─────────────┬─────────────┬─────────────┬─────────┤
+│ GitHub      │ Terminal/   │ Generic IDE │ LangChain/  │ curl/   │
+│ Copilot CLI │ Bash        │ Plugin      │ AutoGPT     │ HTTP    │
+└──────┬──────┴──────┬──────┴──────┬──────┴──────┬──────┴────┬────┘
+       │             │             │             │            │
+       │ stdio       │ subprocess  │ HTTP        │ HTTPS      │ HTTP
+       ▼             ▼             ▼             ▼            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              Universal Aperture: Protocol Adapters               │
+├─────────────┬─────────────┬─────────────┬───────────────────────┤
+│ MCP Adapter │ CLI Adapter │ HTTP/REST   │ OpenAI Adapter        │
+│ (stdio)     │ (Go binary) │ (Phoenix)   │ (/v1/chat/completions)│
+└──────┬──────┴──────┬──────┴──────┬──────┴───────────┬───────────┘
+       │             │             │                   │
+       └─────────────┴─────────────┴───────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Core: Mimo Memory OS                          │
+├─────────────────────────────────────────────────────────────────┤
+│  Port: QueryInterface          Port: ToolInterface              │
+│  (ask/3)                       (execute/2)                      │
+├─────────────────────────────────────────────────────────────────┤
+│                   Meta-Cognitive Router                          │
+│                   (classify → route)                             │
+├─────────────┬─────────────────────────┬─────────────────────────┤
+│ Episodic    │ Semantic Store          │ Procedural Store        │
+│ Store       │ (Graph/JSON-LD)         │ (Rule Engine)           │
+│ (Vector/PG) │ [Pending]               │ [Pending]               │
+└─────────────┴─────────────────────────┴─────────────────────────┘
 ```
-
-### Key Observation
-
-| Test Method | Request Pattern | Result |
-|-------------|-----------------|--------|
-| Terminal `echo \| ssh` | Single request, stdin closes | ✅ Works |
-| `debug_stream.py` | One request, wait for response, repeat | ✅ Works |
-| VS Code MCP | Multiple requests sent rapidly before responses | ❌ Hangs |
-
-**VS Code sends requests WITHOUT waiting for responses:**
-1. `initialize` → sends immediately
-2. `notifications/initialized` → sends immediately  
-3. `tools/list` → sends immediately (before initialize response!)
-4. `tools/call` → sends immediately (before tools/list response!)
-
-### The Likely Issue
-
-The Python wrapper or Elixir server can't handle **pipelined requests** properly. When multiple requests arrive before responses are sent:
-
-1. Elixir processes requests sequentially
-2. Logger output (`[info] 📦 Cataloged...`) is mixed with stdout
-3. Response for `tools/list` may be stuck in a buffer
-4. Or the large `tools/list` response (~7KB JSON) is being truncated/delayed
-
-### Evidence
-
-From the log:
-```
-[1228153] 10:45:19 [RAW_OUT] 241 bytes    # Some output received
-[1228153] 10:45:19 [SKIP] 09:45:19.807... # Logger lines (on stdout!)
-[1228153] 10:45:19 [RAW_OUT] 122 bytes    # More output
-[1228153] 10:45:19 [SKIP] ...             # More logger
-[1228153] 10:45:19 [RAW_OUT] 57 bytes     # Fragmented reads
-[1228153] 10:45:19 [RAW_OUT] 70 bytes
-[1228153] 10:45:19 [RAW_OUT] 164 bytes
-[1228153] 10:45:19 [OUT] {"id":1,...}     # Initialize response finally assembled
-# tools/list response NEVER appears in log!
-```
-
-The output is coming in **fragments** mixed with logger output. The initialize response eventually gets assembled, but `tools/list` response never appears.
 
 ---
 
-## What We Tried (Didn't Fix It)
+## What's New in v2.2.0
 
-### 1. Python Wrapper Buffering Fixes
-- `bufsize=0` for unbuffered subprocess
-- `select()` for non-blocking I/O
-- `input_buffer` to handle fragmented input
-- `output_buffer` to assemble fragmented output
-- `flush=True` on all prints
+### 1. Port Interfaces (Hexagonal Architecture)
+- `Mimo.QueryInterface` - Abstract port for natural language queries
+- `Mimo.ToolInterface` - Abstract port for direct tool execution
+- `Mimo.MetaCognitiveRouter` - Intelligent query classification
 
-### 2. Elixir Unbuffered I/O
-- `:io.setopts(:standard_io, [:binary])` 
-- `:io.put_chars()` instead of `IO.puts()`
-- Silence logger with `:logger.set_primary_config(:level, :none)`
+### 2. HTTP/REST Gateway (Phoenix)
+- **POST /v1/mimo/ask** - Natural language queries
+- **POST /v1/mimo/tool** - Direct tool execution
+- **GET /v1/mimo/tools** - List available tools
+- **GET /health** - Health check endpoint
 
-### 3. Logger Silencing
-- Moved logger silencing to start of `run()` function
-- But catalog loading still logs BEFORE `McpCli.run()` is called!
+### 3. OpenAI-Compatible Endpoint
+- **POST /v1/chat/completions** - Drop-in OpenAI replacement
+- **GET /v1/models** - List available models
+- Returns `tool_calls` to force memory function invocation
+- Compatible with LangChain, AutoGPT, Continue.dev
 
----
+### 4. CLI Wrapper (`mimo`)
+- Go binary for shell-native access
+- Supports Unix pipes: `git diff | mimo ask "commit message"`
+- Sandbox mode for untrusted scripts
 
-## Hypotheses to Test Next
-
-### Hypothesis A: Logger Output Corrupts JSON Stream
-The Elixir application starts and logs before `McpCli.run()` silences it. These log lines on stdout corrupt the JSON-RPC stream.
-
-**Test:** Modify `config/config.exs` to set `config :logger, level: :none` at compile time.
-
-### Hypothesis B: Response Stuck in Docker Exec Pipe
-The `docker exec -i` pipe has its own buffering that isn't flushed.
-
-**Test:** Try `docker exec -i -t` (pseudo-TTY) or use `stdbuf -oL`.
-
-### Hypothesis C: Large Response Fragmentation
-The `tools/list` response is ~7KB. It may be split across multiple reads and the reassembly fails.
-
-**Test:** Add more logging to track exactly how many bytes are received for tools/list response.
-
-### Hypothesis D: Race Condition in Request Processing
-When multiple requests arrive before responses are sent, Elixir may be processing them out of order or dropping some.
-
-**Test:** Add request queuing and ensure responses are sent in order.
-
-### Hypothesis E: SSH Connection Issue
-The SSH tunnel may have different buffering behavior for rapid bidirectional communication.
-
-**Test:** Try TCP socket connection instead of stdio over SSH.
+### 5. Telemetry & Metrics
+- Request latency tracking
+- Router classification timing
+- System health monitoring
+- p99 latency alerts
 
 ---
 
-## Files & Locations
+## File Structure
 
-| File | Location | Purpose |
-|------|----------|---------|
-| `mcp.json` | `/root/.vscode/mcp.json` | VS Code MCP config |
-| `mimo-mcp-stdio.py` | Repo root & `/usr/local/bin/` on VPS | Python wrapper |
-| `mcp_cli.ex` | `lib/mimo/mcp_cli.ex` | Elixir stdio handler |
-| `debug_stream.py` | Repo root | Test script (works!) |
-| Wrapper log | `/tmp/mcp-wrapper.log` on VPS | Debug output |
+```
+lib/
+├── mimo.ex                          # Main module
+├── mimo_web.ex                      # Phoenix web helpers
+├── mimo/
+│   ├── application.ex               # OTP application (updated)
+│   ├── meta_cognitive_router.ex     # Query classification (NEW)
+│   ├── telemetry.ex                 # Metrics (NEW)
+│   ├── mcp_server.ex                # MCP stdio adapter
+│   ├── mcp_cli.ex                   # CLI MCP handler
+│   ├── registry.ex                  # Tool registry
+│   ├── repo.ex                      # Ecto repo
+│   ├── brain/                       # Memory stores
+│   │   ├── memory.ex
+│   │   ├── llm.ex
+│   │   └── engram.ex
+│   ├── ports/                       # Abstract ports (NEW)
+│   │   ├── query_interface.ex
+│   │   └── tool_interface.ex
+│   └── skills/
+│       ├── catalog.ex
+│       └── client.ex
+├── mimo_web/                        # Phoenix HTTP adapter (NEW)
+│   ├── endpoint.ex
+│   ├── router.ex
+│   ├── error_json.ex
+│   ├── controllers/
+│   │   ├── ask_controller.ex
+│   │   ├── tool_controller.ex
+│   │   ├── openai_controller.ex
+│   │   ├── health_controller.ex
+│   │   └── fallback_controller.ex
+│   └── plugs/
+│       ├── authentication.ex
+│       ├── telemetry.ex
+│       └── latency_guard.ex
+cmd/
+└── mimo/                            # Go CLI (NEW)
+    ├── main.go
+    ├── go.mod
+    └── README.md
+```
+
+---
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MIMO_HTTP_PORT` | 4000 | HTTP gateway port |
+| `MIMO_API_KEY` | (none) | API key for auth (optional in dev) |
+| `MIMO_SECRET_KEY_BASE` | (dev key) | Phoenix secret key |
+| `MCP_PORT` | 9000 | MCP server port |
+| `OPENROUTER_API_KEY` | (none) | OpenRouter API key |
+| `OLLAMA_URL` | localhost:11434 | Ollama embedding server |
+
+### Starting the Server
+
+```bash
+# Development
+mix deps.get
+mix ecto.setup
+mix run --no-halt
+
+# Production
+MIX_ENV=prod mix release
+_build/prod/rel/mimo_mcp/bin/mimo_mcp start
+
+# Docker
+docker-compose up -d
+```
+
+### Testing the HTTP API
+
+```bash
+# Health check
+curl http://localhost:4000/health
+
+# Ask endpoint
+curl -X POST http://localhost:4000/v1/mimo/ask \
+  -H "Content-Type: application/json" \
+  -d '{"query": "How do I center a div?"}'
+
+# Tool endpoint
+curl -X POST http://localhost:4000/v1/mimo/tool \
+  -H "Content-Type: application/json" \
+  -d '{"tool": "search_vibes", "arguments": {"query": "dark atmosphere", "limit": 5}}'
+
+# OpenAI-compatible
+curl -X POST http://localhost:4000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "mimo-polymorphic-1",
+    "messages": [{"role": "user", "content": "Find authentication bugs"}]
+  }'
+```
+
+---
+
+## Previous Issue: MCP Stdio Hanging
+
+The original MCP stdio transport had issues with VS Code's pipelined requests. The Universal Aperture architecture **bypasses this** by providing HTTP as an alternative transport.
+
+### Solution for VS Code
+Instead of stdio over SSH, use the HTTP endpoint:
+1. Start Mimo with HTTP gateway
+2. Configure VS Code to use HTTP transport (via custom extension or REST client)
+3. Or use the `mimo` CLI from terminal
+
+---
+
+## Next Steps
+
+1. **Semantic Store**: Implement graph/JSON-LD storage
+2. **Procedural Store**: Implement rule engine
+3. **Rust NIFs**: Add Rustler for vector math performance
+4. **Docker**: Update image for HTTP gateway
+5. **Benchmarks**: Run `wrk` tests for latency targets
 
 ---
 
 ## Quick Commands
 
 ```bash
-# Check latest wrapper log
-ssh root@172.18.0.1 "tail -50 /tmp/mcp-wrapper.log"
+# Start server
+mix run --no-halt
 
-# Test terminal (should work)
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize"}' | \
-  ssh -T root@172.18.0.1 /usr/local/bin/mimo-mcp-stdio
+# Build CLI
+cd cmd/mimo && go build -o mimo .
 
-# Test with debug_stream.py (should work)  
-cd /root/mimo/mimo_mcp && python3 debug_stream.py
+# Test CLI
+./mimo ask "What is the capital of France?"
+./mimo run search_vibes --query "mysterious" --limit 3
 
-# Git deploy workflow
-cd /root/mimo/mimo_mcp
-git add -A && git commit -m "message" && git push origin main
-ssh root@172.18.0.1 "cd /root/mrc-server/mimo-mcp && git pull"
-ssh root@172.18.0.1 "cp /root/mrc-server/mimo-mcp/mimo-mcp-stdio.py /usr/local/bin/mimo-mcp-stdio"
-# For Elixir changes:
-ssh root@172.18.0.1 "docker cp /root/mrc-server/mimo-mcp/lib/mimo/mcp_cli.ex mimo-mcp:/app/lib/mimo/ && docker exec mimo-mcp mix compile --force"
+# Deploy to VPS
+git push origin main
+ssh root@172.18.0.1 "cd /root/mrc-server/mimo-mcp && git pull && mix deps.get && mix compile"
 ```
-
----
-
-## VS Code MCP Config
-
-`/root/.vscode/mcp.json`:
-```json
-{
-  "servers": {
-    "mimo": {
-      "type": "stdio",
-      "command": "ssh",
-      "args": [
-        "-T",
-        "-o", "LogLevel=ERROR",
-        "-o", "BatchMode=yes", 
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "root@172.18.0.1",
-        "/usr/local/bin/mimo-mcp-stdio"
-      ]
-    }
-  }
-}
-```
-
----
-
-## Architecture
-
-```
-VS Code (local machine or tunnel container)
-    ↓ SSH (-T for no PTY)
-VPS Host (172.18.0.1)
-    ↓ /usr/local/bin/mimo-mcp-stdio (Python wrapper)
-    ↓ subprocess.Popen with bufsize=0
-Docker: mimo-mcp container
-    ↓ mix run --no-halt -e "Mimo.McpCli.run()"
-Elixir BEAM VM
-    ↓ IO.read(:stdio, :line) loop
-    ↓ Process JSON-RPC, return response
-    ↓ :io.put_chars(:standard_io, response)
-```
-
----
-
-## Next Steps for Incoming Agent
-
-1. **Don't repeat the buffering fixes** - we've tried them extensively
-2. **Focus on WHY `tools/list` response never appears** in wrapper log
-3. **Check if response is generated** - add logging inside Elixir `handle_request`
-4. **Consider alternative transports** - TCP socket, named pipe, or HTTP instead of stdio
-5. **Check if VS Code has special requirements** - maybe needs Content-Length header like LSP?
 
 ---
 

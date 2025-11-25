@@ -1,0 +1,516 @@
+openapi: 3.1.0
+info:
+  title: Mimo Universal Aperture API
+  description: |
+    HTTP/REST API for Mimo Memory OS - a multi-store cognitive memory system.
+    
+    The Universal Aperture provides access to Mimo's Triad Stores:
+    - **Episodic Store**: Vector similarity search for narrative/experiential queries
+    - **Semantic Store**: Graph/JSON-LD for relationship queries (pending)
+    - **Procedural Store**: Rule engine for code/procedure queries (pending)
+    
+    ## Authentication
+    
+    All endpoints (except `/health`) require a Bearer token if `MIMO_API_KEY` is configured.
+    
+    ```
+    Authorization: Bearer <your-api-key>
+    ```
+    
+    ## OpenAI Compatibility
+    
+    The `/v1/chat/completions` endpoint is compatible with OpenAI's API format,
+    enabling integration with LangChain, AutoGPT, and other OpenAI-compatible tools.
+    
+  version: 2.2.0
+  contact:
+    name: Mimo Project
+    url: https://github.com/pudingtabi/mimo-mcp
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:4000
+    description: Local development server
+  - url: http://172.18.0.1:4000
+    description: VPS deployment
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns system health status including BEAM scheduler info and memory usage.
+      operationId: healthCheck
+      tags:
+        - System
+      responses:
+        '200':
+          description: System is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /v1/mimo/ask:
+    post:
+      summary: Natural language query
+      description: |
+        Accept natural language queries and route them through the Meta-Cognitive Router
+        to the appropriate Triad Stores (Episodic, Semantic, Procedural).
+      operationId: ask
+      tags:
+        - Mimo API
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskRequest'
+            examples:
+              codeQuery:
+                summary: Code-related query
+                value:
+                  query: "Fix the null pointer bug in authenticate_user"
+                  context_id: "session_abc123"
+                  timeout_ms: 5000
+              vibeQuery:
+                summary: Experiential query
+                value:
+                  query: "Remember the mysterious dungeon atmosphere"
+      responses:
+        '200':
+          description: Query processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AskResponse'
+        '400':
+          description: Missing required parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '504':
+          description: Query timed out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/mimo/tool:
+    post:
+      summary: Execute a tool
+      description: |
+        Direct, low-level execution of specific memory operations.
+        
+        Supported tools:
+        - `search_vibes`: Vector similarity search in Episodic Store
+        - `store_fact`: Insert facts into Semantic/Episodic Store
+        - `recall_procedure`: Retrieve rules from Procedural Store
+        - `mimo_reload_skills`: Hot-reload skills from disk
+      operationId: executeTool
+      tags:
+        - Mimo API
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ToolRequest'
+            examples:
+              searchVibes:
+                summary: Vector search
+                value:
+                  tool: "search_vibes"
+                  arguments:
+                    query: "mysterious dungeon atmosphere"
+                    limit: 5
+                    threshold: 0.75
+              storeFact:
+                summary: Store a fact
+                value:
+                  tool: "store_fact"
+                  arguments:
+                    content: "User prefers dark mode in the editor"
+                    category: "observation"
+                    importance: 0.7
+      responses:
+        '200':
+          description: Tool executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolResponse'
+        '400':
+          description: Invalid tool or arguments
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Tool disabled in sandbox mode
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/mimo/tools:
+    get:
+      summary: List available tools
+      description: Returns all available tools with their schemas.
+      operationId: listTools
+      tags:
+        - Mimo API
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Tools list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tools:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ToolDefinition'
+
+  /v1/chat/completions:
+    post:
+      summary: OpenAI-compatible chat completions
+      description: |
+        Drop-in replacement for OpenAI's chat completions endpoint.
+        
+        **Important**: Mimo does NOT generate text. It returns a `tool_calls` array,
+        forcing the client to invoke Mimo's memory functions. The client (e.g., LangChain)
+        then re-calls Mimo with the function result for synthesis.
+      operationId: chatCompletions
+      tags:
+        - OpenAI Compatible
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+      responses:
+        '200':
+          description: Chat completion response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+
+  /v1/models:
+    get:
+      summary: List models
+      description: Returns available models (OpenAI-compatible format).
+      operationId: listModels
+      tags:
+        - OpenAI Compatible
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Models list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelsResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key authentication (set via MIMO_API_KEY env var)
+
+  schemas:
+    AskRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          description: The natural language query
+          example: "Fix the null pointer bug in authenticate_user"
+        context_id:
+          type: string
+          description: Session/context identifier for continuity
+          example: "session_abc123"
+        timeout_ms:
+          type: integer
+          description: Query timeout in milliseconds
+          default: 5000
+          example: 5000
+
+    AskResponse:
+      type: object
+      properties:
+        query_id:
+          type: string
+          format: uuid
+          description: Unique identifier for this query
+        router_decision:
+          $ref: '#/components/schemas/RouterDecision'
+        results:
+          $ref: '#/components/schemas/StoreResults'
+        synthesis:
+          type: string
+          nullable: true
+          description: LLM-synthesized response (if available)
+        latency_ms:
+          type: number
+          description: Total processing time in milliseconds
+
+    RouterDecision:
+      type: object
+      properties:
+        primary_store:
+          type: string
+          enum: [episodic, semantic, procedural]
+          description: Primary store selected for this query
+        secondary_stores:
+          type: array
+          items:
+            type: string
+            enum: [episodic, semantic, procedural]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Confidence score for the routing decision
+        reasoning:
+          type: string
+          description: Explanation for the routing decision
+        requires_synthesis:
+          type: boolean
+          description: Whether LLM synthesis is recommended
+
+    StoreResults:
+      type: object
+      properties:
+        episodic:
+          type: array
+          items:
+            $ref: '#/components/schemas/Memory'
+        semantic:
+          type: object
+          nullable: true
+        procedural:
+          type: object
+          nullable: true
+
+    Memory:
+      type: object
+      properties:
+        id:
+          type: integer
+        content:
+          type: string
+        category:
+          type: string
+          enum: [fact, observation, action, plan]
+        importance:
+          type: number
+          minimum: 0
+          maximum: 1
+        similarity:
+          type: number
+          description: Cosine similarity score (for search results)
+
+    ToolRequest:
+      type: object
+      required:
+        - tool
+      properties:
+        tool:
+          type: string
+          description: Tool name to execute
+          enum: [search_vibes, store_fact, recall_procedure, mimo_reload_skills]
+        arguments:
+          type: object
+          description: Tool-specific arguments
+
+    ToolResponse:
+      type: object
+      properties:
+        tool_call_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [success, error]
+        data:
+          type: object
+          description: Tool-specific response payload
+        latency_ms:
+          type: number
+
+    ToolDefinition:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        inputSchema:
+          type: object
+
+    ChatCompletionRequest:
+      type: object
+      required:
+        - messages
+      properties:
+        model:
+          type: string
+          default: mimo-polymorphic-1
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        tools:
+          type: array
+          items:
+            type: object
+        tool_choice:
+          type: string
+          default: auto
+
+    ChatMessage:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant, tool]
+        content:
+          type: string
+          nullable: true
+        tool_calls:
+          type: array
+          items:
+            type: object
+
+    ChatCompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          default: chat.completion
+        created:
+          type: integer
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              message:
+                $ref: '#/components/schemas/ChatMessage'
+              finish_reason:
+                type: string
+        usage:
+          type: object
+          properties:
+            prompt_tokens:
+              type: integer
+            completion_tokens:
+              type: integer
+            total_tokens:
+              type: integer
+
+    ModelsResponse:
+      type: object
+      properties:
+        object:
+          type: string
+          default: list
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              object:
+                type: string
+              created:
+                type: integer
+              owned_by:
+                type: string
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        version:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        system:
+          type: object
+          properties:
+            schedulers:
+              type: integer
+            run_queue:
+              type: integer
+            memory_mb:
+              type: number
+        stores:
+          type: object
+          properties:
+            episodic:
+              type: string
+            semantic:
+              type: string
+            procedural:
+              type: string
+        tools:
+          type: object
+          properties:
+            count:
+              type: integer
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        reason:
+          type: string
+        latency_ms:
+          type: number
+
+tags:
+  - name: System
+    description: System health and status
+  - name: Mimo API
+    description: Core Mimo Memory OS endpoints
+  - name: OpenAI Compatible
+    description: OpenAI-compatible endpoints for ecosystem integration

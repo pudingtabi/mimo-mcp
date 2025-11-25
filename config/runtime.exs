@@ -21,6 +21,32 @@ if config_env() == :prod do
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
 end
 
+# =============================================================================
+# Universal Aperture: HTTP Gateway Configuration
+# =============================================================================
+
+# HTTP Server (Phoenix/Bandit)
+http_port = String.to_integer(System.get_env("MIMO_HTTP_PORT") || "4000")
+
+config :mimo_mcp, MimoWeb.Endpoint,
+  http: [
+    ip: {127, 0, 0, 1},  # Force IPv4, bind localhost only for security
+    port: http_port,
+    transport_options: [socket_opts: [:inet]]
+  ],
+  url: [host: "localhost", port: http_port],
+  secret_key_base: System.get_env("MIMO_SECRET_KEY_BASE") || 
+    "mimo_dev_secret_key_base_32_chars_min_for_security_please_change_in_production",
+  server: true,
+  render_errors: [formats: [json: MimoWeb.ErrorJSON]]
+
+# API Authentication
+config :mimo_mcp, :api_key, System.get_env("MIMO_API_KEY")
+
+# =============================================================================
+# Existing Configuration
+# =============================================================================
+
 # Ollama (local embeddings)
 config :mimo_mcp, :ollama_url,
   System.get_env("OLLAMA_URL") || "http://localhost:11434"
@@ -33,14 +59,20 @@ config :mimo_mcp, :openrouter_api_key,
 config :mimo_mcp, :skills_path,
   System.get_env("SKILLS_PATH") || "priv/skills.json"
 
-# MCP Server
+# MCP Server (stdio)
 config :mimo_mcp, :mcp_port,
   String.to_integer(System.get_env("MCP_PORT") || "9000")
 
-# Performance tuning for 12GB VPS
+# =============================================================================
+# Performance Tuning for 12GB VPS
+# =============================================================================
 config :mimo_mcp, :max_concurrent_requests, 50
 config :mimo_mcp, :max_skill_processes, 10
 config :mimo_mcp, :memory_cleanup_days, 30
 
 # Embedding dimensions (nomic-embed-text uses 768)
 config :mimo_mcp, :embedding_dim, 768
+
+# Latency targets (Universal Aperture)
+config :mimo_mcp, :latency_target_ms, 50
+config :mimo_mcp, :latency_warn_ms, 40
