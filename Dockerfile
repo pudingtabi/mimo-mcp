@@ -50,12 +50,12 @@ COPY --from=builder /root/.mix /root/.mix
 # Create writable directories
 RUN mkdir -p priv/repo && chmod -R 777 priv
 
-# Expose MCP port
+# Expose MCP port (documentation only - MCP uses stdio)
 EXPOSE 9000
 
-# Health check
+# Health check - just verify the process is running
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:9000 || exit 1
+  CMD pgrep -f "beam.smp" || exit 1
 
 # Run setup and start
 CMD ["sh", "-c", "mix ecto.create && mix ecto.migrate && MIX_ENV=prod mix run --no-halt"]
