@@ -28,13 +28,14 @@ RUN MIX_ENV=prod mix compile
 # ------- Runtime image -------
 FROM elixir:1.16-alpine
 
-# Install runtime dependencies
+# Install runtime dependencies including docker-cli for puppeteer
 RUN apk add --no-cache \
     sqlite \
     sqlite-libs \
     curl \
     nodejs \
-    npm
+    npm \
+    docker-cli
 
 # Install hex and rebar in runtime too
 RUN mix local.hex --force && mix local.rebar --force

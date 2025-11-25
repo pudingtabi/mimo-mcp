@@ -16,14 +16,24 @@
     "args": ["-y", "@tokenizin/mcp-npx-fetch"],
     "env": {}
   },
-  "playwright": {
-    "command": "npx",
-    "args": ["-y", "@playwright/mcp@latest"],
+  "puppeteer": {
+    "command": "docker",
+    "args": ["run", "-i", "--rm", "--init", "--cap-add=SYS_ADMIN", "alpine-puppeteer-mcp"],
     "env": {}
   },
   "sequential_thinking": {
     "command": "npx",
     "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+    "env": {}
+  },
+  "knowledge_graph": {
+    "command": "npx",
+    "args": ["-y", "mcp-knowledge-graph", "--memory-path", "/workspace/.aim/"],
+    "env": {}
+  },
+  "sqlite": {
+    "command": "npx",
+    "args": ["-y", "mcp-server-sqlite", "--db", "/workspace/mimo.db"],
     "env": {}
   }
 }

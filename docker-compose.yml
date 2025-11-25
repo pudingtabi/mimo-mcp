@@ -10,11 +10,13 @@ services:
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - EXA_API_KEY=${EXA_API_KEY:-}
       - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
       - MCP_PORT=9000
     volumes:
       - ./workspace:/workspace
       - mimo_data:/app/priv
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - ollama
 
@@ -27,14 +29,6 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    # GPU support - uncomment below if you have NVIDIA GPU
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
 
 volumes:
   mimo_data:
