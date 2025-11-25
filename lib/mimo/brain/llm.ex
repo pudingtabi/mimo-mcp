@@ -1,11 +1,12 @@
 defmodule Mimo.Brain.LLM do
   @moduledoc """
-  Hybrid LLM adapter. OpenRouter (Grok) for reasoning, local Ollama for embeddings.
+  Hybrid LLM adapter. OpenRouter for reasoning, local Ollama for embeddings.
   """
   require Logger
 
   @openrouter_url "https://openrouter.ai/api/v1/chat/completions"
-  @default_model "x-ai/grok-4.1-fast:free"
+  # Use env var for model, default to fast kat-coder-pro (~2s response)
+  @default_model System.get_env("OPENROUTER_MODEL", "kwaipilot/kat-coder-pro:free")
 
   def consult_chief_of_staff(query, memories) when is_list(memories) do
     memory_context = 
@@ -24,18 +25,11 @@ defmodule Mimo.Brain.LLM do
       end
 
     system_prompt = """
-    You are Mimo, Chief of Staff AI. Analyze memories and output a strategic plan.
-
-    HISTORICAL CONTEXT:
-    #{memory_context}
-
-    CURRENT QUERY: #{query}
-
-    OUTPUT FORMAT:
-    1. Key insights from history
-    2. Recommended approach
-    3. Specific action steps
-    4. Risk considerations
+    You are Mimo, a concise AI assistant. Be brief and direct.
+    
+    Context: #{memory_context}
+    
+    Respond in 2-3 sentences max.
     """
 
     case api_key() do
@@ -56,7 +50,7 @@ defmodule Mimo.Brain.LLM do
         %{"role" => "user", "content" => query}
       ],
       "temperature" => 0.1,
-      "max_tokens" => 1000
+      "max_tokens" => 200
     }
 
     headers = [
@@ -66,7 +60,7 @@ defmodule Mimo.Brain.LLM do
       {"Content-Type", "application/json"}
     ]
 
-    case Req.post(@openrouter_url, json: payload, headers: headers, receive_timeout: 120_000) do
+    case Req.post(@openrouter_url, json: payload, headers: headers, receive_timeout: 30_000) do
       {:ok, %{status: 200, body: %{"choices" => [%{"message" => %{"content" => content}} | _]}}} ->
         # Remove thinking tags if present
         clean_content = content 

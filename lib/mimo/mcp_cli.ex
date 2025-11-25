@@ -3,13 +3,19 @@ defmodule Mimo.McpCli do
   CLI entry point for one-shot MCP requests.
   Used by the mimo-mcp-stdio wrapper for VS Code communication.
   """
-  require Logger
-
+  
+  # Silence logging at module load time
+  @compile {:no_warn_undefined, Logger}
+  
   @doc """
   Process all stdin lines and output JSON responses.
   Exits when stdin is closed (EOF).
   """
   def run do
+    # Silence all logging to avoid polluting stdout
+    :logger.set_primary_config(:level, :none)
+    Application.put_env(:logger, :level, :none)
+    
     # Ensure catalog is loaded
     wait_for_catalog()
     
@@ -189,15 +195,24 @@ defmodule Mimo.McpCli do
   end
 
   defp handle_ask_mimo(%{"query" => query}) do
-    memories = Mimo.Brain.Memory.search_memories(query, limit: 10)
+    memories = try do
+      Mimo.Brain.Memory.search_memories(query, limit: 10)
+    rescue
+      _ -> []
+    end
     
     case Mimo.Brain.LLM.consult_chief_of_staff(query, memories) do
       {:ok, plan} ->
-        Mimo.Brain.Memory.persist_memory(
-          "Consultation: #{query} => #{String.slice(plan, 0, 200)}...",
-          "observation",
-          0.7
-        )
+        # Try to persist but don't crash if it fails
+        try do
+          Mimo.Brain.Memory.persist_memory(
+            "Consultation: #{query} => #{String.slice(plan, 0, 200)}...",
+            "observation",
+            0.7
+          )
+        rescue
+          _ -> :ok
+        end
         {:ok, %{"answer" => plan, "memories_consulted" => length(memories)}}
       {:error, reason} ->
         {:error, "Brain consultation failed: #{inspect(reason)}"}

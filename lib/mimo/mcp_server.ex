@@ -144,16 +144,24 @@ defmodule Mimo.McpServer do
   end
 
   defp handle_ask_mimo(%{"query" => query}) do
-    memories = Mimo.Brain.Memory.search_memories(query, limit: 10)
+    memories = try do
+      Mimo.Brain.Memory.search_memories(query, limit: 10)
+    rescue
+      _ -> []
+    end
     
     case Mimo.Brain.LLM.consult_chief_of_staff(query, memories) do
       {:ok, plan} ->
-        # Persist the consultation
-        Mimo.Brain.Memory.persist_memory(
-          "Consultation: #{query} => #{String.slice(plan, 0, 200)}...",
-          "observation",
-          0.7
-        )
+        # Try to persist but don't crash if it fails
+        try do
+          Mimo.Brain.Memory.persist_memory(
+            "Consultation: #{query} => #{String.slice(plan, 0, 200)}...",
+            "observation",
+            0.7
+          )
+        rescue
+          _ -> :ok
+        end
         {:ok, %{"answer" => plan, "memories_consulted" => length(memories)}}
       
       {:error, reason} ->
