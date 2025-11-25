@@ -13,10 +13,12 @@ defmodule MimoWeb.Router do
   pipeline :api do
     plug :accepts, ["json"]
     plug MimoWeb.Plugs.Telemetry
+    plug MimoWeb.Plugs.RateLimiter
   end
 
   pipeline :authenticated do
     plug MimoWeb.Plugs.Authentication
+    plug MimoWeb.Plugs.LatencyGuard
   end
 
   # Health check - no auth required

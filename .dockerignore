@@ -1,0 +1,50 @@
+# Build artifacts
+_build/
+deps/
+*.ez
+
+# Git
+.git/
+.gitignore
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test and development
+test/
+cover/
+.formatter.exs
+
+# Documentation
+doc/
+*.md
+!README.md
+
+# Logs and databases
+*.log
+*.db
+priv/mimo_mcp.db
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files (secrets)
+.env
+.env.*
+!.env.example
+
+# Go build artifacts
+cmd/mimo/mimo
+cmd/mimo/*.exe
+
+# Node modules (if any skill uses npm)
+node_modules/
+
+# Debug files
+debug_*.py
+debug_*.sh

@@ -85,18 +85,15 @@ defmodule Mimo.McpServer do
     
     Logger.info("Tool call: #{tool_name}")
     
+    # Delegate to ToolInterface for consistent handling across all adapters
     result = case Mimo.Registry.get_tool_owner(tool_name) do
-      {:ok, {:internal, :ask_mimo}} ->
-        handle_ask_mimo(arguments)
-
-      {:ok, {:internal, :store_memory}} ->
-        handle_store_memory(arguments)
-
-      {:ok, {:internal, :reload}} ->
-        handle_reload_skills()
-
       {:ok, {:skill, skill_name, _client_pid}} ->
+        # External skills still go through Skills.Client
         Mimo.Skills.Client.call_tool(skill_name, tool_name, arguments)
+      
+      {:ok, _internal} ->
+        # Internal tools now use ToolInterface for consistency with HTTP adapter
+        Mimo.ToolInterface.execute(tool_name, arguments)
       
       {:error, :not_found} ->
         available = Mimo.Registry.list_all_tools() |> Enum.map(& &1["name"])
@@ -141,52 +138,6 @@ defmodule Mimo.McpServer do
       "error" => %{"code" => -32600, "message" => "Invalid Request"},
       "id" => nil
     }
-  end
-
-  defp handle_ask_mimo(%{"query" => query}) do
-    memories = try do
-      Mimo.Brain.Memory.search_memories(query, limit: 10)
-    rescue
-      _ -> []
-    end
-    
-    case Mimo.Brain.LLM.consult_chief_of_staff(query, memories) do
-      {:ok, plan} ->
-        # Try to persist but don't crash if it fails
-        try do
-          Mimo.Brain.Memory.persist_memory(
-            "Consultation: #{query} => #{String.slice(plan, 0, 200)}...",
-            "observation",
-            0.7
-          )
-        rescue
-          _ -> :ok
-        end
-        {:ok, %{"answer" => plan, "memories_consulted" => length(memories)}}
-      
-      {:error, reason} ->
-        {:error, "Brain consultation failed: #{inspect(reason)}"}
-    end
-  end
-  defp handle_ask_mimo(_), do: {:error, "Missing required parameter: query"}
-
-  defp handle_store_memory(%{"content" => content, "category" => category} = params) do
-    importance = Map.get(params, "importance", 0.5)
-    
-    case Mimo.Brain.Memory.persist_memory(content, category, importance) do
-      {:ok, id} -> {:ok, %{"stored" => true, "id" => id}}
-      {:error, reason} -> {:error, "Failed to store: #{inspect(reason)}"}
-    end
-  end
-  defp handle_store_memory(_), do: {:error, "Missing required parameters: content, category"}
-
-  defp handle_reload_skills do
-    case Mimo.Registry.reload_skills() do
-      {:ok, :reloaded} -> 
-        {:ok, %{"status" => "success", "message" => "Skills reloaded"}}
-      {:error, reason} -> 
-        {:error, "Reload failed: #{inspect(reason)}"}
-    end
   end
 
   defp format_result(result) when is_map(result), do: Jason.encode!(result, pretty: true)
