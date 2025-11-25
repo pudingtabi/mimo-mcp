@@ -6,11 +6,12 @@ services:
     container_name: mimo-mcp
     restart: unless-stopped
     ports:
-      - "9000:9000"
       - "4000:4000"
     environment:
       - MIMO_HTTP_PORT=4000
+      - MIMO_HOST=217.216.73.22
       - MIMO_API_KEY=${MIMO_API_KEY:-}
+      - MIMO_SECRET_KEY_BASE=${MIMO_SECRET_KEY_BASE:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - EXA_API_KEY=${EXA_API_KEY:-}
@@ -29,7 +30,7 @@ services:
     container_name: mimo-ollama
     restart: unless-stopped
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama_data:/root/.ollama
 
