@@ -1,22 +1,37 @@
 # Mimo-MCP Handoff Document
 
-## Current Status: Skills Discovery Issue
+## Current Status: ✅ RESOLVED
 
-### The Problem
-VS Code MCP only discovers **3 tools** (mimo brain tools) instead of the full **46 tools**.
+### The Problem (FIXED)
+~~VS Code MCP only discovers **3 tools** (mimo brain tools) instead of the full **46 tools**.~~
 
-**Root cause**: Skills are loaded asynchronously AFTER the initial `tools/list` response. By the time skills finish loading (5-15 seconds), VS Code has already cached the tool list from the first response.
+**Root cause was**: Skills were loaded asynchronously AFTER the initial `tools/list` response. By the time skills finish loading (5-15 seconds), VS Code has already cached the tool list from the first response.
 
-### What Works
+### Solution Implemented
+
+1. **Pre-generated Skills Manifest** (`priv/skills_manifest.json`)
+   - Tools are defined statically in a manifest file
+   - Catalog loads tools instantly on startup (no async wait)
+
+2. **Catalog-based Lazy Loading** (`lib/mimo/skills/catalog.ex`)
+   - Tools advertised immediately from manifest
+   - Actual MCP skill processes spawn on-demand when tool is called
+
+3. **McpCli for stdio mode** (`lib/mimo/mcp_cli.ex`)
+   - One-shot CLI entry point for VS Code communication
+   - Processes stdin, outputs JSON, exits cleanly on EOF
+
+4. **Wait for Catalog Ready** (`lib/mimo/application.ex`)
+   - Blocks MCP server startup until catalog has loaded tools
+   - Ensures `tools/list` always returns full tool set
+
+### What Works Now
 - ✅ Mimo container running on VPS (217.216.73.22)
 - ✅ SSH tunnel from VS Code container to host
 - ✅ JSON filtering wrapper (`/usr/local/bin/mimo-mcp-stdio`)
-- ✅ All 5 skills load successfully (see logs)
-- ✅ 46 tools available after skills load
-
-### What's Broken
-- ❌ VS Code only sees 3 tools (initial response before skills load)
-- ❌ Skills load async, not blocking initialize response
+- ✅ All 5 skills cataloged (43 tools from manifest)
+- ✅ **46 tools available immediately** on `tools/list`
+- ✅ VS Code discovers all tools on first connection
 
 ### Architecture
 
@@ -24,91 +39,67 @@ VS Code MCP only discovers **3 tools** (mimo brain tools) instead of the full **
 VS Code Container (172.18.0.3)
     ↓ SSH
 VPS Host (172.18.0.1)
-    ↓ docker exec
+    ↓ /usr/local/bin/mimo-mcp-stdio
 mimo-mcp container
-    ↓ spawns
+    ↓ mix run -e "Mimo.McpCli.run()"
+    ↓
+┌─────────────────────────────────────┐
+│  Mimo.Skills.Catalog (ETS)          │  ← Instant tool listing
+│  - 43 tools from manifest           │
+│  - Lazy spawn on first call         │
+└─────────────────────────────────────┘
+    ↓ on-demand
 [filesystem, exa_search, fetch, playwright, sequential_thinking]
 ```
 
-### Files
+### Key Files
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `mcp.json` | `/root/.vscode/mcp.json` | Global VS Code MCP config |
-| `skills.json` | `/root/mimo/mimo_mcp/priv/skills.json` | Skill definitions |
-| `mcp_server.ex` | `lib/mimo/mcp_server.ex` | MCP JSON-RPC handler |
-| `application.ex` | `lib/mimo/application.ex` | App startup, skill bootstrap |
-| `registry.ex` | `lib/mimo/registry.ex` | Tool registry (ETS) |
-| `mimo-mcp-stdio` | `/usr/local/bin/mimo-mcp-stdio` (on host) | Wrapper script |
+| `mcp.json` | `/root/.vscode/mcp.json` | VS Code MCP config |
+| `skills.json` | `priv/skills.json` | Skill process definitions |
+| `skills_manifest.json` | `priv/skills_manifest.json` | Pre-generated tool catalog |
+| `mcp_cli.ex` | `lib/mimo/mcp_cli.ex` | One-shot CLI for stdio |
+| `catalog.ex` | `lib/mimo/skills/catalog.ex` | Static tool catalog (ETS) |
+| `application.ex` | `lib/mimo/application.ex` | App startup, waits for catalog |
+| `mimo-mcp-stdio` | `/usr/local/bin/mimo-mcp-stdio` (on VPS host) | Wrapper script |
 
-### The Fix Needed
+### Wrapper Script (VPS Host)
 
-**Option A: Block initialize until skills load**
-```elixir
-# In application.ex - wait for skills before returning from start/2
-def start(_type, _args) do
-  # ... start supervisors ...
-  Mimo.bootstrap_skills()
-  wait_for_skills_ready()  # NEW: block until all skills registered
-  {:ok, sup}
-end
-```
-
-**Option B: Make skills native (user's preference)**
-Instead of spawning external MCP servers, implement tools directly in Elixir:
-
-```elixir
-# lib/mimo/tools/filesystem.ex
-defmodule Mimo.Tools.Filesystem do
-  def read_file(%{"path" => path}) do
-    case File.read(path) do
-      {:ok, content} -> {:ok, %{content: content}}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-  
-  def list_directory(%{"path" => path}) do
-    # ...
-  end
-end
-```
-
-Register in `registry.ex`:
-```elixir
-def list_all_tools do
-  [
-    # Brain tools
-    %{"name" => "ask_mimo", ...},
-    # Native tools
-    %{"name" => "read_file", "description" => "Read file contents", ...},
-    %{"name" => "list_directory", ...},
-    %{"name" => "web_search", ...},  # wrap exa API
-    %{"name" => "fetch_url", ...},   # native HTTP
-    %{"name" => "browser_*", ...},   # wrap playwright
-  ]
-end
-```
-
-### Quick Fix (Test)
-
-SSH to host and test if skills are fully loaded:
 ```bash
-# Wait 20s for skills, then query tools
-(sleep 20; echo '{"jsonrpc":"2.0","method":"tools/list","id":1}') | \
-  ssh root@172.18.0.1 /usr/local/bin/mimo-mcp-stdio 2>&1 | grep -o '"name":"[^"]*"' | wc -l
-# Should show 46
+#!/bin/bash
+# /usr/local/bin/mimo-mcp-stdio
+# MCP stdio wrapper - uses McpCli for one-shot requests
+# Filter: only output lines starting with { (JSON)
+exec docker exec -i mimo-mcp mix run -e "Mimo.McpCli.run()" 2>/dev/null | grep "^{"
 ```
 
-### Next Steps
+### Testing
 
-1. **Immediate**: Fix timing - block `tools/list` response until skills loaded
-2. **Better**: Implement native tools in Elixir (no external processes)
-3. **Test**: Reload VS Code after fix, verify 46 tools discovered
+```bash
+# Test tools/list response (should return 46 tools)
+(echo '{"jsonrpc":"2.0","method":"initialize","params":{},"id":0}'; \
+ echo '{"jsonrpc":"2.0","method":"tools/list","id":1}') | \
+  ssh root@172.18.0.1 /usr/local/bin/mimo-mcp-stdio | \
+  grep '^{' | tail -1 | jq '.result.tools | length'
+# Output: 46
+```
 
-### GitHub Repo
-https://github.com/pudingtabi/mimo-mcp
+### Regenerating Manifest
+
+If you add/remove skills, regenerate the manifest:
+
+```bash
+# Inside container
+mix generate_manifest
+
+# Or manually copy updated manifest
+docker cp priv/skills_manifest.json mimo-mcp:/app/priv/
+docker restart mimo-mcp
+```
 
 ### Container Commands
+
 ```bash
 # SSH to host
 ssh root@172.18.0.1
@@ -119,6 +110,21 @@ docker logs mimo-mcp 2>&1 | tail -50
 # Restart
 docker restart mimo-mcp
 
-# Update skills.json
-docker cp /root/mrc-server/mimo-mcp/priv/skills.json mimo-mcp:/app/priv/skills.json
+# Rebuild after code changes
+cd /root/mrc-server/mimo-mcp
+git pull
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
 ```
+
+### GitHub Repo
+https://github.com/pudingtabi/mimo-mcp
+
+---
+
+## Future Improvements
+
+1. **Native Elixir Tools** - Implement filesystem, fetch, etc. directly in Elixir (no npx spawning)
+2. **Persistent Skill Processes** - Keep skills running instead of lazy-spawn
+3. **WebSocket Transport** - Alternative to stdio for better performance

@@ -192,7 +192,7 @@ echo "YOUR_PUBLIC_KEY" >> ~/.ssh/authorized_keys
 ```bash
 cat > /usr/local/bin/mimo-mcp-stdio << 'EOF'
 #!/bin/bash
-exec docker exec -i -e LOGGER_LEVEL=none mimo-mcp mix run --no-halt 2>/dev/null | sed -un '/^{/p'
+exec docker exec -i mimo-mcp mix run -e "Mimo.McpCli.run()" 2>/dev/null | grep "^{"
 EOF
 chmod +x /usr/local/bin/mimo-mcp-stdio
 ```
@@ -248,10 +248,20 @@ chmod +x /usr/local/bin/mimo-mcp-stdio
 ## Troubleshooting
 
 ### VS Code only shows 3 tools
-Skills load asynchronously. The stdio wrapper filters logs to prevent JSON parsing errors. Ensure:
-1. Wrapper uses `sed -un '/^{/p'` to filter non-JSON
-2. Wait 10-15 seconds after start for skills to load
-3. Reload VS Code window after container restart
+This issue has been **fixed**. The catalog now loads tools from a pre-generated manifest (`priv/skills_manifest.json`) instantly on startup. If you still see only 3 tools:
+1. Ensure VPS has latest code: `cd /root/mrc-server/mimo-mcp && git pull`
+2. Rebuild container: `docker-compose down && docker-compose build --no-cache && docker-compose up -d`
+3. Update wrapper script (see below)
+4. Reload VS Code window
+
+### Wrapper script on VPS host
+```bash
+cat > /usr/local/bin/mimo-mcp-stdio << 'EOF'
+#!/bin/bash
+exec docker exec -i mimo-mcp mix run -e "Mimo.McpCli.run()" 2>/dev/null | grep "^{"
+EOF
+chmod +x /usr/local/bin/mimo-mcp-stdio
+```
 
 ### SSH connection fails
 ```bash
