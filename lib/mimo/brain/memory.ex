@@ -18,8 +18,8 @@ defmodule Mimo.Brain.Memory do
     case Mimo.Brain.LLM.generate_embedding(query) do
       {:ok, query_embedding} ->
         # Get all memories and calculate similarity in Elixir
-        # Using simple query to avoid SQLite adapter issues with order_by
-        memories = Repo.all(from e in Engram, limit: ^(limit * 3))
+        # Using raw query to avoid SQLite adapter issues with limit/order_by
+        memories = Repo.all(Engram)
         
         memories
         |> Enum.map(fn engram ->
