@@ -16,6 +16,39 @@ defmodule Mimo.Skills.Client do
     GenServer.call(via_tuple(skill_name), {:call_tool, tool_name, arguments}, 60_000)
   end
 
+  @doc """
+  Synchronous one-shot tool call - spawns process, calls tool, returns result.
+  Used by McpCli for stdio mode.
+  """
+  def call_tool_sync(skill_name, config, tool_name, arguments) do
+    # Check if skill is already running
+    case Registry.lookup(Mimo.Skills.Registry, skill_name) do
+      [{pid, _}] when is_pid(pid) ->
+        if Process.alive?(pid) do
+          call_tool(skill_name, tool_name, arguments)
+        else
+          spawn_and_call(skill_name, config, tool_name, arguments)
+        end
+      [] ->
+        spawn_and_call(skill_name, config, tool_name, arguments)
+    end
+  end
+
+  defp spawn_and_call(skill_name, config, tool_name, arguments) do
+    child_spec = %{
+      id: {__MODULE__, skill_name},
+      start: {__MODULE__, :start_link, [skill_name, config]},
+      restart: :transient,
+      shutdown: 30_000
+    }
+    
+    case DynamicSupervisor.start_child(Mimo.Skills.Supervisor, child_spec) do
+      {:ok, _pid} -> call_tool(skill_name, tool_name, arguments)
+      {:error, {:already_started, _pid}} -> call_tool(skill_name, tool_name, arguments)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   def get_tools(skill_name) do
     GenServer.call(via_tuple(skill_name), :get_tools)
   end
