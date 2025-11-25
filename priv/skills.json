@@ -4,11 +4,6 @@
     "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
     "env": {}
   },
-  "shell": {
-    "command": "npx",
-    "args": ["-y", "@anthropic/mcp-server-shell"],
-    "env": {}
-  },
   "github": {
     "command": "npx",
     "args": ["-y", "@modelcontextprotocol/server-github"],
@@ -25,20 +20,8 @@
   },
   "fetch": {
     "command": "npx",
-    "args": ["-y", "@anthropic/mcp-server-fetch"],
+    "args": ["-y", "@tokenizin/mcp-npx-fetch"],
     "env": {}
-  },
-  "puppeteer": {
-    "command": "npx",
-    "args": ["-y", "@anthropic/mcp-server-puppeteer"],
-    "env": {}
-  },
-  "ref_tools": {
-    "command": "npx",
-    "args": ["-y", "ref-tools-mcp@latest"],
-    "env": {
-      "REF_API_KEY": "${REF_API_KEY}"
-    }
   },
   "sequential_thinking": {
     "command": "npx",
