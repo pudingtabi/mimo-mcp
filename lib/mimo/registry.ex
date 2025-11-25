@@ -52,6 +52,53 @@ defmodule Mimo.Registry do
         }
       },
       %{
+        "name" => "search_vibes",
+        "description" => "Vector similarity search in Mimo's episodic memory. Find memories semantically related to a query.",
+        "inputSchema" => %{
+          "type" => "object",
+          "properties" => %{
+            "query" => %{
+              "type" => "string",
+              "description" => "Search query for semantic similarity"
+            },
+            "limit" => %{
+              "type" => "integer",
+              "default" => 10,
+              "description" => "Maximum number of results"
+            },
+            "threshold" => %{
+              "type" => "number",
+              "default" => 0.3,
+              "description" => "Minimum similarity threshold (0-1)"
+            }
+          },
+          "required" => ["query"]
+        }
+      },
+      %{
+        "name" => "store_fact",
+        "description" => "Store a fact or observation in Mimo's memory with semantic embedding.",
+        "inputSchema" => %{
+          "type" => "object",
+          "properties" => %{
+            "content" => %{"type" => "string", "description" => "The content to store"},
+            "category" => %{
+              "type" => "string",
+              "enum" => ["fact", "action", "observation", "plan"],
+              "description" => "Category of the memory"
+            },
+            "importance" => %{
+              "type" => "number",
+              "minimum" => 0,
+              "maximum" => 1,
+              "default" => 0.5,
+              "description" => "Importance score (0-1)"
+            }
+          },
+          "required" => ["content"]
+        }
+      },
+      %{
         "name" => "mimo_store_memory",
         "description" => "Store a new memory/fact in Mimo's brain",
         "inputSchema" => %{
@@ -114,6 +161,8 @@ defmodule Mimo.Registry do
   def get_tool_owner(tool_name) do
     case tool_name do
       "ask_mimo" -> {:ok, {:internal, :ask_mimo}}
+      "search_vibes" -> {:ok, {:internal, :search_vibes}}
+      "store_fact" -> {:ok, {:internal, :store_fact}}
       "mimo_store_memory" -> {:ok, {:internal, :store_memory}}
       "mimo_reload_skills" -> {:ok, {:internal, :reload}}
       _ ->
