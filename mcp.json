@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "mimo": {
+      "command": "mix",
+      "args": ["run", "--no-halt"],
+      "cwd": "${workspaceFolder}/mimo_mcp",
+      "env": {
+        "OPENROUTER_API_KEY": "${OPENROUTER_API_KEY}",
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    }
+  }
+}

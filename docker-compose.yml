@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  mimo:
+    build: .
+    container_name: mimo-mcp
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+      - MCP_PORT=9000
+    volumes:
+      - ./workspace:/workspace
+      - mimo_data:/app/priv
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Optional: Local Ollama for embeddings
+  ollama:
+    image: ollama/ollama:latest
+    container_name: mimo-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  mimo_data:
+  ollama_data:

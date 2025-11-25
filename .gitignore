@@ -1,0 +1,38 @@
+# Dependencies
+/deps/
+/_build/
+
+# Database
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+priv/*.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Elixir
+erl_crash.dump
+*.ez
+
+# Test
+/cover/
+/doc/
+
+# Temporary
+/tmp/
+*.log
