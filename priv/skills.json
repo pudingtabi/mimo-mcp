@@ -18,19 +18,24 @@
       "EXA_API_KEY": "${EXA_API_KEY}"
     }
   },
-  "playwright": {
+  "fetch": {
     "command": "npx",
-    "args": ["-y", "@executeautomation/playwright-mcp-server"],
-    "env": {
-      "HEADLESS": "true",
-      "DEFAULT_TIMEOUT": "30000"
-    }
+    "args": ["-y", "@anthropic/mcp-server-fetch"],
+    "env": {}
   },
-  "ref_tools": {
+  "puppeteer": {
     "command": "npx",
-    "args": ["-y", "ref-tools-mcp@latest"],
-    "env": {
-      "REF_API_KEY": "${REF_API_KEY}"
-    }
+    "args": ["-y", "@anthropic/mcp-server-puppeteer"],
+    "env": {}
+  },
+  "sequential_thinking": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+    "env": {}
+  },
+  "time": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-time"],
+    "env": {}
   }
 }
