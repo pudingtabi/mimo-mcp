@@ -33,27 +33,6 @@
     "args": ["-y", "@anthropic/mcp-server-puppeteer"],
     "env": {}
   },
-  "todoist": {
-    "command": "npx",
-    "args": ["-y", "@anthropic/mcp-server-todoist"],
-    "env": {
-      "TODOIST_API_TOKEN": "${TODOIST_API_TOKEN}"
-    }
-  },
-  "google_calendar": {
-    "command": "npx",
-    "args": ["-y", "@anthropic/mcp-server-google-calendar"],
-    "env": {
-      "GOOGLE_CREDENTIALS_PATH": "${GOOGLE_CREDENTIALS_PATH}"
-    }
-  },
-  "slack": {
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-slack"],
-    "env": {
-      "SLACK_BOT_TOKEN": "${SLACK_BOT_TOKEN}"
-    }
-  },
   "sequential_thinking": {
     "command": "npx",
     "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
