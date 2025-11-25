@@ -30,7 +30,7 @@ http_port = String.to_integer(System.get_env("MIMO_HTTP_PORT") || "4000")
 
 config :mimo_mcp, MimoWeb.Endpoint,
   http: [
-    ip: {127, 0, 0, 1},  # Force IPv4, bind localhost only for security
+    ip: {0, 0, 0, 0},  # Bind all interfaces (Docker will handle network isolation)
     port: http_port,
     transport_options: [socket_opts: [:inet]]
   ],
