@@ -4,13 +4,6 @@
     "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
     "env": {}
   },
-  "github": {
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-github"],
-    "env": {
-      "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
-    }
-  },
   "exa_search": {
     "command": "npx",
     "args": ["-y", "exa-mcp-server"],
@@ -21,6 +14,11 @@
   "fetch": {
     "command": "npx",
     "args": ["-y", "@tokenizin/mcp-npx-fetch"],
+    "env": {}
+  },
+  "playwright": {
+    "command": "npx",
+    "args": ["-y", "@playwright/mcp@latest"],
     "env": {}
   },
   "sequential_thinking": {
