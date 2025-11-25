@@ -1,6 +1,6 @@
 # Mimo-MCP Gateway v2.1
 
-A universal MCP (Model Context Protocol) gateway that aggregates multiple MCP servers into a single interface, powered by hybrid AI intelligence (OpenRouter + Ollama).
+A universal MCP (Model Context Protocol) gateway that aggregates multiple MCP servers into a single unified interface, powered by hybrid AI intelligence (OpenRouter + Ollama).
 
 [![Elixir](https://img.shields.io/badge/Elixir-1.16+-purple.svg)](https://elixir-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -13,215 +13,82 @@ Mimo is an **intelligent MCP aggregator** that:
 - 💾 Stores episodic memories in SQLite with vector embeddings
 - 🔄 Hot-reloads external skills without restart
 - 🛡️ Gracefully degrades when services are unavailable
+- 🎯 **Single MCP server = all your tools** (no config sprawl)
 
 ---
 
-## Installation
+## Quick Start
 
-### Option 1: Quick Install (Recommended)
+### VS Code (Global Setup)
 
-```bash
-# Clone the repository
-git clone https://github.com/pudingtabi/mimo-mcp.git
-cd mimo-mcp
-
-# Install Elixir dependencies
-mix deps.get
-
-# Create and migrate database
-mix ecto.create
-mix ecto.migrate
-
-# Run the server
-mix run --no-halt
-```
-
-### Option 2: Docker Install
-
-```bash
-git clone https://github.com/pudingtabi/mimo-mcp.git
-cd mimo-mcp
-
-# Build and run with Docker Compose
-docker-compose up -d
-
-# Check it's running
-docker logs -f mimo-mcp
-```
-
-### Option 3: One-Line Install (curl)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/pudingtabi/mimo-mcp/main/install.sh | bash
-```
-
----
-
-## Prerequisites
-
-### Required
-| Software | Version | Installation |
-|----------|---------|--------------|
-| Elixir | 1.16+ | `brew install elixir` or [asdf](https://asdf-vm.com/) |
-| Erlang/OTP | 26+ | Installed with Elixir |
-
-### Optional (but recommended)
-| Software | Purpose | Installation |
-|----------|---------|--------------|
-| Node.js | External MCP skills | `brew install node` |
-| Ollama | Local embeddings | [ollama.com](https://ollama.com/) |
-| OpenRouter API | AI reasoning | [openrouter.ai](https://openrouter.ai/) |
-
-### Installing Elixir
-
-**macOS:**
-```bash
-brew install elixir
-```
-
-**Ubuntu/Debian:**
-```bash
-wget https://packages.erlang-solutions.com/erlang-solutions_2.0_all.deb
-sudo dpkg -i erlang-solutions_2.0_all.deb
-sudo apt-get update
-sudo apt-get install esl-erlang elixir
-```
-
-**Using asdf (recommended for version management):**
-```bash
-asdf plugin add erlang
-asdf plugin add elixir
-asdf install erlang 26.2
-asdf install elixir 1.16.0-otp-26
-asdf global erlang 26.2
-asdf global elixir 1.16.0-otp-26
-```
-
----
-
-## Configuration
-
-### 1. Environment Variables
-
-Copy the example config:
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your keys:
-```bash
-# Required for AI reasoning (get free key at openrouter.ai)
-OPENROUTER_API_KEY=sk-or-v1-xxxxx
-
-# Optional: GitHub integration
-GITHUB_TOKEN=ghp_xxxxx
-
-# Optional: Custom Ollama URL (default: localhost:11434)
-OLLAMA_URL=http://localhost:11434
-```
-
-### 2. Verify Installation
-
-```bash
-./verify.sh
-```
-
-Expected output:
-```
-✓ Elixir version OK
-✓ Dependencies installed
-✓ Database migrated
-✓ Configuration valid
-Ready to run!
-```
-
----
-
-## Usage
-
-### Running the Server
-
-```bash
-# Development mode (with logs)
-mix run --no-halt
-
-# Production mode
-MIX_ENV=prod mix run --no-halt
-
-# With specific port
-MCP_PORT=9001 mix run --no-halt
-```
-
-### VS Code Integration
-
-Add to your VS Code `settings.json`:
+Add to `~/.vscode/mcp.json`:
 
 ```json
 {
-  "mcp.servers": {
+  "servers": {
     "mimo": {
-      "command": "mix",
-      "args": ["run", "--no-halt"],
-      "cwd": "/path/to/mimo-mcp",
-      "env": {
-        "OPENROUTER_API_KEY": "your-key-here"
-      }
+      "type": "stdio",
+      "command": "ssh",
+      "args": ["-o", "BatchMode=yes", "root@YOUR_VPS_IP", "/usr/local/bin/mimo-mcp-stdio"]
     }
   }
 }
 ```
 
-### Claude Desktop Integration
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "mimo": {
-      "command": "mix",
-      "args": ["run", "--no-halt"],
-      "cwd": "/path/to/mimo-mcp",
-      "env": {
-        "OPENROUTER_API_KEY": "your-key-here"
-      }
-    }
-  }
-}
-```
-
----
-
-## Docker Deployment
-
-### Using Docker Compose (recommended)
+### Docker Deployment (VPS)
 
 ```bash
-# Start all services (Mimo + Ollama)
+# Clone and deploy
+git clone https://github.com/pudingtabi/mimo-mcp.git
+cd mimo-mcp
 docker-compose up -d
 
 # Pull embedding model
 docker exec mimo-ollama ollama pull nomic-embed-text
 
-# Check logs
-docker logs -f mimo-mcp
-
-# Stop
-docker-compose down
+# Create stdio wrapper
+cat > /usr/local/bin/mimo-mcp-stdio << 'EOF'
+#!/bin/bash
+exec docker exec -i -e LOGGER_LEVEL=none mimo-mcp mix run --no-halt 2>/dev/null | sed -un '/^{/p'
+EOF
+chmod +x /usr/local/bin/mimo-mcp-stdio
 ```
 
-### Using Docker directly
+---
 
-```bash
-# Build image
-docker build -t mimo-mcp .
+## Current Tool Stack (46 tools)
 
-# Run container
-docker run -d \
-  --name mimo-mcp \
-  -e OPENROUTER_API_KEY=your-key \
-  -v mimo-data:/app/priv \
-  mimo-mcp
+| Skill | Tools | Description |
+|-------|-------|-------------|
+| **mimo brain** | 3 | `ask_mimo`, `mimo_store_memory`, `mimo_reload_skills` |
+| **filesystem** | 14 | Read, write, search, edit files |
+| **fetch** | 4 | HTTP requests (txt, json, html, markdown) |
+| **exa_search** | 2 | Web search via Exa AI |
+| **playwright** | 22 | Browser automation & UI testing |
+| **sequential_thinking** | 1 | Structured reasoning |
+
+### Configure Skills
+
+Edit `priv/skills.json`:
+
+```json
+{
+  "filesystem": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+    "env": {}
+  },
+  "exa_search": {
+    "command": "npx",
+    "args": ["-y", "exa-mcp-server"],
+    "env": { "EXA_API_KEY": "${EXA_API_KEY}" }
+  },
+  "playwright": {
+    "command": "npx",
+    "args": ["-y", "@playwright/mcp@latest"],
+    "env": {}
+  }
+}
 ```
 
 ---
@@ -230,58 +97,134 @@ docker run -d \
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Mimo.Application                          │
-│                      (Supervisor)                            │
-├─────────────────────────────────────────────────────────────┤
+│                       VS Code                                │
+│                    (MCP Client)                              │
+└───────────────────────┬─────────────────────────────────────┘
+                        │ SSH tunnel
+                        ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    VPS Host                                  │
+│              /usr/local/bin/mimo-mcp-stdio                   │
+│                  (JSON filter wrapper)                       │
+└───────────────────────┬─────────────────────────────────────┘
+                        │ docker exec
+                        ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  mimo-mcp container                          │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │ Mimo.Repo   │  │  Registry   │  │  TaskSupervisor     │  │
-│  │  (SQLite)   │  │   (ETS)     │  │                     │  │
+│  │ Mimo.Repo   │  │  Registry   │  │  Skills.Supervisor  │  │
+│  │  (SQLite)   │  │   (ETS)     │  │  (DynamicSupervisor)│  │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
-│                                                              │
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │              Mimo.Skills.Supervisor                      ││
-│  │               (DynamicSupervisor)                        ││
-│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐                    ││
-│  │  │ GitHub  │ │  File   │ │ Custom  │  ...               ││
-│  │  │ Client  │ │ Client  │ │ Client  │                    ││
-│  │  └─────────┘ └─────────┘ └─────────┘                    ││
-│  └─────────────────────────────────────────────────────────┘│
 │                                                              │
 │  ┌─────────────────────────────────────────────────────────┐│
 │  │                  Mimo.McpServer                          ││
 │  │            (JSON-RPC 2.0 over stdio)                     ││
+│  │                                                          ││
+│  │  Built-in: ask_mimo, store_memory, reload_skills         ││
+│  │  Skills: filesystem, fetch, playwright, exa, thinking    ││
 │  └─────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  mimo-ollama container                       │
+│                  (nomic-embed-text)                          │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Available Tools
+## Installation
 
-### Built-in Tools
+### Option 1: Docker (Recommended for VPS)
 
-| Tool | Description |
-|------|-------------|
-| `ask_mimo` | Query AI memory for strategic guidance |
-| `mimo_store_memory` | Store observations/facts for future recall |
-| `mimo_reload_skills` | Hot-reload external MCP skills |
+```bash
+git clone https://github.com/pudingtabi/mimo-mcp.git
+cd mimo-mcp
+docker-compose up -d
+```
 
-### External Skills (via priv/skills.json)
+### Option 2: Local Development
 
-Configure any MCP-compatible server as a skill:
+```bash
+git clone https://github.com/pudingtabi/mimo-mcp.git
+cd mimo-mcp
+
+# Install dependencies
+mix deps.get
+mix ecto.create
+mix ecto.migrate
+
+# Run
+mix run --no-halt
+```
+
+### Prerequisites
+
+| Software | Version | Purpose |
+|----------|---------|---------|
+| Elixir | 1.16+ | Runtime |
+| Node.js | 18+ | External MCP skills |
+| Docker | 20+ | Container deployment |
+| Ollama | Latest | Local embeddings (optional) |
+
+---
+
+## VS Code Integration
+
+### Remote VPS Setup (Recommended)
+
+If running VS Code via tunnel/remote on a VPS:
+
+1. **Generate SSH key in VS Code container:**
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
+cat ~/.ssh/id_ed25519.pub
+```
+
+2. **Add key to VPS host:**
+```bash
+# On VPS host (not in container)
+echo "YOUR_PUBLIC_KEY" >> ~/.ssh/authorized_keys
+```
+
+3. **Create wrapper script on VPS host:**
+```bash
+cat > /usr/local/bin/mimo-mcp-stdio << 'EOF'
+#!/bin/bash
+exec docker exec -i -e LOGGER_LEVEL=none mimo-mcp mix run --no-halt 2>/dev/null | sed -un '/^{/p'
+EOF
+chmod +x /usr/local/bin/mimo-mcp-stdio
+```
+
+4. **Configure VS Code** (`~/.vscode/mcp.json`):
+```json
+{
+  "servers": {
+    "mimo": {
+      "type": "stdio",
+      "command": "ssh",
+      "args": [
+        "-o", "BatchMode=yes",
+        "-o", "StrictHostKeyChecking=no",
+        "root@172.18.0.1",
+        "/usr/local/bin/mimo-mcp-stdio"
+      ]
+    }
+  }
+}
+```
+
+### Local Setup
 
 ```json
 {
-  "filesystem": {
-    "command": "npx",
-    "args": ["-y", "@anthropic/mcp-filesystem"],
-    "env": {}
-  },
-  "github": {
-    "command": "npx", 
-    "args": ["-y", "@anthropic/mcp-github"],
-    "env": {
-      "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+  "servers": {
+    "mimo": {
+      "type": "stdio",
+      "command": "mix",
+      "args": ["run", "--no-halt"],
+      "cwd": "/path/to/mimo-mcp"
     }
   }
 }
@@ -293,43 +236,40 @@ Configure any MCP-compatible server as a skill:
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `OPENROUTER_API_KEY` | No | - | AI reasoning via Grok |
-| `OLLAMA_URL` | No | localhost:11434 | Local embeddings |
-| `GITHUB_TOKEN` | No | - | GitHub skill auth |
+| `OPENROUTER_API_KEY` | No | - | AI reasoning |
+| `OLLAMA_URL` | No | localhost:11434 | Embeddings |
+| `EXA_API_KEY` | No | - | Web search |
+| `GITHUB_TOKEN` | No | - | GitHub skill |
 | `MCP_PORT` | No | 9000 | Server port |
-| `DB_PATH` | No | priv/mimo_mcp.db | SQLite path |
+| `LOGGER_LEVEL` | No | info | Set to `none` for stdio |
 
 ---
 
 ## Troubleshooting
 
-### "mix: command not found"
-Elixir is not installed. See [Prerequisites](#prerequisites).
+### VS Code only shows 3 tools
+Skills load asynchronously. The stdio wrapper filters logs to prevent JSON parsing errors. Ensure:
+1. Wrapper uses `sed -un '/^{/p'` to filter non-JSON
+2. Wait 10-15 seconds after start for skills to load
+3. Reload VS Code window after container restart
 
-### "could not compile dependency"
+### SSH connection fails
 ```bash
-mix deps.clean --all
-mix deps.get
-mix deps.compile
+# Test SSH from VS Code container
+ssh -o BatchMode=yes root@172.18.0.1 "echo connected"
 ```
-
-### "Ollama unavailable"
-This is OK! Mimo uses hash-based fallback embeddings. For better results:
-```bash
-# Install Ollama
-curl -fsSL https://ollama.com/install.sh | sh
-
-# Pull embedding model
-ollama pull nomic-embed-text
-```
-
-### "OpenRouter API error"
-Get a free API key at [openrouter.ai](https://openrouter.ai/). Without it, Mimo still works but without AI reasoning.
 
 ### Skills not loading
-1. Check `priv/skills.json` is valid JSON
-2. Ensure Node.js is installed: `node --version`
-3. Check stderr output for errors
+```bash
+# Check container logs
+docker logs mimo-mcp 2>&1 | grep -E "(✓|✗|error)"
+```
+
+### Ollama unavailable
+Mimo works without Ollama (uses hash-based fallback). For better embeddings:
+```bash
+docker exec mimo-ollama ollama pull nomic-embed-text
+```
 
 ---
 
@@ -339,28 +279,28 @@ Get a free API key at [openrouter.ai](https://openrouter.ai/). Without it, Mimo 
 # Run tests
 mix test
 
-# Format code
+# Format code  
 mix format
 
-# Static analysis
-mix credo
+# Check container status
+docker-compose ps
+docker logs -f mimo-mcp
 ```
+
+---
+
+## Roadmap
+
+- [ ] Native Elixir tools (no external MCP spawning)
+- [ ] Persistent tool cache for instant discovery
+- [ ] WebSocket transport option
+- [ ] Multi-model reasoning (Claude, GPT-4, local)
 
 ---
 
 ## License
 
 MIT License - see [LICENSE](LICENSE)
-
----
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests: `mix test`
-5. Submit a pull request
 
 ---
 
