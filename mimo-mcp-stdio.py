@@ -105,6 +105,7 @@ def main():
                     try:
                         data = proc.stdout.read(65536)
                         if data:
+                            log(f"[RAW_OUT] {len(data)} bytes")
                             output_buffer += data
                             while b'\n' in output_buffer:
                                 line, output_buffer = output_buffer.split(b'\n', 1)
