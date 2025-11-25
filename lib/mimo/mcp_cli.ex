@@ -3,27 +3,28 @@ defmodule Mimo.McpCli do
   CLI entry point for one-shot MCP requests.
   Used by the mimo-mcp-stdio wrapper for VS Code communication.
   """
-  
+
   # Silence logging at module load time
   @compile {:no_warn_undefined, Logger}
-  
+
   @doc """
   Process all stdin lines and output JSON responses.
   Exits when stdin is closed (EOF).
   """
   def run do
-    # Force unbuffered I/O - critical for MCP over pipes/SSH
-    # This ensures each response is flushed immediately
-    :io.setopts(:standard_io, [:binary, {:encoding, :unicode}])
-    :io.setopts(:standard_error, [:binary, {:encoding, :unicode}])
-    
-    # Silence all logging to avoid polluting stdout
+    # CRITICAL: Silence logging FIRST before any other code runs
+    # Logger output on stdout breaks MCP protocol
     :logger.set_primary_config(:level, :none)
     Application.put_env(:logger, :level, :none)
-    
-    # Ensure catalog is loaded
+    Logger.configure(level: :none)
+
+    # Force unbuffered I/O - critical for MCP over pipes/SSH
+    :io.setopts(:standard_io, [:binary, {:encoding, :unicode}])
+    :io.setopts(:standard_error, [:binary, {:encoding, :unicode}])
+
+    # Ensure catalog is loaded (with logging silenced)
     wait_for_catalog()
-    
+
     # Process stdin lines
     process_stdin()
   end
@@ -98,7 +99,7 @@ defmodule Mimo.McpCli do
     catalog_tools = Mimo.Skills.Catalog.list_tools()
     internal_tools = internal_tools()
     all_tools = internal_tools ++ catalog_tools
-    
+
     %{
       "jsonrpc" => "2.0",
       "result" => %{"tools" => all_tools},
@@ -109,7 +110,7 @@ defmodule Mimo.McpCli do
   defp handle_request(%{"method" => "tools/call", "params" => params, "id" => id}) do
     tool_name = params["name"]
     arguments = params["arguments"] || %{}
-    
+
     result = case tool_name do
       "ask_mimo" -> handle_ask_mimo(arguments)
       "mimo_store_memory" -> handle_store_memory(arguments)
@@ -211,7 +212,7 @@ defmodule Mimo.McpCli do
     rescue
       _ -> []
     end
-    
+
     case Mimo.Brain.LLM.consult_chief_of_staff(query, memories) do
       {:ok, plan} ->
         # Try to persist but don't crash if it fails
