@@ -1,195 +1,220 @@
 # Mimo-MCP Handoff Document
 
-## Current Status: ✅ FULLY RESOLVED (Buffering Fix Complete)
+## Current Status: ❌ VS Code MCP Still Hanging
 
-**Last Updated:** 2025-11-25
+**Last Updated:** 2025-11-25 10:46 UTC
 
-### The Problem (FIXED)
-~~VS Code MCP hangs indefinitely when calling MIMO tools, even though terminal tests work.~~
+---
 
-**Root cause was**: Output buffering at multiple layers:
-1. Python `subprocess.Popen` default buffering
-2. Elixir `IO.puts` buffered output
-3. Docker exec pipe buffering
+## The Problem
 
-### Solution Implemented (3-Step Buffer Fix)
+**VS Code MCP hangs indefinitely when calling MIMO tools.** Terminal tests work perfectly.
 
-#### Step 1: Python Wrapper (`/usr/local/bin/mimo-mcp-stdio`)
-- Uses `select()` for non-blocking I/O
+### What Works ✅
+- Terminal single-request tests (via `echo | ssh`)
+- `debug_stream.py` test script (sends requests one-at-a-time with waits)
+- Docker container is healthy
+- Elixir MCP server returns correct JSON-RPC responses
+- All 46 tools are available
+
+### What Fails ❌
+- VS Code MCP integration hangs on `tools/list` response
+- Never receives response, eventually cancels after ~60s timeout
+
+---
+
+## Root Cause Analysis
+
+### The Symptom (from wrapper log)
+
+```
+[1228153] 10:45:19 [OUT] {"id":1,...}                    # initialize response SENT ✅
+[1228153] 10:45:19 [IN] notifications/initialized        # notification received
+[1228153] 10:45:19 [IN] tools/list (id=2)               # request received
+[1228153] 10:45:19 [IN] tools/call ask_mimo (id=3)      # request received
+                        ^^^ NO [OUT] for tools/list! ^^^
+[1228153] 10:46:29 [IN] notifications/cancelled          # VS Code gives up after ~70s
+```
+
+### Key Observation
+
+| Test Method | Request Pattern | Result |
+|-------------|-----------------|--------|
+| Terminal `echo \| ssh` | Single request, stdin closes | ✅ Works |
+| `debug_stream.py` | One request, wait for response, repeat | ✅ Works |
+| VS Code MCP | Multiple requests sent rapidly before responses | ❌ Hangs |
+
+**VS Code sends requests WITHOUT waiting for responses:**
+1. `initialize` → sends immediately
+2. `notifications/initialized` → sends immediately  
+3. `tools/list` → sends immediately (before initialize response!)
+4. `tools/call` → sends immediately (before tools/list response!)
+
+### The Likely Issue
+
+The Python wrapper or Elixir server can't handle **pipelined requests** properly. When multiple requests arrive before responses are sent:
+
+1. Elixir processes requests sequentially
+2. Logger output (`[info] 📦 Cataloged...`) is mixed with stdout
+3. Response for `tools/list` may be stuck in a buffer
+4. Or the large `tools/list` response (~7KB JSON) is being truncated/delayed
+
+### Evidence
+
+From the log:
+```
+[1228153] 10:45:19 [RAW_OUT] 241 bytes    # Some output received
+[1228153] 10:45:19 [SKIP] 09:45:19.807... # Logger lines (on stdout!)
+[1228153] 10:45:19 [RAW_OUT] 122 bytes    # More output
+[1228153] 10:45:19 [SKIP] ...             # More logger
+[1228153] 10:45:19 [RAW_OUT] 57 bytes     # Fragmented reads
+[1228153] 10:45:19 [RAW_OUT] 70 bytes
+[1228153] 10:45:19 [RAW_OUT] 164 bytes
+[1228153] 10:45:19 [OUT] {"id":1,...}     # Initialize response finally assembled
+# tools/list response NEVER appears in log!
+```
+
+The output is coming in **fragments** mixed with logger output. The initialize response eventually gets assembled, but `tools/list` response never appears.
+
+---
+
+## What We Tried (Didn't Fix It)
+
+### 1. Python Wrapper Buffering Fixes
 - `bufsize=0` for unbuffered subprocess
-- Explicit `flush=True` on all prints
-- Proper handling of partial reads with output buffer
+- `select()` for non-blocking I/O
+- `input_buffer` to handle fragmented input
+- `output_buffer` to assemble fragmented output
+- `flush=True` on all prints
 
-#### Step 2: Elixir CLI (`lib/mimo/mcp_cli.ex`)
-- Force unbuffered I/O at startup: `:io.setopts(:standard_io, [:binary, {:encoding, :unicode}])`
-- Use `:io.put_chars()` instead of `IO.puts()` for explicit flushing
-- Immediate flush after each JSON response
+### 2. Elixir Unbuffered I/O
+- `:io.setopts(:standard_io, [:binary])` 
+- `:io.put_chars()` instead of `IO.puts()`
+- Silence logger with `:logger.set_primary_config(:level, :none)`
 
-#### Step 3: Verification Script (`debug_stream.py`)
-- Simulates VS Code persistent connection
-- Tests: initialize → notification → tools/list → tools/call → alive check
-- All 5 tests pass with immediate responses
+### 3. Logger Silencing
+- Moved logger silencing to start of `run()` function
+- But catalog loading still logs BEFORE `McpCli.run()` is called!
 
-### What Works Now
-- ✅ Mimo container running on VPS (217.216.73.22)
-- ✅ SSH tunnel from VS Code container to host
-- ✅ **Unbuffered JSON output** - responses return immediately
-- ✅ All 5 skills cataloged (43 tools from manifest + 3 internal)
-- ✅ **46 tools available** on `tools/list`
-- ✅ **Persistent connections work** - multiple requests per session
-- ✅ **ask_mimo LLM calls** - ~4s response time
-- ✅ VS Code discovers all tools on first connection
+---
 
-### Architecture
+## Hypotheses to Test Next
 
-```
-VS Code Container (172.18.0.3)
-    ↓ SSH
-VPS Host (172.18.0.1)
-    ↓ /usr/local/bin/mimo-mcp-stdio
-mimo-mcp container
-    ↓ mix run -e "Mimo.McpCli.run()"
-    ↓
-┌─────────────────────────────────────┐
-│  Mimo.Skills.Catalog (ETS)          │  ← Instant tool listing
-│  - 43 tools from manifest           │
-│  - Lazy spawn on first call         │
-└─────────────────────────────────────┘
-    ↓ on-demand
-[filesystem, exa_search, fetch, playwright, sequential_thinking]
-```
+### Hypothesis A: Logger Output Corrupts JSON Stream
+The Elixir application starts and logs before `McpCli.run()` silences it. These log lines on stdout corrupt the JSON-RPC stream.
 
-### Key Files
+**Test:** Modify `config/config.exs` to set `config :logger, level: :none` at compile time.
+
+### Hypothesis B: Response Stuck in Docker Exec Pipe
+The `docker exec -i` pipe has its own buffering that isn't flushed.
+
+**Test:** Try `docker exec -i -t` (pseudo-TTY) or use `stdbuf -oL`.
+
+### Hypothesis C: Large Response Fragmentation
+The `tools/list` response is ~7KB. It may be split across multiple reads and the reassembly fails.
+
+**Test:** Add more logging to track exactly how many bytes are received for tools/list response.
+
+### Hypothesis D: Race Condition in Request Processing
+When multiple requests arrive before responses are sent, Elixir may be processing them out of order or dropping some.
+
+**Test:** Add request queuing and ensure responses are sent in order.
+
+### Hypothesis E: SSH Connection Issue
+The SSH tunnel may have different buffering behavior for rapid bidirectional communication.
+
+**Test:** Try TCP socket connection instead of stdio over SSH.
+
+---
+
+## Files & Locations
 
 | File | Location | Purpose |
 |------|----------|---------|
 | `mcp.json` | `/root/.vscode/mcp.json` | VS Code MCP config |
-| `skills.json` | `priv/skills.json` | Skill process definitions |
-| `skills_manifest.json` | `priv/skills_manifest.json` | Pre-generated tool catalog |
-| `mcp_cli.ex` | `lib/mimo/mcp_cli.ex` | One-shot CLI for stdio |
-| `catalog.ex` | `lib/mimo/skills/catalog.ex` | Static tool catalog (ETS) |
-| `application.ex` | `lib/mimo/application.ex` | App startup, waits for catalog |
-| `mimo-mcp-stdio` | `/usr/local/bin/mimo-mcp-stdio` (on VPS host) | Wrapper script |
+| `mimo-mcp-stdio.py` | Repo root & `/usr/local/bin/` on VPS | Python wrapper |
+| `mcp_cli.ex` | `lib/mimo/mcp_cli.ex` | Elixir stdio handler |
+| `debug_stream.py` | Repo root | Test script (works!) |
+| Wrapper log | `/tmp/mcp-wrapper.log` on VPS | Debug output |
 
-### Wrapper Script (VPS Host)
+---
 
-**Location:** `/usr/local/bin/mimo-mcp-stdio`
-
-The wrapper uses:
-- Non-blocking I/O with `select()`
-- `bufsize=0` for unbuffered subprocess pipes
-- Explicit `flush=True` on all output
-- Filters only JSON lines (starting with `{`)
-
-```python
-# Key buffering fixes in the wrapper:
-os.environ['PYTHONUNBUFFERED'] = '1'
-sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', buffering=1)
-
-proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, 
-                        stderr=subprocess.PIPE, bufsize=0)
-
-# Non-blocking read with select()
-readable, _, _ = select.select([stdout_fd], [], [], 1.0)
-
-# Always flush output
-print(line, flush=True)
-```
-
-### Testing
+## Quick Commands
 
 ```bash
-# Quick one-shot test (should return immediately)
+# Check latest wrapper log
+ssh root@172.18.0.1 "tail -50 /tmp/mcp-wrapper.log"
+
+# Test terminal (should work)
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize"}' | \
   ssh -T root@172.18.0.1 /usr/local/bin/mimo-mcp-stdio
 
-# Multi-request test
-{ echo '{"jsonrpc":"2.0","id":1,"method":"initialize"}'; sleep 0.3; \
-  echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'; sleep 0.3; } | \
-  timeout 15 ssh -T root@172.18.0.1 /usr/local/bin/mimo-mcp-stdio
+# Test with debug_stream.py (should work)  
+cd /root/mimo/mimo_mcp && python3 debug_stream.py
 
-# Full persistent connection test (run from vscode-tunnel)
-python3 debug_stream.py --host root@172.18.0.1
-
-# Check wrapper debug log
-ssh root@172.18.0.1 'cat /tmp/mcp-wrapper.log'
+# Git deploy workflow
+cd /root/mimo/mimo_mcp
+git add -A && git commit -m "message" && git push origin main
+ssh root@172.18.0.1 "cd /root/mrc-server/mimo-mcp && git pull"
+ssh root@172.18.0.1 "cp /root/mrc-server/mimo-mcp/mimo-mcp-stdio.py /usr/local/bin/mimo-mcp-stdio"
+# For Elixir changes:
+ssh root@172.18.0.1 "docker cp /root/mrc-server/mimo-mcp/lib/mimo/mcp_cli.ex mimo-mcp:/app/lib/mimo/ && docker exec mimo-mcp mix compile --force"
 ```
 
-### Regenerating Manifest
+---
 
-If you add/remove skills, regenerate the manifest:
+## VS Code MCP Config
 
-```bash
-# Inside container
-mix generate_manifest
-
-# Or manually copy updated manifest
-docker cp priv/skills_manifest.json mimo-mcp:/app/priv/
-docker restart mimo-mcp
+`/root/.vscode/mcp.json`:
+```json
+{
+  "servers": {
+    "mimo": {
+      "type": "stdio",
+      "command": "ssh",
+      "args": [
+        "-T",
+        "-o", "LogLevel=ERROR",
+        "-o", "BatchMode=yes", 
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "root@172.18.0.1",
+        "/usr/local/bin/mimo-mcp-stdio"
+      ]
+    }
+  }
+}
 ```
 
-### Container Commands
+---
 
-```bash
-# SSH to host
-ssh root@172.18.0.1
+## Architecture
 
-# Check logs
-docker logs mimo-mcp 2>&1 | tail -50
-
-# Restart
-docker restart mimo-mcp
-
-# Rebuild after code changes
-cd /root/mrc-server/mimo-mcp
-git pull
-docker-compose down
-docker-compose build --no-cache
-docker-compose up -d
+```
+VS Code (local machine or tunnel container)
+    ↓ SSH (-T for no PTY)
+VPS Host (172.18.0.1)
+    ↓ /usr/local/bin/mimo-mcp-stdio (Python wrapper)
+    ↓ subprocess.Popen with bufsize=0
+Docker: mimo-mcp container
+    ↓ mix run --no-halt -e "Mimo.McpCli.run()"
+Elixir BEAM VM
+    ↓ IO.read(:stdio, :line) loop
+    ↓ Process JSON-RPC, return response
+    ↓ :io.put_chars(:standard_io, response)
 ```
 
-### GitHub Repo
+---
+
+## Next Steps for Incoming Agent
+
+1. **Don't repeat the buffering fixes** - we've tried them extensively
+2. **Focus on WHY `tools/list` response never appears** in wrapper log
+3. **Check if response is generated** - add logging inside Elixir `handle_request`
+4. **Consider alternative transports** - TCP socket, named pipe, or HTTP instead of stdio
+5. **Check if VS Code has special requirements** - maybe needs Content-Length header like LSP?
+
+---
+
+## GitHub Repo
 https://github.com/pudingtabi/mimo-mcp
-
----
-
-## Future Improvements
-
-1. **Native Elixir Tools** - Implement filesystem, fetch, etc. directly in Elixir (no npx spawning)
-2. **Persistent Skill Processes** - Keep skills running instead of lazy-spawn
-3. **WebSocket Transport** - Alternative to stdio for better performance
-4. **Release Build** - Use `mix release` for faster startup (no compilation)
-
----
-
-## Troubleshooting
-
-### VS Code MCP Still Not Working?
-
-1. **Reload MCP servers**: In VS Code, run "Developer: Reload Window" or restart
-2. **Check wrapper log**: `ssh root@172.18.0.1 'cat /tmp/mcp-wrapper.log'`
-3. **Run debug script**: `python3 debug_stream.py` to verify buffering fix
-4. **Verify wrapper deployed**: `ssh root@172.18.0.1 'cat /usr/local/bin/mimo-mcp-stdio | head -20'`
-
-### Common Issues
-
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| Hangs indefinitely | Buffering issue | Deploy updated wrapper script |
-| "stdbuf not found" | Container missing coreutils | Don't use stdbuf, use Python wrapper |
-| Empty response | Elixir output buffered | Update mcp_cli.ex with `:io.put_chars` |
-| 3 tools only | Manifest not loaded | Run `mix generate_manifest` |
-| Process exits 127 | Wrong binary path | Use `mix run -e` not `/app/bin/mimo_mcp` |
-
-### Debug Log Format
-
-```
-[PID] HH:MM:SS === SESSION START ===
-[PID] HH:MM:SS Starting: docker exec ...
-[PID] HH:MM:SS [IN] {"jsonrpc":"2.0",...}    # Request received
-[PID] HH:MM:SS [OUT] {"id":1,...}            # Response sent
-[PID] HH:MM:SS [SKIP] 09:12:51.931 [info]... # Filtered non-JSON
-[PID] HH:MM:SS [ERR] ...                     # Stderr from container
-[PID] HH:MM:SS EOF from stdin
-[PID] HH:MM:SS === SESSION END ===
-```
