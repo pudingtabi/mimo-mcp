@@ -1,6 +1,7 @@
 defmodule Mimo.Registry do
   @moduledoc """
-  ETS-based registry for tool routing with hot-reload support.
+  ETS-based registry for tool routing with lazy-loading support.
+  Tools are advertised from catalog, skills spawn on-demand.
   """
   use GenServer
   require Logger
@@ -14,11 +15,8 @@ defmodule Mimo.Registry do
 
   @impl true
   def init(_) do
-    # Create ETS tables for tool routing
     :ets.new(@tools_table, [:named_table, :set, :public, read_concurrency: true])
     :ets.new(@skills_table, [:named_table, :set, :public, read_concurrency: true])
-    
-    # Note: Mimo.Skills.Registry is started in Application supervisor, not here
     {:ok, %{}}
   end
 
@@ -30,8 +28,11 @@ defmodule Mimo.Registry do
     GenServer.cast(__MODULE__, {:unregister_skill, skill_name})
   end
 
+  @doc """
+  List all available tools - internal + catalog (lazy) + active skills.
+  """
   def list_all_tools do
-    internal_tools() ++ external_tools()
+    internal_tools() ++ catalog_tools() ++ active_skill_tools()
   end
 
   defp internal_tools do
@@ -80,8 +81,21 @@ defmodule Mimo.Registry do
     ]
   end
 
-  defp external_tools do
-    # Use tab2list for better compatibility (ets:foldl requires OTP 25+)
+  # Tools from pre-generated manifest (instant, no process)
+  defp catalog_tools do
+    if Code.ensure_loaded?(Mimo.Skills.Catalog) do
+      try do
+        Mimo.Skills.Catalog.list_tools()
+      rescue
+        _ -> []
+      end
+    else
+      []
+    end
+  end
+
+  # Tools from already-running skill processes
+  defp active_skill_tools do
     @tools_table
     |> :ets.tab2list()
     |> Enum.reduce([], fn {_key, skill_name, client_pid, tool_def}, acc ->
@@ -94,20 +108,78 @@ defmodule Mimo.Registry do
     end)
   end
 
+  @doc """
+  Get tool owner - checks internal, then catalog (lazy-spawn), then active.
+  """
   def get_tool_owner(tool_name) do
     case tool_name do
       "ask_mimo" -> {:ok, {:internal, :ask_mimo}}
       "mimo_store_memory" -> {:ok, {:internal, :store_memory}}
       "mimo_reload_skills" -> {:ok, {:internal, :reload}}
       _ ->
-        # Look up in ETS
-        pattern = {tool_name, :_, :_, :_}
-        case :ets.match_object(@tools_table, pattern) do
-          [{_, skill_name, client_pid, _}] -> 
-            {:ok, {:skill, skill_name, client_pid}}
-          [] -> 
-            {:error, :not_found}
+        # First check active skills
+        case lookup_active_skill(tool_name) do
+          {:ok, _} = result -> result
+          {:error, :not_found} ->
+            # Try catalog (will lazy-spawn if found)
+            lookup_catalog_skill(tool_name)
         end
+    end
+  end
+
+  defp lookup_active_skill(tool_name) do
+    pattern = {tool_name, :_, :_, :_}
+    case :ets.match_object(@tools_table, pattern) do
+      [{_, skill_name, client_pid, _}] -> 
+        if Process.alive?(client_pid) do
+          {:ok, {:skill, skill_name, client_pid}}
+        else
+          {:error, :not_found}
+        end
+      [] -> 
+        {:error, :not_found}
+    end
+  end
+
+  defp lookup_catalog_skill(tool_name) do
+    if Code.ensure_loaded?(Mimo.Skills.Catalog) do
+      case Mimo.Skills.Catalog.get_skill_for_tool(tool_name) do
+        {:ok, skill_name, config} ->
+          # Lazy spawn the skill
+          case ensure_skill_running(skill_name, config) do
+            {:ok, pid} -> {:ok, {:skill, skill_name, pid}}
+            {:error, reason} -> {:error, {:spawn_failed, reason}}
+          end
+        {:error, :not_found} ->
+          {:error, :not_found}
+      end
+    else
+      {:error, :not_found}
+    end
+  end
+
+  defp ensure_skill_running(skill_name, config) do
+    case Registry.lookup(Mimo.Skills.Registry, skill_name) do
+      [{pid, _}] when is_pid(pid) ->
+        if Process.alive?(pid), do: {:ok, pid}, else: start_skill(skill_name, config)
+      [] ->
+        start_skill(skill_name, config)
+    end
+  end
+
+  defp start_skill(skill_name, config) do
+    Logger.info("🚀 Lazy-spawning skill: #{skill_name}")
+    child_spec = %{
+      id: {Mimo.Skills.Client, skill_name},
+      start: {Mimo.Skills.Client, :start_link, [skill_name, config]},
+      restart: :transient,
+      shutdown: 30_000
+    }
+    
+    case DynamicSupervisor.start_child(Mimo.Skills.Supervisor, child_spec) do
+      {:ok, pid} -> {:ok, pid}
+      {:error, {:already_started, pid}} -> {:ok, pid}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -128,8 +200,10 @@ defmodule Mimo.Registry do
     :ets.delete_all_objects(@tools_table)
     :ets.delete_all_objects(@skills_table)
     
-    # Re-bootstrap
-    Mimo.bootstrap_skills()
+    # Reload catalog
+    if Code.ensure_loaded?(Mimo.Skills.Catalog) do
+      Mimo.Skills.Catalog.reload()
+    end
     
     Logger.warning("✅ Hot reload complete")
     {:ok, :reloaded}
@@ -137,18 +211,14 @@ defmodule Mimo.Registry do
 
   @impl true
   def handle_call({:register_tools, skill_name, tools, client_pid}, _from, state) do
-    # Clear old entries for this skill
     :ets.match_delete(@tools_table, {:_, skill_name, :_, :_})
     
-    # Insert new tools
     for tool <- tools do
       prefixed_name = "#{skill_name}_#{tool["name"]}"
       :ets.insert(@tools_table, {prefixed_name, skill_name, client_pid, tool})
     end
     
-    # Track the skill
     :ets.insert(@skills_table, {skill_name, client_pid, :active})
-    
     {:reply, :ok, state}
   end
 
