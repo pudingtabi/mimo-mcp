@@ -33,6 +33,13 @@
     "args": ["-y", "@anthropic/mcp-server-puppeteer"],
     "env": {}
   },
+  "ref_tools": {
+    "command": "npx",
+    "args": ["-y", "ref-tools-mcp@latest"],
+    "env": {
+      "REF_API_KEY": "${REF_API_KEY}"
+    }
+  },
   "sequential_thinking": {
     "command": "npx",
     "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
