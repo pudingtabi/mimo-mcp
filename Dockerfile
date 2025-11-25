@@ -1,13 +1,11 @@
-FROM hexpm/elixir:1.16.2-erlang-26.2.5-debian-bullseye-20240513 AS builder
+FROM elixir:1.16-alpine AS builder
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    sqlite3 \
-    libsqlite3-dev \
-    curl \
+RUN apk add --no-cache \
+    build-base \
+    sqlite-dev \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    curl
 
 WORKDIR /app
 
@@ -28,19 +26,18 @@ COPY priv priv
 RUN MIX_ENV=prod mix compile
 
 # ------- Runtime image -------
-FROM hexpm/elixir:1.16.2-erlang-26.2.5-debian-bullseye-20240513-slim
+FROM elixir:1.16-alpine
 
 # Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    sqlite3 \
-    libsqlite3-0 \
+RUN apk add --no-cache \
+    sqlite \
+    sqlite-libs \
     curl \
     nodejs \
-    npm \
-    && rm -rf /var/lib/apt/lists/*
+    npm
 
 # Create non-root user
-RUN groupadd -r mimo && useradd -r -g mimo -d /app mimo
+RUN addgroup -S mimo && adduser -S mimo -G mimo -h /app
 
 WORKDIR /app
 
