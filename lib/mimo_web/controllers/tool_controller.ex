@@ -66,6 +66,9 @@ defmodule MimoWeb.ToolController do
 
     latency_ms = time_us / 1000
 
+    # Auto-memory: store relevant tool interactions
+    result = Mimo.AutoMemory.wrap_tool_call(tool, arguments, result)
+
     # Emit telemetry for tool endpoint
     :telemetry.execute(
       [:mimo, :http, :tool],

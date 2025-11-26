@@ -108,6 +108,9 @@ defmodule Mimo.McpServer do
           {:error, "Tool '#{tool_name}' not found. Available: #{inspect(available)}"}
       end
 
+    # Auto-memory: store relevant tool interactions
+    result = Mimo.AutoMemory.wrap_tool_call(tool_name, arguments, result)
+
     case result do
       {:ok, content} ->
         %{

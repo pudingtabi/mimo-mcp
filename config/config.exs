@@ -4,6 +4,14 @@ import Config
 config :mimo_mcp, ecto_repos: [Mimo.Repo]
 
 # =============================================================================
+# Auto-Memory Configuration
+# =============================================================================
+# Automatically store memories from tool interactions
+config :mimo_mcp,
+  auto_memory_enabled: true,
+  auto_memory_min_importance: 0.3
+
+# =============================================================================
 # Synthetic Cortex Feature Flags
 # =============================================================================
 # Enable/disable Phase 2 & 3 modules for zero-downtime migration
