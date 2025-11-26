@@ -16,37 +16,110 @@ Mimo is an **intelligent Memory OS** that provides:
 - 🛡️ **Rate Limiting**: Built-in DoS protection (60 req/min)
 - 🔐 **API Key Auth**: Secure your endpoints
 
+### Deployment Options
+
+| Option | Best For | Requirements |
+|--------|----------|--------------|
+| **Local + Docker** | Most users | Docker Desktop |
+| **Local Native** | Developers | Elixir 1.16+, Ollama |
+| **VPS** | Always-on, multi-device | VPS with 2GB+ RAM |
+
 ---
 
 ## Quick Start
 
-### Docker Deployment (Recommended)
+### Option 1: Local Machine (No VPS Required)
+
+Run everything on your local machine with Docker:
+
+**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed
 
 ```bash
 # Clone the repo
 git clone https://github.com/pudingtabi/mimo-mcp.git
 cd mimo-mcp
 
-# Create .env file
-cat > .env << EOF
-MIMO_API_KEY=$(openssl rand -hex 32)
-MIMO_HOST=localhost
-EOF
-
-# Start services
+# Start services (Mimo + Ollama)
 docker-compose up -d
 
-# Pull embedding model (required for vector search)
+# Pull embedding model (~274MB, one-time download)
 docker exec mimo-ollama ollama pull nomic-embed-text
 
-# Run migrations
+# Run database migrations
 docker exec mimo-mcp sh -c "MIX_ENV=prod mix ecto.migrate"
 
-# Test
+# Test - should return {"status":"healthy"...}
 curl http://localhost:4000/health
 ```
 
-### VPS Deployment
+**Configure Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on Mac):
+
+```json
+{
+  "mcpServers": {
+    "mimo": {
+      "command": "docker",
+      "args": ["exec", "-i", "mimo-mcp", "mix", "run", "--no-halt", "-e", "Mimo.MCPServer.start_stdio()"],
+      "env": {
+        "LOGGER_LEVEL": "error"
+      }
+    }
+  }
+}
+```
+
+Or use the Python wrapper (simpler):
+
+```json
+{
+  "mcpServers": {
+    "mimo": {
+      "command": "python3",
+      "args": ["/path/to/mimo-mcp/mimo-mcp-stdio.py"]
+    }
+  }
+}
+```
+
+---
+
+### Option 2: Local without Docker (Native Elixir)
+
+**Prerequisites:** Elixir 1.16+, Erlang 26+, SQLite3, [Ollama](https://ollama.ai)
+
+```bash
+# Install Ollama and pull embedding model
+curl -fsSL https://ollama.ai/install.sh | sh
+ollama pull nomic-embed-text
+
+# Clone and setup
+git clone https://github.com/pudingtabi/mimo-mcp.git
+cd mimo-mcp
+mix deps.get
+mix ecto.create
+mix ecto.migrate
+
+# Run server
+mix run --no-halt
+```
+
+**Configure Claude Desktop:**
+
+```json
+{
+  "mcpServers": {
+    "mimo": {
+      "command": "/path/to/mimo-mcp/mimo-mcp-stdio.py"
+    }
+  }
+}
+```
+
+---
+
+### Option 3: VPS Deployment (Remote Access)
+
+For accessing Mimo from multiple machines or keeping it always-on:
 
 ```bash
 # On your VPS
