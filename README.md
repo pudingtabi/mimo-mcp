@@ -439,19 +439,74 @@ mimo.yourdomain.com {
 
 ---
 
-## Roadmap
+## 🧠 Roadmap: The Path to Synthetic Cognition
 
-- [x] HTTP/REST Gateway (Phoenix)
-- [x] OpenAI-compatible endpoint
-- [x] MCP stdio adapter
-- [x] Vector memory (SQLite + Ollama)
-- [x] Rate limiting
-- [x] API key authentication
-- [x] Meta-Cognitive Router
-- [ ] Semantic Store (Graph/JSON-LD)
-- [ ] Procedural Store (Rule Engine)
-- [ ] WebSocket transport
-- [ ] Rust NIFs for vector math
+Our goal is to evolve Mimo from a simple gateway into a complete **Memory Operating System** — a Synthetic Cortex for AI agents.
+
+### Phase 1: The Foundation ✅
+*Infrastructure and Basic Recall*
+
+- [x] **Universal Gateway:** HTTP/REST (Phoenix) & OpenAI-compatible endpoints
+- [x] **Protocol Bridge:** MCP stdio adapter for Claude Desktop & VS Code
+- [x] **Episodic Memory:** Vector storage using SQLite + Ollama Embeddings
+- [x] **Security:** API Key authentication and Token Bucket rate limiting
+- [x] **Meta-Cognitive Router:** Intent classification (routing queries to the correct memory system)
+
+### Phase 2: The Cognitive Layers 🚧
+*Structuring Knowledge and Behavior*
+
+| Component | Simple Pitch | Complex Architecture | Status |
+|-----------|--------------|---------------------|--------|
+| **Semantic Store** | Vector memory is fuzzy—it knows 'King' and 'Queen' are similar. The Semantic Store is precise—it knows 'King' *is married to* 'Queen'. It's the difference between a vibe and a fact. | Lightweight Knowledge Graph using SQLite Recursive CTEs as a Triple Store (Subject → Predicate → Object). Enables multi-hop reasoning. | 🚧 In Design |
+| **Procedural Store** | LLMs are creative, but sometimes you need them to follow a checklist exactly. This gives Mimo 'muscle memory'—stored recipes for tasks that need to happen the same way every time. | Deterministic Finite Automata (DFA) engine stored as JSON schemas. Bypasses LLM generation for rigid `Elixir.Behaviour` pipelines. Solves "hallucinated steps" problem. | ⏳ Planned |
+
+### Phase 3: The Nervous System 🔮
+*Speed and Connectivity*
+
+| Component | Simple Pitch | Complex Architecture | Status |
+|-----------|--------------|---------------------|--------|
+| **Rust NIFs** | Elixir manages the traffic; Rust does the heavy lifting. We swap the engine while the car is driving to make math calculations instant. | Zero-copy FFI via `rustler`. Offloads O(n) cosine similarity from BEAM to compiled Rust with SIMD hardware acceleration. ~40% CPU reduction. | 🧪 Prototype |
+| **WebSocket Transport** | Stop asking, start listening. Instead of polling 'Are we there yet?', Mimo pushes thoughts and results the moment they happen. | Full-Duplex State Synchronization via Phoenix Channels. Enables "Agent Interruptibility"—the server can pause generation if higher-priority memory triggers. | ⏳ Planned |
+
+---
+
+## Architecture Philosophy
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    THE SYNTHETIC CORTEX                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
+│  │  Episodic   │  │  Semantic   │  │ Procedural  │              │
+│  │   Store     │  │   Store     │  │   Store     │              │
+│  │  (Vibes)    │  │  (Facts)    │  │  (Recipes)  │              │
+│  │   ✅ Done   │  │  🚧 Design  │  │  ⏳ Planned │              │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘              │
+│         │                │                │                      │
+│         └────────────────┼────────────────┘                      │
+│                          │                                       │
+│                          ▼                                       │
+│              ┌───────────────────────┐                          │
+│              │  Meta-Cognitive Router │  ← "Which store knows?" │
+│              │        ✅ Done         │                          │
+│              └───────────┬───────────┘                          │
+│                          │                                       │
+│         ┌────────────────┼────────────────┐                      │
+│         ▼                ▼                ▼                      │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
+│  │    HTTP     │  │     MCP     │  │  WebSocket  │              │
+│  │   Gateway   │  │    stdio    │  │   Channel   │              │
+│  │   ✅ Done   │  │   ✅ Done   │  │  ⏳ Planned │              │
+│  └─────────────┘  └─────────────┘  └─────────────┘              │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**The Three Memory Systems:**
+- **Episodic (Vibes):** "I remember something *like* this..." — fuzzy vector similarity
+- **Semantic (Facts):** "I *know* that X is related to Y" — precise graph relationships  
+- **Procedural (Recipes):** "When X happens, *always* do Y" — deterministic rules
 
 ---
 
@@ -462,3 +517,5 @@ MIT License - see [LICENSE](LICENSE)
 ---
 
 Built with ❤️ using Elixir/OTP and Ollama
+
+**Mimo: Where Agents Remember.**
