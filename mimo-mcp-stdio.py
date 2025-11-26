@@ -136,10 +136,16 @@ def main():
 
 def process_line(line):
     line = line.strip()
-    if line.startswith('{'):
+    if not line:
+        return
+    # Only pass valid JSON-RPC messages (must start with {"jsonrpc" or {"id" or {"result" or {"error")
+    if line.startswith('{"jsonrpc') or line.startswith('{"id') or line.startswith('{"result') or line.startswith('{"error'):
         log(f"[OUT] {line}")
         print(line, flush=True)
-    elif line:
+    elif line.startswith('{'):
+        # Elixir tuple like {:ip, or {:port, - skip these
+        log(f"[SKIP_ELIXIR] {line}")
+    else:
         log(f"[SKIP] {line}")
 
 def process_output(data):
