@@ -115,7 +115,7 @@ defmodule Mimo.Application do
   defp wait_for_catalog_ready(retries) do
     tools = Mimo.Skills.Catalog.list_tools()
 
-    if length(tools) > 0 do
+    if tools != [] do
       Logger.info("✅ Catalog ready with #{length(tools)} tools")
       :ok
     else
