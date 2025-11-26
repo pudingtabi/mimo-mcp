@@ -142,7 +142,7 @@ defmodule Mimo.McpCli do
       {:error, reason} ->
         %{
           "jsonrpc" => "2.0",
-          "error" => %{"code" => -32000, "message" => to_string(reason)},
+          "error" => %{"code" => -32000, "message" => format_error(reason)},
           "id" => id
         }
     end
@@ -282,4 +282,8 @@ defmodule Mimo.McpCli do
   defp format_result(result) when is_map(result), do: Jason.encode!(result, pretty: true)
   defp format_result(result) when is_binary(result), do: result
   defp format_result(result), do: inspect(result)
+
+  defp format_error(reason) when is_binary(reason), do: reason
+  defp format_error(reason) when is_atom(reason), do: to_string(reason)
+  defp format_error(reason), do: inspect(reason)
 end
