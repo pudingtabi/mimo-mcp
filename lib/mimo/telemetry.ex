@@ -32,11 +32,11 @@ defmodule Mimo.Telemetry do
   end
 
   defp attach_handlers do
-    # HTTP request telemetry
+    # HTTP request telemetry (using MFA to avoid local function warning)
     :telemetry.attach(
       "mimo-http-handler",
       [:mimo, :http, :request],
-      &handle_http_event/4,
+      &__MODULE__.handle_http_event/4,
       nil
     )
 
@@ -44,7 +44,7 @@ defmodule Mimo.Telemetry do
     :telemetry.attach(
       "mimo-router-handler",
       [:mimo, :router, :classify],
-      &handle_router_event/4,
+      &__MODULE__.handle_router_event/4,
       nil
     )
 
@@ -52,7 +52,7 @@ defmodule Mimo.Telemetry do
     :telemetry.attach(
       "mimo-ask-handler",
       [:mimo, :http, :ask],
-      &handle_ask_event/4,
+      &__MODULE__.handle_ask_event/4,
       nil
     )
 
@@ -60,12 +60,13 @@ defmodule Mimo.Telemetry do
     :telemetry.attach(
       "mimo-tool-handler",
       [:mimo, :http, :tool],
-      &handle_tool_event/4,
+      &__MODULE__.handle_tool_event/4,
       nil
     )
   end
 
-  defp handle_http_event(_event, measurements, metadata, _config) do
+  @doc false
+  def handle_http_event(_event, measurements, metadata, _config) do
     %{latency_ms: latency_ms} = measurements
     %{method: method, path: path, status: status} = metadata
 
@@ -76,7 +77,8 @@ defmodule Mimo.Telemetry do
     end
   end
 
-  defp handle_router_event(_event, measurements, metadata, _config) do
+  @doc false
+  def handle_router_event(_event, measurements, metadata, _config) do
     %{duration_us: duration_us, confidence: confidence} = measurements
     %{primary_store: primary_store} = metadata
     duration_ms = duration_us / 1000
@@ -88,7 +90,8 @@ defmodule Mimo.Telemetry do
     end
   end
 
-  defp handle_ask_event(_event, measurements, metadata, _config) do
+  @doc false
+  def handle_ask_event(_event, measurements, metadata, _config) do
     %{latency_ms: latency_ms} = measurements
     context_id = Map.get(metadata, :context_id, "none")
 
@@ -99,7 +102,8 @@ defmodule Mimo.Telemetry do
     end
   end
 
-  defp handle_tool_event(_event, measurements, metadata, _config) do
+  @doc false
+  def handle_tool_event(_event, measurements, metadata, _config) do
     %{latency_ms: latency_ms} = measurements
     %{tool: tool} = metadata
 

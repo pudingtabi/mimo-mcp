@@ -13,7 +13,6 @@ config :logger, :console,
 # Most settings are overridden in runtime.exs from environment variables
 config :mimo_mcp, MimoWeb.Endpoint,
   url: [host: "localhost"],
-  cache_static_manifest: "priv/static/cache_manifest.json",
   server: true
 
 # Phoenix JSON library
