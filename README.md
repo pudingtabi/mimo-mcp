@@ -1,56 +1,198 @@
 # Mimo-MCP Gateway v2.2
 
-A universal MCP (Model Context Protocol) gateway with **multi-protocol access** - HTTP/REST, OpenAI-compatible API, CLI, and stdio MCP. Powered by hybrid AI intelligence (OpenRouter + Ollama).
+A universal MCP (Model Context Protocol) gateway with **multi-protocol access** - HTTP/REST, OpenAI-compatible API, and stdio MCP. Features vector memory storage with semantic search.
 
-[![Elixir](https://img.shields.io/badge/Elixir-1.12+-purple.svg)](https://elixir-lang.org/)
+[![Elixir](https://img.shields.io/badge/Elixir-1.16+-purple.svg)](https://elixir-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## What is Mimo?
 
 Mimo is an **intelligent Memory OS** that provides:
-- 🌐 **Multi-Protocol Access**: HTTP/REST, OpenAI-compatible, CLI, and MCP stdio
+- 🌐 **Multi-Protocol Access**: HTTP/REST, OpenAI-compatible, and MCP stdio
 - 🧠 **Meta-Cognitive Router**: Intelligent query classification to memory stores
-- 🔗 Combines multiple MCP tool servers into one unified interface
-- 💾 Stores episodic memories in SQLite with vector embeddings
-- 🔄 Hot-reloads external skills without restart
-- 🛡️ Gracefully degrades when services are unavailable
+- 🔗 **48+ Tools**: Combines filesystem, browser automation, web search, and memory tools
+- 💾 **Vector Memory**: SQLite + Ollama embeddings for semantic search
+- 🔄 **Hot-Reload**: Update skills without restart
+- 🛡️ **Rate Limiting**: Built-in DoS protection (60 req/min)
+- 🔐 **API Key Auth**: Secure your endpoints
 
 ---
 
 ## Quick Start
 
-### Option 1: HTTP API (Recommended)
+### Docker Deployment (Recommended)
 
 ```bash
-# Start the server
-mix deps.get && mix run --no-halt
+# Clone the repo
+git clone https://github.com/pudingtabi/mimo-mcp.git
+cd mimo-mcp
 
-# Query via HTTP
-curl -X POST http://localhost:4000/v1/mimo/ask \
-  -H "Content-Type: application/json" \
-  -d '{"query": "How do I center a div with Flexbox?"}'
+# Create .env file
+cat > .env << EOF
+MIMO_API_KEY=$(openssl rand -hex 32)
+MIMO_HOST=localhost
+EOF
 
-# Health check
+# Start services
+docker-compose up -d
+
+# Pull embedding model (required for vector search)
+docker exec mimo-ollama ollama pull nomic-embed-text
+
+# Run migrations
+docker exec mimo-mcp sh -c "MIX_ENV=prod mix ecto.migrate"
+
+# Test
 curl http://localhost:4000/health
 ```
 
-### Option 2: CLI
+### VPS Deployment
 
 ```bash
-# Build the CLI
-cd cmd/mimo && go build -o mimo .
+# On your VPS
+git clone https://github.com/pudingtabi/mimo-mcp.git
+cd mimo-mcp
 
-# Natural language query
-./mimo ask "How do I center a div with Flexbox?"
+# Configure environment
+cat > .env << EOF
+MIMO_API_KEY=$(openssl rand -hex 32)
+MIMO_HOST=your-vps-ip
+EOF
 
-# Direct tool execution
-./mimo run search_vibes --query "dark atmosphere" --limit 5
+# Deploy
+docker-compose up -d
+docker exec mimo-ollama ollama pull nomic-embed-text
+docker exec mimo-mcp sh -c "MIX_ENV=prod mix ecto.migrate"
 
-# Shell pipeline
-git diff | ./mimo ask "Write a commit message for this"
+# Open firewall
+sudo ufw allow 4000/tcp
 ```
 
-### Option 3: MCP stdio (VS Code)
+---
+
+## API Reference
+
+### Endpoints
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/health` | GET | No | System health check |
+| `/v1/mimo/ask` | POST | Yes | Natural language query |
+| `/v1/mimo/tool` | POST | Yes | Execute a specific tool |
+| `/v1/mimo/tools` | GET | Yes | List available tools |
+| `/v1/chat/completions` | POST | Yes | OpenAI-compatible endpoint |
+| `/v1/models` | GET | Yes | List models (OpenAI format) |
+
+### Authentication
+
+All `/v1/*` endpoints require an API key:
+
+```bash
+curl -H "Authorization: Bearer YOUR_API_KEY" http://localhost:4000/v1/mimo/tools
+```
+
+### Example: Store a Memory
+
+```bash
+curl -X POST http://localhost:4000/v1/mimo/tool \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "tool": "store_fact",
+    "arguments": {
+      "content": "User prefers dark mode themes",
+      "category": "observation",
+      "importance": 0.8
+    }
+  }'
+```
+
+Response:
+```json
+{
+  "data": {"id": 1, "stored": true},
+  "status": "success",
+  "latency_ms": 45.2,
+  "tool_call_id": "uuid-1234"
+}
+```
+
+### Example: Search Memories
+
+```bash
+curl -X POST http://localhost:4000/v1/mimo/tool \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "tool": "search_vibes",
+    "arguments": {
+      "query": "user preferences",
+      "limit": 5,
+      "threshold": 0.3
+    }
+  }'
+```
+
+Response:
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "content": "User prefers dark mode themes",
+      "category": "observation",
+      "similarity": 0.87,
+      "importance": 0.8
+    }
+  ],
+  "status": "success",
+  "latency_ms": 12.5
+}
+```
+
+### Example: Natural Language Query
+
+```bash
+curl -X POST http://localhost:4000/v1/mimo/ask \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{"query": "What do you know about user preferences?"}'
+```
+
+---
+
+## MCP stdio Protocol
+
+For Claude Desktop, VS Code, or other MCP clients:
+
+### Test MCP Locally
+
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"test"},"capabilities":{}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | python3 mimo-mcp-stdio.py
+```
+
+### Claude Desktop Configuration
+
+**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`  
+**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "mimo": {
+      "command": "ssh",
+      "args": [
+        "-o", "StrictHostKeyChecking=no",
+        "root@YOUR_VPS_IP",
+        "cd /path/to/mimo-mcp && LOGGER_LEVEL=error python3 mimo-mcp-stdio.py"
+      ]
+    }
+  }
+}
+```
+
+### VS Code Configuration
 
 Add to `~/.vscode/mcp.json`:
 
@@ -60,7 +202,11 @@ Add to `~/.vscode/mcp.json`:
     "mimo": {
       "type": "stdio",
       "command": "ssh",
-      "args": ["-o", "BatchMode=yes", "root@YOUR_VPS_IP", "/usr/local/bin/mimo-mcp-stdio"]
+      "args": [
+        "-o", "BatchMode=yes",
+        "root@YOUR_VPS_IP",
+        "cd /path/to/mimo-mcp && LOGGER_LEVEL=error python3 mimo-mcp-stdio.py"
+      ]
     }
   }
 }
@@ -68,122 +214,29 @@ Add to `~/.vscode/mcp.json`:
 
 ---
 
-## API Endpoints
+## Available Tools (48+)
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | System health check |
-| `/v1/mimo/ask` | POST | Natural language query via Meta-Cognitive Router |
-| `/v1/mimo/tool` | POST | Direct tool execution |
-| `/v1/mimo/tools` | GET | List available tools |
-| `/v1/chat/completions` | POST | OpenAI-compatible endpoint |
-| `/v1/models` | GET | List models (OpenAI format) |
+### Internal Tools
 
-### Example: Ask Endpoint
+| Tool | Description |
+|------|-------------|
+| `ask_mimo` | Query Mimo's memory system |
+| `store_fact` | Store facts/observations with embeddings |
+| `search_vibes` | Vector similarity search |
+| `mimo_store_memory` | Store memory (alias) |
+| `mimo_reload_skills` | Hot-reload skills without restart |
 
-```bash
-curl -X POST http://localhost:4000/v1/mimo/ask \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $MIMO_API_KEY" \
-  -d '{
-    "query": "Fix the null pointer bug in authenticate_user",
-    "context_id": "session_123",
-    "timeout_ms": 5000
-  }'
-```
-
-Response:
-```json
-{
-  "query_id": "uuid-1234",
-  "router_decision": {
-    "primary_store": "procedural",
-    "confidence": 0.94,
-    "reasoning": "Code syntax detected; 'bug' and 'fix' keywords"
-  },
-  "results": {
-    "episodic": [...],
-    "semantic": null,
-    "procedural": null
-  },
-  "synthesis": "Based on past debugging sessions...",
-  "latency_ms": 42
-}
-```
-
-### Example: OpenAI-Compatible
-
-```bash
-curl -X POST http://localhost:4000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "mimo-polymorphic-1",
-    "messages": [{"role": "user", "content": "Find authentication bugs"}]
-  }'
-```
-
-Works with LangChain, AutoGPT, Continue.dev:
-
-```python
-from langchain.chat_models import ChatOpenAI
-
-mimo = ChatOpenAI(
-    openai_api_base="http://localhost:4000/v1",
-    model_name="mimo-polymorphic-1",
-    api_key="mimo-local"
-)
-```
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Client Layer                              │
-├─────────────┬─────────────┬─────────────┬─────────────┬─────────┤
-│ GitHub      │ Terminal/   │ Generic IDE │ LangChain/  │ curl/   │
-│ Copilot CLI │ Bash        │ Plugin      │ AutoGPT     │ HTTP    │
-└──────┬──────┴──────┬──────┴──────┬──────┴──────┬──────┴────┬────┘
-       │ stdio       │ subprocess  │ HTTP        │ HTTPS      │ HTTP
-       ▼             ▼             ▼             ▼            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              Universal Aperture: Protocol Adapters               │
-├─────────────┬─────────────┬─────────────┬───────────────────────┤
-│ MCP Adapter │ CLI Adapter │ HTTP/REST   │ OpenAI Adapter        │
-│ (stdio)     │ (Go binary) │ (Phoenix)   │ (/v1/chat/completions)│
-└──────┬──────┴──────┬──────┴──────┬──────┴───────────┬───────────┘
-       └─────────────┴─────────────┴───────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Core: Mimo Memory OS                          │
-├─────────────────────────────────────────────────────────────────┤
-│  Port: QueryInterface              Port: ToolInterface           │
-├─────────────────────────────────────────────────────────────────┤
-│                   Meta-Cognitive Router                          │
-│            (Classify → Route to appropriate store)               │
-├─────────────┬─────────────────────────┬─────────────────────────┤
-│ Episodic    │ Semantic Store          │ Procedural Store        │
-│ Store       │ (Graph/JSON-LD)         │ (Rule Engine)           │
-│ (Vector/SQL)│                         │                         │
-└─────────────┴─────────────────────────┴─────────────────────────┘
-```
-
----
-
-## Current Tool Stack (46+ tools)
+### External Skills (via MCP)
 
 | Skill | Tools | Description |
 |-------|-------|-------------|
-| **mimo brain** | 3 | `ask_mimo`, `mimo_store_memory`, `mimo_reload_skills` |
 | **filesystem** | 14 | Read, write, search, edit files |
-| **fetch** | 4 | HTTP requests (txt, json, html, markdown) |
+| **playwright** | 22 | Browser automation & screenshots |
+| **fetch** | 4 | HTTP requests (txt, json, html, md) |
 | **exa_search** | 2 | Web search via Exa AI |
-| **playwright** | 22 | Browser automation & UI testing |
 | **sequential_thinking** | 1 | Structured reasoning |
 
-### Configure Skills
+### Configure External Skills
 
 Edit `priv/skills.json`:
 
@@ -204,37 +257,39 @@ Edit `priv/skills.json`:
 
 ---
 
-## Installation
+## Architecture
 
-### Docker (Recommended for VPS)
-
-```bash
-git clone https://github.com/pudingtabi/mimo-mcp.git
-cd mimo-mcp
-docker-compose up -d
-
-# Pull embedding model
-docker exec mimo-ollama ollama pull nomic-embed-text
 ```
-
-### Local Development
-
-```bash
-git clone https://github.com/pudingtabi/mimo-mcp.git
-cd mimo-mcp
-
-mix deps.get
-mix ecto.create
-mix ecto.migrate
-mix run --no-halt
-```
-
-### Build CLI
-
-```bash
-cd cmd/mimo
-go build -o mimo .
-sudo mv mimo /usr/local/bin/
+┌─────────────────────────────────────────────────────────────────┐
+│                        Client Layer                              │
+├─────────────┬─────────────┬─────────────┬───────────────────────┤
+│ Claude      │ VS Code     │ curl/HTTP   │ LangChain/AutoGPT     │
+│ Desktop     │ Copilot     │ clients     │                       │
+└──────┬──────┴──────┬──────┴──────┬──────┴───────────┬───────────┘
+       │ stdio       │ stdio       │ HTTP             │ HTTP
+       ▼             ▼             ▼                  ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              Universal Aperture: Protocol Adapters               │
+├─────────────────────────┬───────────────────────────────────────┤
+│ MCP Adapter (stdio)     │ HTTP Gateway (Phoenix)                │
+│ mimo-mcp-stdio.py       │ Port 4000                             │
+└───────────┬─────────────┴───────────────────┬───────────────────┘
+            └─────────────┬───────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Core: Mimo Memory OS                          │
+├─────────────────────────────────────────────────────────────────┤
+│  QueryInterface              │           ToolInterface           │
+│  (Natural Language)          │           (Direct Execution)      │
+├─────────────────────────────────────────────────────────────────┤
+│                   Meta-Cognitive Router                          │
+│            (Classify → Route to appropriate store)               │
+├─────────────┬─────────────────────────┬─────────────────────────┤
+│ Episodic    │ Semantic Store          │ Procedural Store        │
+│ Store ✅    │ (Coming Soon)           │ (Coming Soon)           │
+│ SQLite +    │                         │                         │
+│ Vectors     │                         │                         │
+└─────────────┴─────────────────────────┴─────────────────────────┘
 ```
 
 ---
@@ -244,98 +299,69 @@ sudo mv mimo /usr/local/bin/
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MIMO_HTTP_PORT` | 4000 | HTTP gateway port |
+| `MIMO_HOST` | localhost | Public hostname/IP |
 | `MIMO_API_KEY` | (none) | API key for authentication |
-| `OPENROUTER_API_KEY` | (none) | AI reasoning (OpenRouter) |
-| `OLLAMA_URL` | localhost:11434 | Embeddings server |
+| `MIMO_SECRET_KEY_BASE` | (auto) | Phoenix secret key |
+| `OLLAMA_URL` | http://ollama:11434 | Embeddings server |
+| `OPENROUTER_API_KEY` | (none) | AI reasoning |
 | `EXA_API_KEY` | (none) | Web search |
-| `MCP_PORT` | 9000 | MCP stdio port |
-| `LOGGER_LEVEL` | info | Set to `none` for stdio |
-
----
-
-## CLI Usage
-
-```bash
-# Natural language query
-mimo ask "How do I center a div with Flexbox?"
-
-# Vector similarity search
-mimo run search_vibes --query "mysterious atmosphere" --limit 5
-
-# Store a fact
-mimo run store_fact --content "User prefers dark mode" --category fact
-
-# Shell pipeline (git commit message generator)
-git diff | mimo ask "Write a concise commit message" | git commit -F -
-
-# Sandbox mode (safe for untrusted scripts)
-mimo --sandbox ask "What are best practices for error handling?"
-
-# List available tools
-mimo tools
-
-# Health check
-mimo health
-```
-
----
-
-## VS Code Integration
-
-### Remote VPS Setup
-
-1. **Generate SSH key:**
-```bash
-ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
-```
-
-2. **Create wrapper script on VPS:**
-```bash
-cat > /usr/local/bin/mimo-mcp-stdio << 'EOF'
-#!/bin/bash
-exec docker exec -i mimo-mcp mix run -e "Mimo.McpCli.run()" 2>/dev/null | grep "^{"
-EOF
-chmod +x /usr/local/bin/mimo-mcp-stdio
-```
-
-3. **Configure VS Code** (`~/.vscode/mcp.json`):
-```json
-{
-  "servers": {
-    "mimo": {
-      "type": "stdio",
-      "command": "ssh",
-      "args": [
-        "-o", "BatchMode=yes",
-        "-o", "StrictHostKeyChecking=no",
-        "root@<YOUR_VPS_IP>",
-        "/usr/local/bin/mimo-mcp-stdio"
-      ]
-    }
-  }
-}
-```
-
----
-
-## API Documentation
-
-Full OpenAPI 3.1 specification available at `priv/openapi.yaml`.
+| `LOGGER_LEVEL` | info | `none` for clean stdio |
 
 ---
 
 ## Development
 
+### Local Setup
+
 ```bash
+# Install dependencies
+mix deps.get
+
+# Create database
+mix ecto.create
+mix ecto.migrate
+
+# Run server
+mix run --no-halt
+
 # Run tests
 mix test
+```
 
-# Format code
-mix format
+### Docker Commands
 
-# Check container status
-docker-compose ps
+```bash
+# View logs
 docker logs -f mimo-mcp
+
+# Restart
+docker-compose restart mimo
+
+# Rebuild
+docker-compose up -d --build
+
+# Check migrations
+docker exec mimo-mcp mix ecto.migrations
+
+# Run prod migrations
+docker exec mimo-mcp sh -c "MIX_ENV=prod mix ecto.migrate"
+```
+
+---
+
+## Security
+
+- **API Key**: Set `MIMO_API_KEY` in `.env` to protect endpoints
+- **Rate Limiting**: 60 requests/minute per IP (configurable)
+- **Firewall**: Only expose port 4000 (Ollama stays internal)
+- **HTTPS**: Use nginx/Caddy reverse proxy for production
+
+### Example Caddy Config
+
+```
+mimo.yourdomain.com {
+    reverse_proxy localhost:4000
+}
 ```
 
 ---
@@ -344,13 +370,15 @@ docker logs -f mimo-mcp
 
 - [x] HTTP/REST Gateway (Phoenix)
 - [x] OpenAI-compatible endpoint
-- [x] CLI wrapper (Go)
+- [x] MCP stdio adapter
+- [x] Vector memory (SQLite + Ollama)
+- [x] Rate limiting
+- [x] API key authentication
 - [x] Meta-Cognitive Router
-- [x] Telemetry & metrics
 - [ ] Semantic Store (Graph/JSON-LD)
 - [ ] Procedural Store (Rule Engine)
-- [ ] Rust NIFs for vector math
 - [ ] WebSocket transport
+- [ ] Rust NIFs for vector math
 
 ---
 
@@ -360,4 +388,4 @@ MIT License - see [LICENSE](LICENSE)
 
 ---
 
-Built with ❤️ using Elixir/OTP
+Built with ❤️ using Elixir/OTP and Ollama
