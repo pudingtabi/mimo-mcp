@@ -7,9 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.3.1] - 2025-11-26
 
-### Security & Stability Release
-
-This release addresses critical security vulnerabilities and stability issues identified during code review.
+**Security & Stability Release** - This release addresses critical security vulnerabilities and stability issues identified during code review.
 
 ### Fixed
 - **Authentication bypass** - Replaced naive string comparison with constant-time token comparison to prevent timing attacks
