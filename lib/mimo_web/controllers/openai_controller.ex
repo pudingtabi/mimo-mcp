@@ -46,13 +46,13 @@ defmodule MimoWeb.OpenAIController do
     # Get all tools from registry (internal + catalog)
     all_tools = Mimo.Registry.list_all_tools()
 
-    # Convert to OpenAI function format
+    # Convert to OpenAI function format (tools may have string or atom keys)
     tool_list =
       Enum.map(all_tools, fn tool ->
         %{
-          "name" => tool.name,
-          "description" => tool.description,
-          "inputSchema" => tool.inputSchema
+          "name" => tool["name"] || tool[:name],
+          "description" => tool["description"] || tool[:description],
+          "inputSchema" => tool["inputSchema"] || tool[:inputSchema]
         }
       end)
 
