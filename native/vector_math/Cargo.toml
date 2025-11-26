@@ -1,0 +1,17 @@
+[package]
+name = "vector_math"
+version = "0.1.0"
+authors = ["Mimo-MCP Team"]
+edition = "2021"
+
+[lib]
+name = "vector_math"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler = "0.31"
+rayon = "1.8"
+
+# SIMD abstraction - works on all platforms
+wide = "0.7"

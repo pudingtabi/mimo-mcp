@@ -4,7 +4,7 @@ defmodule MimoMcp.MixProject do
   def project do
     [
       app: :mimo_mcp,
-      version: "2.2.0",
+      version: "2.3.0",
       elixir: "~> 1.12",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -15,22 +15,23 @@ defmodule MimoMcp.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :runtime_tools],
+      extra_applications: [:logger, :runtime_tools, :crypto],
       mod: {Mimo.Application, []}
     ]
   end
 
   defp deps do
     [
-      # Database
-      {:ecto_sql, "~> 3.7"},
-      {:ecto_sqlite3, "~> 0.8.0"},
+      # Database - pinned to versions compatible with Elixir 1.12
+      {:ecto, "~> 3.10.0", override: true},
+      {:ecto_sql, "~> 3.10.0"},
+      {:ecto_sqlite3, "~> 0.12.0"},
+      {:exqlite, "~> 0.13.0", override: true},
       
       # JSON handling
       {:jason, "~> 1.4"},
       
-      # HTTP client - use hackney with ssl_verify_fun disabled for older OTP
-      # Full environment (VPS/Docker) should have proper OTP with public_key
+      # HTTP client
       {:httpoison, "~> 1.8"},
       {:hackney, "~> 1.18", override: true},
       
@@ -48,13 +49,23 @@ defmodule MimoMcp.MixProject do
       
       # CORS support for browser clients
       {:cors_plug, "~> 3.0"},
+      
+      # Rust NIF support (Phase 2 - Vector Math)
+      {:rustler, "~> 0.31", optional: true},
     ]
   end
 
   defp aliases do
     [
       setup: ["deps.get", "ecto.create", "ecto.migrate"],
-      reset: ["ecto.drop", "setup"]
+      reset: ["ecto.drop", "setup"],
+      "cortex.migrate": ["ecto.migrate"],
+      "cortex.status": &cortex_status/1
     ]
+  end
+
+  defp cortex_status(_) do
+    Mix.shell().info("Synthetic Cortex Module Status:")
+    Mix.shell().info("  Run `mix run -e 'IO.inspect(Mimo.Application.cortex_status())'`")
   end
 end

@@ -3,8 +3,18 @@ defmodule MimoWeb.Endpoint do
   Phoenix Endpoint for the Universal Aperture HTTP Gateway.
   
   Serves as the HTTP/REST adapter in the Hexagonal Architecture.
+  Also provides WebSocket support for the Cortex Synapse channel.
   """
   use Phoenix.Endpoint, otp_app: :mimo_mcp
+
+  # WebSocket for Cortex Channel (real-time cognitive signaling)
+  socket "/cortex", MimoWeb.CortexSocket,
+    websocket: [
+      timeout: 45_000,
+      compress: true,
+      check_origin: false
+    ],
+    longpoll: false
 
   # Session configuration (minimal - API is stateless)
   @session_options [

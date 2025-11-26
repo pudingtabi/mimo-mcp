@@ -6,7 +6,14 @@ defmodule Mimo.Application do
   Universal Aperture Architecture:
   - MCP Server (stdio) for GitHub Copilot compatibility
   - Phoenix HTTP endpoint for REST/OpenAI API access
+  - WebSocket Synapse for real-time cognitive signaling
   - Both adapters talk to the same Core via Port interfaces
+  
+  Synthetic Cortex Modules (Phase 2 & 3):
+  - Semantic Store: Triple-based knowledge graph
+  - Procedural Store: Deterministic state machine execution
+  - Rust NIFs: SIMD-accelerated vector operations
+  - WebSocket Synapse: Real-time bidirectional communication
   """
   use Application
   require Logger
@@ -28,7 +35,7 @@ defmodule Mimo.Application do
       {DynamicSupervisor, strategy: :one_for_one, name: Mimo.Skills.Supervisor},
       # Telemetry supervisor for metrics
       Mimo.Telemetry,
-    ]
+    ] ++ synthetic_cortex_children()
 
     opts = [strategy: :one_for_one, name: Mimo.Supervisor]
     {:ok, sup} = Supervisor.start_link(children, opts)
@@ -113,5 +120,117 @@ defmodule Mimo.Application do
 
   defp mcp_port do
     Application.fetch_env!(:mimo_mcp, :mcp_port)
+  end
+
+  # ============================================================================
+  # Synthetic Cortex Module Management
+  # ============================================================================
+
+  # Returns children for enabled Synthetic Cortex modules.
+  # Modules are enabled via feature flags in config:
+  # - :rust_nifs - SIMD-accelerated vector operations
+  # - :websocket_synapse - Real-time cognitive signaling
+  # - :procedural_store - Deterministic state machine execution
+  defp synthetic_cortex_children do
+    []
+    |> maybe_add_child(:rust_nifs, {Mimo.Vector.Supervisor, []})
+    |> maybe_add_child(:websocket_synapse, {Mimo.Synapse.ConnectionManager, []})
+    |> maybe_add_child(:websocket_synapse, {Mimo.Synapse.InterruptManager, []})
+    |> maybe_add_child(:procedural_store, {Mimo.ProceduralStore.Registry, []})
+  end
+
+  defp maybe_add_child(children, feature, child_spec) do
+    if feature_enabled?(feature) do
+      [child_spec | children]
+    else
+      children
+    end
+  end
+
+  @doc """
+  Checks if a feature flag is enabled.
+  
+  Feature flags can be set via:
+  - Config: `config :mimo_mcp, :feature_flags, semantic_store: true`
+  - Environment: `SEMANTIC_STORE_ENABLED=true`
+  """
+  def feature_enabled?(feature) do
+    flags = Application.get_env(:mimo_mcp, :feature_flags, [])
+    
+    case Keyword.get(flags, feature) do
+      {:system, env_var, default} ->
+        case System.get_env(env_var) do
+          nil -> default
+          "true" -> true
+          "1" -> true
+          _ -> false
+        end
+      
+      true -> true
+      false -> false
+      nil -> false
+    end
+  end
+
+  @doc """
+  Returns status of all Synthetic Cortex modules.
+  """
+  def cortex_status do
+    %{
+      rust_nifs: %{
+        enabled: feature_enabled?(:rust_nifs),
+        loaded: rust_nif_loaded?()
+      },
+      semantic_store: %{
+        enabled: feature_enabled?(:semantic_store),
+        tables_exist: semantic_tables_exist?()
+      },
+      procedural_store: %{
+        enabled: feature_enabled?(:procedural_store),
+        tables_exist: procedural_tables_exist?()
+      },
+      websocket_synapse: %{
+        enabled: feature_enabled?(:websocket_synapse),
+        connections: websocket_connection_count()
+      }
+    }
+  end
+
+  defp rust_nif_loaded? do
+    try do
+      Mimo.Vector.Math.nif_loaded?()
+    rescue
+      _ -> false
+    end
+  end
+
+  defp semantic_tables_exist? do
+    try do
+      Mimo.Repo.query("SELECT 1 FROM semantic_triples LIMIT 1")
+      true
+    rescue
+      _ -> false
+    end
+  end
+
+  defp procedural_tables_exist? do
+    try do
+      Mimo.Repo.query("SELECT 1 FROM procedural_registry LIMIT 1")
+      true
+    rescue
+      _ -> false
+    end
+  end
+
+  defp websocket_connection_count do
+    if feature_enabled?(:websocket_synapse) do
+      try do
+        Mimo.Synapse.ConnectionManager.count()
+      rescue
+        _ -> 0
+      end
+    else
+      0
+    end
   end
 end

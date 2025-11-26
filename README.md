@@ -1,6 +1,6 @@
-# Mimo-MCP Gateway v2.2
+# Mimo-MCP Gateway v2.3
 
-A universal MCP (Model Context Protocol) gateway with **multi-protocol access** - HTTP/REST, OpenAI-compatible API, and stdio MCP. Features vector memory storage with semantic search.
+A universal MCP (Model Context Protocol) gateway with **multi-protocol access** - HTTP/REST, OpenAI-compatible API, WebSocket Synapse, and stdio MCP. Features vector memory storage with semantic search and a **Synthetic Cortex** for intelligent agent memory.
 
 [![Elixir](https://img.shields.io/badge/Elixir-1.16+-purple.svg)](https://elixir-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -8,10 +8,14 @@ A universal MCP (Model Context Protocol) gateway with **multi-protocol access** 
 ## What is Mimo?
 
 Mimo is an **intelligent Memory OS** that provides:
-- 🌐 **Multi-Protocol Access**: HTTP/REST, OpenAI-compatible, and MCP stdio
+- 🌐 **Multi-Protocol Access**: HTTP/REST, OpenAI-compatible, WebSocket, and MCP stdio
 - 🧠 **Meta-Cognitive Router**: Intelligent query classification to memory stores
 - 🔗 **48+ Tools**: Combines filesystem, browser automation, web search, and memory tools
 - 💾 **Vector Memory**: SQLite + Ollama embeddings for semantic search
+- 📊 **Semantic Store**: Triple-based knowledge graph for exact relationships
+- ⚙️ **Procedural Store**: Deterministic state machine execution
+- 🦀 **Rust NIFs**: SIMD-accelerated vector operations
+- ⚡ **WebSocket Synapse**: Real-time bidirectional cognitive signaling
 - 🔄 **Hot-Reload**: Update skills without restart
 - 🛡️ **Rate Limiting**: Built-in DoS protection (60 req/min)
 - 🔐 **API Key Auth**: Secure your endpoints
@@ -452,21 +456,154 @@ Our goal is to evolve Mimo from a simple gateway into a complete **Memory Operat
 - [x] **Security:** API Key authentication and Token Bucket rate limiting
 - [x] **Meta-Cognitive Router:** Intent classification (routing queries to the correct memory system)
 
-### Phase 2: The Cognitive Layers 🚧
+### Phase 2: The Cognitive Layers ✅
 *Structuring Knowledge and Behavior*
 
 | Component | Simple Pitch | Complex Architecture | Status |
 |-----------|--------------|---------------------|--------|
-| **Semantic Store** | Vector memory is fuzzy—it knows 'King' and 'Queen' are similar. The Semantic Store is precise—it knows 'King' *is married to* 'Queen'. It's the difference between a vibe and a fact. | Lightweight Knowledge Graph using SQLite Recursive CTEs as a Triple Store (Subject → Predicate → Object). Enables multi-hop reasoning. | 🚧 In Design |
-| **Procedural Store** | LLMs are creative, but sometimes you need them to follow a checklist exactly. This gives Mimo 'muscle memory'—stored recipes for tasks that need to happen the same way every time. | Deterministic Finite Automata (DFA) engine stored as JSON schemas. Bypasses LLM generation for rigid `Elixir.Behaviour` pipelines. Solves "hallucinated steps" problem. | ⏳ Planned |
+| **Semantic Store** | Vector memory is fuzzy—it knows 'King' and 'Queen' are similar. The Semantic Store is precise—it knows 'King' *is married to* 'Queen'. It's the difference between a vibe and a fact. | Lightweight Knowledge Graph using SQLite Recursive CTEs as a Triple Store (Subject → Predicate → Object). Enables multi-hop reasoning with forward/backward chaining inference. | ✅ Implemented |
+| **Procedural Store** | LLMs are creative, but sometimes you need them to follow a checklist exactly. This gives Mimo 'muscle memory'—stored recipes for tasks that need to happen the same way every time. | Deterministic Finite Automata (DFA) engine using `gen_statem`. Bypasses LLM generation for rigid state machine pipelines with automatic retries and rollback support. | ✅ Implemented |
 
-### Phase 3: The Nervous System 🔮
+### Phase 3: The Nervous System ✅
 *Speed and Connectivity*
 
 | Component | Simple Pitch | Complex Architecture | Status |
 |-----------|--------------|---------------------|--------|
-| **Rust NIFs** | Elixir manages the traffic; Rust does the heavy lifting. We swap the engine while the car is driving to make math calculations instant. | Zero-copy FFI via `rustler`. Offloads O(n) cosine similarity from BEAM to compiled Rust with SIMD hardware acceleration. ~40% CPU reduction. | 🧪 Prototype |
-| **WebSocket Transport** | Stop asking, start listening. Instead of polling 'Are we there yet?', Mimo pushes thoughts and results the moment they happen. | Full-Duplex State Synchronization via Phoenix Channels. Enables "Agent Interruptibility"—the server can pause generation if higher-priority memory triggers. | ⏳ Planned |
+| **Rust NIFs** | Elixir manages the traffic; Rust does the heavy lifting. We swap the engine while the car is driving to make math calculations instant. | Zero-copy FFI via `rustler`. Offloads O(n) cosine similarity from BEAM to compiled Rust with SIMD hardware acceleration using `wide` crate. ~10-40x speedup. | ✅ Implemented |
+| **WebSocket Synapse** | Stop asking, start listening. Instead of polling 'Are we there yet?', Mimo pushes thoughts and results the moment they happen. | Full-Duplex State Synchronization via Phoenix Channels. Enables "Agent Interruptibility"—the server can pause generation if higher-priority events trigger. | ✅ Implemented |
+
+---
+
+## Synthetic Cortex Features (v2.3)
+
+### Semantic Store - The World Model
+
+Store and query exact relationships between entities:
+
+```elixir
+# Store a fact: "Alice reports to Bob"
+Mimo.SemanticStore.Repository.create(%{
+  subject_id: "alice",
+  subject_type: "person", 
+  predicate: "reports_to",
+  object_id: "bob",
+  object_type: "person",
+  confidence: 1.0
+})
+
+# Multi-hop traversal: "Who is in Alice's reporting chain?"
+Mimo.SemanticStore.Query.transitive_closure("alice", "person", "reports_to")
+# => [%Entity{id: "bob", depth: 1}, %Entity{id: "ceo", depth: 2}]
+```
+
+### Procedural Store - The Muscle Memory
+
+Execute deterministic procedures without LLM involvement:
+
+```elixir
+# Register a procedure
+Mimo.ProceduralStore.Loader.register(%{
+  name: "deploy_database",
+  version: "1.0",
+  definition: %{
+    "initial_state" => "validate",
+    "states" => %{
+      "validate" => %{
+        "action" => %{"module" => "MyApp.Steps.Validate", "function" => "execute"},
+        "transitions" => [%{"event" => "success", "target" => "provision"}]
+      },
+      "provision" => %{
+        "action" => %{"module" => "MyApp.Steps.Provision", "function" => "execute"},
+        "transitions" => [%{"event" => "success", "target" => "done"}]
+      },
+      "done" => %{}
+    }
+  }
+})
+
+# Execute procedure
+{:ok, pid} = Mimo.ProceduralStore.ExecutionFSM.start_procedure("deploy_database", "1.0", %{env: "prod"})
+```
+
+### WebSocket Synapse - Real-time Cognition
+
+Connect for streaming thoughts and interruptible execution:
+
+```javascript
+// JavaScript client
+const socket = new Phoenix.Socket("/cortex", {params: {token: "..."}});
+socket.connect();
+
+const channel = socket.channel("cortex:agent-123", {api_key: "..."});
+channel.join();
+
+// Send query
+channel.push("query", {q: "What do you know about users?", ref: "q1"});
+
+// Receive streaming thoughts
+channel.on("thought", ({thought, ref}) => {
+  console.log(`[${thought.type}] ${thought.content}`);
+});
+
+// Receive final result
+channel.on("result", ({ref, status, data, latency_ms}) => {
+  console.log(`Query ${ref} completed in ${latency_ms}ms`);
+});
+
+// Interrupt long-running query
+channel.push("interrupt", {ref: "q1", reason: "user cancelled"});
+```
+
+### Rust NIFs - SIMD Vector Math
+
+High-performance vector operations:
+
+```elixir
+# Single similarity (10-40x faster than pure Elixir)
+{:ok, similarity} = Mimo.Vector.Math.cosine_similarity(vec_a, vec_b)
+
+# Batch similarity with parallel processing
+{:ok, similarities} = Mimo.Vector.Math.batch_similarity(query, corpus)
+
+# Top-k search
+{:ok, results} = Mimo.Vector.Math.top_k_similar(query, corpus, 10)
+```
+
+---
+
+## Feature Flags
+
+Enable Synthetic Cortex modules via environment variables or config:
+
+```bash
+# Environment variables
+export RUST_NIFS_ENABLED=true
+export SEMANTIC_STORE_ENABLED=true
+export PROCEDURAL_STORE_ENABLED=true
+export WEBSOCKET_ENABLED=true
+```
+
+Or in `config/config.exs`:
+
+```elixir
+config :mimo_mcp, :feature_flags,
+  rust_nifs: true,
+  semantic_store: true,
+  procedural_store: true,
+  websocket_synapse: true
+```
+
+Check module status:
+
+```elixir
+Mimo.Application.cortex_status()
+# => %{
+#   rust_nifs: %{enabled: true, loaded: true},
+#   semantic_store: %{enabled: true, tables_exist: true},
+#   procedural_store: %{enabled: true, tables_exist: true},
+#   websocket_synapse: %{enabled: true, connections: 3}
+# }
+```
 
 ---
 
@@ -481,7 +618,7 @@ Our goal is to evolve Mimo from a simple gateway into a complete **Memory Operat
 │  │  Episodic   │  │  Semantic   │  │ Procedural  │              │
 │  │   Store     │  │   Store     │  │   Store     │              │
 │  │  (Vibes)    │  │  (Facts)    │  │  (Recipes)  │              │
-│  │   ✅ Done   │  │  🚧 Design  │  │  ⏳ Planned │              │
+│  │   ✅ Done   │  │  ✅ Done    │  │  ✅ Done    │              │
 │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘              │
 │         │                │                │                      │
 │         └────────────────┼────────────────┘                      │
@@ -496,9 +633,15 @@ Our goal is to evolve Mimo from a simple gateway into a complete **Memory Operat
 │         ▼                ▼                ▼                      │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
 │  │    HTTP     │  │     MCP     │  │  WebSocket  │              │
-│  │   Gateway   │  │    stdio    │  │   Channel   │              │
-│  │   ✅ Done   │  │   ✅ Done   │  │  ⏳ Planned │              │
+│  │   Gateway   │  │    stdio    │  │   Synapse   │              │
+│  │   ✅ Done   │  │   ✅ Done   │  │  ✅ Done    │              │
 │  └─────────────┘  └─────────────┘  └─────────────┘              │
+│                                                                  │
+│  ┌──────────────────────────────────────────────┐               │
+│  │              Rust NIFs (SIMD)                 │               │
+│  │         Vector Math Acceleration              │               │
+│  │                 ✅ Done                        │               │
+│  └──────────────────────────────────────────────┘               │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -506,7 +649,64 @@ Our goal is to evolve Mimo from a simple gateway into a complete **Memory Operat
 **The Three Memory Systems:**
 - **Episodic (Vibes):** "I remember something *like* this..." — fuzzy vector similarity
 - **Semantic (Facts):** "I *know* that X is related to Y" — precise graph relationships  
-- **Procedural (Recipes):** "When X happens, *always* do Y" — deterministic rules
+- **Procedural (Recipes):** "When X happens, *always* do Y" — deterministic state machines
+
+---
+
+## File Structure (v2.3)
+
+```
+lib/
+├── mimo.ex                          # Main module
+├── mimo_web.ex                      # Phoenix web helpers
+├── mimo/
+│   ├── application.ex               # OTP application with feature flags
+│   ├── meta_cognitive_router.ex     # Query classification
+│   ├── telemetry.ex                 # Metrics
+│   ├── repo.ex                      # Ecto repo
+│   ├── brain/                       # Episodic memory
+│   │   ├── memory.ex
+│   │   ├── llm.ex
+│   │   └── engram.ex
+│   ├── semantic_store/              # Phase 2: Knowledge Graph
+│   │   ├── triple.ex                # Ecto schema
+│   │   ├── entity.ex                # Virtual entity struct
+│   │   ├── query.ex                 # Recursive CTE queries
+│   │   ├── repository.ex            # CRUD operations
+│   │   └── inference_engine.ex      # Forward/backward chaining
+│   ├── procedural_store/            # Phase 2: State Machines
+│   │   ├── procedure.ex             # Ecto schema
+│   │   ├── execution_fsm.ex         # gen_statem implementation
+│   │   ├── step_executor.ex         # Behaviour + implementations
+│   │   ├── validator.ex             # JSON schema validation
+│   │   └── loader.ex                # Procedure loading & caching
+│   ├── vector/                      # Phase 3: Rust NIFs
+│   │   ├── math.ex                  # NIF wrapper
+│   │   ├── fallback.ex              # Pure Elixir fallback
+│   │   ├── supervisor.ex            # Supervisor tree
+│   │   └── worker.ex                # Search utilities
+│   └── synapse/                     # Phase 3: WebSocket
+│       ├── connection_manager.ex    # Connection lifecycle
+│       ├── interrupt_manager.ex     # Execution interruption
+│       └── message_router.ex        # PubSub routing
+├── mimo_web/
+│   ├── endpoint.ex                  # HTTP + WebSocket
+│   ├── router.ex                    # HTTP routes
+│   ├── channels/
+│   │   ├── cortex_channel.ex        # Real-time channel
+│   │   └── presence.ex              # Agent presence tracking
+│   └── controllers/
+│       └── ...
+native/
+└── vector_math/                     # Rust NIF
+    ├── Cargo.toml
+    └── src/lib.rs                   # SIMD cosine similarity
+priv/
+└── repo/migrations/
+    ├── 20241125000000_create_engrams.exs
+    ├── 20251126000001_create_semantic_store.exs
+    └── 20251126000002_create_procedural_store.exs
+```
 
 ---
 
