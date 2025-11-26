@@ -24,8 +24,8 @@ defmodule MimoWeb.HealthController do
       },
       stores: %{
         episodic: check_episodic_store(),
-        semantic: "pending",
-        procedural: "pending"
+        semantic: check_semantic_store(),
+        procedural: check_procedural_store()
       },
       tools: %{
         count: length(Mimo.ToolRegistry.list_all_tools())
@@ -41,6 +41,24 @@ defmodule MimoWeb.HealthController do
       "healthy"
     rescue
       _ -> "error"
+    end
+  end
+
+  defp check_semantic_store do
+    try do
+      Mimo.Repo.query("SELECT 1 FROM semantic_triples LIMIT 1")
+      "healthy"
+    rescue
+      _ -> "pending"
+    end
+  end
+
+  defp check_procedural_store do
+    try do
+      Mimo.Repo.query("SELECT 1 FROM procedural_registry LIMIT 1")
+      "healthy"
+    rescue
+      _ -> "pending"
     end
   end
 end
