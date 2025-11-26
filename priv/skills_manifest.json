@@ -86,5 +86,37 @@
     "tools": [
       {"name": "sequentialthinking", "description": "Dynamic problem-solving through structured thinking steps", "inputSchema": {"type": "object", "properties": {"thought": {"type": "string"}, "thoughtNumber": {"type": "integer"}, "totalThoughts": {"type": "integer"}, "nextThoughtNeeded": {"type": "boolean"}}, "required": ["thought", "thoughtNumber", "totalThoughts", "nextThoughtNeeded"]}}
     ]
+  },
+  "desktop_commander": {
+    "config": {
+      "command": "npx",
+      "args": ["-y", "@wonderwhy-er/desktop-commander@latest"],
+      "env": {}
+    },
+    "tools": [
+      {"name": "get_config", "description": "Get the complete server configuration as JSON", "inputSchema": {"type": "object", "properties": {}, "required": []}},
+      {"name": "set_config_value", "description": "Set a specific configuration value by key (blockedCommands, defaultShell, allowedDirectories, fileReadLineLimit, fileWriteLineLimit, telemetryEnabled)", "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}, "value": {}}, "required": ["key", "value"]}},
+      {"name": "start_process", "description": "Start a terminal process with smart detection of when ready for input", "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "timeout_ms": {"type": "number"}, "shell": {"type": "string"}}, "required": ["command", "timeout_ms"]}},
+      {"name": "interact_with_process", "description": "Send commands to running processes and get responses", "inputSchema": {"type": "object", "properties": {"pid": {"type": "number"}, "input": {"type": "string"}}, "required": ["pid", "input"]}},
+      {"name": "read_process_output", "description": "Read output from running processes", "inputSchema": {"type": "object", "properties": {"pid": {"type": "number"}, "timeout_ms": {"type": "number"}}, "required": ["pid"]}},
+      {"name": "force_terminate", "description": "Force terminate a running terminal session", "inputSchema": {"type": "object", "properties": {"pid": {"type": "number"}}, "required": ["pid"]}},
+      {"name": "list_sessions", "description": "List all active terminal sessions", "inputSchema": {"type": "object", "properties": {}, "required": []}},
+      {"name": "list_processes", "description": "List all running processes with detailed information", "inputSchema": {"type": "object", "properties": {}, "required": []}},
+      {"name": "kill_process", "description": "Terminate a running process by PID", "inputSchema": {"type": "object", "properties": {"pid": {"type": "number"}}, "required": ["pid"]}},
+      {"name": "read_file", "description": "Read file contents from filesystem or URL with offset/length pagination", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "isUrl": {"type": "boolean"}, "offset": {"type": "number"}, "length": {"type": "number"}}, "required": ["path"]}},
+      {"name": "read_multiple_files", "description": "Read multiple files simultaneously", "inputSchema": {"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}}, "required": ["paths"]}},
+      {"name": "write_file", "description": "Write file contents with rewrite or append mode", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}, "mode": {"type": "string", "enum": ["rewrite", "append"]}}, "required": ["path", "content"]}},
+      {"name": "create_directory", "description": "Create a new directory or ensure it exists", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+      {"name": "list_directory", "description": "Get detailed recursive listing of files and directories", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "depth": {"type": "number"}}, "required": ["path"]}},
+      {"name": "move_file", "description": "Move or rename files and directories", "inputSchema": {"type": "object", "properties": {"source": {"type": "string"}, "destination": {"type": "string"}}, "required": ["source", "destination"]}},
+      {"name": "get_file_info", "description": "Retrieve detailed metadata about a file or directory", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+      {"name": "start_search", "description": "Start streaming search for files by name or content patterns (ripgrep-based)", "inputSchema": {"type": "object", "properties": {"pattern": {"type": "string"}, "path": {"type": "string"}, "type": {"type": "string", "enum": ["content", "filename"]}}, "required": ["pattern", "path"]}},
+      {"name": "get_more_search_results", "description": "Get paginated results from active search with offset support", "inputSchema": {"type": "object", "properties": {"searchId": {"type": "string"}, "offset": {"type": "number"}}, "required": ["searchId"]}},
+      {"name": "stop_search", "description": "Stop an active search gracefully", "inputSchema": {"type": "object", "properties": {"searchId": {"type": "string"}}, "required": ["searchId"]}},
+      {"name": "list_searches", "description": "List all active search sessions", "inputSchema": {"type": "object", "properties": {}, "required": []}},
+      {"name": "edit_block", "description": "Apply surgical text replacements with character-level diff feedback", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string"}, "old_string": {"type": "string"}, "new_string": {"type": "string"}}, "required": ["file_path", "old_string", "new_string"]}},
+      {"name": "get_usage_stats", "description": "Get usage statistics for debugging and analysis", "inputSchema": {"type": "object", "properties": {}, "required": []}},
+      {"name": "get_recent_tool_calls", "description": "Get recent tool call history with arguments and outputs", "inputSchema": {"type": "object", "properties": {"maxResults": {"type": "number"}, "toolName": {"type": "string"}}, "required": []}}
+    ]
   }
 }
