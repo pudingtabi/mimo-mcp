@@ -70,13 +70,13 @@ defmodule Mimo.Skills.Client do
     case Validator.validate_config(config) do
       {:ok, validated_config} ->
         spawn_with_validated_config(skill_name, validated_config)
-        
+
       {:error, reason} ->
         Logger.error("✗ Skill '#{skill_name}' config validation failed: #{inspect(reason)}")
         {:stop, {:validation_failed, reason}}
     end
   end
-  
+
   defp spawn_with_validated_config(skill_name, config) do
     case spawn_subprocess_secure(config) do
       {:ok, port} ->
@@ -113,10 +113,14 @@ defmodule Mimo.Skills.Client do
   # Use SecureExecutor for subprocess spawning when available
   defp spawn_subprocess_secure(config) do
     case SecureExecutor.execute_skill(config) do
-      {:ok, port} -> 
+      {:ok, port} ->
         {:ok, port}
+
       {:error, reason} ->
-        Logger.warning("SecureExecutor rejected config: #{inspect(reason)}, falling back to legacy spawn")
+        Logger.warning(
+          "SecureExecutor rejected config: #{inspect(reason)}, falling back to legacy spawn"
+        )
+
         spawn_subprocess(config)
     end
   end
