@@ -67,7 +67,7 @@ defmodule Mimo.ToolInterface do
   end
 
   def execute("mimo_reload_skills", _args) do
-    case Mimo.Registry.reload_skills() do
+    case Mimo.ToolRegistry.reload_skills() do
       {:ok, :reloaded} ->
         {:ok,
          %{
@@ -115,7 +115,7 @@ defmodule Mimo.ToolInterface do
 
   # Fallback: route unknown tools through Registry (external skills)
   def execute(tool_name, arguments) do
-    case Mimo.Registry.get_tool_owner(tool_name) do
+    case Mimo.ToolRegistry.get_tool_owner(tool_name) do
       {:ok, {:skill, skill_name, _pid}} ->
         # Route to external skill
         Logger.debug("Routing #{tool_name} to skill #{skill_name}")
@@ -138,7 +138,7 @@ defmodule Mimo.ToolInterface do
         {:error, "Missing required arguments for tool: #{tool_name}"}
 
       {:error, :not_found} ->
-        available = Mimo.Registry.list_all_tools() |> Enum.map(& &1["name"]) |> Enum.take(10)
+        available = Mimo.ToolRegistry.list_all_tools() |> Enum.map(& &1["name"]) |> Enum.take(10)
         {:error, "Unknown tool: #{tool_name}. Available tools include: #{inspect(available)}"}
 
       {:error, reason} ->
@@ -151,6 +151,6 @@ defmodule Mimo.ToolInterface do
   """
   @spec list_tools() :: [map()]
   def list_tools do
-    Mimo.Registry.list_all_tools()
+    Mimo.ToolRegistry.list_all_tools()
   end
 end

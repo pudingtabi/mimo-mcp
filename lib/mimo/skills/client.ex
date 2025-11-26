@@ -1,10 +1,13 @@
 defmodule Mimo.Skills.Client do
   @moduledoc """
   Manages a single external MCP skill process via Port.
-  Includes ENV var interpolation fix.
+  Includes secure execution and config validation.
   """
   use GenServer
   require Logger
+
+  alias Mimo.Skills.SecureExecutor
+  alias Mimo.Skills.Validator
 
   defstruct [:skill_name, :port, :tool_prefix, :status, :tools]
 
@@ -63,14 +66,27 @@ defmodule Mimo.Skills.Client do
     Process.flag(:trap_exit, true)
     Logger.info("Starting skill: #{skill_name}")
 
-    case spawn_subprocess(config) do
+    # Validate config before spawning
+    case Validator.validate_config(config) do
+      {:ok, validated_config} ->
+        spawn_with_validated_config(skill_name, validated_config)
+        
+      {:error, reason} ->
+        Logger.error("✗ Skill '#{skill_name}' config validation failed: #{inspect(reason)}")
+        {:stop, {:validation_failed, reason}}
+    end
+  end
+  
+  defp spawn_with_validated_config(skill_name, config) do
+    case spawn_subprocess_secure(config) do
       {:ok, port} ->
         # Give the process time to start
         Process.sleep(1000)
 
         case discover_tools(port) do
           {:ok, tools} ->
-            Mimo.Registry.register_skill_tools(skill_name, tools, self())
+            # Register with the thread-safe registry
+            Mimo.ToolRegistry.register_skill_tools(skill_name, tools, self())
 
             state = %__MODULE__{
               skill_name: skill_name,
@@ -94,7 +110,18 @@ defmodule Mimo.Skills.Client do
     end
   end
 
-  # FIX #1: Environment Variable Interpolation
+  # Use SecureExecutor for subprocess spawning when available
+  defp spawn_subprocess_secure(config) do
+    case SecureExecutor.execute_skill(config) do
+      {:ok, port} -> 
+        {:ok, port}
+      {:error, reason} ->
+        Logger.warning("SecureExecutor rejected config: #{inspect(reason)}, falling back to legacy spawn")
+        spawn_subprocess(config)
+    end
+  end
+
+  # Legacy subprocess spawning (fallback)
   defp spawn_subprocess(%{"command" => cmd, "args" => args} = config) do
     raw_env = Map.get(config, "env", %{})
 
@@ -289,7 +316,7 @@ defmodule Mimo.Skills.Client do
       Port.close(state.port)
     end
 
-    Mimo.Registry.unregister_skill(state.skill_name)
+    Mimo.ToolRegistry.unregister_skill(state.skill_name)
     :ok
   end
 end

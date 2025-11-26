@@ -44,7 +44,7 @@ defmodule MimoWeb.OpenAIController do
   """
   def tools(conn, _params) do
     # Get all tools from registry (internal + catalog)
-    all_tools = Mimo.Registry.list_all_tools()
+    all_tools = Mimo.ToolRegistry.list_all_tools()
 
     # Convert to OpenAI function format (tools may have string or atom keys)
     tool_list =

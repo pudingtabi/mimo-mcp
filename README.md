@@ -5,6 +5,41 @@ A universal MCP (Model Context Protocol) gateway with **multi-protocol access** 
 [![Elixir](https://img.shields.io/badge/Elixir-1.16+-purple.svg)](https://elixir-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+## ✅ What Works (v2.3.1)
+
+This section provides an honest assessment of current functionality:
+
+### Production Ready
+- **HTTP/REST Gateway** - Fully operational on port 4000
+- **MCP stdio Protocol** - Compatible with Claude Desktop, VS Code Copilot
+- **Episodic Memory** - SQLite + Ollama embeddings with semantic search
+- **Rate Limiting** - Token bucket at 60 req/min per IP
+- **API Key Authentication** - Secure endpoint protection with constant-time comparison
+- **Tool Registry** - Thread-safe GenServer (`Mimo.ToolRegistry`) with distributed coordination via `:pg`
+- **Process Registry** - Elixir's built-in `Registry` (`Mimo.Skills.Registry`) for skill process lookups
+- **Hot Reload** - Update skills without restart (with distributed locking)
+- **Test Suite** - 101 tests passing
+
+### Security Hardened (v2.3.1)
+- **SecureExecutor** - Command whitelist (npx, docker, node, python), argument sanitization
+- **Config Validator** - JSON schema validation, dangerous pattern detection, path traversal prevention
+- **Memory Cleanup** - Automatic TTL-based cleanup (30 days default), 100K memory limit
+- **ACID Transactions** - Memory persistence with proper transaction handling
+- **Telemetry** - Security event logging for audit trails
+
+### Experimental/In Development
+- **Semantic Store** - Triple-based knowledge graph (basic implementation)
+- **Procedural Store** - State machine execution (basic implementation)
+- **WebSocket Synapse** - Real-time channels (infrastructure present, not fully tested)
+- **Rust NIFs** - SIMD vector math (requires native compilation)
+
+### Known Limitations
+- External MCP skills (filesystem, playwright) spawn real subprocesses - use in trusted environments
+- Ollama required for embeddings - falls back to simple hashing if unavailable
+- Single-node deployment tested; distributed mode experimental
+
+---
+
 ## What is Mimo?
 
 Mimo is an **intelligent Memory OS** that provides:

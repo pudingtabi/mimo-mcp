@@ -26,14 +26,18 @@ defmodule Mimo.Application do
         Mimo.Repo,
         # Elixir Registry for via_tuple skill lookups
         {Registry, keys: :unique, name: Mimo.Skills.Registry},
-        # ETS-based registry for tool routing
-        Mimo.Registry,
+        # Thread-safe tool registry with distributed coordination
+        {Mimo.ToolRegistry, []},
         # Static tool catalog for lazy-loading (reads manifest)
         Mimo.Skills.Catalog,
         # Task supervisor for async operations
         {Task.Supervisor, name: Mimo.TaskSupervisor},
         # Dynamic supervisor for lazy-spawned skills
         {DynamicSupervisor, strategy: :one_for_one, name: Mimo.Skills.Supervisor},
+        # Hot reload manager for atomic skill reloading
+        {Mimo.Skills.HotReload, []},
+        # Memory cleanup service with TTL management
+        {Mimo.Brain.Cleanup, []},
         # Telemetry supervisor for metrics
         Mimo.Telemetry
       ] ++ synthetic_cortex_children()
@@ -50,7 +54,7 @@ defmodule Mimo.Application do
     # Start MCP server (stdio for GitHub Copilot)
     start_mcp_server(sup)
 
-    Logger.info("Mimo-MCP Gateway v2.3.0 started (Universal Aperture mode)")
+    Logger.info("Mimo-MCP Gateway v2.3.1 started (Universal Aperture mode)")
     Logger.info("  HTTP API: http://localhost:#{http_port()}")
     Logger.info("  MCP Server: stdio (port #{mcp_port()})")
     {:ok, sup}

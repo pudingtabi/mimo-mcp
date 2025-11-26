@@ -63,6 +63,6 @@ defmodule Mimo do
   """
   def reload_skills do
     Logger.warning("🔄 Hot reload initiated...")
-    Mimo.Registry.reload_skills()
+    Mimo.ToolRegistry.reload_skills()
   end
 end

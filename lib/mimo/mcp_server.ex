@@ -77,7 +77,7 @@ defmodule Mimo.McpServer do
   end
 
   defp handle_request(%{"method" => "tools/list", "id" => id}) do
-    tools = Mimo.Registry.list_all_tools()
+    tools = Mimo.ToolRegistry.list_all_tools()
 
     %{
       "jsonrpc" => "2.0",
@@ -94,7 +94,7 @@ defmodule Mimo.McpServer do
 
     # Delegate to ToolInterface for consistent handling across all adapters
     result =
-      case Mimo.Registry.get_tool_owner(tool_name) do
+      case Mimo.ToolRegistry.get_tool_owner(tool_name) do
         {:ok, {:skill, skill_name, _client_pid}} ->
           # External skills still go through Skills.Client
           Mimo.Skills.Client.call_tool(skill_name, tool_name, arguments)
@@ -104,7 +104,7 @@ defmodule Mimo.McpServer do
           Mimo.ToolInterface.execute(tool_name, arguments)
 
         {:error, :not_found} ->
-          available = Mimo.Registry.list_all_tools() |> Enum.map(& &1["name"])
+          available = Mimo.ToolRegistry.list_all_tools() |> Enum.map(& &1["name"])
           {:error, "Tool '#{tool_name}' not found. Available: #{inspect(available)}"}
       end
 

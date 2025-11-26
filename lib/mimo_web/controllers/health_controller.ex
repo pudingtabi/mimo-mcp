@@ -28,7 +28,7 @@ defmodule MimoWeb.HealthController do
         procedural: "pending"
       },
       tools: %{
-        count: length(Mimo.Registry.list_all_tools())
+        count: length(Mimo.ToolRegistry.list_all_tools())
       }
     }
 
