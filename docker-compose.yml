@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   mimo:
     build: .
@@ -19,7 +17,6 @@ services:
       - MCP_PORT=9000
     volumes:
       - ./workspace:/workspace
-      - mimo_data:/app/priv
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - ollama
@@ -35,5 +32,4 @@ services:
       - ollama_data:/root/.ollama
 
 volumes:
-  mimo_data:
   ollama_data:
