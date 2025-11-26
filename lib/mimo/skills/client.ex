@@ -289,7 +289,14 @@ defmodule Mimo.Skills.Client do
 
     receive do
       {_, {:data, data}} ->
-        case Jason.decode(data) do
+        # Handle both raw binary and line-mode tuples
+        binary_data = case data do
+          {:eol, line} -> line
+          {:noeol, chunk} -> chunk
+          bin when is_binary(bin) -> bin
+          other -> inspect(other)
+        end
+        case Jason.decode(binary_data) do
           {:ok, %{"result" => result}} -> {:reply, {:ok, result}, state}
           {:ok, %{"error" => error}} -> {:reply, {:error, error}, state}
           {:error, _} -> {:reply, {:error, :invalid_response}, state}
