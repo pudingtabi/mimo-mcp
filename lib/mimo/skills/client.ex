@@ -230,7 +230,14 @@ defmodule Mimo.Skills.Client do
   defp wait_for_json_response(port, timeout, buffer) do
     receive do
       {^port, {:data, data}} ->
-        new_buffer = buffer <> data
+        # Handle both raw binary and line-mode tuples
+        binary_data = case data do
+          {:eol, line} -> line <> "\n"
+          {:noeol, chunk} -> chunk
+          bin when is_binary(bin) -> bin
+          other -> inspect(other)
+        end
+        new_buffer = buffer <> binary_data
 
         # Try to parse each line as JSON
         case find_json_response(new_buffer) do
