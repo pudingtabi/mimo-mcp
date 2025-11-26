@@ -9,7 +9,7 @@ services:
       - "4000:4000"
     environment:
       - MIMO_HTTP_PORT=4000
-      - MIMO_HOST=217.216.73.22
+      - MIMO_HOST=${MIMO_HOST:-localhost}
       - MIMO_API_KEY=${MIMO_API_KEY:-}
       - MIMO_SECRET_KEY_BASE=${MIMO_SECRET_KEY_BASE:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
