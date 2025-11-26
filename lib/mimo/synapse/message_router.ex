@@ -1,7 +1,7 @@
 defmodule Mimo.Synapse.MessageRouter do
   @moduledoc """
   Routes messages between components via PubSub.
-  
+
   Provides a unified interface for broadcasting thoughts,
   results, and system events to connected agents.
   """
@@ -13,9 +13,9 @@ defmodule Mimo.Synapse.MessageRouter do
 
   @doc """
   Broadcasts a thought to an agent.
-  
+
   ## Parameters
-  
+
     - `agent_id` - Target agent ID
     - `ref` - Query reference
     - `thought` - Thought payload

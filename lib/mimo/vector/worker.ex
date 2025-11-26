@@ -1,7 +1,7 @@
 defmodule Mimo.Vector.Worker do
   @moduledoc """
   Worker module for processing vector operations.
-  
+
   Provides convenience functions for common vector search patterns
   used throughout the Mimo system.
   """
@@ -10,17 +10,17 @@ defmodule Mimo.Vector.Worker do
 
   @doc """
   Searches for similar vectors and returns results with metadata.
-  
+
   ## Parameters
-  
+
     - `query` - Query embedding vector
     - `corpus` - List of `{id, embedding}` tuples
     - `opts` - Options:
       - `:limit` - Maximum number of results (default: 10)
       - `:min_similarity` - Minimum similarity threshold (default: 0.0)
-  
+
   ## Returns
-  
+
   List of `{id, similarity}` tuples sorted by similarity descending.
   """
   @spec search([float()], [{term(), [float()]}], keyword()) :: [{term(), float()}]
@@ -45,7 +45,7 @@ defmodule Mimo.Vector.Worker do
 
   @doc """
   Async search using Task.Supervisor.
-  
+
   Returns a Task that can be awaited.
   """
   @spec async_search([float()], [{term(), [float()]}], keyword()) :: Task.t()
@@ -57,15 +57,15 @@ defmodule Mimo.Vector.Worker do
 
   @doc """
   Performs a batch of searches in parallel.
-  
+
   ## Parameters
-  
+
     - `queries` - List of `{query_id, embedding}` tuples
     - `corpus` - Shared corpus for all queries
     - `opts` - Search options
-  
+
   ## Returns
-  
+
   Map of `query_id => [{id, similarity}, ...]`
   """
   @spec batch_search([{term(), [float()]}], [{term(), [float()]}], keyword()) ::

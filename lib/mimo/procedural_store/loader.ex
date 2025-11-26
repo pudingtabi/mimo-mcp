@@ -1,7 +1,7 @@
 defmodule Mimo.ProceduralStore.Loader do
   @moduledoc """
   Loads and caches procedure definitions.
-  
+
   Provides efficient procedure lookup with ETS caching
   and version resolution.
   """
@@ -23,14 +23,14 @@ defmodule Mimo.ProceduralStore.Loader do
 
   @doc """
   Loads a procedure by name and version.
-  
+
   ## Parameters
-  
+
     - `name` - Procedure name
     - `version` - Specific version or "latest"
-  
+
   ## Returns
-  
+
     - `{:ok, procedure}` - Procedure found
     - `{:error, :not_found}` - Procedure not found
   """
@@ -38,7 +38,7 @@ defmodule Mimo.ProceduralStore.Loader do
   def load(name, "latest") do
     # Find the latest active version
     import Ecto.Query
-    
+
     query =
       from(p in Procedure,
         where: p.name == ^name and p.active == true,
@@ -80,7 +80,7 @@ defmodule Mimo.ProceduralStore.Loader do
   @spec load_by_hash(String.t()) :: {:ok, Procedure.t()} | {:error, :not_found}
   def load_by_hash(hash) do
     import Ecto.Query
-    
+
     query = from(p in Procedure, where: p.hash == ^hash and p.active == true)
 
     case Repo.one(query) do
@@ -95,7 +95,7 @@ defmodule Mimo.ProceduralStore.Loader do
   @spec list(keyword()) :: [Procedure.t()]
   def list(opts \\ []) do
     import Ecto.Query
-    
+
     active_only = Keyword.get(opts, :active_only, true)
     name_filter = Keyword.get(opts, :name)
 
@@ -116,7 +116,7 @@ defmodule Mimo.ProceduralStore.Loader do
       end
 
     query
-    |> order_by([p], [asc: p.name, desc: p.version])
+    |> order_by([p], asc: p.name, desc: p.version)
     |> Repo.all()
   end
 
@@ -195,7 +195,7 @@ defmodule Mimo.ProceduralStore.Loader do
 
   defp load_from_db(name, version) do
     import Ecto.Query
-    
+
     query =
       from(p in Procedure,
         where: p.name == ^name and p.version == ^version and p.active == true

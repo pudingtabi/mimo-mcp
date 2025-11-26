@@ -39,7 +39,8 @@ defmodule Mimo.Registry do
     [
       %{
         "name" => "ask_mimo",
-        "description" => "Consult Mimo's memory for strategic guidance. Query the AI memory system for context, patterns, and recommendations.",
+        "description" =>
+          "Consult Mimo's memory for strategic guidance. Query the AI memory system for context, patterns, and recommendations.",
         "inputSchema" => %{
           "type" => "object",
           "properties" => %{
@@ -53,7 +54,8 @@ defmodule Mimo.Registry do
       },
       %{
         "name" => "search_vibes",
-        "description" => "Vector similarity search in Mimo's episodic memory. Find memories semantically related to a query.",
+        "description" =>
+          "Vector similarity search in Mimo's episodic memory. Find memories semantically related to a query.",
         "inputSchema" => %{
           "type" => "object",
           "properties" => %{
@@ -160,15 +162,27 @@ defmodule Mimo.Registry do
   """
   def get_tool_owner(tool_name) do
     case tool_name do
-      "ask_mimo" -> {:ok, {:internal, :ask_mimo}}
-      "search_vibes" -> {:ok, {:internal, :search_vibes}}
-      "store_fact" -> {:ok, {:internal, :store_fact}}
-      "mimo_store_memory" -> {:ok, {:internal, :store_memory}}
-      "mimo_reload_skills" -> {:ok, {:internal, :reload}}
+      "ask_mimo" ->
+        {:ok, {:internal, :ask_mimo}}
+
+      "search_vibes" ->
+        {:ok, {:internal, :search_vibes}}
+
+      "store_fact" ->
+        {:ok, {:internal, :store_fact}}
+
+      "mimo_store_memory" ->
+        {:ok, {:internal, :store_memory}}
+
+      "mimo_reload_skills" ->
+        {:ok, {:internal, :reload}}
+
       _ ->
         # First check active skills
         case lookup_active_skill(tool_name) do
-          {:ok, _} = result -> result
+          {:ok, _} = result ->
+            result
+
           {:error, :not_found} ->
             # Try catalog (will lazy-spawn if found)
             lookup_catalog_skill(tool_name)
@@ -178,14 +192,16 @@ defmodule Mimo.Registry do
 
   defp lookup_active_skill(tool_name) do
     pattern = {tool_name, :_, :_, :_}
+
     case :ets.match_object(@tools_table, pattern) do
-      [{_, skill_name, client_pid, _}] -> 
+      [{_, skill_name, client_pid, _}] ->
         if Process.alive?(client_pid) do
           {:ok, {:skill, skill_name, client_pid}}
         else
           {:error, :not_found}
         end
-      [] -> 
+
+      [] ->
         {:error, :not_found}
     end
   end
@@ -199,6 +215,7 @@ defmodule Mimo.Registry do
             {:ok, pid} -> {:ok, {:skill, skill_name, pid}}
             {:error, reason} -> {:error, {:spawn_failed, reason}}
           end
+
         {:error, :not_found} ->
           {:error, :not_found}
       end
@@ -211,6 +228,7 @@ defmodule Mimo.Registry do
     case Registry.lookup(Mimo.Skills.Registry, skill_name) do
       [{pid, _}] when is_pid(pid) ->
         if Process.alive?(pid), do: {:ok, pid}, else: start_skill(skill_name, config)
+
       [] ->
         start_skill(skill_name, config)
     end
@@ -218,13 +236,14 @@ defmodule Mimo.Registry do
 
   defp start_skill(skill_name, config) do
     Logger.info("🚀 Lazy-spawning skill: #{skill_name}")
+
     child_spec = %{
       id: {Mimo.Skills.Client, skill_name},
       start: {Mimo.Skills.Client, :start_link, [skill_name, config]},
       restart: :transient,
       shutdown: 30_000
     }
-    
+
     case DynamicSupervisor.start_child(Mimo.Skills.Supervisor, child_spec) do
       {:ok, pid} -> {:ok, pid}
       {:error, {:already_started, pid}} -> {:ok, pid}
@@ -234,7 +253,7 @@ defmodule Mimo.Registry do
 
   def reload_skills do
     Logger.warning("🔄 Hot reload initiated...")
-    
+
     # Terminate all skill clients
     @skills_table
     |> :ets.tab2list()
@@ -244,16 +263,16 @@ defmodule Mimo.Registry do
         [] -> :ok
       end
     end)
-    
+
     # Clear tables
     :ets.delete_all_objects(@tools_table)
     :ets.delete_all_objects(@skills_table)
-    
+
     # Reload catalog
     if Code.ensure_loaded?(Mimo.Skills.Catalog) do
       Mimo.Skills.Catalog.reload()
     end
-    
+
     Logger.warning("✅ Hot reload complete")
     {:ok, :reloaded}
   end
@@ -261,12 +280,12 @@ defmodule Mimo.Registry do
   @impl true
   def handle_call({:register_tools, skill_name, tools, client_pid}, _from, state) do
     :ets.match_delete(@tools_table, {:_, skill_name, :_, :_})
-    
+
     for tool <- tools do
       prefixed_name = "#{skill_name}_#{tool["name"]}"
       :ets.insert(@tools_table, {prefixed_name, skill_name, client_pid, tool})
     end
-    
+
     :ets.insert(@skills_table, {skill_name, client_pid, :active})
     {:reply, :ok, state}
   end

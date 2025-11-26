@@ -1,7 +1,7 @@
 defmodule MimoWeb.Presence do
   @moduledoc """
   Presence tracking for connected agents.
-  
+
   Tracks agent connection status, cognitive load, and activity
   across the distributed Mimo cluster.
   """
@@ -65,7 +65,7 @@ defmodule MimoWeb.CortexSocket do
   """
   use Phoenix.Socket
 
-  channel "cortex:*", MimoWeb.CortexChannel
+  channel("cortex:*", MimoWeb.CortexChannel)
 
   @impl true
   def connect(%{"token" => token}, socket, _connect_info) do

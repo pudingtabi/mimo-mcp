@@ -1,11 +1,11 @@
 defmodule MimoWeb.OpenAIController do
   @moduledoc """
   OpenAI-compatible endpoint for the Universal Aperture.
-  
+
   Exposes a drop-in replacement for OpenAI's /v1/chat/completions endpoint.
   Clients believe they are talking to a generative model; in reality, they
   invoke Mimo's Meta-Cognitive Router and Memory Stores as functions.
-  
+
   Strategy: Mimo does NOT generate text. It returns a `tool_calls` array,
   forcing the client to invoke Mimo's memory functions. The client (e.g., LangChain)
   then re-calls Mimo with the function result for synthesis.
@@ -60,7 +60,7 @@ defmodule MimoWeb.OpenAIController do
 
   @doc """
   GET /v1/models
-  
+
   Returns available models (OpenAI-compatible format).
   """
   def models(conn, _params) do
@@ -70,7 +70,7 @@ defmodule MimoWeb.OpenAIController do
         %{
           "id" => @model_name,
           "object" => "model",
-          "created" => 1700000000,
+          "created" => 1_700_000_000,
           "owned_by" => "mimo",
           "description" => @model_description
         }
@@ -79,16 +79,28 @@ defmodule MimoWeb.OpenAIController do
   end
 
   @doc """
+  GET /v1/tools
+
+  Returns available Mimo tools/functions (custom endpoint).
+  """
+  def tools(conn, _params) do
+    json(conn, %{
+      "object" => "list",
+      "data" => @mimo_functions
+    })
+  end
+
+  @doc """
   POST /v1/chat/completions
-  
+
   OpenAI-compatible chat completions endpoint.
-  
+
   Request body (OpenAI format):
     - model: Model name (ignored, always uses mimo-polymorphic-1)
     - messages: Array of chat messages
     - tools: Optional array of function definitions
     - tool_choice: "auto", "none", or specific function
-  
+
   Response (OpenAI format):
     - Returns tool_calls to force memory function invocation
     - Or returns synthesized content if tools array is empty
@@ -122,12 +134,13 @@ defmodule MimoWeb.OpenAIController do
     # Use Meta-Cognitive Router to decide which function to call
     router_decision = Mimo.MetaCognitiveRouter.classify(user_query)
 
-    store = case router_decision.primary_store do
-      :episodic -> "episodic"
-      :semantic -> "semantic"
-      :procedural -> "procedural"
-      _ -> "auto"
-    end
+    store =
+      case router_decision.primary_store do
+        :episodic -> "episodic"
+        :semantic -> "semantic"
+        :procedural -> "procedural"
+        _ -> "auto"
+      end
 
     # If tools is empty and tool_choice is "none", return synthesized text directly
     if Enum.empty?(tools) and tool_choice == "none" do
@@ -139,10 +152,11 @@ defmodule MimoWeb.OpenAIController do
         "type" => "function",
         "function" => %{
           "name" => "mimo_search_memory",
-          "arguments" => Jason.encode!(%{
-            "query" => user_query,
-            "store" => store
-          })
+          "arguments" =>
+            Jason.encode!(%{
+              "query" => user_query,
+              "store" => store
+            })
         }
       }
 
@@ -175,19 +189,21 @@ defmodule MimoWeb.OpenAIController do
 
   defp handle_tool_results(conn, original_query, tool_results) do
     # Synthesize response from tool results
-    memories = Enum.flat_map(tool_results, fn result ->
-      case Jason.decode(result) do
-        {:ok, %{"data" => data}} when is_list(data) -> data
-        {:ok, data} when is_list(data) -> data
-        _ -> []
-      end
-    end)
+    memories =
+      Enum.flat_map(tool_results, fn result ->
+        case Jason.decode(result) do
+          {:ok, %{"data" => data}} when is_list(data) -> data
+          {:ok, data} when is_list(data) -> data
+          _ -> []
+        end
+      end)
 
     # Use LLM to synthesize if configured
-    synthesis = case Mimo.Brain.LLM.consult_chief_of_staff(original_query, memories) do
-      {:ok, response} -> response
-      {:error, _} -> format_memories_as_text(memories)
-    end
+    synthesis =
+      case Mimo.Brain.LLM.consult_chief_of_staff(original_query, memories) do
+        {:ok, response} -> response
+        {:error, _} -> format_memories_as_text(memories)
+      end
 
     response = %{
       "id" => "chatcmpl-#{UUID.uuid4()}",
@@ -218,11 +234,14 @@ defmodule MimoWeb.OpenAIController do
     # Direct response without tool calling (compatibility mode)
     memories = Mimo.Brain.Memory.search_memories(query, limit: 5)
 
-    synthesis = case Mimo.Brain.LLM.consult_chief_of_staff(query, memories) do
-      {:ok, response} -> response
-      {:error, _} -> 
-        "Based on #{router_decision.primary_store} store analysis: #{format_memories_as_text(memories)}"
-    end
+    synthesis =
+      case Mimo.Brain.LLM.consult_chief_of_staff(query, memories) do
+        {:ok, response} ->
+          response
+
+        {:error, _} ->
+          "Based on #{router_decision.primary_store} store analysis: #{format_memories_as_text(memories)}"
+      end
 
     response = %{
       "id" => "chatcmpl-#{UUID.uuid4()}",
@@ -259,12 +278,13 @@ defmodule MimoWeb.OpenAIController do
   end
 
   defp extract_tool_results(messages) do
-    results = messages
-    |> Enum.filter(fn
-      %{"role" => "tool", "content" => _} -> true
-      _ -> false
-    end)
-    |> Enum.map(fn %{"content" => content} -> content end)
+    results =
+      messages
+      |> Enum.filter(fn
+        %{"role" => "tool", "content" => _} -> true
+        _ -> false
+      end)
+      |> Enum.map(fn %{"content" => content} -> content end)
 
     {:ok, results}
   end

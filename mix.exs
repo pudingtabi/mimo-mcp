@@ -27,31 +27,31 @@ defmodule MimoMcp.MixProject do
       {:ecto_sql, "~> 3.10.0"},
       {:ecto_sqlite3, "~> 0.12.0"},
       {:exqlite, "~> 0.13.0", override: true},
-      
+
       # JSON handling
       {:jason, "~> 1.4"},
-      
+
       # HTTP client
       {:httpoison, "~> 1.8"},
       {:hackney, "~> 1.18", override: true},
-      
+
       # Phoenix HTTP/REST Gateway (Universal Aperture)
       {:phoenix, "~> 1.6.0"},
       {:plug_cowboy, "~> 2.5"},
-      
+
       # Telemetry & Metrics
       {:telemetry, "~> 1.0"},
       {:telemetry_metrics, "~> 0.6"},
       {:telemetry_poller, "~> 1.0"},
-      
+
       # UUID generation
       {:uuid, "~> 1.1"},
-      
+
       # CORS support for browser clients
       {:cors_plug, "~> 3.0"},
-      
+
       # Rust NIF support (Phase 2 - Vector Math)
-      {:rustler, "~> 0.31", optional: true},
+      {:rustler, "~> 0.31", optional: true}
     ]
   end
 

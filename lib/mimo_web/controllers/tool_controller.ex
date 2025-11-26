@@ -1,7 +1,7 @@
 defmodule MimoWeb.ToolController do
   @moduledoc """
   Controller for the /v1/mimo/tool endpoint.
-  
+
   Provides direct, low-level execution of specific memory operations:
   - store_fact: Insert JSON-LD triples into Semantic Store
   - recall_procedure: Retrieve rules from Procedural Store
@@ -13,7 +13,7 @@ defmodule MimoWeb.ToolController do
 
   @doc """
   GET /v1/mimo/tools
-  
+
   List all available tools with their schemas.
   """
   def index(conn, _params) do
@@ -59,9 +59,10 @@ defmodule MimoWeb.ToolController do
   end
 
   defp execute_tool(conn, tool, arguments) do
-    {time_us, result} = :timer.tc(fn ->
-      Mimo.ToolInterface.execute(tool, arguments)
-    end)
+    {time_us, result} =
+      :timer.tc(fn ->
+        Mimo.ToolInterface.execute(tool, arguments)
+      end)
 
     latency_ms = time_us / 1000
 

@@ -1,7 +1,7 @@
 defmodule Mimo.SemanticStore.Repository do
   @moduledoc """
   Repository pattern wrapper for Semantic Store operations.
-  
+
   Provides a clean API for CRUD operations on semantic triples,
   with validation and convenience functions.
   """
@@ -14,9 +14,9 @@ defmodule Mimo.SemanticStore.Repository do
 
   @doc """
   Creates a new triple.
-  
+
   ## Parameters
-  
+
     - `attrs` - Map with triple attributes:
       - `:subject_id` (required)
       - `:subject_type` (required)
@@ -27,9 +27,9 @@ defmodule Mimo.SemanticStore.Repository do
       - `:source` (optional)
       - `:ttl` (optional, seconds)
       - `:metadata` (optional)
-  
+
   ## Returns
-  
+
     - `{:ok, triple}` - Successfully created triple
     - `{:error, changeset}` - Validation errors
   """
@@ -52,7 +52,7 @@ defmodule Mimo.SemanticStore.Repository do
 
   @doc """
   Upserts a triple (insert or update if exists).
-  
+
   Uses the unique constraint on (subject_hash, predicate, object_id, object_type).
   """
   @spec upsert(map()) :: {:ok, Triple.t()} | {:error, Ecto.Changeset.t()}
@@ -144,7 +144,9 @@ defmodule Mimo.SemanticStore.Repository do
   @spec update_confidence(String.t(), float()) :: {:ok, Triple.t()} | {:error, term()}
   def update_confidence(id, confidence) when confidence >= 0.0 and confidence <= 1.0 do
     case get(id) do
-      nil -> {:error, :not_found}
+      nil ->
+        {:error, :not_found}
+
       triple ->
         triple
         |> Triple.changeset(%{confidence: confidence})
@@ -191,6 +193,7 @@ defmodule Mimo.SemanticStore.Repository do
         if count > 0 do
           Logger.info("Cleaned up #{count} expired semantic triples")
         end
+
         {:ok, count}
 
       {:error, error} ->
@@ -214,8 +217,7 @@ defmodule Mimo.SemanticStore.Repository do
       |> Repo.all()
       |> Map.new()
 
-    avg_confidence =
-      Repo.aggregate(Triple, :avg, :confidence) || 0.0
+    avg_confidence = Repo.aggregate(Triple, :avg, :confidence) || 0.0
 
     %{
       total_triples: total,

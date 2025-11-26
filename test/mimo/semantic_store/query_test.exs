@@ -1,6 +1,6 @@
 defmodule Mimo.SemanticStore.QueryTest do
   use ExUnit.Case, async: true
-  alias Mimo.SemanticStore.{Triple, Query, Repository}
+  alias Mimo.SemanticStore.{Query, Repository}
   alias Mimo.Repo
 
   setup do
@@ -10,23 +10,25 @@ defmodule Mimo.SemanticStore.QueryTest do
   describe "transitive_closure/4" do
     test "finds multi-hop relationships" do
       # Insert test triples: Alice -> Bob -> CEO
-      {:ok, _} = Repository.create(%{
-        subject_id: "alice",
-        subject_type: "person",
-        predicate: "reports_to",
-        object_id: "bob",
-        object_type: "person",
-        confidence: 1.0
-      })
+      {:ok, _} =
+        Repository.create(%{
+          subject_id: "alice",
+          subject_type: "person",
+          predicate: "reports_to",
+          object_id: "bob",
+          object_type: "person",
+          confidence: 1.0
+        })
 
-      {:ok, _} = Repository.create(%{
-        subject_id: "bob",
-        subject_type: "person",
-        predicate: "reports_to",
-        object_id: "ceo",
-        object_type: "person",
-        confidence: 1.0
-      })
+      {:ok, _} =
+        Repository.create(%{
+          subject_id: "bob",
+          subject_type: "person",
+          predicate: "reports_to",
+          object_id: "ceo",
+          object_type: "person",
+          confidence: 1.0
+        })
 
       results = Query.transitive_closure("alice", "person", "reports_to")
 
@@ -37,14 +39,16 @@ defmodule Mimo.SemanticStore.QueryTest do
     end
 
     test "respects confidence threshold" do
-      {:ok, _} = Repository.create(%{
-        subject_id: "a",
-        subject_type: "entity",
-        predicate: "links_to",
-        object_id: "b",
-        object_type: "entity",
-        confidence: 0.5  # Below default threshold
-      })
+      {:ok, _} =
+        Repository.create(%{
+          subject_id: "a",
+          subject_type: "entity",
+          predicate: "links_to",
+          object_id: "b",
+          object_type: "entity",
+          # Below default threshold
+          confidence: 0.5
+        })
 
       results = Query.transitive_closure("a", "entity", "links_to", min_confidence: 0.7)
       assert results == []
@@ -63,7 +67,7 @@ defmodule Mimo.SemanticStore.QueryTest do
       end
 
       results = Query.transitive_closure("a", "node", "next", max_depth: 2)
-      
+
       # Should only reach b and c, not d or e
       ids = Enum.map(results, & &1.id)
       assert "b" in ids
@@ -110,10 +114,11 @@ defmodule Mimo.SemanticStore.QueryTest do
       })
 
       # Find people who report to CEO AND are in SF
-      results = Query.pattern_match([
-        {:any, "reports_to", "ceo"},
-        {:any, "located_in", "sf"}
-      ])
+      results =
+        Query.pattern_match([
+          {:any, "reports_to", "ceo"},
+          {:any, "located_in", "sf"}
+        ])
 
       # Should find Alice but not Bob
       subject_ids = Enum.map(results, & &1.subject_id) |> Enum.uniq()
@@ -136,8 +141,9 @@ defmodule Mimo.SemanticStore.QueryTest do
       end
 
       {:ok, path} = Query.find_path("a", "c", "connects_to")
-      
-      assert length(path) == 3  # a -> ? -> c
+
+      # a -> ? -> c
+      assert length(path) == 3
       assert hd(path) == "a"
       assert List.last(path) == "c"
     end

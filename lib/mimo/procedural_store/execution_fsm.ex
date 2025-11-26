@@ -1,20 +1,20 @@
 defmodule Mimo.ProceduralStore.ExecutionFSM do
   @moduledoc """
   Finite State Machine for procedure execution using gen_statem.
-  
+
   Executes procedures as deterministic state machines, with each state
   performing an action and transitioning based on the result.
-  
+
   ## Features
-  
+
   - Deterministic execution (no LLM involvement)
   - Automatic retries with exponential backoff
   - Timeout handling per state and overall
   - Rollback support on failure
   - Full execution history tracking
-  
+
   ## Usage
-  
+
       {:ok, pid} = ExecutionFSM.start_procedure("deploy_db", "1.0", %{"env" => "prod"})
       
       # Monitor completion
@@ -50,18 +50,18 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
 
   @doc """
   Starts a new procedure execution.
-  
+
   ## Parameters
-  
+
     - `name` - Procedure name
     - `version` - Procedure version (or "latest")
     - `context` - Initial execution context
     - `opts` - Options:
       - `:caller` - PID to notify on completion
       - `:timeout` - Override procedure timeout
-  
+
   ## Returns
-  
+
     - `{:ok, pid}` - FSM process started
     - `{:error, reason}` - Failed to start
   """
@@ -293,7 +293,7 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
 
         if data.retry_count < max_retries do
           # Retry with exponential backoff
-          delay = :math.pow(2, data.retry_count) * 1000 |> round()
+          delay = (:math.pow(2, data.retry_count) * 1000) |> round()
           new_data = %{data | retry_count: data.retry_count + 1}
 
           Logger.info("Retrying (#{new_data.retry_count}/#{max_retries}) after #{delay}ms")

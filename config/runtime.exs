@@ -2,14 +2,16 @@ import Config
 
 # CRITICAL: Send logs to stderr so stdout remains clean for MCP JSON-RPC
 # Also respect LOGGER_LEVEL env var for stdio mode
-log_level = case System.get_env("LOGGER_LEVEL") do
-  "error" -> :error
-  "warn" -> :warning
-  "none" -> :none
-  _ -> :info
-end
+log_level =
+  case System.get_env("LOGGER_LEVEL") do
+    "error" -> :error
+    "warn" -> :warning
+    "none" -> :none
+    _ -> :info
+  end
 
 config :logger, level: log_level
+
 config :logger, :console,
   device: :standard_error,
   format: "$time $metadata[$level] $message\n"
@@ -30,13 +32,15 @@ http_port = String.to_integer(System.get_env("MIMO_HTTP_PORT") || "4000")
 
 config :mimo_mcp, MimoWeb.Endpoint,
   http: [
-    ip: {0, 0, 0, 0},  # Bind all interfaces (Docker will handle network isolation)
+    # Bind all interfaces (Docker will handle network isolation)
+    ip: {0, 0, 0, 0},
     port: http_port,
     transport_options: [socket_opts: [:inet]]
   ],
   url: [host: System.get_env("MIMO_HOST") || "localhost", port: http_port],
-  secret_key_base: System.get_env("MIMO_SECRET_KEY_BASE") || 
-    "mimo_dev_secret_key_base_32_chars_min_for_security_please_change_in_production",
+  secret_key_base:
+    System.get_env("MIMO_SECRET_KEY_BASE") ||
+      "mimo_dev_secret_key_base_32_chars_min_for_security_please_change_in_production",
   server: true,
   render_errors: [formats: [json: MimoWeb.ErrorJSON]]
 
@@ -48,20 +52,16 @@ config :mimo_mcp, :api_key, System.get_env("MIMO_API_KEY")
 # =============================================================================
 
 # Ollama (local embeddings)
-config :mimo_mcp, :ollama_url,
-  System.get_env("OLLAMA_URL") || "http://localhost:11434"
+config :mimo_mcp, :ollama_url, System.get_env("OLLAMA_URL") || "http://localhost:11434"
 
 # OpenRouter (remote reasoning)
-config :mimo_mcp, :openrouter_api_key,
-  System.get_env("OPENROUTER_API_KEY")
+config :mimo_mcp, :openrouter_api_key, System.get_env("OPENROUTER_API_KEY")
 
 # Skills
-config :mimo_mcp, :skills_path,
-  System.get_env("SKILLS_PATH") || "priv/skills.json"
+config :mimo_mcp, :skills_path, System.get_env("SKILLS_PATH") || "priv/skills.json"
 
 # MCP Server (stdio)
-config :mimo_mcp, :mcp_port,
-  String.to_integer(System.get_env("MCP_PORT") || "9000")
+config :mimo_mcp, :mcp_port, String.to_integer(System.get_env("MCP_PORT") || "9000")
 
 # =============================================================================
 # Performance Tuning for 12GB VPS

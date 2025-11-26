@@ -1,7 +1,7 @@
 defmodule Mimo.Telemetry do
   @moduledoc """
   Telemetry supervisor for the Universal Aperture.
-  
+
   Tracks metrics for:
   - HTTP request latency (p50, p95, p99)
   - Meta-Cognitive Router classification latency
@@ -19,14 +19,13 @@ defmodule Mimo.Telemetry do
   def init(_arg) do
     # Attach telemetry handlers
     attach_handlers()
-    
+
     children = [
       # Telemetry poller for periodic metrics
-      {:telemetry_poller, 
-        measurements: periodic_measurements(),
-        period: :timer.seconds(10),
-        name: :mimo_telemetry_poller
-      }
+      {:telemetry_poller,
+       measurements: periodic_measurements(),
+       period: :timer.seconds(10),
+       name: :mimo_telemetry_poller}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
@@ -69,9 +68,11 @@ defmodule Mimo.Telemetry do
   defp handle_http_event(_event, measurements, metadata, _config) do
     %{latency_ms: latency_ms} = measurements
     %{method: method, path: path, status: status} = metadata
-    
+
     if latency_ms > 50 do
-      Logger.warning("[TELEMETRY] Slow HTTP: #{method} #{path} → #{status} (#{Float.round(latency_ms, 2)}ms)")
+      Logger.warning(
+        "[TELEMETRY] Slow HTTP: #{method} #{path} → #{status} (#{Float.round(latency_ms, 2)}ms)"
+      )
     end
   end
 
@@ -79,25 +80,29 @@ defmodule Mimo.Telemetry do
     %{duration_us: duration_us, confidence: confidence} = measurements
     %{primary_store: primary_store} = metadata
     duration_ms = duration_us / 1000
-    
+
     if duration_ms > 10 do
-      Logger.warning("[TELEMETRY] Slow router: #{primary_store} (#{Float.round(duration_ms, 2)}ms, confidence: #{confidence})")
+      Logger.warning(
+        "[TELEMETRY] Slow router: #{primary_store} (#{Float.round(duration_ms, 2)}ms, confidence: #{confidence})"
+      )
     end
   end
 
   defp handle_ask_event(_event, measurements, metadata, _config) do
     %{latency_ms: latency_ms} = measurements
     context_id = Map.get(metadata, :context_id, "none")
-    
+
     if latency_ms > 50 do
-      Logger.warning("[TELEMETRY] Slow ask: context=#{context_id} (#{Float.round(latency_ms, 2)}ms)")
+      Logger.warning(
+        "[TELEMETRY] Slow ask: context=#{context_id} (#{Float.round(latency_ms, 2)}ms)"
+      )
     end
   end
 
   defp handle_tool_event(_event, measurements, metadata, _config) do
     %{latency_ms: latency_ms} = measurements
     %{tool: tool} = metadata
-    
+
     if latency_ms > 50 do
       Logger.warning("[TELEMETRY] Slow tool: #{tool} (#{Float.round(latency_ms, 2)}ms)")
     end
@@ -113,7 +118,12 @@ defmodule Mimo.Telemetry do
   @doc false
   def measure_memory do
     memory_mb = :erlang.memory(:total) / (1024 * 1024)
-    :telemetry.execute([:mimo, :system, :memory], %{bytes: :erlang.memory(:total), mb: memory_mb}, %{})
+
+    :telemetry.execute(
+      [:mimo, :system, :memory],
+      %{bytes: :erlang.memory(:total), mb: memory_mb},
+      %{}
+    )
   end
 
   @doc false
@@ -121,13 +131,13 @@ defmodule Mimo.Telemetry do
     schedulers = :erlang.system_info(:schedulers_online)
     run_queue = :erlang.statistics(:total_run_queue_lengths_all)
     utilization = run_queue / schedulers
-    
+
     :telemetry.execute(
       [:mimo, :system, :schedulers],
       %{schedulers: schedulers, run_queue: run_queue, utilization: utilization},
       %{}
     )
-    
+
     if utilization > 2.0 do
       Logger.warning("[TELEMETRY] High scheduler utilization: #{Float.round(utilization, 2)}")
     end

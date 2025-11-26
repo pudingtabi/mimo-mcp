@@ -11,12 +11,14 @@ defmodule Mimo.Brain.EctoJsonList do
   def cast(_), do: :error
 
   def load(nil), do: {:ok, []}
+
   def load(data) when is_binary(data) do
     case Jason.decode(data) do
       {:ok, list} when is_list(list) -> {:ok, list}
       _ -> {:ok, []}
     end
   end
+
   def load(data) when is_list(data), do: {:ok, data}
 
   def dump(list) when is_list(list), do: {:ok, Jason.encode!(list)}
@@ -40,12 +42,14 @@ defmodule Mimo.Brain.EctoJsonMap do
   def cast(_), do: :error
 
   def load(nil), do: {:ok, %{}}
+
   def load(data) when is_binary(data) do
     case Jason.decode(data) do
       {:ok, map} when is_map(map) -> {:ok, map}
       _ -> {:ok, %{}}
     end
   end
+
   def load(data) when is_map(data), do: {:ok, data}
 
   def dump(map) when is_map(map), do: {:ok, Jason.encode!(map)}

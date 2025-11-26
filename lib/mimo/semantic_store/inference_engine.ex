@@ -1,18 +1,18 @@
 defmodule Mimo.SemanticStore.InferenceEngine do
   @moduledoc """
   Forward/backward chaining inference over semantic triples.
-  
+
   Applies inference rules to derive new facts from existing triples.
   Uses in-memory :digraph for fast pathfinding during inference.
-  
+
   ## Rule Types
-  
+
   - **Transitivity**: If A→B and B→C, then A→C
   - **Symmetry**: If A→B, then B→A
   - **Inverse**: If A reports_to B, then B manages A
-  
+
   ## Usage
-  
+
       # Apply transitive inference
       {:ok, new_triples} = InferenceEngine.forward_chain("reports_to")
       
@@ -28,18 +28,18 @@ defmodule Mimo.SemanticStore.InferenceEngine do
 
   @doc """
   Forward chaining inference: derive new facts from existing ones.
-  
+
   ## Parameters
-  
+
     - `predicate` - The predicate to apply inference rules to
     - `opts` - Options:
       - `:max_depth` - Maximum inference depth (default: 3)
       - `:min_confidence` - Minimum confidence for base facts (default: 0.8)
       - `:confidence_decay` - Confidence reduction per hop (default: 0.1)
       - `:persist` - Whether to save inferred triples (default: false)
-  
+
   ## Returns
-  
+
     - `{:ok, inferred_triples}` - List of newly inferred triples
   """
   @spec forward_chain(String.t(), keyword()) :: {:ok, [map()]}
@@ -57,14 +57,14 @@ defmodule Mimo.SemanticStore.InferenceEngine do
     graph = build_digraph(predicate, min_confidence)
 
     # Find all transitive closures
-    inferred = 
+    inferred =
       :digraph.vertices(graph)
       |> Enum.flat_map(fn vertex ->
         find_transitive_paths(graph, vertex, max_depth)
       end)
       |> Enum.map(fn {from, to, depth} ->
         confidence = max(0.0, 1.0 - depth * confidence_decay)
-        
+
         %{
           subject_id: elem(from, 0),
           subject_type: elem(from, 1),
@@ -92,15 +92,15 @@ defmodule Mimo.SemanticStore.InferenceEngine do
 
   @doc """
   Backward chaining: given a goal, find supporting facts.
-  
+
   ## Parameters
-  
+
     - `goal` - The fact to prove as `{subject_id, predicate, object_id}`
     - `opts` - Options:
       - `:max_depth` - Maximum search depth
-  
+
   ## Returns
-  
+
     - `{:ok, proof}` - Proof tree if goal can be derived
     - `{:error, :unprovable}` - Goal cannot be proven
   """
@@ -112,20 +112,22 @@ defmodule Mimo.SemanticStore.InferenceEngine do
     # Check if fact exists directly
     direct_match =
       from(t in Triple,
-        where: t.subject_id == ^subject_id and
-               t.predicate == ^predicate and
-               t.object_id == ^object_id,
+        where:
+          t.subject_id == ^subject_id and
+            t.predicate == ^predicate and
+            t.object_id == ^object_id,
         limit: 1
       )
       |> Repo.one()
 
     if direct_match do
-      {:ok, %{
-        goal: {subject_id, predicate, object_id},
-        proof_type: :direct,
-        confidence: direct_match.confidence,
-        supporting_facts: [direct_match]
-      }}
+      {:ok,
+       %{
+         goal: {subject_id, predicate, object_id},
+         proof_type: :direct,
+         confidence: direct_match.confidence,
+         supporting_facts: [direct_match]
+       }}
     else
       # Try to prove via transitive chain
       find_proof_chain(subject_id, predicate, object_id, max_depth)
@@ -134,7 +136,7 @@ defmodule Mimo.SemanticStore.InferenceEngine do
 
   @doc """
   Materializes all transitive paths for a predicate.
-  
+
   Creates explicit triples for all inferred relationships,
   improving query performance at the cost of storage.
   """
@@ -151,7 +153,7 @@ defmodule Mimo.SemanticStore.InferenceEngine do
 
   @doc """
   Applies inverse predicate rules.
-  
+
   For each triple `A predicate B`, creates `B inverse(predicate) A`.
   """
   @spec apply_inverse_rules(String.t(), keyword()) :: {:ok, non_neg_integer()}
@@ -217,12 +219,13 @@ defmodule Mimo.SemanticStore.InferenceEngine do
   defp find_transitive_paths(graph, start_vertex, max_depth) do
     # BFS to find all reachable vertices with depth
     bfs_traverse(graph, start_vertex, max_depth, %{start_vertex => 0}, [])
-    |> Enum.filter(fn {from, _to, depth} -> 
-      from == start_vertex and depth > 1  # Only keep actual transitive inferences
+    |> Enum.filter(fn {from, _to, depth} ->
+      # Only keep actual transitive inferences
+      from == start_vertex and depth > 1
     end)
   end
 
-  defp bfs_traverse(_graph, _current, max_depth, visited, acc) when map_size(visited) > 1000 do
+  defp bfs_traverse(_graph, _current, _max_depth, visited, acc) when map_size(visited) > 1000 do
     # Safety limit
     acc
   end
@@ -236,22 +239,23 @@ defmodule Mimo.SemanticStore.InferenceEngine do
       # Get direct neighbors
       neighbors = :digraph.out_neighbours(graph, current)
 
-      {new_visited, new_acc} =
+      {_new_visited, new_acc} =
         Enum.reduce(neighbors, {visited, acc}, fn neighbor, {vis, a} ->
           if Map.has_key?(vis, neighbor) do
             {vis, a}
           else
             depth = current_depth + 1
             new_vis = Map.put(vis, neighbor, depth)
-            
+
             # Get the start vertex (first vertex with depth 0)
             start = Enum.find(vis, fn {_v, d} -> d == 0 end) |> elem(0)
-            
-            new_a = if depth > 1 do
-              [{start, neighbor, depth} | a]
-            else
-              a
-            end
+
+            new_a =
+              if depth > 1 do
+                [{start, neighbor, depth} | a]
+              else
+                a
+              end
 
             # Continue BFS
             bfs_traverse(graph, neighbor, max_depth, new_vis, new_a)
@@ -268,14 +272,16 @@ defmodule Mimo.SemanticStore.InferenceEngine do
       {:ok, path} when length(path) > 2 ->
         # Build proof from path
         confidence = :math.pow(0.9, length(path) - 1)
-        
-        {:ok, %{
-          goal: {subject_id, predicate, object_id},
-          proof_type: :transitive,
-          confidence: Float.round(confidence, 3),
-          path: path,
-          supporting_facts: []  # Would need to fetch actual triples
-        }}
+
+        {:ok,
+         %{
+           goal: {subject_id, predicate, object_id},
+           proof_type: :transitive,
+           confidence: Float.round(confidence, 3),
+           path: path,
+           # Would need to fetch actual triples
+           supporting_facts: []
+         }}
 
       _ ->
         {:error, :unprovable}
@@ -287,9 +293,10 @@ defmodule Mimo.SemanticStore.InferenceEngine do
     Enum.reject(triples, fn t ->
       existing =
         from(tr in Triple,
-          where: tr.subject_id == ^t.subject_id and
-                 tr.predicate == ^t.predicate and
-                 tr.object_id == ^t.object_id,
+          where:
+            tr.subject_id == ^t.subject_id and
+              tr.predicate == ^t.predicate and
+              tr.object_id == ^t.object_id,
           limit: 1
         )
         |> Repo.one()

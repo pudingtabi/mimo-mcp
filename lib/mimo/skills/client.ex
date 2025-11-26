@@ -29,6 +29,7 @@ defmodule Mimo.Skills.Client do
         else
           spawn_and_call(skill_name, config, tool_name, arguments)
         end
+
       [] ->
         spawn_and_call(skill_name, config, tool_name, arguments)
     end
@@ -41,7 +42,7 @@ defmodule Mimo.Skills.Client do
       restart: :transient,
       shutdown: 30_000
     }
-    
+
     case DynamicSupervisor.start_child(Mimo.Skills.Supervisor, child_spec) do
       {:ok, _pid} -> call_tool(skill_name, tool_name, arguments)
       {:error, {:already_started, _pid}} -> call_tool(skill_name, tool_name, arguments)
@@ -66,11 +67,11 @@ defmodule Mimo.Skills.Client do
       {:ok, port} ->
         # Give the process time to start
         Process.sleep(1000)
-        
+
         case discover_tools(port) do
           {:ok, tools} ->
             Mimo.Registry.register_skill_tools(skill_name, tools, self())
-            
+
             state = %__MODULE__{
               skill_name: skill_name,
               port: port,
@@ -78,10 +79,10 @@ defmodule Mimo.Skills.Client do
               status: :active,
               tools: tools
             }
-            
+
             Logger.info("✓ Skill '#{skill_name}' loaded #{length(tools)} tools")
             {:ok, state}
-            
+
           {:error, reason} ->
             Logger.error("✗ Skill '#{skill_name}' discovery failed: #{inspect(reason)}")
             {:stop, {:discovery_failed, reason}}
@@ -95,25 +96,27 @@ defmodule Mimo.Skills.Client do
 
   # FIX #1: Environment Variable Interpolation
   defp spawn_subprocess(%{"command" => cmd, "args" => args} = config) do
-    raw_env = Map.get(config, "env", %{}) 
-    
-    env_list = Enum.map(raw_env, fn {k, v} -> 
-      final_value = interpolate_env(v)
-      {String.to_charlist(k), String.to_charlist(final_value)} 
-    end)
+    raw_env = Map.get(config, "env", %{})
+
+    env_list =
+      Enum.map(raw_env, fn {k, v} ->
+        final_value = interpolate_env(v)
+        {String.to_charlist(k), String.to_charlist(final_value)}
+      end)
 
     case System.find_executable(cmd) do
-      nil -> 
+      nil ->
         {:error, "Command not found: #{cmd}"}
+
       executable ->
         port_options = [
-          :binary, 
-          :exit_status, 
+          :binary,
+          :exit_status,
           :use_stdio,
-          {:env, env_list}, 
+          {:env, env_list},
           {:args, args}
         ]
-        
+
         port = Port.open({:spawn_executable, executable}, port_options)
         {:ok, port}
     end
@@ -129,18 +132,20 @@ defmodule Mimo.Skills.Client do
       System.get_env(var_name) || ""
     end)
   end
+
   defp interpolate_env(value), do: to_string(value)
 
   defp discover_tools(port) do
-    request = Jason.encode!(%{
-      "jsonrpc" => "2.0",
-      "method" => "tools/list",
-      "id" => 1
-    })
+    request =
+      Jason.encode!(%{
+        "jsonrpc" => "2.0",
+        "method" => "tools/list",
+        "id" => 1
+      })
 
     # Use Port.command/2 for proper port communication
     Port.command(port, request <> "\n")
-    
+
     receive do
       {^port, {:data, data}} ->
         case Jason.decode(data) do
@@ -157,17 +162,18 @@ defmodule Mimo.Skills.Client do
   def handle_call({:call_tool, tool_name, arguments}, _from, state) do
     # Remove skill prefix from tool name
     base_tool_name = String.replace_prefix(tool_name, "#{state.tool_prefix}_", "")
-    
-    request = Jason.encode!(%{
-      "jsonrpc" => "2.0",
-      "method" => "tools/call",
-      "params" => %{"name" => base_tool_name, "arguments" => arguments},
-      "id" => System.unique_integer([:positive])
-    })
+
+    request =
+      Jason.encode!(%{
+        "jsonrpc" => "2.0",
+        "method" => "tools/call",
+        "params" => %{"name" => base_tool_name, "arguments" => arguments},
+        "id" => System.unique_integer([:positive])
+      })
 
     # Use Port.command/2 for proper port communication
     Port.command(state.port, request <> "\n")
-    
+
     receive do
       {_, {:data, data}} ->
         case Jason.decode(data) do
@@ -208,6 +214,7 @@ defmodule Mimo.Skills.Client do
     if state.port do
       Port.close(state.port)
     end
+
     Mimo.Registry.unregister_skill(state.skill_name)
     :ok
   end

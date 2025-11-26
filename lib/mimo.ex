@@ -10,37 +10,38 @@ defmodule Mimo do
   """
   def bootstrap_skills do
     path = Application.fetch_env!(:mimo_mcp, :skills_path)
-    
+
     case File.read(path) do
       {:ok, content} ->
         case Jason.decode(content) do
           {:ok, skills} when is_map(skills) ->
             Logger.info("Bootstrapping #{map_size(skills)} skills...")
-            
+
             Enum.each(skills, fn {name, config} ->
               Task.Supervisor.start_child(
                 Mimo.TaskSupervisor,
                 fn ->
                   case start_skill(name, config) do
-                    {:ok, _pid} -> 
+                    {:ok, _pid} ->
                       Logger.info("✓ Skill '#{name}' started")
-                    {:error, error} -> 
+
+                    {:error, error} ->
                       Logger.warning("✗ Skill '#{name}' failed: #{inspect(error)}")
                   end
                 end
               )
             end)
-            
+
           {:ok, _} ->
             Logger.error("Invalid skills.json: must be a JSON object")
-            
+
           {:error, reason} ->
             Logger.error("Failed to parse skills.json: #{inspect(reason)}")
         end
-        
+
       {:error, :enoent} ->
         Logger.warning("No skills.json found at #{path}, starting with internal tools only")
-        
+
       {:error, reason} ->
         Logger.error("Failed to read skills.json: #{inspect(reason)}")
     end
@@ -53,6 +54,7 @@ defmodule Mimo do
       restart: :transient,
       shutdown: 30_000
     }
+
     DynamicSupervisor.start_child(Mimo.Skills.Supervisor, child_spec)
   end
 

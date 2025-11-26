@@ -25,16 +25,18 @@ defmodule Mimo.Skills.Catalog do
   def load_catalog do
     path = Application.get_env(:mimo_mcp, :skills_path, "priv/skills.json")
     manifest_path = String.replace(path, ".json", "_manifest.json")
-    
+
     case File.read(manifest_path) do
       {:ok, content} ->
         case Jason.decode(content) do
           {:ok, manifest} ->
             load_from_manifest(manifest)
+
           {:error, _} ->
             Logger.warning("Invalid skills manifest, falling back to discovery")
             :ok
         end
+
       {:error, :enoent} ->
         Logger.info("No skills manifest found, will discover on first call")
         :ok
@@ -45,12 +47,12 @@ defmodule Mimo.Skills.Catalog do
     Enum.each(manifest, fn {skill_name, skill_data} ->
       tools = Map.get(skill_data, "tools", [])
       config = Map.get(skill_data, "config", %{})
-      
+
       Enum.each(tools, fn tool ->
         prefixed_name = "#{skill_name}_#{tool["name"]}"
         :ets.insert(@catalog_table, {prefixed_name, skill_name, config, tool})
       end)
-      
+
       Logger.info("📦 Cataloged #{length(tools)} tools from '#{skill_name}'")
     end)
   end

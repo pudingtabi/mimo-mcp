@@ -20,10 +20,11 @@ defmodule Mimo.Brain.Memory do
         # Get all memories and calculate similarity in Elixir
         # Using raw query to avoid SQLite adapter issues with limit/order_by
         memories = Repo.all(Engram)
-        
+
         memories
         |> Enum.map(fn engram ->
           similarity = calculate_similarity(query_embedding, engram.embedding)
+
           %{
             id: engram.id,
             content: engram.content,
@@ -40,7 +41,7 @@ defmodule Mimo.Brain.Memory do
         []
     end
   rescue
-    e -> 
+    e ->
       Logger.error("Memory search failed: #{Exception.message(e)}")
       []
   end
@@ -50,13 +51,14 @@ defmodule Mimo.Brain.Memory do
   """
   def persist_memory(content, category, importance \\ 0.5) do
     {:ok, embedding} = Mimo.Brain.LLM.generate_embedding(content)
-    
-    changeset = Engram.changeset(%Engram{}, %{
-      content: content,
-      category: category,
-      importance: importance,
-      embedding: embedding
-    })
+
+    changeset =
+      Engram.changeset(%Engram{}, %{
+        content: content,
+        category: category,
+        importance: importance,
+        embedding: embedding
+      })
 
     case Repo.insert(changeset) do
       {:ok, engram} -> {:ok, engram.id}
@@ -69,12 +71,14 @@ defmodule Mimo.Brain.Memory do
   """
   def cleanup_old(days_old) do
     cutoff = DateTime.add(DateTime.utc_now(), -days_old * 24 * 60 * 60, :second)
-    
-    {count, _} = Repo.delete_all(
-      from e in Engram,
-      where: e.inserted_at < ^cutoff and e.importance < 0.5
-    )
-    
+
+    {count, _} =
+      Repo.delete_all(
+        from(e in Engram,
+          where: e.inserted_at < ^cutoff and e.importance < 0.5
+        )
+      )
+
     Logger.info("Cleaned up #{count} old memories")
     {:ok, count}
   end
@@ -87,9 +91,10 @@ defmodule Mimo.Brain.Memory do
       dot = Enum.zip(vec1, vec2) |> Enum.reduce(0.0, fn {a, b}, acc -> acc + a * b end)
       mag1 = :math.sqrt(Enum.reduce(vec1, 0.0, fn x, acc -> acc + x * x end))
       mag2 = :math.sqrt(Enum.reduce(vec2, 0.0, fn x, acc -> acc + x * x end))
-      
+
       if mag1 == 0.0 or mag2 == 0.0, do: 0.0, else: dot / (mag1 * mag2)
     end
   end
+
   defp calculate_similarity(_, _), do: 0.0
 end

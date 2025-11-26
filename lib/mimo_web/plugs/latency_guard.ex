@@ -1,7 +1,7 @@
 defmodule MimoWeb.Plugs.LatencyGuard do
   @moduledoc """
   Latency guard plug that returns HTTP 503 if system is overloaded.
-  
+
   Checks router.decision.duration.ms p99 against threshold.
   """
   import Plug.Conn
@@ -16,9 +16,10 @@ defmodule MimoWeb.Plugs.LatencyGuard do
     case check_system_health() do
       :healthy ->
         conn
-        
+
       {:overloaded, p99_ms} ->
         Logger.warning("System overloaded, p99 latency: #{p99_ms}ms")
+
         conn
         |> put_status(:service_unavailable)
         |> Phoenix.Controller.json(%{
@@ -36,7 +37,7 @@ defmodule MimoWeb.Plugs.LatencyGuard do
     # For now, check BEAM scheduler utilization as proxy
     schedulers = :erlang.system_info(:schedulers_online)
     run_queue = :erlang.statistics(:total_run_queue_lengths_all)
-    
+
     # If run queue is > 2x schedulers, system is overloaded
     if run_queue > schedulers * 2 do
       {:overloaded, run_queue}

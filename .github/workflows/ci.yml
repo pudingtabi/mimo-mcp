@@ -69,11 +69,14 @@ jobs:
 
       - name: Check Formatting
         run: mix format --check-formatted
-        continue-on-error: true  # Don't fail on formatting for now
 
       - name: Compile (includes Rust NIFs)
         run: mix compile --warnings-as-errors
-        continue-on-error: true  # Warnings present but non-critical
+
+      - name: Setup Test Database
+        run: |
+          mix ecto.create
+          mix ecto.migrate
 
       - name: Run Tests
         run: mix test

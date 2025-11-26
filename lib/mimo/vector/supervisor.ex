@@ -1,7 +1,7 @@
 defmodule Mimo.Vector.Supervisor do
   @moduledoc """
   Supervisor for vector computation infrastructure.
-  
+
   Manages:
   - NIF preloading
   - Worker pool for batch operations
@@ -19,7 +19,7 @@ defmodule Mimo.Vector.Supervisor do
     children = [
       # NIF preloader - ensures NIF is compiled and loaded
       {Mimo.Vector.NIFPreloader, []},
-      
+
       # Worker pool for batch operations
       # Using a simple Task.Supervisor as poolboy adds complexity
       {Task.Supervisor, name: Mimo.Vector.TaskSupervisor}
@@ -32,7 +32,7 @@ end
 defmodule Mimo.Vector.NIFPreloader do
   @moduledoc """
   Preloads the Rust NIF on application startup.
-  
+
   This GenServer ensures the NIF is compiled (in dev) and loaded
   before any vector operations are attempted.
   """
@@ -50,7 +50,7 @@ defmodule Mimo.Vector.NIFPreloader do
     case Mimo.Vector.Math.cosine_similarity([1.0], [1.0]) do
       {:ok, _} ->
         Logger.info("✅ Vector Math NIF ready")
-        
+
       {:error, reason} ->
         Logger.warning("⚠️ Vector Math NIF not available: #{inspect(reason)}, using fallback")
     end

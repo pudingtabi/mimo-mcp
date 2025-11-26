@@ -20,7 +20,7 @@ defmodule MimoWeb.HealthController do
       system: %{
         schedulers: :erlang.system_info(:schedulers_online),
         run_queue: :erlang.statistics(:total_run_queue_lengths_all),
-        memory_mb: :erlang.memory(:total) / (1024 * 1024) |> Float.round(2)
+        memory_mb: (:erlang.memory(:total) / (1024 * 1024)) |> Float.round(2)
       },
       stores: %{
         episodic: check_episodic_store(),

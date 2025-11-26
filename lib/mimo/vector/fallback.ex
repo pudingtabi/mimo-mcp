@@ -1,7 +1,7 @@
 defmodule Mimo.Vector.Fallback do
   @moduledoc """
   Pure Elixir fallback implementations for vector operations.
-  
+
   Used when the Rust NIF is not available (development, unsupported platforms).
   Performance is ~10-40x slower than the NIF but functionally identical.
   """
@@ -15,7 +15,7 @@ defmodule Mimo.Vector.Fallback do
   def cosine_similarity(a, b) when length(a) != length(b), do: {:error, :dimension_mismatch}
 
   def cosine_similarity(a, b) when is_list(a) and is_list(b) do
-    {dot, mag_a, mag_b} = 
+    {dot, mag_a, mag_b} =
       a
       |> Enum.zip(b)
       |> Enum.reduce({0.0, 0.0, 0.0}, fn {x, y}, {dot, ma, mb} ->
@@ -48,7 +48,7 @@ defmodule Mimo.Vector.Fallback do
         results =
           corpus
           |> Task.async_stream(
-            fn vec -> 
+            fn vec ->
               {:ok, sim} = cosine_similarity(query, vec)
               sim
             end,

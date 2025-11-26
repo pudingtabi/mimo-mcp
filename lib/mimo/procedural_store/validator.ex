@@ -1,16 +1,16 @@
 defmodule Mimo.ProceduralStore.Validator do
   @moduledoc """
   JSON Schema validator for procedure definitions.
-  
+
   Validates that procedure definitions conform to the expected
   state machine format before registration.
   """
 
   @doc """
   Validates a procedure definition.
-  
+
   ## Required Structure
-  
+
       %{
         "name" => "procedure_name",
         "version" => "1.0",
@@ -22,9 +22,9 @@ defmodule Mimo.ProceduralStore.Validator do
           }
         }
       }
-  
+
   ## Returns
-  
+
     - `:ok` - Valid definition
     - `{:error, errors}` - List of validation errors
   """
@@ -189,7 +189,10 @@ defmodule Mimo.ProceduralStore.Validator do
           acc
 
         targets ->
-          ["state '#{name}' has transitions to non-existent states: #{Enum.join(targets, ", ")}" | acc]
+          [
+            "state '#{name}' has transitions to non-existent states: #{Enum.join(targets, ", ")}"
+            | acc
+          ]
       end
     end)
   end

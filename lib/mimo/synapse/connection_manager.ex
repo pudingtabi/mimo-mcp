@@ -1,7 +1,7 @@
 defmodule Mimo.Synapse.ConnectionManager do
   @moduledoc """
   Manages WebSocket connection lifecycle for agents.
-  
+
   Tracks active connections, handles reconnection logic,
   and provides connection health monitoring.
   """

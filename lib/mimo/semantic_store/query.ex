@@ -1,12 +1,12 @@
 defmodule Mimo.SemanticStore.Query do
   @moduledoc """
   Query engine for the Semantic Store.
-  
+
   Provides efficient graph queries using SQLite recursive CTEs
   for transitive closure and pattern matching operations.
-  
+
   ## Query Types
-  
+
   - **Transitive Closure**: Find all entities reachable via a predicate
   - **Pattern Match**: Find entities matching multiple conditions
   - **Path Finding**: Find shortest paths between entities
@@ -20,11 +20,11 @@ defmodule Mimo.SemanticStore.Query do
 
   @doc """
   Finds all entities reachable from `start_entity` via `predicate`.
-  
+
   Uses SQLite recursive CTE for efficient transitive closure computation.
-  
+
   ## Parameters
-  
+
     - `start_id` - Starting entity ID
     - `start_type` - Starting entity type
     - `predicate` - Relationship to traverse
@@ -32,13 +32,13 @@ defmodule Mimo.SemanticStore.Query do
       - `:max_depth` - Maximum traversal depth (default: 5)
       - `:min_confidence` - Minimum confidence threshold (default: 0.7)
       - `:direction` - `:forward` (default) or `:backward`
-  
+
   ## Returns
-  
+
   List of `%Entity{}` structs representing reachable entities.
-  
+
   ## Examples
-  
+
       iex> Query.transitive_closure("alice", "person", "reports_to")
       [
         %Entity{id: "bob", type: "person", depth: 1, path: ["alice", "bob"]},
@@ -53,10 +53,11 @@ defmodule Mimo.SemanticStore.Query do
 
     # SQLite recursive CTE for transitive closure
     # Note: SQLite uses || for string concatenation
-    query = case direction do
-      :forward -> forward_traversal_query()
-      :backward -> backward_traversal_query()
-    end
+    query =
+      case direction do
+        :forward -> forward_traversal_query()
+        :backward -> backward_traversal_query()
+      end
 
     case Ecto.Adapters.SQL.query(Repo, query, [
            start_id,
@@ -152,19 +153,19 @@ defmodule Mimo.SemanticStore.Query do
 
   @doc """
   Pattern matching query: find entities matching multiple conditions.
-  
+
   ## Parameters
-  
+
     - `clauses` - List of pattern clauses
-  
+
   ## Clause Format
-  
+
     - `{:subject, predicate, object}` - Subject has predicate to object
     - `{:any, predicate, object}` - Any entity with predicate to object
     - `{:subject, predicate, :any}` - Subject has predicate to any entity
-  
+
   ## Examples
-  
+
       # Find entities that report to "ceo" AND are located in "sf"
       iex> Query.pattern_match([
       ...>   {:any, "reports_to", "ceo"},
@@ -201,29 +202,33 @@ defmodule Mimo.SemanticStore.Query do
   end
 
   defp apply_clause(query, {:any, predicate, object}) do
-    from t in query,
+    from(t in query,
       where: t.predicate == ^predicate and t.object_id == ^object
+    )
   end
 
   defp apply_clause(query, {subject, predicate, :any}) do
-    from t in query,
+    from(t in query,
       where: t.subject_id == ^subject and t.predicate == ^predicate
+    )
   end
 
   defp apply_clause(query, {subject, predicate, object}) do
-    from t in query,
-      where: t.subject_id == ^subject and 
-             t.predicate == ^predicate and 
-             t.object_id == ^object
+    from(t in query,
+      where:
+        t.subject_id == ^subject and
+          t.predicate == ^predicate and
+          t.object_id == ^object
+    )
   end
 
   @doc """
   Finds the shortest path between two entities.
-  
+
   Uses bidirectional BFS for efficiency.
-  
+
   ## Returns
-  
+
     - `{:ok, path}` - List of entity IDs forming the path
     - `{:error, :no_path}` - No path exists within max_depth
   """
@@ -273,7 +278,10 @@ defmodule Mimo.SemanticStore.Query do
   @doc """
   Gets all direct relationships for an entity.
   """
-  @spec get_relationships(String.t(), String.t()) :: %{outgoing: [Triple.t()], incoming: [Triple.t()]}
+  @spec get_relationships(String.t(), String.t()) :: %{
+          outgoing: [Triple.t()],
+          incoming: [Triple.t()]
+        }
   def get_relationships(entity_id, entity_type) do
     subject_hash = Triple.hash_entity(entity_id, entity_type)
 

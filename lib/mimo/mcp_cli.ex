@@ -31,7 +31,9 @@ defmodule Mimo.McpCli do
 
   defp wait_for_catalog do
     case Mimo.Skills.Catalog.list_tools() do
-      tools when length(tools) > 0 -> :ok
+      [_ | _] ->
+        :ok
+
       _ ->
         Process.sleep(100)
         wait_for_catalog()
@@ -45,8 +47,12 @@ defmodule Mimo.McpCli do
 
   defp process_stdin do
     case IO.read(:stdio, :line) do
-      :eof -> :ok
-      {:error, _reason} -> :ok
+      :eof ->
+        :ok
+
+      {:error, _reason} ->
+        :ok
+
       line when is_binary(line) ->
         handle_line(String.trim(line))
         process_stdin()
@@ -54,10 +60,12 @@ defmodule Mimo.McpCli do
   end
 
   defp handle_line(""), do: :ok
+
   defp handle_line(line) do
     case Jason.decode(line) do
       {:ok, request} ->
         response = handle_request(request)
+
         unless response == :no_response do
           # Use :io.put_chars with explicit newline and flush for immediate output
           output = Jason.encode!(response) <> "\n"
@@ -65,12 +73,14 @@ defmodule Mimo.McpCli do
           # Force flush - critical for unbuffered output over pipes/ssh
           :io.setopts(:standard_io, [{:encoding, :unicode}])
         end
+
       {:error, _} ->
         error_response = %{
           "jsonrpc" => "2.0",
           "error" => %{"code" => -32700, "message" => "Parse error"},
           "id" => nil
         }
+
         output = Jason.encode!(error_response) <> "\n"
         :io.put_chars(:standard_io, output)
         :io.setopts(:standard_io, [{:encoding, :unicode}])
@@ -111,12 +121,13 @@ defmodule Mimo.McpCli do
     tool_name = params["name"]
     arguments = params["arguments"] || %{}
 
-    result = case tool_name do
-      "ask_mimo" -> handle_ask_mimo(arguments)
-      "mimo_store_memory" -> handle_store_memory(arguments)
-      "mimo_reload_skills" -> handle_reload_skills()
-      _ -> handle_skill_tool(tool_name, arguments)
-    end
+    result =
+      case tool_name do
+        "ask_mimo" -> handle_ask_mimo(arguments)
+        "mimo_store_memory" -> handle_store_memory(arguments)
+        "mimo_reload_skills" -> handle_reload_skills()
+        _ -> handle_skill_tool(tool_name, arguments)
+      end
 
     case result do
       {:ok, content} ->
@@ -127,6 +138,7 @@ defmodule Mimo.McpCli do
           },
           "id" => id
         }
+
       {:error, reason} ->
         %{
           "jsonrpc" => "2.0",
@@ -164,7 +176,8 @@ defmodule Mimo.McpCli do
     [
       %{
         "name" => "ask_mimo",
-        "description" => "Consult Mimo's memory for strategic guidance. Query the AI memory system for context, patterns, and recommendations.",
+        "description" =>
+          "Consult Mimo's memory for strategic guidance. Query the AI memory system for context, patterns, and recommendations.",
         "inputSchema" => %{
           "type" => "object",
           "properties" => %{
@@ -207,11 +220,12 @@ defmodule Mimo.McpCli do
   end
 
   defp handle_ask_mimo(%{"query" => query}) do
-    memories = try do
-      Mimo.Brain.Memory.search_memories(query, limit: 10)
-    rescue
-      _ -> []
-    end
+    memories =
+      try do
+        Mimo.Brain.Memory.search_memories(query, limit: 10)
+      rescue
+        _ -> []
+      end
 
     case Mimo.Brain.LLM.consult_chief_of_staff(query, memories) do
       {:ok, plan} ->
@@ -225,20 +239,25 @@ defmodule Mimo.McpCli do
         rescue
           _ -> :ok
         end
+
         {:ok, %{"answer" => plan, "memories_consulted" => length(memories)}}
+
       {:error, reason} ->
         {:error, "Brain consultation failed: #{inspect(reason)}"}
     end
   end
+
   defp handle_ask_mimo(_), do: {:error, "Missing required parameter: query"}
 
   defp handle_store_memory(%{"content" => content, "category" => category} = params) do
     importance = Map.get(params, "importance", 0.5)
+
     case Mimo.Brain.Memory.persist_memory(content, category, importance) do
       {:ok, id} -> {:ok, %{"stored" => true, "id" => id}}
       {:error, reason} -> {:error, "Failed to store: #{inspect(reason)}"}
     end
   end
+
   defp handle_store_memory(_), do: {:error, "Missing required parameters: content, category"}
 
   defp handle_reload_skills do
@@ -254,6 +273,7 @@ defmodule Mimo.McpCli do
           {:ok, result} -> {:ok, result}
           {:error, reason} -> {:error, reason}
         end
+
       {:error, :not_found} ->
         {:error, "Tool '#{tool_name}' not found"}
     end

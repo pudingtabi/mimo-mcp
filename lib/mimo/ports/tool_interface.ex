@@ -4,14 +4,14 @@ defmodule Mimo.ToolInterface do
 
   Abstract port for direct, low-level memory operations.
   Provides store_fact/2, recall_procedure/2, search_vibes/2 operations.
-  
+
   Part of the Universal Aperture architecture - isolates Mimo Core from protocol concerns.
   """
   require Logger
 
   @supported_tools [
     "store_fact",
-    "recall_procedure", 
+    "recall_procedure",
     "search_vibes",
     "mimo_reload_skills",
     "mimo_store_memory",
@@ -39,30 +39,34 @@ defmodule Mimo.ToolInterface do
   def execute("search_vibes", %{"query" => query} = args) do
     limit = Map.get(args, "limit", 10)
     threshold = Map.get(args, "threshold", 0.3)
-    
-    results = Mimo.Brain.Memory.search_memories(query, 
-      limit: limit, 
-      min_similarity: threshold
-    )
-    
-    {:ok, %{
-      tool_call_id: UUID.uuid4(),
-      status: "success",
-      data: results
-    }}
+
+    results =
+      Mimo.Brain.Memory.search_memories(query,
+        limit: limit,
+        min_similarity: threshold
+      )
+
+    {:ok,
+     %{
+       tool_call_id: UUID.uuid4(),
+       status: "success",
+       data: results
+     }}
   end
 
   def execute("store_fact", %{"content" => content} = args) do
     category = Map.get(args, "category", "fact")
     importance = Map.get(args, "importance", 0.5)
-    
+
     case Mimo.Brain.Memory.persist_memory(content, category, importance) do
       {:ok, id} ->
-        {:ok, %{
-          tool_call_id: UUID.uuid4(),
-          status: "success",
-          data: %{stored: true, id: id}
-        }}
+        {:ok,
+         %{
+           tool_call_id: UUID.uuid4(),
+           status: "success",
+           data: %{stored: true, id: id}
+         }}
+
       {:error, reason} ->
         {:error, "Failed to store fact: #{inspect(reason)}"}
     end
@@ -70,21 +74,24 @@ defmodule Mimo.ToolInterface do
 
   def execute("recall_procedure", %{"name" => _name} = _args) do
     # TODO: Implement procedural store retrieval
-    {:ok, %{
-      tool_call_id: UUID.uuid4(),
-      status: "success",
-      data: %{status: "not_implemented", message: "Procedural store pending implementation"}
-    }}
+    {:ok,
+     %{
+       tool_call_id: UUID.uuid4(),
+       status: "success",
+       data: %{status: "not_implemented", message: "Procedural store pending implementation"}
+     }}
   end
 
   def execute("mimo_reload_skills", _args) do
     case Mimo.Registry.reload_skills() do
       {:ok, :reloaded} ->
-        {:ok, %{
-          tool_call_id: UUID.uuid4(),
-          status: "success",
-          data: %{status: "success", message: "Skills reloaded"}
-        }}
+        {:ok,
+         %{
+           tool_call_id: UUID.uuid4(),
+           status: "success",
+           data: %{status: "success", message: "Skills reloaded"}
+         }}
+
       {:error, reason} ->
         {:error, "Reload failed: #{inspect(reason)}"}
     end
@@ -92,14 +99,16 @@ defmodule Mimo.ToolInterface do
 
   def execute("mimo_store_memory", %{"content" => content, "category" => category} = args) do
     importance = Map.get(args, "importance", 0.5)
-    
+
     case Mimo.Brain.Memory.persist_memory(content, category, importance) do
       {:ok, id} ->
-        {:ok, %{
-          tool_call_id: UUID.uuid4(),
-          status: "success",
-          data: %{stored: true, id: id}
-        }}
+        {:ok,
+         %{
+           tool_call_id: UUID.uuid4(),
+           status: "success",
+           data: %{stored: true, id: id}
+         }}
+
       {:error, reason} ->
         {:error, "Failed to store memory: #{inspect(reason)}"}
     end
@@ -108,11 +117,13 @@ defmodule Mimo.ToolInterface do
   def execute("ask_mimo", %{"query" => query}) do
     case Mimo.QueryInterface.ask(query) do
       {:ok, result} ->
-        {:ok, %{
-          tool_call_id: UUID.uuid4(),
-          status: "success",
-          data: result
-        }}
+        {:ok,
+         %{
+           tool_call_id: UUID.uuid4(),
+           status: "success",
+           data: result
+         }}
+
       {:error, reason} ->
         {:error, "Query failed: #{inspect(reason)}"}
     end
@@ -140,7 +151,11 @@ defmodule Mimo.ToolInterface do
           "properties" => %{
             "query" => %{"type" => "string", "description" => "Search query"},
             "limit" => %{"type" => "integer", "default" => 10, "description" => "Max results"},
-            "threshold" => %{"type" => "number", "default" => 0.3, "description" => "Min similarity"}
+            "threshold" => %{
+              "type" => "number",
+              "default" => 0.3,
+              "description" => "Min similarity"
+            }
           },
           "required" => ["query"]
         }

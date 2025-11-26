@@ -1,7 +1,7 @@
 defmodule Mimo.Synapse.InterruptManager do
   @moduledoc """
   Manages execution interruption signals.
-  
+
   Allows clients to interrupt long-running queries or procedures
   by signaling the executing process.
   """
@@ -41,7 +41,7 @@ defmodule Mimo.Synapse.InterruptManager do
 
   @doc """
   Checks if a reference has a pending interrupt.
-  
+
   Should be called periodically by long-running processes.
   """
   @spec check_interrupt(String.t()) :: :ok | {:interrupt, atom(), map()}
@@ -58,9 +58,9 @@ defmodule Mimo.Synapse.InterruptManager do
 
   @doc """
   Macro for checking interrupts in a loop.
-  
+
   Usage:
-  
+
       import Mimo.Synapse.InterruptManager, only: [interruptible: 2]
       
       interruptible ref do

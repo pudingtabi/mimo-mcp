@@ -1,13 +1,13 @@
 defmodule Mimo.ProceduralStore.StepExecutor do
   @moduledoc """
   Behaviour and implementations for procedure step execution.
-  
+
   Step executors are deterministic modules that perform specific
   actions within a procedure. They receive context and return
   results without any LLM involvement.
-  
+
   ## Implementing a Step Executor
-  
+
       defmodule MyApp.Steps.ValidateInput do
         @behaviour Mimo.ProceduralStore.StepExecutor
         
@@ -24,14 +24,14 @@ defmodule Mimo.ProceduralStore.StepExecutor do
 
   @doc """
   Executes a step with the given context and arguments.
-  
+
   ## Parameters
-  
+
     - `context` - Current execution context (accumulated state)
     - `args` - Step-specific arguments from procedure definition
-  
+
   ## Returns
-  
+
     - `{:ok, result}` - Step completed successfully, result merged into context
     - `{:error, reason}` - Step failed
     - `{:transition, event}` - Explicit transition event (overrides default :success)
@@ -79,13 +79,13 @@ defmodule Mimo.ProceduralStore.Steps.Validate do
     rules = Map.get(args, "rules", [])
     validate_with_rules(context, rules)
   end
-  
+
   @impl true
   def execute(context, args) when is_list(args) do
     rules = Keyword.get(args, :rules, [])
     validate_with_rules(context, rules)
   end
-  
+
   defp validate_with_rules(context, rules) do
     errors =
       rules
@@ -194,7 +194,7 @@ defmodule Mimo.ProceduralStore.Steps.HttpRequest do
 
     case HTTPoison.request(method, url, body || "", headers) do
       {:ok, %{status_code: code, body: resp_body}} when code in 200..299 ->
-        parsed = 
+        parsed =
           case Jason.decode(resp_body) do
             {:ok, json} -> json
             _ -> resp_body
@@ -258,7 +258,7 @@ defmodule Mimo.ProceduralStore.Steps.Conditional do
       {:transition, false_event}
     end
   end
-  
+
   @impl true
   def execute(context, args) when is_list(args) do
     field = Keyword.get(args, :field)
@@ -276,14 +276,17 @@ defmodule Mimo.ProceduralStore.Steps.Conditional do
       {:transition, false_event}
     end
   end
-  
+
   defp evaluate(actual, op, value) when op in ["eq", :eq], do: actual == value
   defp evaluate(actual, op, value) when op in ["ne", :ne], do: actual != value
   defp evaluate(actual, op, value) when op in ["gt", :gt], do: actual > value
   defp evaluate(actual, op, value) when op in ["gte", :gte], do: actual >= value
   defp evaluate(actual, op, value) when op in ["lt", :lt], do: actual < value
   defp evaluate(actual, op, value) when op in ["lte", :lte], do: actual <= value
-  defp evaluate(actual, op, value) when op in ["contains", :contains], do: is_binary(actual) and String.contains?(actual, value)
+
+  defp evaluate(actual, op, value) when op in ["contains", :contains],
+    do: is_binary(actual) and String.contains?(actual, value)
+
   defp evaluate(actual, op, value) when op in ["in", :in], do: actual in value
   defp evaluate(_, _, _), do: false
 end
@@ -299,7 +302,7 @@ defmodule Mimo.ProceduralStore.Steps.SetContext do
     values = Map.get(args, "values", %{})
     {:ok, values}
   end
-  
+
   @impl true
   def execute(context, args) when is_list(args) do
     values = Keyword.get(args, :values, %{})

@@ -1,7 +1,7 @@
 defmodule Mimo.SemanticStore.Entity do
   @moduledoc """
   Virtual schema for graph traversal results.
-  
+
   Represents an entity discovered during graph traversal,
   including its path from the starting entity.
   """
@@ -33,17 +33,14 @@ defmodule Mimo.SemanticStore.Entity do
   Extends an entity's path with a new hop.
   """
   def extend_path(%__MODULE__{} = entity, next_id) do
-    %{entity | 
-      depth: entity.depth + 1,
-      path: entity.path ++ [next_id]
-    }
+    %{entity | depth: entity.depth + 1, path: entity.path ++ [next_id]}
   end
 end
 
 defmodule Mimo.SemanticStore.Predicates do
   @moduledoc """
   Predefined predicates for type safety and consistency.
-  
+
   Using standardized predicates ensures consistent graph structure
   and enables meaningful inference rules.
   """
@@ -54,27 +51,27 @@ defmodule Mimo.SemanticStore.Predicates do
     manages: "manages",
     belongs_to: "belongs_to",
     member_of: "member_of",
-    
+
     # Spatial relationships
     located_in: "located_in",
     contains: "contains",
     adjacent_to: "adjacent_to",
-    
+
     # Dependency relationships
     requires: "requires",
     depends_on: "depends_on",
     provides: "provides",
-    
+
     # Taxonomic relationships
     is_a: "is_a",
     instance_of: "instance_of",
     subclass_of: "subclass_of",
-    
+
     # Temporal relationships
     precedes: "precedes",
     follows: "follows",
     overlaps: "overlaps",
-    
+
     # Ownership/attribution
     owns: "owns",
     created_by: "created_by",
@@ -101,9 +98,9 @@ defmodule Mimo.SemanticStore.Predicates do
 
   @doc """
   Returns the inverse predicate if one exists.
-  
+
   ## Examples
-  
+
       iex> Predicates.inverse("reports_to")
       "manages"
       
@@ -134,9 +131,9 @@ defmodule Mimo.SemanticStore.Predicates do
 
   @doc """
   Checks if a predicate is transitive (supports multi-hop traversal).
-  
+
   ## Examples
-  
+
       iex> Predicates.transitive?("reports_to")
       true
       

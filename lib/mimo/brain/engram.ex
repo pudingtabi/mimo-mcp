@@ -2,21 +2,21 @@ defmodule Mimo.Brain.Engram do
   @moduledoc """
   Universal Engram - the polymorphic memory unit.
   Based on CoALA framework principles.
-  
+
   Note: Embedding and metadata are stored as JSON text in SQLite.
   """
   use Ecto.Schema
   import Ecto.Changeset
 
   schema "engrams" do
-    field :content, :string
-    field :category, :string
-    field :importance, :float, default: 0.5
-    
+    field(:content, :string)
+    field(:category, :string)
+    field(:importance, :float, default: 0.5)
+
     # These use custom Ecto type that serializes to JSON
-    field :embedding, Mimo.Brain.EctoJsonList, default: []
-    field :metadata, Mimo.Brain.EctoJsonMap, default: %{}
-    
+    field(:embedding, Mimo.Brain.EctoJsonList, default: [])
+    field(:metadata, Mimo.Brain.EctoJsonMap, default: %{})
+
     timestamps()
   end
 

@@ -1,12 +1,12 @@
 defmodule Mimo.SemanticStore.Triple do
   @moduledoc """
   Ecto schema for semantic triples (Subject-Predicate-Object).
-  
+
   Triples represent exact relationships between entities, enabling
   deterministic graph queries and multi-hop reasoning.
-  
+
   ## Examples
-  
+
       # "Alice reports to Bob"
       %Triple{
         subject_id: "alice",
@@ -36,16 +36,16 @@ defmodule Mimo.SemanticStore.Triple do
   @foreign_key_type :binary_id
 
   schema "semantic_triples" do
-    field :subject_hash, :string, redact: true
-    field :subject_id, :string
-    field :subject_type, :string
-    field :predicate, :string
-    field :object_id, :string
-    field :object_type, :string
-    field :confidence, :float, default: 1.0
-    field :source, :string
-    field :ttl, :integer
-    field :metadata, Mimo.Brain.EctoJsonMap, default: %{}
+    field(:subject_hash, :string, redact: true)
+    field(:subject_id, :string)
+    field(:subject_type, :string)
+    field(:predicate, :string)
+    field(:object_id, :string)
+    field(:object_type, :string)
+    field(:confidence, :float, default: 1.0)
+    field(:source, :string)
+    field(:ttl, :integer)
+    field(:metadata, Mimo.Brain.EctoJsonMap, default: %{})
 
     timestamps(type: :naive_datetime_usec)
   end
@@ -55,20 +55,22 @@ defmodule Mimo.SemanticStore.Triple do
 
   @doc """
   Creates a changeset for a triple.
-  
+
   Automatically computes the subject_hash for indexing.
   """
   def changeset(triple, attrs) do
     triple
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
-    |> validate_number(:confidence, 
-         greater_than_or_equal_to: 0.0, 
-         less_than_or_equal_to: 1.0)
+    |> validate_number(:confidence,
+      greater_than_or_equal_to: 0.0,
+      less_than_or_equal_to: 1.0
+    )
     |> validate_number(:ttl, greater_than: 0)
     |> compute_subject_hash()
     |> unique_constraint([:subject_hash, :predicate, :object_id, :object_type],
-         name: :semantic_unique_triple_index)
+      name: :semantic_unique_triple_index
+    )
   end
 
   defp compute_subject_hash(changeset) do
@@ -83,7 +85,7 @@ defmodule Mimo.SemanticStore.Triple do
 
   @doc """
   Computes a deterministic hash for entity indexing.
-  
+
   The hash is used for efficient lookups without needing
   to query on both subject_id and subject_type.
   """
@@ -98,6 +100,7 @@ defmodule Mimo.SemanticStore.Triple do
   """
   @spec expired?(t()) :: boolean()
   def expired?(%__MODULE__{ttl: nil}), do: false
+
   def expired?(%__MODULE__{ttl: ttl, inserted_at: inserted_at}) do
     expires_at = NaiveDateTime.add(inserted_at, ttl, :second)
     NaiveDateTime.compare(NaiveDateTime.utc_now(), expires_at) == :gt

@@ -1,31 +1,31 @@
 defmodule MimoWeb.CortexChannel do
   @moduledoc """
   Phoenix Channel for real-time cognitive signaling.
-  
+
   The Cortex Channel enables bidirectional communication between
   Mimo and connected agents, supporting:
-  
+
   - Query submission and streaming responses
   - Real-time thought/progress updates
   - Execution interruption
   - Presence tracking
-  
+
   ## Client Protocol
-  
+
   ### Joining
-  
+
       socket.channel("cortex:<agent_id>", {api_key: "..."})
-  
+
   ### Sending Queries
-  
+
       channel.push("query", {q: "...", ref: "unique-id"})
-  
+
   ### Receiving Thoughts
-  
+
       channel.on("thought", ({thought, ref}) => {...})
-  
+
   ### Interrupting
-  
+
       channel.push("interrupt", {ref: "query-ref", reason: "..."})
   """
 
@@ -37,11 +37,11 @@ defmodule MimoWeb.CortexChannel do
   require Logger
 
   # Intercept outgoing events for transformation
-  intercept ["thought:issued", "execution:interrupt", "result"]
+  intercept(["thought:issued", "execution:interrupt", "result"])
 
   @doc """
   Handles channel join requests.
-  
+
   Validates API key and tracks the connection.
   """
   def join("cortex:" <> agent_id, %{"api_key" => key}, socket) do

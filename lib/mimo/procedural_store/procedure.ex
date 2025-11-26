@@ -1,7 +1,7 @@
 defmodule Mimo.ProceduralStore.Procedure do
   @moduledoc """
   Ecto schema for procedural registry entries.
-  
+
   Procedures are deterministic state machines that execute
   critical tasks without LLM involvement.
   """
@@ -12,26 +12,33 @@ defmodule Mimo.ProceduralStore.Procedure do
   @foreign_key_type :binary_id
 
   schema "procedural_registry" do
-    field :name, :string
-    field :version, :string
-    field :description, :string
-    field :definition, Mimo.Brain.EctoJsonMap
-    field :hash, :string
-    field :active, :boolean, default: true
-    field :rollback_procedure, :string
-    field :timeout_ms, :integer, default: 300_000
-    field :max_retries, :integer, default: 3
-    field :metadata, Mimo.Brain.EctoJsonMap, default: %{}
+    field(:name, :string)
+    field(:version, :string)
+    field(:description, :string)
+    field(:definition, Mimo.Brain.EctoJsonMap)
+    field(:hash, :string)
+    field(:active, :boolean, default: true)
+    field(:rollback_procedure, :string)
+    field(:timeout_ms, :integer, default: 300_000)
+    field(:max_retries, :integer, default: 3)
+    field(:metadata, Mimo.Brain.EctoJsonMap, default: %{})
 
     timestamps()
   end
 
   @required_fields [:name, :version, :definition]
-  @optional_fields [:description, :active, :rollback_procedure, :timeout_ms, :max_retries, :metadata]
+  @optional_fields [
+    :description,
+    :active,
+    :rollback_procedure,
+    :timeout_ms,
+    :max_retries,
+    :metadata
+  ]
 
   @doc """
   Creates a changeset for a procedure.
-  
+
   Automatically computes the definition hash for integrity verification.
   """
   def changeset(procedure, attrs) do
@@ -82,7 +89,7 @@ end
 defmodule Mimo.ProceduralStore.Execution do
   @moduledoc """
   Ecto schema for procedure execution records.
-  
+
   Tracks execution history for audit, debugging, and analytics.
   """
   use Ecto.Schema
@@ -94,18 +101,18 @@ defmodule Mimo.ProceduralStore.Execution do
   @statuses ~w(pending running completed failed rolled_back interrupted)
 
   schema "procedure_executions" do
-    field :procedure_name, :string
-    field :procedure_version, :string
-    field :status, :string, default: "pending"
-    field :current_state, :string
-    field :context, Mimo.Brain.EctoJsonMap, default: %{}
-    field :history, Mimo.Brain.EctoJsonList, default: []
-    field :error, :string
-    field :started_at, :naive_datetime_usec
-    field :completed_at, :naive_datetime_usec
-    field :duration_ms, :integer
+    field(:procedure_name, :string)
+    field(:procedure_version, :string)
+    field(:status, :string, default: "pending")
+    field(:current_state, :string)
+    field(:context, Mimo.Brain.EctoJsonMap, default: %{})
+    field(:history, Mimo.Brain.EctoJsonList, default: [])
+    field(:error, :string)
+    field(:started_at, :naive_datetime_usec)
+    field(:completed_at, :naive_datetime_usec)
+    field(:duration_ms, :integer)
 
-    belongs_to :procedure, Mimo.ProceduralStore.Procedure
+    belongs_to(:procedure, Mimo.ProceduralStore.Procedure)
 
     timestamps()
   end

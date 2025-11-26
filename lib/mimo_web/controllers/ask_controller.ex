@@ -1,7 +1,7 @@
 defmodule MimoWeb.AskController do
   @moduledoc """
   Controller for the /v1/mimo/ask endpoint.
-  
+
   Accepts natural language queries and routes them through the Meta-Cognitive Router
   to the appropriate Triad Stores (Episodic, Semantic, Procedural).
   """
@@ -32,9 +32,10 @@ defmodule MimoWeb.AskController do
       |> put_status(:bad_request)
       |> json(%{error: "Missing required parameter: query"})
     else
-      {time_us, result} = :timer.tc(fn ->
-        Mimo.QueryInterface.ask(query, context_id, timeout_ms: timeout_ms)
-      end)
+      {time_us, result} =
+        :timer.tc(fn ->
+          Mimo.QueryInterface.ask(query, context_id, timeout_ms: timeout_ms)
+        end)
 
       latency_ms = time_us / 1000
 

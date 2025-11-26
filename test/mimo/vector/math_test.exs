@@ -26,7 +26,7 @@ defmodule Mimo.Vector.MathTest do
     test "handles large vectors (1536 dimensions)" do
       a = for i <- 1..1536, do: i / 1536.0
       b = for i <- 1..1536, do: (1536 - i) / 1536.0
-      
+
       assert {:ok, sim} = Math.cosine_similarity(a, b)
       assert sim >= -1.0 and sim <= 1.0
     end
@@ -46,10 +46,14 @@ defmodule Mimo.Vector.MathTest do
   describe "batch_similarity/2" do
     test "computes similarities for multiple vectors" do
       query = [1.0, 0.0, 0.0]
+
       corpus = [
-        [1.0, 0.0, 0.0],  # Identical
-        [0.0, 1.0, 0.0],  # Orthogonal
-        [0.707, 0.707, 0.0]  # 45 degrees
+        # Identical
+        [1.0, 0.0, 0.0],
+        # Orthogonal
+        [0.0, 1.0, 0.0],
+        # 45 degrees
+        [0.707, 0.707, 0.0]
       ]
 
       assert {:ok, results} = Math.batch_similarity(query, corpus)
@@ -69,22 +73,27 @@ defmodule Mimo.Vector.MathTest do
   describe "top_k_similar/3" do
     test "returns top k most similar vectors" do
       query = [1.0, 0.0, 0.0]
+
       corpus = [
-        [0.5, 0.5, 0.0],   # Index 0
-        [1.0, 0.0, 0.0],   # Index 1 - most similar
-        [0.0, 1.0, 0.0],   # Index 2 - orthogonal
-        [0.9, 0.1, 0.0],   # Index 3 - very similar
+        # Index 0
+        [0.5, 0.5, 0.0],
+        # Index 1 - most similar
+        [1.0, 0.0, 0.0],
+        # Index 2 - orthogonal
+        [0.0, 1.0, 0.0],
+        # Index 3 - very similar
+        [0.9, 0.1, 0.0]
       ]
 
       assert {:ok, results} = Math.top_k_similar(query, corpus, 2)
       assert length(results) == 2
 
       [{idx1, sim1}, {idx2, sim2}] = results
-      
+
       # Index 1 should be first (identical)
       assert idx1 == 1
       assert_in_delta sim1, 1.0, 0.0001
-      
+
       # Index 3 should be second
       assert idx2 == 3
       assert sim2 > 0.9
@@ -101,13 +110,14 @@ defmodule Mimo.Vector.MathTest do
 
   describe "normalize_vector/1" do
     test "normalizes to unit length" do
-      vec = [3.0, 4.0]  # Length = 5
+      # Length = 5
+      vec = [3.0, 4.0]
       assert {:ok, normalized} = Math.normalize_vector(vec)
-      
+
       [x, y] = normalized
       assert_in_delta x, 0.6, 0.0001
       assert_in_delta y, 0.8, 0.0001
-      
+
       # Check unit length
       length = :math.sqrt(x * x + y * y)
       assert_in_delta length, 1.0, 0.0001
