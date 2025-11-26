@@ -183,7 +183,8 @@ defmodule Mimo.Skills.Client do
     Port.command(port, init_request <> "\n")
 
     # Wait for initialize response (may get multiple messages)
-    case wait_for_json_response(port, 10_000) do
+    # 30s timeout to allow npx to download packages on first run
+    case wait_for_json_response(port, 30_000) do
       {:ok, %{"result" => _}} ->
         # Step 2: Send initialized notification
         initialized =
@@ -207,7 +208,7 @@ defmodule Mimo.Skills.Client do
 
         Port.command(port, list_request <> "\n")
 
-        case wait_for_json_response(port, 10_000) do
+        case wait_for_json_response(port, 30_000) do
           {:ok, %{"result" => %{"tools" => tools}}} -> {:ok, tools}
           {:ok, %{"error" => error}} -> {:error, {:mcp_error, error}}
           {:error, reason} -> {:error, reason}
