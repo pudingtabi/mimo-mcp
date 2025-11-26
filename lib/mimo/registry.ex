@@ -28,6 +28,20 @@ defmodule Mimo.Registry do
     GenServer.cast(__MODULE__, {:unregister_skill, skill_name})
   end
 
+  @internal_tool_names [
+    "ask_mimo",
+    "search_vibes",
+    "store_fact",
+    "mimo_store_memory",
+    "mimo_reload_skills"
+  ]
+
+  @doc "Check if a tool is an internal tool"
+  def internal_tool?(name), do: name in @internal_tool_names
+
+  @doc "List internal tool names"
+  def internal_tool_names, do: @internal_tool_names
+
   @doc """
   List all available tools - internal + catalog (lazy) + active skills.
   """

@@ -50,7 +50,7 @@ defmodule Mimo.Application do
     # Start MCP server (stdio for GitHub Copilot)
     start_mcp_server(sup)
 
-    Logger.info("Mimo-MCP Gateway v2.2 started (Universal Aperture mode)")
+    Logger.info("Mimo-MCP Gateway v2.3.0 started (Universal Aperture mode)")
     Logger.info("  HTTP API: http://localhost:#{http_port()}")
     Logger.info("  MCP Server: stdio (port #{mcp_port()})")
     {:ok, sup}

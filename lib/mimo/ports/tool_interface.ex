@@ -3,31 +3,15 @@ defmodule Mimo.ToolInterface do
   Port: ToolInterface
 
   Abstract port for direct, low-level memory operations.
-  Provides store_fact/2, recall_procedure/2, search_vibes/2 operations.
+  Routes to internal tools or external skills via Registry.
 
   Part of the Universal Aperture architecture - isolates Mimo Core from protocol concerns.
   """
   require Logger
 
-  @supported_tools [
-    "store_fact",
-    "recall_procedure",
-    "search_vibes",
-    "mimo_reload_skills",
-    "mimo_store_memory",
-    "ask_mimo"
-  ]
-
   @doc """
   Execute a tool by name with given arguments.
-
-  ## Supported Tools
-    - store_fact: Insert JSON-LD triples into Semantic Store
-    - recall_procedure: Retrieve rules from Procedural Store
-    - search_vibes: Vector similarity search in Episodic Store
-    - mimo_reload_skills: Hot-reload Procedural Store from disk
-    - mimo_store_memory: Store a memory in the brain
-    - ask_mimo: Consult Mimo's memory system
+  Routes to internal tools or external skills automatically.
 
   ## Returns
     - {:ok, result} on success
@@ -129,12 +113,37 @@ defmodule Mimo.ToolInterface do
     end
   end
 
-  def execute(tool_name, _args) when tool_name in @supported_tools do
-    {:error, "Missing required arguments for tool: #{tool_name}"}
-  end
+  # Fallback: route unknown tools through Registry (external skills)
+  def execute(tool_name, arguments) do
+    case Mimo.Registry.get_tool_owner(tool_name) do
+      {:ok, {:skill, skill_name, _pid}} ->
+        # Route to external skill
+        Logger.debug("Routing #{tool_name} to skill #{skill_name}")
 
-  def execute(tool_name, _args) do
-    {:error, "Unknown tool: #{tool_name}. Supported: #{inspect(@supported_tools)}"}
+        case Mimo.Skills.Client.call_tool(skill_name, tool_name, arguments) do
+          {:ok, result} ->
+            {:ok,
+             %{
+               tool_call_id: UUID.uuid4(),
+               status: "success",
+               data: result
+             }}
+
+          {:error, reason} ->
+            {:error, "Skill execution failed: #{inspect(reason)}"}
+        end
+
+      {:ok, {:internal, _}} ->
+        # Internal tool without specific handler - missing arguments
+        {:error, "Missing required arguments for tool: #{tool_name}"}
+
+      {:error, :not_found} ->
+        available = Mimo.Registry.list_all_tools() |> Enum.map(& &1["name"]) |> Enum.take(10)
+        {:error, "Unknown tool: #{tool_name}. Available tools include: #{inspect(available)}"}
+
+      {:error, reason} ->
+        {:error, "Tool routing failed: #{inspect(reason)}"}
+    end
   end
 
   @doc """
@@ -142,53 +151,6 @@ defmodule Mimo.ToolInterface do
   """
   @spec list_tools() :: [map()]
   def list_tools do
-    [
-      %{
-        "name" => "search_vibes",
-        "description" => "Vector similarity search in Episodic Store (memory search)",
-        "inputSchema" => %{
-          "type" => "object",
-          "properties" => %{
-            "query" => %{"type" => "string", "description" => "Search query"},
-            "limit" => %{"type" => "integer", "default" => 10, "description" => "Max results"},
-            "threshold" => %{
-              "type" => "number",
-              "default" => 0.3,
-              "description" => "Min similarity"
-            }
-          },
-          "required" => ["query"]
-        }
-      },
-      %{
-        "name" => "store_fact",
-        "description" => "Insert facts into Semantic/Episodic Store",
-        "inputSchema" => %{
-          "type" => "object",
-          "properties" => %{
-            "content" => %{"type" => "string", "description" => "The fact/content to store"},
-            "category" => %{"type" => "string", "enum" => ["fact", "observation", "action", "plan"]},
-            "importance" => %{"type" => "number", "minimum" => 0, "maximum" => 1}
-          },
-          "required" => ["content"]
-        }
-      },
-      %{
-        "name" => "recall_procedure",
-        "description" => "Retrieve rules from Procedural Store",
-        "inputSchema" => %{
-          "type" => "object",
-          "properties" => %{
-            "name" => %{"type" => "string", "description" => "Procedure name to recall"}
-          },
-          "required" => ["name"]
-        }
-      },
-      %{
-        "name" => "mimo_reload_skills",
-        "description" => "Hot-reload skills from disk without restart",
-        "inputSchema" => %{"type" => "object", "properties" => %{}}
-      }
-    ]
+    Mimo.Registry.list_all_tools()
   end
 end
