@@ -136,26 +136,100 @@ defmodule Mimo.Skills.Client do
   defp interpolate_env(value), do: to_string(value)
 
   defp discover_tools(port) do
-    request =
+    # Step 1: Send initialize request (required by MCP protocol)
+    init_request =
       Jason.encode!(%{
         "jsonrpc" => "2.0",
-        "method" => "tools/list",
+        "method" => "initialize",
+        "params" => %{
+          "protocolVersion" => "2024-11-05",
+          "capabilities" => %{},
+          "clientInfo" => %{"name" => "mimo-mcp", "version" => "2.3.0"}
+        },
         "id" => 1
       })
 
-    # Use Port.command/2 for proper port communication
-    Port.command(port, request <> "\n")
+    Port.command(port, init_request <> "\n")
 
-    receive do
-      {^port, {:data, data}} ->
-        case Jason.decode(data) do
+    # Wait for initialize response (may get multiple messages)
+    case wait_for_json_response(port, 10_000) do
+      {:ok, %{"result" => _}} ->
+        # Step 2: Send initialized notification
+        initialized =
+          Jason.encode!(%{
+            "jsonrpc" => "2.0",
+            "method" => "notifications/initialized"
+          })
+
+        Port.command(port, initialized <> "\n")
+
+        # Give server time to process
+        Process.sleep(100)
+
+        # Step 3: Request tools list
+        list_request =
+          Jason.encode!(%{
+            "jsonrpc" => "2.0",
+            "method" => "tools/list",
+            "id" => 2
+          })
+
+        Port.command(port, list_request <> "\n")
+
+        case wait_for_json_response(port, 10_000) do
           {:ok, %{"result" => %{"tools" => tools}}} -> {:ok, tools}
           {:ok, %{"error" => error}} -> {:error, {:mcp_error, error}}
-          {:error, _} -> {:error, :invalid_json}
+          {:error, reason} -> {:error, reason}
         end
-    after
-      15_000 -> {:error, :discovery_timeout}
+
+      {:ok, %{"error" => error}} ->
+        {:error, {:init_error, error}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
+  end
+
+  # Wait for a valid JSON response, accumulating data across multiple receives
+  defp wait_for_json_response(port, timeout) do
+    wait_for_json_response(port, timeout, "")
+  end
+
+  defp wait_for_json_response(port, timeout, buffer) do
+    receive do
+      {^port, {:data, data}} ->
+        new_buffer = buffer <> data
+
+        # Try to parse each line as JSON
+        case find_json_response(new_buffer) do
+          {:ok, response, _rest} ->
+            {:ok, response}
+
+          :incomplete ->
+            # Keep accumulating
+            wait_for_json_response(port, timeout, new_buffer)
+        end
+
+      {^port, {:exit_status, status}} ->
+        {:error, {:process_exited, status}}
+    after
+      timeout -> {:error, :discovery_timeout}
+    end
+  end
+
+  # Find a valid JSON-RPC response in the buffer (handles multi-line output)
+  defp find_json_response(buffer) do
+    buffer
+    |> String.split("\n", trim: true)
+    |> Enum.reduce_while(:incomplete, fn line, _acc ->
+      case Jason.decode(line) do
+        {:ok, %{"jsonrpc" => "2.0"} = response} ->
+          {:halt, {:ok, response, ""}}
+
+        _ ->
+          {:cont, :incomplete}
+      end
+    end)
   end
 
   @impl true
