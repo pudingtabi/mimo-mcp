@@ -1,438 +1,408 @@
-# Mimo Built-in Skills Research Spec
-## Goal: Replace External MCP Skills with Native Elixir Implementation
+# Mimo Native Skills Spec
+## Zero-Dependency Built-in Skills for Elixir/OTP
 
-**Version:** 1.0
+**Version:** 2.0
 **Date:** 2025-11-26
-**Status:** Research Phase
+**Status:** Research Required
 
 ---
 
-## Executive Summary
+## Design Principles
 
-Replace slow, fragile external MCP skills (npx subprocesses) with fast, native Elixir implementations. This will make Mimo self-contained, faster, and more reliable.
-
----
-
-## Current Architecture Problems
-
-| Problem | Impact | Root Cause |
-|---------|--------|------------|
-| Slow startup | 5-30s per skill | npx downloads packages |
-| Process overhead | Memory/CPU waste | Spawns Node.js per skill |
-| Fragile IPC | Timeouts, crashes | Line-mode tuples, JSON over stdio |
-| External deps | Version conflicts | npm packages we don't control |
-| Complex debugging | Hard to trace issues | Cross-process boundaries |
+1. **Zero external dependencies** - Only Elixir/OTP stdlib
+2. **No API keys required** - Self-contained functionality
+3. **Pure Elixir** - No NIFs, no Ports to external programs (except for browser)
+4. **Single process** - Skills run in Mimo's BEAM VM, not subprocesses
 
 ---
 
-## Proposed Architecture
+## Skills to Implement
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     MIMO NATIVE SKILLS                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
-│  │   Web       │  │   File      │  │  Browser    │             │
-│  │  Skills     │  │  Skills     │  │  Skills     │             │
-│  ├─────────────┤  ├─────────────┤  ├─────────────┤             │
-│  │ • fetch     │  │ • read_file │  │ • navigate  │             │
-│  │ • exa_search│  │ • write_file│  │ • screenshot│             │
-│  │ • scrape    │  │ • list_dir  │  │ • click     │             │
-│  │             │  │ • edit_file │  │ • fill      │             │
-│  └─────────────┘  │ • search    │  └─────────────┘             │
-│                   └─────────────┘                               │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
-│  │  Terminal   │  │  Reasoning  │  │   Code      │             │
-│  │  Skills     │  │  Skills     │  │  Skills     │             │
-│  ├─────────────┤  ├─────────────┤  ├─────────────┤             │
-│  │ • exec_cmd  │  │ • think     │  │ • run_python│             │
-│  │ • spawn_proc│  │ • plan      │  │ • run_node  │             │
-│  │ • interact  │  │ • reflect   │  │ • run_shell │             │
-│  └─────────────┘  └─────────────┘  └─────────────┘             │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+### 1. HTTP/Fetch Skills
+
+**Tools:**
+- `fetch_text` - Fetch URL, return plain text
+- `fetch_html` - Fetch URL, return raw HTML
+- `fetch_json` - Fetch URL, parse JSON
+- `fetch_markdown` - Fetch URL, convert HTML to Markdown
+
+**Elixir/OTP Requirements:**
+| Requirement | OTP Module | Notes |
+|-------------|------------|-------|
+| HTTP client | `:httpc` | Built into OTP (inets) |
+| SSL/TLS | `:ssl` | Built into OTP |
+| URI parsing | `URI` | Elixir stdlib |
+| JSON parsing | Need to evaluate | Jason already in deps, or write simple parser |
+
+**Research Topics:**
+- [ ] `:httpc` usage for GET/POST requests
+- [ ] SSL certificate handling with `:ssl`
+- [ ] Following redirects manually
+- [ ] HTML to plain text extraction (strip tags with regex/parser)
+- [ ] HTML to Markdown conversion algorithm
+- [ ] Timeout and error handling
+- [ ] User-Agent and headers
+
+**Spec:**
+```elixir
+# Input
+%{
+  "url" => "https://example.com",
+  "headers" => %{"User-Agent" => "Mimo/1.0"},  # optional
+  "timeout" => 30000  # optional, ms
+}
+
+# Output
+{:ok, %{
+  "content" => "...",
+  "status" => 200,
+  "headers" => %{...},
+  "content_type" => "text/html"
+}}
 ```
 
 ---
 
-## Research Areas
+### 2. File Skills
 
-### 1. Web Skills (Priority: HIGH)
+**Tools:**
+- `read_file` - Read file contents
+- `write_file` - Write/overwrite file
+- `append_file` - Append to file
+- `list_directory` - List directory contents with metadata
+- `create_directory` - Create directory (recursive)
+- `move_file` - Move/rename file or directory
+- `delete_file` - Delete file
+- `delete_directory` - Delete directory (recursive)
+- `file_info` - Get file metadata (size, modified, type)
+- `file_exists` - Check if path exists
+- `search_files` - Find files by pattern
 
-#### 1.1 Fetch Skill
-**Current:** `@tokenizin/mcp-npx-fetch` (Node.js)
-**Replacement:** Native HTTPoison/Req
+**Elixir/OTP Requirements:**
+| Requirement | OTP Module | Notes |
+|-------------|------------|-------|
+| File operations | `File` | Elixir stdlib |
+| Path manipulation | `Path` | Elixir stdlib |
+| File info | `File.stat/1` | Returns `%File.Stat{}` |
+| Directory walk | `:filelib.wildcard/1` | OTP |
+| Stream large files | `File.stream!/1` | Elixir stdlib |
 
+**Research Topics:**
+- [ ] Path traversal security (prevent `../../etc/passwd`)
+- [ ] Allowed directories whitelist
+- [ ] Large file handling with streams
+- [ ] Binary vs text detection
+- [ ] Encoding detection (UTF-8, etc.)
+- [ ] Atomic writes (write to temp, then rename)
+- [ ] File permissions on create
+
+**Spec:**
 ```elixir
-# Research needed:
-- [ ] HTTPoison vs Req vs Finch - which is best?
-- [ ] HTML to Markdown conversion (Floki + custom?)
-- [ ] HTML to plain text extraction
-- [ ] Handling redirects, cookies, headers
-- [ ] Rate limiting per domain
-- [ ] Timeout handling
-- [ ] SSL/TLS configuration
+# read_file input
+%{"path" => "/workspace/file.txt", "encoding" => "utf-8"}
+
+# list_directory input
+%{"path" => "/workspace", "recursive" => false, "pattern" => "*.ex"}
+
+# Security: paths must be within allowed_directories config
 ```
-
-**Estimated effort:** 2-4 hours
-**Dependencies:** HTTPoison (already in deps), Floki (HTML parsing)
-
-#### 1.2 Exa Search Skill
-**Current:** `exa-mcp-server` (Node.js)
-**Replacement:** Direct Exa API calls
-
-```elixir
-# Research needed:
-- [ ] Exa API documentation review
-- [ ] API endpoints: /search, /contents, /find-similar
-- [ ] Response parsing and formatting
-- [ ] Error handling and rate limits
-- [ ] Caching strategy for repeated queries
-```
-
-**Estimated effort:** 1-2 hours
-**Dependencies:** HTTPoison, Jason
-
-#### 1.3 Web Scraping Skill (NEW)
-**Current:** None
-**Proposal:** Built-in scraper
-
-```elixir
-# Research needed:
-- [ ] Floki for HTML parsing
-- [ ] CSS selector support
-- [ ] XPath support (optional)
-- [ ] JavaScript-rendered content (needs browser?)
-- [ ] Robots.txt compliance
-- [ ] User-agent rotation
-```
-
-**Estimated effort:** 4-6 hours
-**Dependencies:** Floki, HTTPoison
 
 ---
 
-### 2. File Skills (Priority: HIGH)
+### 3. Text/Edit Skills
 
-#### 2.1 File Operations
-**Current:** `@wonderwhy-er/desktop-commander` (Node.js)
-**Replacement:** Native Elixir File module
+**Tools:**
+- `edit_file` - Find and replace in file
+- `search_text` - Search for pattern in text/file
+- `diff_text` - Compare two texts
 
+**Elixir/OTP Requirements:**
+| Requirement | OTP Module | Notes |
+|-------------|------------|-------|
+| String ops | `String` | Elixir stdlib |
+| Regex | `Regex` | Elixir stdlib |
+| Binary pattern | `:binary` | OTP |
+
+**Research Topics:**
+- [ ] Exact match vs regex replacement
+- [ ] Multi-occurrence handling
+- [ ] Context-aware replacement (ensure uniqueness)
+- [ ] Line number tracking
+- [ ] Diff algorithm (simple line-based)
+
+**Spec:**
 ```elixir
-# Research needed:
-- [ ] File.read/write/stream for large files
-- [ ] Path traversal security (prevent escaping allowed dirs)
-- [ ] Allowed directories configuration
-- [ ] File watching (FileSystem library?)
-- [ ] Atomic writes (temp file + rename)
-- [ ] Encoding detection and handling
-- [ ] Binary vs text file detection
+# edit_file input
+%{
+  "path" => "/workspace/file.ex",
+  "old_text" => "def foo do",
+  "new_text" => "def bar do",
+  "occurrence" => 1  # which occurrence, or "all"
+}
+
+# Output
+{:ok, %{"changed" => true, "occurrences_replaced" => 1}}
 ```
-
-**Tools to implement:**
-| Tool | Elixir Implementation |
-|------|----------------------|
-| read_file | `File.read/1` + streaming for large files |
-| write_file | `File.write/2` with atomic option |
-| list_directory | `File.ls/1` + `File.stat/1` |
-| create_directory | `File.mkdir_p/1` |
-| move_file | `File.rename/2` |
-| delete_file | `File.rm/1` |
-| get_file_info | `File.stat/1` |
-| search_files | Walk + pattern match or `:filelib.wildcard/1` |
-
-**Estimated effort:** 4-6 hours
-**Dependencies:** None (stdlib)
-
-#### 2.2 File Edit Skill
-**Current:** desktop_commander edit_block
-**Replacement:** Native diff/patch
-
-```elixir
-# Research needed:
-- [ ] String replacement with context validation
-- [ ] Fuzzy matching for moved code
-- [ ] Undo/history support?
-- [ ] Conflict detection
-- [ ] Line-based vs character-based edits
-```
-
-**Estimated effort:** 2-3 hours
-**Dependencies:** None
 
 ---
 
-### 3. Terminal Skills (Priority: MEDIUM)
+### 4. Process/Terminal Skills
 
-#### 3.1 Command Execution
-**Current:** desktop_commander start_process, exec
-**Replacement:** Native Elixir Port
+**Tools:**
+- `exec_command` - Execute shell command, return output
+- `spawn_process` - Start long-running process
+- `kill_process` - Terminate process
+- `list_processes` - List Mimo-spawned processes
 
-```elixir
-# Research needed:
-- [ ] Port vs System.cmd - pros/cons
-- [ ] Interactive process handling (stdin/stdout)
-- [ ] PTY allocation for terminal apps
-- [ ] Process supervision and cleanup
-- [ ] Command sandboxing/whitelisting
-- [ ] Environment variable handling
-- [ ] Working directory management
-- [ ] Timeout and resource limits
-```
+**Elixir/OTP Requirements:**
+| Requirement | OTP Module | Notes |
+|-------------|------------|-------|
+| Run command | `System.cmd/3` | Simple execution |
+| Port | `Port` | For interactive processes |
+| Process registry | `Registry` | Track spawned processes |
 
-**Security considerations:**
-```elixir
-# Must implement:
-- [ ] Command whitelist (no arbitrary execution)
-- [ ] Argument sanitization (no shell injection)
-- [ ] Resource limits (timeout, memory)
-- [ ] Audit logging
-```
-
-**Estimated effort:** 6-8 hours
-**Dependencies:** None (stdlib Port)
-
----
-
-### 4. Browser Skills (Priority: LOW)
-
-#### 4.1 Browser Automation
-**Current:** `@modelcontextprotocol/server-puppeteer` (Node.js)
-**Options:**
-
-| Option | Pros | Cons |
-|--------|------|------|
-| **Keep external** | Works, full Chrome | Slow, complex |
-| **Wallaby** | Elixir native, good API | Primarily for testing |
-| **ChromeRemoteInterface** | Direct CDP access | Low-level, complex |
-| **Playwright Elixir** | Modern, cross-browser | Wrapper, still external |
-| **Splash** | Docker service, Lua scripts | Another service |
-
-```elixir
-# Research needed:
-- [ ] Evaluate Wallaby for general automation
-- [ ] Chrome DevTools Protocol direct implementation
-- [ ] Headless Chrome management in Elixir
-- [ ] Screenshot capture and encoding
-- [ ] PDF generation
-- [ ] Cookie/session management
-```
-
-**Recommendation:** Keep puppeteer external for now, or use simple HTTP-based screenshot service.
-
-**Estimated effort:** 20+ hours for full native implementation
-**Dependencies:** Complex - needs Chrome/Chromium
-
----
-
-### 5. Reasoning Skills (Priority: MEDIUM)
-
-#### 5.1 Sequential Thinking
-**Current:** `@modelcontextprotocol/server-sequential-thinking` (Node.js)
-**Replacement:** Pure data structure (trivial)
-
-```elixir
-# This is literally just:
-defmodule Mimo.Skills.Thinking do
-  def sequential_thinking(%{thought: t, number: n, total: total, next_needed: next}) do
-    {:ok, %{
-      thought: t,
-      thought_number: n,
-      total_thoughts: total,
-      next_thought_needed: next,
-      timestamp: DateTime.utc_now()
-    }}
-  end
-end
-```
-
-**Estimated effort:** 30 minutes
-**Dependencies:** None
-
-#### 5.2 Planning Skill (NEW)
-**Proposal:** Built-in task decomposition
-
-```elixir
-# Research needed:
-- [ ] Task breakdown algorithms
-- [ ] Dependency graph for subtasks
-- [ ] Integration with Procedural Store
-- [ ] Progress tracking
-```
-
-**Estimated effort:** 4-6 hours
-
----
-
-### 6. Code Execution Skills (Priority: LOW)
-
-#### 6.1 Safe Code Execution
-**Proposal:** Sandboxed code runners
-
-```elixir
-# Research needed:
-- [ ] Docker-based sandboxing
-- [ ] WASM-based sandboxing (Wasmex)
-- [ ] Resource limits (CPU, memory, time)
-- [ ] Network isolation
-- [ ] Filesystem isolation
-- [ ] Language support: Python, Node, Shell
-
-# Security critical:
-- [ ] No access to host filesystem
-- [ ] No network by default
-- [ ] Strict timeout enforcement
+**Research Topics:**
+- [ ] Command whitelist (security)
+- [ ] Argument sanitization (no injection)
+- [ ] Timeout enforcement
 - [ ] Output size limits
+- [ ] Environment variable handling
+- [ ] Working directory
+- [ ] Interactive stdin/stdout with Port
+- [ ] Process supervision and cleanup
+
+**Security Critical:**
+```elixir
+# MUST implement:
+@allowed_commands ["ls", "cat", "grep", "find", "echo", "date", "whoami"]
+# NO: rm, curl, wget, bash, sh, python, node (unless whitelisted)
 ```
 
+**Spec:**
+```elixir
+# exec_command input
+%{
+  "command" => "ls",
+  "args" => ["-la", "/workspace"],
+  "timeout" => 30000,
+  "cwd" => "/workspace"
+}
+
+# Output
+{:ok, %{"stdout" => "...", "stderr" => "", "exit_code" => 0}}
+```
+
+---
+
+### 5. Reasoning Skills
+
+**Tools:**
+- `think` - Record a thought step
+- `plan` - Create task breakdown
+- `reflect` - Analyze previous actions
+
+**Elixir/OTP Requirements:**
+| Requirement | OTP Module | Notes |
+|-------------|------------|-------|
+| Data structures | `Map`, `List` | Elixir stdlib |
+| Timestamps | `DateTime` | Elixir stdlib |
+| State | Agent/GenServer | If persistence needed |
+
+**Research Topics:**
+- [ ] Thought chain data structure
+- [ ] Integration with Procedural Store
+- [ ] Plan → subtasks decomposition
+- [ ] Progress tracking
+
+**Spec:**
+```elixir
+# think input
+%{
+  "thought" => "I need to first read the file, then parse it",
+  "step" => 1,
+  "total_steps" => 3
+}
+
+# plan input  
+%{
+  "goal" => "Refactor the authentication module",
+  "context" => "Current code uses sessions, need to add JWT"
+}
+
+# Output
+{:ok, %{
+  "plan_id" => "uuid",
+  "steps" => [
+    %{"step" => 1, "action" => "Read current auth module", "status" => "pending"},
+    %{"step" => 2, "action" => "Add JWT dependency", "status" => "pending"},
+    ...
+  ]
+}}
+```
+
+---
+
+### 6. Browser Skills (External - Keep Puppeteer)
+
+**Reason:** Browser automation requires Chrome/Chromium binary. Cannot be pure Elixir.
+
 **Options:**
-| Option | Security | Performance | Complexity |
-|--------|----------|-------------|------------|
-| Docker containers | High | Slow startup | Medium |
-| Firecracker microVMs | Very High | Fast | High |
-| WASM (Wasmex) | High | Fast | Medium |
-| gVisor | High | Medium | High |
+1. Keep external MCP puppeteer (current)
+2. Use Chrome DevTools Protocol (CDP) directly from Elixir via WebSocket
+3. Use screenshot API service
 
-**Estimated effort:** 20+ hours
-**Dependencies:** Docker or Wasmex
-
----
-
-## Implementation Priority
-
-### Phase 1: Quick Wins (Week 1)
-1. ✅ **fetch** - Native HTTP (2-4 hours)
-2. ✅ **exa_search** - Direct API (1-2 hours)
-3. ✅ **sequential_thinking** - Data structure (30 min)
-
-### Phase 2: File Operations (Week 2)
-4. **file_read/write/list** - Native File (4-6 hours)
-5. **file_edit** - String replacement (2-3 hours)
-6. **file_search** - Pattern matching (2-3 hours)
-
-### Phase 3: Terminal (Week 3)
-7. **exec_command** - Secure Port (6-8 hours)
-8. **process_management** - Supervision (4-6 hours)
-
-### Phase 4: Advanced (Future)
-9. **browser** - Evaluate options
-10. **code_execution** - Sandboxed runners
+**Research Topics (if doing CDP):**
+- [ ] WebSocket client in OTP (`:gun` or `mint`)
+- [ ] CDP protocol messages
+- [ ] Managing headless Chrome process
+- [ ] Screenshot encoding (base64)
 
 ---
 
-## Skill Interface Spec
+### 7. Web Search Skills (Requires API)
 
-All native skills should implement this behaviour:
+**Note:** Web search inherently requires external API (Google, Bing, Exa, etc.)
+
+**Options:**
+1. Keep Exa API integration (current) - requires EXA_API_KEY
+2. Add DuckDuckGo scraping (no API key, but fragile)
+3. Add SearXNG self-hosted option
+
+**Research Topics:**
+- [ ] DuckDuckGo HTML scraping feasibility
+- [ ] SearXNG API format
+- [ ] Caching search results
+
+---
+
+## Skill Behaviour Interface
 
 ```elixir
-defmodule Mimo.Skills.Behaviour do
+defmodule Mimo.Skills.Native.Behaviour do
+  @moduledoc "All native skills must implement this behaviour"
+  
+  # Skill metadata
   @callback name() :: String.t()
   @callback description() :: String.t()
+  @callback category() :: :web | :file | :terminal | :reasoning | :browser
+  
+  # JSON Schema for MCP compatibility
   @callback input_schema() :: map()
-  @callback execute(args :: map()) :: {:ok, any()} | {:error, any()}
-end
-
-# Example implementation:
-defmodule Mimo.Skills.Native.Fetch do
-  @behaviour Mimo.Skills.Behaviour
   
-  @impl true
-  def name, do: "fetch"
+  # Execution
+  @callback execute(args :: map(), context :: map()) :: 
+    {:ok, any()} | {:error, String.t()}
   
-  @impl true
-  def description, do: "Fetch content from URLs"
-  
-  @impl true
-  def input_schema do
-    %{
-      type: "object",
-      properties: %{
-        url: %{type: "string", description: "URL to fetch"},
-        format: %{type: "string", enum: ["text", "html", "json", "markdown"]}
-      },
-      required: ["url"]
-    }
-  end
-  
-  @impl true
-  def execute(%{"url" => url} = args) do
-    format = Map.get(args, "format", "text")
-    # Implementation here
-  end
+  # Optional: validation before execute
+  @callback validate(args :: map()) :: :ok | {:error, String.t()}
 end
 ```
 
 ---
 
-## Testing Strategy
+## File Structure
 
-```elixir
-# Each skill needs:
-1. Unit tests for core logic
-2. Integration tests with real services (where applicable)
-3. Security tests (injection, traversal, etc.)
-4. Performance benchmarks vs external MCP
-
-# Test structure:
-test/
-  mimo/
-    skills/
-      native/
-        fetch_test.exs
-        file_test.exs
-        terminal_test.exs
-        ...
+```
+lib/mimo/skills/
+├── native/
+│   ├── behaviour.ex          # Behaviour definition
+│   ├── registry.ex           # Native skill registry
+│   │
+│   ├── web/
+│   │   ├── fetch.ex          # HTTP fetching
+│   │   └── html_parser.ex    # HTML → text/markdown
+│   │
+│   ├── file/
+│   │   ├── operations.ex     # CRUD operations
+│   │   ├── search.ex         # File search
+│   │   └── security.ex       # Path validation
+│   │
+│   ├── text/
+│   │   ├── edit.ex           # Find/replace
+│   │   └── diff.ex           # Text comparison
+│   │
+│   ├── terminal/
+│   │   ├── executor.ex       # Command execution
+│   │   └── whitelist.ex      # Allowed commands
+│   │
+│   └── reasoning/
+│       ├── think.ex          # Thought recording
+│       └── plan.ex           # Task planning
 ```
 
 ---
 
-## Migration Path
+## OTP Modules Reference
 
-1. **Parallel implementation** - Native skills alongside MCP
-2. **Feature flag** - `USE_NATIVE_SKILLS=true`
-3. **Gradual rollout** - One skill at a time
-4. **Deprecation** - Remove MCP skills after validation
-5. **Cleanup** - Remove skills.json, catalog, client
-
----
-
-## Success Metrics
-
-| Metric | Current (MCP) | Target (Native) |
-|--------|---------------|-----------------|
-| Skill startup time | 5-30s | <100ms |
-| Memory per skill | ~50MB (Node) | ~0 (same process) |
-| Tool call latency | 500ms+ | <50ms |
-| External dependencies | 5+ npm packages | 0 |
-| Lines of code | ~500 (wrapper) | ~1000 (implementation) |
+| Category | Module | Purpose |
+|----------|--------|---------|
+| HTTP | `:httpc` | HTTP client (inets app) |
+| SSL | `:ssl` | TLS connections |
+| Files | `File`, `Path` | File operations |
+| Files | `:filelib` | Wildcard, fold_files |
+| Process | `Port` | External process I/O |
+| Process | `System` | System commands |
+| Binary | `:binary` | Binary pattern matching |
+| Crypto | `:crypto` | Hashing, random |
+| JSON | `:json` (OTP 27+) | Native JSON (or use Jason) |
+| Timer | `:timer` | Timeouts |
+| URI | `URI` | URL parsing |
 
 ---
 
-## Open Questions
+## Security Checklist
 
-1. **Browser automation** - Keep external or invest in native?
-2. **Code execution** - Docker, WASM, or skip entirely?
-3. **MCP compatibility** - Should native skills still speak MCP protocol for external clients?
-4. **Plugin system** - Allow users to add custom skills?
-
----
-
-## Next Steps
-
-1. [ ] Review this spec
-2. [ ] Prioritize which skills to implement first
-3. [ ] Create implementation tickets
-4. [ ] Start with fetch (easiest win)
-5. [ ] Benchmark and validate
+- [ ] Path traversal prevention (all file operations)
+- [ ] Command injection prevention (terminal skills)
+- [ ] Timeout on all external operations
+- [ ] Output size limits
+- [ ] Allowed directories config
+- [ ] Allowed commands whitelist
+- [ ] Rate limiting per skill
+- [ ] Audit logging
 
 ---
 
-## References
+## Research Tasks
 
-- [Elixir File module](https://hexdocs.pm/elixir/File.html)
-- [HTTPoison](https://hexdocs.pm/httpoison)
-- [Floki HTML parser](https://hexdocs.pm/floki)
-- [Exa API docs](https://docs.exa.ai)
-- [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/)
-- [Wasmex](https://hexdocs.pm/wasmex)
+### Priority 1: HTTP/Fetch
+1. Research `:httpc` for HTTP GET/POST with headers
+2. Research HTML tag stripping algorithm
+3. Research HTML to Markdown conversion rules
+
+### Priority 2: File Operations
+4. Research path canonicalization for security
+5. Research streaming large files
+6. Research recursive directory operations
+
+### Priority 3: Terminal
+7. Research `System.cmd` vs `Port` tradeoffs
+8. Research command sandboxing approaches
+9. Research PTY for interactive commands
+
+### Priority 4: Reasoning
+10. Research thought chain patterns
+11. Research task decomposition algorithms
+
+---
+
+## Success Criteria
+
+| Metric | Target |
+|--------|--------|
+| External dependencies | 0 (pure OTP) |
+| API keys required | 0 (except optional search) |
+| Startup time | <10ms per skill |
+| Memory overhead | 0 (same BEAM process) |
+| Test coverage | >90% |
+
+---
+
+## Not In Scope
+
+- Browser automation (keep external)
+- Video/audio processing
+- Machine learning inference
+- Database connections (use existing Mimo stores)
+- Email sending
+- SMS/notifications
