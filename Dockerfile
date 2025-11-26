@@ -28,14 +28,25 @@ RUN MIX_ENV=prod mix compile
 # ------- Runtime image -------
 FROM elixir:1.16-alpine
 
-# Install runtime dependencies including docker-cli for puppeteer
+# Install runtime dependencies including Chromium for Puppeteer on Alpine
+# Puppeteer works on Alpine with system Chromium; Playwright does not
 RUN apk add --no-cache \
     sqlite \
     sqlite-libs \
     curl \
     nodejs \
     npm \
-    docker-cli
+    # Chromium and dependencies for Puppeteer
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont
+
+# Configure Puppeteer to use Alpine's Chromium instead of downloading glibc-linked binary
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Install hex and rebar in runtime too
 RUN mix local.hex --force && mix local.rebar --force
