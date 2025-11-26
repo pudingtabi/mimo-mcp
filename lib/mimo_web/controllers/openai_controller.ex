@@ -16,48 +16,6 @@ defmodule MimoWeb.OpenAIController do
   @model_name "mimo-polymorphic-1"
   @model_description "Mimo Memory OS - Polymorphic Intelligence via Triad Stores"
 
-  # Mimo tools exposed as OpenAI functions
-  @mimo_functions [
-    %{
-      "type" => "function",
-      "function" => %{
-        "name" => "mimo_search_memory",
-        "description" => "Search Mimo's memory stores for relevant context",
-        "parameters" => %{
-          "type" => "object",
-          "properties" => %{
-            "query" => %{"type" => "string", "description" => "The search query"},
-            "store" => %{
-              "type" => "string",
-              "enum" => ["episodic", "semantic", "procedural", "auto"],
-              "description" => "Which memory store to search (auto lets the router decide)"
-            }
-          },
-          "required" => ["query"]
-        }
-      }
-    },
-    %{
-      "type" => "function",
-      "function" => %{
-        "name" => "mimo_store_fact",
-        "description" => "Store a new fact or memory in Mimo's brain",
-        "parameters" => %{
-          "type" => "object",
-          "properties" => %{
-            "content" => %{"type" => "string", "description" => "The content to store"},
-            "category" => %{
-              "type" => "string",
-              "enum" => ["fact", "observation", "action", "plan"]
-            },
-            "importance" => %{"type" => "number", "minimum" => 0, "maximum" => 1}
-          },
-          "required" => ["content", "category"]
-        }
-      }
-    }
-  ]
-
   @doc """
   GET /v1/models
 
@@ -82,12 +40,23 @@ defmodule MimoWeb.OpenAIController do
   GET /v1/tools
 
   Returns available Mimo tools/functions (custom endpoint).
+  Includes both internal Mimo functions and external skill tools.
   """
   def tools(conn, _params) do
-    json(conn, %{
-      "object" => "list",
-      "data" => @mimo_functions
-    })
+    # Get all tools from registry (internal + catalog)
+    all_tools = Mimo.Registry.list_all_tools()
+
+    # Convert to OpenAI function format
+    tool_list =
+      Enum.map(all_tools, fn tool ->
+        %{
+          "name" => tool.name,
+          "description" => tool.description,
+          "inputSchema" => tool.inputSchema
+        }
+      end)
+
+    json(conn, %{"tools" => tool_list})
   end
 
   @doc """
