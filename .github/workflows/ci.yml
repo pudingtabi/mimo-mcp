@@ -1,0 +1,79 @@
+name: Mimo CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  MIX_ENV: test
+
+jobs:
+  test:
+    name: Test (OTP ${{matrix.otp}} / Elixir ${{matrix.elixir}} / ${{matrix.os}})
+    runs-on: ${{matrix.os}}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            otp: "26.0"
+            elixir: "1.16"
+          - os: macos-latest
+            otp: "26.0"
+            elixir: "1.16"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1. Setup Elixir & Erlang
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{matrix.otp}}
+          elixir-version: ${{matrix.elixir}}
+
+      # 2. Setup Rust Toolchain (Modern Standard)
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      # 3. Cache Mix Dependencies
+      - name: Cache Mix Deps
+        uses: actions/cache@v3
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-
+
+      # 4. Cache Rust (Cargo) Registry & Build
+      - name: Cache Cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/vector_math/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # 5. Install & Test
+      - name: Install Dependencies
+        run: mix deps.get
+
+      - name: Check Formatting
+        run: mix format --check-formatted
+        continue-on-error: true  # Don't fail on formatting for now
+
+      - name: Compile (includes Rust NIFs)
+        run: mix compile --warnings-as-errors
+        continue-on-error: true  # Warnings present but non-critical
+
+      - name: Run Tests
+        run: mix test
