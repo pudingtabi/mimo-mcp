@@ -1,0 +1,39 @@
+#!/bin/bash
+# Mimo Native Launcher & Build Tool
+# Usage: ./bin/mimo [command]
+
+COMMAND=${1:-stdio}
+shift
+
+case "$COMMAND" in
+  stdio)
+    # Run in stdio mode for MCP clients (Claude, VS Code)
+    export MIX_ENV=prod
+    exec mix run --no-halt --no-compile -e "Mimo.McpServer.Stdio.start()"
+    ;;
+  
+  server)
+    # Run as a standard Phoenix server
+    export MIX_ENV=prod
+    exec mix phx.server
+    ;;
+    
+  build)
+    # Build the single binary using Burrito
+    echo "Building Mimo binary..."
+    export MIX_ENV=prod
+    mix deps.get
+    mix release mimo
+    echo "Build complete. Binaries are in burrito_out/"
+    ;;
+    
+  help)
+    echo "Usage: ./bin/mimo [stdio|server|build]"
+    ;;
+    
+  *)
+    echo "Unknown command: $COMMAND"
+    echo "Usage: ./bin/mimo [stdio|server|build]"
+    exit 1
+    ;;
+esac

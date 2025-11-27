@@ -8,11 +8,13 @@ defmodule Mimo.Brain.Memory do
   - Content size limits
   - ACID transactions for writes
   - Embedding dimension validation
+  - Retry strategies for database operations
   """
   import Ecto.Query
   require Logger
   alias Mimo.Repo
   alias Mimo.Brain.Engram
+  alias Mimo.ErrorHandling.RetryStrategies
 
   # Configuration constants
   @max_memory_batch_size 1000
@@ -58,6 +60,7 @@ defmodule Mimo.Brain.Memory do
   @doc """
   Store a new memory with its embedding.
   Includes validation and ACID transaction guarantees.
+  Uses retry strategy for transient database failures.
 
   ## Options
 
@@ -69,6 +72,17 @@ defmodule Mimo.Brain.Memory do
       persist_memory("API key rotated", "action", importance: 0.9)
   """
   def persist_memory(content, category, importance \\ 0.5) do
+    RetryStrategies.with_retry(
+      fn -> do_persist_memory(content, category, importance) end,
+      max_retries: 3,
+      base_delay: 100,
+      on_retry: fn attempt, reason ->
+        Logger.warning("Memory persist retry #{attempt}: #{inspect(reason)}")
+      end
+    )
+  end
+
+  defp do_persist_memory(content, category, importance) do
     Repo.transaction(fn ->
       with :ok <- validate_content_size(content),
            {:ok, embedding} <- generate_embedding(content),
@@ -151,6 +165,71 @@ defmodule Mimo.Brain.Memory do
   """
   def count do
     Repo.one(from(e in Engram, select: count(e.id)))
+  end
+
+  @doc """
+  Alias for persist_memory - store a memory with metadata.
+  Used by SemanticStore.Resolver for entity anchors.
+  """
+  def store(attrs) when is_map(attrs) do
+    content = attrs[:content] || attrs["content"]
+    type = attrs[:type] || attrs["type"] || "fact"
+    ref = attrs[:ref] || attrs["ref"]
+    metadata = attrs[:metadata] || attrs["metadata"] || %{}
+
+    persist_memory_with_metadata(content, type, ref, metadata)
+  end
+
+  defp persist_memory_with_metadata(content, type, ref, metadata) do
+    Repo.transaction(fn ->
+      with :ok <- validate_content_size(content),
+           {:ok, embedding} <- generate_embedding(content),
+           :ok <- validate_embedding_dimension(embedding) do
+        changeset =
+          Engram.changeset(%Engram{}, %{
+            content: content,
+            category: type,
+            importance: 0.8,
+            embedding: embedding,
+            metadata: Map.merge(metadata, %{"ref" => ref, "type" => type})
+          })
+
+        case Repo.insert(changeset) do
+          {:ok, engram} -> {:ok, engram.id}
+          {:error, changeset} -> Repo.rollback(changeset.errors)
+        end
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+    |> unwrap_transaction_result()
+  end
+
+  @doc """
+  Search with type filter - used by SemanticStore.Resolver.
+  """
+  def search(query, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 10)
+    type_filter = Keyword.get(opts, :type)
+    min_similarity = Keyword.get(opts, :min_similarity, 0.3)
+
+    results = search_memories(query, limit: limit * 2, min_similarity: min_similarity)
+
+    filtered =
+      if type_filter do
+        Enum.filter(results, fn r ->
+          r[:category] == type_filter or
+            r[:metadata]["type"] == type_filter
+        end)
+      else
+        results
+      end
+
+    {:ok, Enum.take(filtered, limit) |> Enum.map(&add_score_field/1)}
+  end
+
+  defp add_score_field(result) do
+    Map.put(result, :score, result[:similarity] || 0.0)
   end
 
   @doc """
@@ -263,14 +342,17 @@ defmodule Mimo.Brain.Memory do
   # ==========================================================================
 
   defp generate_embedding(text) do
-    case Mimo.Brain.LLM.generate_embedding(text) do
-      {:ok, embedding} ->
-        {:ok, embedding}
+    # Use classifier cache to avoid redundant LLM calls
+    Mimo.Cache.Classifier.get_or_compute_embedding(text, fn ->
+      case Mimo.Brain.LLM.generate_embedding(text) do
+        {:ok, embedding} ->
+          {:ok, embedding}
 
-      {:error, reason} ->
-        Logger.warning("Primary embedding failed: #{inspect(reason)}, using fallback")
-        fallback_embedding(text)
-    end
+        {:error, reason} ->
+          Logger.warning("Primary embedding failed: #{inspect(reason)}, using fallback")
+          fallback_embedding(text)
+      end
+    end)
   end
 
   # Simple fallback embedding using character frequencies

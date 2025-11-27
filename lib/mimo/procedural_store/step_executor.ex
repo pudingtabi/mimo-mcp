@@ -192,21 +192,37 @@ defmodule Mimo.ProceduralStore.Steps.HttpRequest do
     url = interpolate(url_template, context)
     body = if body_template, do: interpolate(body_template, context) |> Jason.encode!()
 
-    case HTTPoison.request(method, url, body || "", headers) do
-      {:ok, %{status_code: code, body: resp_body}} when code in 200..299 ->
+    req_opts = [url: url, method: method, headers: headers]
+    req_opts = if body, do: Keyword.put(req_opts, :body, body), else: req_opts
+
+    case Req.request(req_opts) do
+      {:ok, %Req.Response{status: code, body: resp_body}} when code in 200..299 ->
         parsed =
-          case Jason.decode(resp_body) do
-            {:ok, json} -> json
-            _ -> resp_body
+          case resp_body do
+            body when is_map(body) ->
+              body
+
+            body when is_binary(body) ->
+              case Jason.decode(body) do
+                {:ok, json} -> json
+                _ -> body
+              end
+
+            body ->
+              body
           end
 
         {:ok, %{result_key => parsed, "http_status" => code}}
 
-      {:ok, %{status_code: code, body: resp_body}} ->
-        Logger.error("HTTP request failed: #{code} - #{resp_body}")
+      {:ok, %Req.Response{status: code, body: resp_body}} ->
+        Logger.error("HTTP request failed: #{code} - #{inspect(resp_body)}")
         {:error, {:http_error, code, resp_body}}
 
-      {:error, %HTTPoison.Error{reason: reason}} ->
+      {:error, %Req.TransportError{reason: reason}} ->
+        Logger.error("HTTP request error: #{inspect(reason)}")
+        {:error, {:http_error, reason}}
+
+      {:error, reason} ->
         Logger.error("HTTP request error: #{inspect(reason)}")
         {:error, {:http_error, reason}}
     end

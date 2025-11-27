@@ -34,7 +34,9 @@ defmodule MimoWeb.Plugs.LatencyGuard do
 
   defp check_system_health do
     # TODO: Implement actual p99 tracking from telemetry metrics
-    # For now, check BEAM scheduler utilization as proxy
+    # v3.0 Roadmap: Real p99 latency tracking from telemetry_metrics_prometheus
+    #               with sliding window percentile calculations
+    # Current behavior: Uses BEAM scheduler run queue as proxy for system health (acceptable for v2.x)
     schedulers = :erlang.system_info(:schedulers_online)
     run_queue = :erlang.statistics(:total_run_queue_lengths_all)
 

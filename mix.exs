@@ -1,4 +1,4 @@
-defmodule MimoMcp.MixProject do
+defmodule Mimo.MixProject do
   use Mix.Project
 
   def project do
@@ -9,20 +9,61 @@ defmodule MimoMcp.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
-      compilers: Mix.compilers()
+      compilers: Mix.compilers(),
+      releases: releases(),
+      test_coverage: [tool: ExCoveralls],
+      preferred_cli_env: [coveralls: :test, "coveralls.detail": :test, "coveralls.html": :test]
     ]
   end
 
   def application do
     [
-      extra_applications: [:logger, :runtime_tools, :crypto],
-      mod: {Mimo.Application, []}
+      extra_applications: [:logger, :runtime_tools, :crypto, :inets, :ssl],
+      mod: {Mimo.Application, []},
+      env: [
+        sandbox_root: System.get_env("MIMO_ROOT") || File.cwd!(),
+        max_file_size_mb: 10,
+        command_timeout_ms: 30_000,
+        restricted_mode: true
+      ]
+    ]
+  end
+
+  def releases do
+    [
+      mimo: [
+        steps: [:assemble, &Burrito.wrap/1],
+        burrito: [
+          targets: [
+            macos_x86_64: [os: :darwin, cpu: :x86_64],
+            macos_aarch64: [os: :darwin, cpu: :aarch64],
+            linux_x86_64: [os: :linux, cpu: :x86_64],
+            linux_aarch64: [os: :linux, cpu: :aarch64],
+            windows_x86_64: [os: :windows, cpu: :x86_64]
+          ],
+          debug: Mix.env() != :prod
+        ]
+      ]
     ]
   end
 
   defp deps do
     [
-      # Database - pinned to versions compatible with Elixir 1.12
+      # --- Packaging ---
+      {:burrito, "~> 1.0"},
+
+      # --- Goldilocks Stack: Production-hardened dependencies ---
+      # HTTP client (replaces HTTPoison)
+      {:req, "~> 0.5.0"},
+      # HTML parser for LLM-optimized markdown
+      {:floki, "~> 0.36.0"},
+      # Non-blocking, zombie-free process manager
+      {:exile, "~> 0.10.0"},
+      # Connection pool tuning (WSL networking)
+      {:finch, "~> 0.18.0"},
+
+      # --- Existing Core Dependencies ---
+      # Database
       {:ecto, "~> 3.10.0", override: true},
       {:ecto_sql, "~> 3.10.0"},
       {:ecto_sqlite3, "~> 0.12.0"},
@@ -31,11 +72,7 @@ defmodule MimoMcp.MixProject do
       # JSON handling
       {:jason, "~> 1.4"},
 
-      # HTTP client
-      {:httpoison, "~> 1.8"},
-      {:hackney, "~> 1.18", override: true},
-
-      # Phoenix HTTP/REST Gateway (Universal Aperture)
+      # Phoenix HTTP/REST Gateway
       {:phoenix, "~> 1.6.0"},
       {:plug_cowboy, "~> 2.5"},
 
@@ -44,14 +81,21 @@ defmodule MimoMcp.MixProject do
       {:telemetry_metrics, "~> 0.6"},
       {:telemetry_poller, "~> 1.0"},
 
-      # UUID generation
+      # Utilities
       {:uuid, "~> 1.1"},
-
-      # CORS support for browser clients
       {:cors_plug, "~> 3.0"},
 
-      # Rust NIF support (Phase 2 - Vector Math)
-      {:rustler, "~> 0.31", optional: true}
+      # Rust NIF support
+      {:rustler, "~> 0.31", optional: true},
+
+      # Dev/Test
+      {:ex_doc, "~> 0.30", only: :dev, runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:excoveralls, "~> 0.18", only: :test},
+
+      # Prometheus metrics
+      {:telemetry_metrics_prometheus, "~> 1.1"}
     ]
   end
 

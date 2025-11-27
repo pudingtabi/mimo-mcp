@@ -58,6 +58,9 @@ defmodule Mimo.ToolInterface do
 
   def execute("recall_procedure", %{"name" => _name} = _args) do
     # TODO: Implement procedural store retrieval
+    # v3.0 Roadmap: Procedural store retrieval with FSM state machine lookup
+    #               and execution context preparation for complex multi-step procedures
+    # Current behavior: Returns "not_implemented" - procedures accessed via skills manifest
     {:ok,
      %{
        tool_call_id: UUID.uuid4(),

@@ -47,11 +47,16 @@ defmodule Mimo.SemanticStore.Triple do
     field(:ttl, :integer)
     field(:metadata, Mimo.Brain.EctoJsonMap, default: %{})
 
+    # Enhanced Semantic Store Fields (v2.3)
+    field(:context, :map, default: %{})
+    field(:graph_id, :string, default: "global")
+    field(:expires_at, :utc_datetime)
+
     timestamps(type: :naive_datetime_usec)
   end
 
   @required_fields [:subject_id, :subject_type, :predicate, :object_id, :object_type]
-  @optional_fields [:confidence, :source, :ttl, :metadata]
+  @optional_fields [:confidence, :source, :ttl, :metadata, :context, :graph_id, :expires_at]
 
   @doc """
   Creates a changeset for a triple.

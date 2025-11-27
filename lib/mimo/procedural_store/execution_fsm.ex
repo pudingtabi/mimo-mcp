@@ -382,6 +382,9 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
 
   defp validate_context(procedure, context) do
     # TODO: Validate against context_schema if defined
+    # v3.0 Roadmap: JSON Schema validation for procedure context
+    #               with type coercion and detailed error messages
+    # Current behavior: Passes context through without validation (acceptable for v2.x)
     context_schema = procedure.definition["context_schema"]
 
     if context_schema do

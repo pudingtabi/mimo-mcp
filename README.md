@@ -9,6 +9,23 @@ A universal MCP (Model Context Protocol) gateway with **multi-protocol access** 
 
 This section provides an honest assessment of current functionality:
 
+### Feature Status Matrix
+
+| Feature | Status | Version | Notes |
+|---------|--------|---------|-------|
+| HTTP/REST Gateway | ✅ Production Ready | v2.3.1 | Fully operational on port 4000 |
+| MCP stdio Protocol | ✅ Production Ready | v2.3.1 | Compatible with Claude Desktop, VS Code |
+| Episodic Memory | ✅ Production Ready | v2.3.1 | SQLite + Ollama embeddings |
+| Rate Limiting | ✅ Production Ready | v2.3.1 | Token bucket at 60 req/min |
+| API Key Auth | ✅ Production Ready | v2.3.1 | Constant-time comparison |
+| Tool Registry | ✅ Production Ready | v2.3.1 | Thread-safe GenServer |
+| Hot Reload | ✅ Production Ready | v2.3.1 | Distributed locking |
+| Semantic Store v3.0 | ⚠️ Beta (Core Ready) | v2.3.1 | Schema, Ingestion, Query, Inference - Full stack available |
+| Procedural Store | ⚠️ Beta (Core Ready) | v2.3.1 | FSM, Execution, Validation - Full pipeline available |
+| Rust NIFs | ⚠️ Requires Build | v2.3.1 | See build instructions |
+| WebSocket Synapse | ⚠️ Beta | v2.3.1 | Infrastructure present |
+| Error Handling | ✅ Production Ready | v2.3.1 | Circuit breaker + retry |
+
 ### Production Ready
 - **HTTP/REST Gateway** - Fully operational on port 4000
 - **MCP stdio Protocol** - Compatible with Claude Desktop, VS Code Copilot
@@ -28,15 +45,20 @@ This section provides an honest assessment of current functionality:
 - **Telemetry** - Security event logging for audit trails
 
 ### Experimental/In Development
-- **Semantic Store** - Triple-based knowledge graph (basic implementation)
-- **Procedural Store** - State machine execution (basic implementation)
+- **Semantic Store** - Schema, Ingestion, Query, Inference engines implemented. Graph traversal with recursive CTEs available.
+- **Procedural Store** - FSM infrastructure, Registry, Execution, and Validation implemented. State machine pipeline functional.
 - **WebSocket Synapse** - Real-time channels (infrastructure present, not fully tested)
-- **Rust NIFs** - SIMD vector math (requires native compilation)
+- **Rust NIFs** - SIMD vector math code exists but NIF loader uses fallback by default. Compilation required.
 
 ### Known Limitations
 - External MCP skills (filesystem, playwright) spawn real subprocesses - use in trusted environments
 - Ollama required for embeddings - falls back to simple hashing if unavailable
 - Single-node deployment tested; distributed mode experimental
+- **Semantic Search (O(n)) and Procedural Execution (Beta) are functional but will be enhanced in Phase 3.**
+- Semantic search is O(n) - limited to ~50K entities for optimal performance
+- Rust NIFs must be built manually: `cd native/vector_math && cargo build --release`
+- Process limits not enforced by default (use Mimo.Skills.Supervisor for bounded execution)
+- WebSocket layer (Synapse) lacks comprehensive production testing
 
 ---
 
@@ -59,17 +81,44 @@ Mimo is an **intelligent Memory OS** that provides:
 
 | Option | Best For | Requirements |
 |--------|----------|--------------|
-| **Local + Docker** | Most users | Docker Desktop |
-| **Local Native** | Developers | Elixir 1.16+, Ollama |
-| **VPS** | Always-on, multi-device | VPS with 2GB+ RAM |
+| **Option 0: Single Binary** | Enterprise/Production | None (Self-contained) |
+| **Option 1: Local + Docker** | Most users | Docker Desktop |
+| **Option 2: Local Native** | Developers | Elixir 1.16+, Ollama |
+| **Option 3: VPS** | Always-on, multi-device | VPS with 2GB+ RAM |
 
 ---
 
 ## Quick Start
 
-### Option 1: Local Machine (No VPS Required)
+### Option 0: Single Binary (No Dependencies)
 
-Run everything on your local machine with Docker:
+Download the latest release for your platform (Linux, macOS, Windows).
+
+```bash
+# Run in MCP mode (Claude/VS Code)
+./mimo
+
+# Run as HTTP Server
+./mimo server -p 4000
+```
+
+**Configure Claude Desktop:**
+
+```json
+{
+  "mcpServers": {
+    "mimo": {
+      "command": "/absolute/path/to/mimo",
+      "args": ["stdio"],
+      "env": {
+        "MIMO_ROOT": "/absolute/path/to/workspace"
+      }
+    }
+  }
+}
+```
+
+### Option 1: Local Machine (Docker)
 
 **Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed
 
@@ -97,24 +146,11 @@ curl http://localhost:4000/health
 {
   "mcpServers": {
     "mimo": {
-      "command": "docker",
-      "args": ["exec", "-i", "mimo-mcp", "mix", "run", "--no-halt", "-e", "Mimo.MCPServer.start_stdio()"],
+      "command": "/absolute/path/to/mimo-mcp/bin/mimo",
+      "args": ["stdio"],
       "env": {
-        "LOGGER_LEVEL": "error"
+        "MIMO_ROOT": "/absolute/path/to/workspace"
       }
-    }
-  }
-}
-```
-
-Or use the Python wrapper (simpler):
-
-```json
-{
-  "mcpServers": {
-    "mimo": {
-      "command": "python3",
-      "args": ["/path/to/mimo-mcp/mimo-mcp-stdio.py"]
     }
   }
 }
@@ -139,19 +175,7 @@ mix ecto.create
 mix ecto.migrate
 
 # Run server
-mix run --no-halt
-```
-
-**Configure Claude Desktop:**
-
-```json
-{
-  "mcpServers": {
-    "mimo": {
-      "command": "/path/to/mimo-mcp/mimo-mcp-stdio.py"
-    }
-  }
-}
+./bin/mimo server
 ```
 
 ---
@@ -281,7 +305,7 @@ For Claude Desktop, VS Code, or other MCP clients:
 
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"test"},"capabilities":{}}}
-{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | python3 mimo-mcp-stdio.py
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | ./bin/mimo stdio
 ```
 
 ### Claude Desktop Configuration
@@ -297,7 +321,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
       "args": [
         "-o", "StrictHostKeyChecking=no",
         "root@YOUR_VPS_IP",
-        "cd /path/to/mimo-mcp && LOGGER_LEVEL=error python3 mimo-mcp-stdio.py"
+        "cd /path/to/mimo-mcp && ./bin/mimo stdio"
       ]
     }
   }
@@ -317,7 +341,7 @@ Add to `~/.vscode/mcp.json`:
       "args": [
         "-o", "BatchMode=yes",
         "root@YOUR_VPS_IP",
-        "cd /path/to/mimo-mcp && LOGGER_LEVEL=error python3 mimo-mcp-stdio.py"
+        "cd /path/to/mimo-mcp && ./bin/mimo stdio"
       ]
     }
   }
@@ -384,7 +408,7 @@ Edit `priv/skills.json`:
 │              Universal Aperture: Protocol Adapters               │
 ├─────────────────────────┬───────────────────────────────────────┤
 │ MCP Adapter (stdio)     │ HTTP Gateway (Phoenix)                │
-│ mimo-mcp-stdio.py       │ Port 4000                             │
+│ lib/mimo/mcp_server     │ Port 4000                             │
 └───────────┬─────────────┴───────────────────┬───────────────────┘
             └─────────────┬───────────────────┘
                           ▼
@@ -434,7 +458,7 @@ mix ecto.create
 mix ecto.migrate
 
 # Run server
-mix run --no-halt
+./bin/mimo server
 
 # Run tests
 mix test
@@ -642,52 +666,6 @@ Mimo.Application.cortex_status()
 
 ---
 
-## Architecture Philosophy
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    THE SYNTHETIC CORTEX                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
-│  │  Episodic   │  │  Semantic   │  │ Procedural  │              │
-│  │   Store     │  │   Store     │  │   Store     │              │
-│  │  (Vibes)    │  │  (Facts)    │  │  (Recipes)  │              │
-│  │   ✅ Done   │  │  ✅ Done    │  │  ✅ Done    │              │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘              │
-│         │                │                │                      │
-│         └────────────────┼────────────────┘                      │
-│                          │                                       │
-│                          ▼                                       │
-│              ┌───────────────────────┐                          │
-│              │  Meta-Cognitive Router │  ← "Which store knows?" │
-│              │        ✅ Done         │                          │
-│              └───────────┬───────────┘                          │
-│                          │                                       │
-│         ┌────────────────┼────────────────┐                      │
-│         ▼                ▼                ▼                      │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
-│  │    HTTP     │  │     MCP     │  │  WebSocket  │              │
-│  │   Gateway   │  │    stdio    │  │   Synapse   │              │
-│  │   ✅ Done   │  │   ✅ Done   │  │  ✅ Done    │              │
-│  └─────────────┘  └─────────────┘  └─────────────┘              │
-│                                                                  │
-│  ┌──────────────────────────────────────────────┐               │
-│  │              Rust NIFs (SIMD)                 │               │
-│  │         Vector Math Acceleration              │               │
-│  │                 ✅ Done                        │               │
-│  └──────────────────────────────────────────────┘               │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**The Three Memory Systems:**
-- **Episodic (Vibes):** "I remember something *like* this..." — fuzzy vector similarity
-- **Semantic (Facts):** "I *know* that X is related to Y" — precise graph relationships  
-- **Procedural (Recipes):** "When X happens, *always* do Y" — deterministic state machines
-
----
-
 ## File Structure (v2.3)
 
 ```
@@ -696,51 +674,21 @@ lib/
 ├── mimo_web.ex                      # Phoenix web helpers
 ├── mimo/
 │   ├── application.ex               # OTP application with feature flags
-│   ├── meta_cognitive_router.ex     # Query classification
-│   ├── telemetry.ex                 # Metrics
-│   ├── repo.ex                      # Ecto repo
+│   ├── cli.ex                       # Burrito CLI Entry Point (New)
+│   ├── mcp_server/
+│   │   └── stdio.ex                 # Native MCP Stdio (New)
+│   ├── skills/                      # Native Skills (New)
+│   │   ├── network.ex               # HTTP
+│   │   ├── terminal.ex              # Command Execution
+│   │   └── ...
 │   ├── brain/                       # Episodic memory
-│   │   ├── memory.ex
-│   │   ├── llm.ex
-│   │   └── engram.ex
 │   ├── semantic_store/              # Phase 2: Knowledge Graph
-│   │   ├── triple.ex                # Ecto schema
-│   │   ├── entity.ex                # Virtual entity struct
-│   │   ├── query.ex                 # Recursive CTE queries
-│   │   ├── repository.ex            # CRUD operations
-│   │   └── inference_engine.ex      # Forward/backward chaining
 │   ├── procedural_store/            # Phase 2: State Machines
-│   │   ├── procedure.ex             # Ecto schema
-│   │   ├── execution_fsm.ex         # gen_statem implementation
-│   │   ├── step_executor.ex         # Behaviour + implementations
-│   │   ├── validator.ex             # JSON schema validation
-│   │   └── loader.ex                # Procedure loading & caching
-│   ├── vector/                      # Phase 3: Rust NIFs
-│   │   ├── math.ex                  # NIF wrapper
-│   │   ├── fallback.ex              # Pure Elixir fallback
-│   │   ├── supervisor.ex            # Supervisor tree
-│   │   └── worker.ex                # Search utilities
 │   └── synapse/                     # Phase 3: WebSocket
-│       ├── connection_manager.ex    # Connection lifecycle
-│       ├── interrupt_manager.ex     # Execution interruption
-│       └── message_router.ex        # PubSub routing
 ├── mimo_web/
-│   ├── endpoint.ex                  # HTTP + WebSocket
-│   ├── router.ex                    # HTTP routes
-│   ├── channels/
-│   │   ├── cortex_channel.ex        # Real-time channel
-│   │   └── presence.ex              # Agent presence tracking
-│   └── controllers/
-│       └── ...
+│   └── endpoint.ex                  # HTTP + WebSocket
 native/
 └── vector_math/                     # Rust NIF
-    ├── Cargo.toml
-    └── src/lib.rs                   # SIMD cosine similarity
-priv/
-└── repo/migrations/
-    ├── 20241125000000_create_engrams.exs
-    ├── 20251126000001_create_semantic_store.exs
-    └── 20251126000002_create_procedural_store.exs
 ```
 
 ---

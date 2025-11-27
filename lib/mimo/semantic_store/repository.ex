@@ -41,6 +41,11 @@ defmodule Mimo.SemanticStore.Repository do
   end
 
   @doc """
+  Alias for create/1 for API consistency.
+  """
+  def create_triple(attrs), do: create(attrs)
+
+  @doc """
   Creates a triple, raising on error.
   """
   @spec create!(map()) :: Triple.t()

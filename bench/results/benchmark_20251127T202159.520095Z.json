@@ -1,0 +1,82 @@
+{
+  "system": {
+    "schedulers": 6,
+    "elixir_version": "1.15.7",
+    "otp_version": "26"
+  },
+  "timestamp": "2025-11-27T20:21:59.524855Z",
+  "results": {
+    "mcp_protocol": {
+      "Parse request": {
+        "ops_per_sec": 109782,
+        "total_ms": 9.11,
+        "per_op_us": 9.11
+      },
+      "Serialize response": {
+        "ops_per_sec": 119460,
+        "total_ms": 8.37,
+        "per_op_us": 8.37
+      }
+    },
+    "memory_search": {
+      "100 memories": {
+        "time_ms": 139.659,
+        "memory_count": 100,
+        "ops_per_sec": 7.160297581967507
+      },
+      "1000 memories": {
+        "time_ms": 171.041,
+        "memory_count": 1000,
+        "ops_per_sec": 5.8465514116498385
+      },
+      "500 memories": {
+        "time_ms": 86.069,
+        "memory_count": 500,
+        "ops_per_sec": 11.618585088707897
+      }
+    },
+    "port_spawn": {
+      "Port.open (echo)": {
+        "iterations": 10,
+        "avg_ms": 0.88,
+        "min_ms": 0.31,
+        "max_ms": 2.42
+      }
+    },
+    "semantic_query": {
+      "Find path": {
+        "ops_per_sec": 3352.3,
+        "avg_ms": 0.3,
+        "min_ms": 0.27,
+        "max_ms": 0.33
+      },
+      "Pattern match (single clause)": {
+        "ops_per_sec": 244.4,
+        "avg_ms": 4.09,
+        "min_ms": 0.08,
+        "max_ms": 39.56
+      },
+      "Transitive closure (1-hop)": {
+        "ops_per_sec": 1757.5,
+        "avg_ms": 0.57,
+        "min_ms": 0.33,
+        "max_ms": 2.1
+      }
+    },
+    "vector_math": {
+      "NIF (Rust)": {
+        "ops_per_sec": 39419.741406496374,
+        "total_ms": 25.368,
+        "per_op_us": 25.368
+      },
+      "Pure Elixir": {
+        "ops_per_sec": 7056.416046290089,
+        "total_ms": 141.715,
+        "per_op_us": 141.715
+      },
+      "Speedup": {
+        "ratio": 5.59
+      }
+    }
+  }
+}

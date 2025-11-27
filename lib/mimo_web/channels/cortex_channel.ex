@@ -269,6 +269,9 @@ defmodule MimoWeb.CortexChannel do
     })
 
     # TODO: Integrate with Semantic Store
+    # v3.0 Roadmap: Full semantic store integration with graph database support
+    #               for rich knowledge graph queries and JSON-LD semantic web standards
+    # Current behavior: Returns empty results [] - semantic queries handled by episodic store fallback
     %{
       store: "semantic",
       query: query,
@@ -283,6 +286,9 @@ defmodule MimoWeb.CortexChannel do
     })
 
     # TODO: Integrate with Procedural Store
+    # v3.0 Roadmap: Full procedural store integration with rule engine
+    #               for executable skill lookup and state machine procedures
+    # Current behavior: Returns empty results [] - procedural skills loaded from skills manifest
     %{
       store: "procedural",
       query: query,

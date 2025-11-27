@@ -7,6 +7,10 @@ defmodule Mimo.Telemetry do
   - Meta-Cognitive Router classification latency
   - Tool execution latency
   - Memory store query latency
+
+  Exports metrics to Prometheus for alerting via:
+  - `priv/prometheus/mimo_alerts.rules`
+  - `priv/grafana/mimo-dashboard.json`
   """
   use Supervisor
   require Logger
@@ -25,10 +29,145 @@ defmodule Mimo.Telemetry do
       {:telemetry_poller,
        measurements: periodic_measurements(),
        period: :timer.seconds(10),
-       name: :mimo_telemetry_poller}
+       name: :mimo_telemetry_poller},
+
+      # Prometheus metrics exporter
+      {TelemetryMetricsPrometheus, [metrics: prometheus_metrics()]}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  @doc """
+  Returns Prometheus-compatible metric definitions.
+  """
+  def prometheus_metrics do
+    import Telemetry.Metrics
+
+    [
+      # =======================================================================
+      # System Metrics (for ResourceMonitor alerting)
+      # =======================================================================
+      last_value("mimo.resource_monitor.memory_mb",
+        event_name: [:mimo, :system, :memory],
+        measurement: :total_mb,
+        description: "Total BEAM memory usage in MB"
+      ),
+      last_value("mimo.resource_monitor.process_count",
+        event_name: [:mimo, :system, :processes],
+        measurement: :count,
+        description: "Number of BEAM processes"
+      ),
+      last_value("mimo.resource_monitor.port_count",
+        event_name: [:mimo, :system, :ports],
+        measurement: :count,
+        description: "Number of open ports"
+      ),
+
+      # =======================================================================
+      # HTTP Request Metrics
+      # =======================================================================
+      counter("mimo.http.request.total",
+        event_name: [:mimo, :http, :request],
+        tags: [:method, :path, :status],
+        description: "Total HTTP requests"
+      ),
+      distribution("mimo.http.request.duration",
+        event_name: [:mimo, :http, :request],
+        measurement: :latency_ms,
+        unit: {:native, :millisecond},
+        tags: [:method, :path],
+        description: "HTTP request latency distribution",
+        reporter_options: [buckets: [10, 25, 50, 100, 250, 500, 1000, 2500]]
+      ),
+
+      # =======================================================================
+      # Semantic Store Metrics
+      # =======================================================================
+      distribution("mimo.semantic_store.query.duration",
+        event_name: [:mimo, :semantic_store, :query],
+        measurement: :duration_ms,
+        unit: {:native, :millisecond},
+        tags: [:query_type],
+        description: "Semantic store query latency",
+        reporter_options: [buckets: [10, 25, 50, 100, 250, 500, 1000]]
+      ),
+      counter("mimo.semantic_store.ingest.total",
+        event_name: [:mimo, :semantic_store, :ingest],
+        tags: [:source],
+        description: "Total triples ingested"
+      ),
+
+      # =======================================================================
+      # Brain/Classifier Metrics
+      # =======================================================================
+      distribution("mimo.brain.classify.duration",
+        event_name: [:mimo, :brain, :classify],
+        measurement: :duration_ms,
+        unit: {:native, :millisecond},
+        tags: [:path],
+        description: "Classification latency",
+        reporter_options: [buckets: [1, 5, 10, 20, 50, 100, 500]]
+      ),
+      summary("mimo.brain.classify.confidence",
+        event_name: [:mimo, :brain, :classify],
+        measurement: :confidence,
+        tags: [:intent],
+        description: "Classification confidence scores"
+      ),
+
+      # =======================================================================
+      # Router Metrics
+      # =======================================================================
+      distribution("mimo.router.classify.duration",
+        event_name: [:mimo, :router, :classify],
+        measurement: :duration_us,
+        unit: {:native, :microsecond},
+        tags: [:primary_store],
+        description: "Router classification latency",
+        reporter_options: [buckets: [100, 500, 1000, 5000, 10000, 50000]]
+      ),
+      summary("mimo.router.classify.confidence",
+        event_name: [:mimo, :router, :classify],
+        measurement: :confidence,
+        tags: [:primary_store],
+        description: "Router confidence scores"
+      ),
+
+      # =======================================================================
+      # Error Metrics
+      # =======================================================================
+      counter("mimo.request.errors.total",
+        event_name: [:mimo, :error],
+        tags: [:component, :error_type],
+        description: "Total errors by component"
+      ),
+
+      # =======================================================================
+      # Classifier Cache Metrics
+      # =======================================================================
+      counter("mimo.cache.classifier.hit.count",
+        event_name: [:mimo, :cache, :classifier, :hit],
+        measurement: :count,
+        tags: [:key_type],
+        description: "Classifier cache hits"
+      ),
+      counter("mimo.cache.classifier.miss.count",
+        event_name: [:mimo, :cache, :classifier, :miss],
+        measurement: :count,
+        tags: [:key_type],
+        description: "Classifier cache misses"
+      ),
+
+      # =======================================================================
+      # Health Check Metric
+      # =======================================================================
+      last_value("mimo.health_check.status",
+        event_name: [:mimo, :health, :check],
+        measurement: :status,
+        description: "Health check status (1=healthy, 0=unhealthy)"
+      )
+    ]
   end
 
   defp attach_handlers do
@@ -61,6 +200,43 @@ defmodule Mimo.Telemetry do
       "mimo-tool-handler",
       [:mimo, :http, :tool],
       &__MODULE__.handle_tool_event/4,
+      nil
+    )
+
+    # Semantic Store telemetry
+    :telemetry.attach(
+      "mimo-semantic-query-handler",
+      [:mimo, :semantic_store, :query],
+      &__MODULE__.handle_semantic_query_event/4,
+      nil
+    )
+
+    :telemetry.attach(
+      "mimo-semantic-ingest-handler",
+      [:mimo, :semantic_store, :ingest],
+      &__MODULE__.handle_semantic_ingest_event/4,
+      nil
+    )
+
+    :telemetry.attach(
+      "mimo-entity-resolution-handler",
+      [:mimo, :semantic_store, :resolve],
+      &__MODULE__.handle_entity_resolution_event/4,
+      nil
+    )
+
+    :telemetry.attach(
+      "mimo-inference-handler",
+      [:mimo, :semantic_store, :inference],
+      &__MODULE__.handle_inference_event/4,
+      nil
+    )
+
+    # Intent Classifier telemetry
+    :telemetry.attach(
+      "mimo-classifier-handler",
+      [:mimo, :brain, :classify],
+      &__MODULE__.handle_classifier_event/4,
       nil
     )
   end
@@ -109,6 +285,68 @@ defmodule Mimo.Telemetry do
 
     if latency_ms > 50 do
       Logger.warning("[TELEMETRY] Slow tool: #{tool} (#{Float.round(latency_ms, 2)}ms)")
+    end
+  end
+
+  @doc false
+  def handle_semantic_query_event(_event, measurements, metadata, _config) do
+    duration_ms = Map.get(measurements, :duration_ms, 0)
+    query_type = Map.get(metadata, :query_type, "unknown")
+    result_count = Map.get(metadata, :result_count, 0)
+
+    if duration_ms > 100 do
+      Logger.warning(
+        "[TELEMETRY] Slow semantic query: #{query_type} returned #{result_count} results (#{Float.round(duration_ms, 2)}ms)"
+      )
+    end
+  end
+
+  @doc false
+  def handle_semantic_ingest_event(_event, measurements, metadata, _config) do
+    duration_ms = Map.get(measurements, :duration_ms, 0)
+    triple_count = Map.get(metadata, :triple_count, 0)
+    source = Map.get(metadata, :source, "unknown")
+
+    Logger.info(
+      "[TELEMETRY] Ingested #{triple_count} triples from #{source} (#{Float.round(duration_ms, 2)}ms)"
+    )
+  end
+
+  @doc false
+  def handle_entity_resolution_event(_event, measurements, metadata, _config) do
+    duration_ms = Map.get(measurements, :duration_ms, 0)
+    confidence = Map.get(metadata, :confidence, 0)
+    method = Map.get(metadata, :method, "unknown")
+
+    if duration_ms > 50 do
+      Logger.warning(
+        "[TELEMETRY] Slow entity resolution: #{method} (#{Float.round(duration_ms, 2)}ms, confidence: #{confidence})"
+      )
+    end
+  end
+
+  @doc false
+  def handle_inference_event(_event, measurements, metadata, _config) do
+    duration_ms = Map.get(measurements, :duration_ms, 0)
+    triples_created = Map.get(metadata, :triples_created, 0)
+    graph_id = Map.get(metadata, :graph_id, "global")
+
+    Logger.info(
+      "[TELEMETRY] Inference pass on #{graph_id}: #{triples_created} new triples (#{Float.round(duration_ms, 2)}ms)"
+    )
+  end
+
+  @doc false
+  def handle_classifier_event(_event, measurements, metadata, _config) do
+    duration_ms = Map.get(measurements, :duration_ms, 0)
+    intent = Map.get(metadata, :intent, "unknown")
+    path = Map.get(metadata, :path, "unknown")
+    confidence = Map.get(metadata, :confidence, 0)
+
+    if duration_ms > 20 do
+      Logger.warning(
+        "[TELEMETRY] Slow classification: #{intent} via #{path} (#{Float.round(duration_ms, 2)}ms, confidence: #{confidence})"
+      )
     end
   end
 

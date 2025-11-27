@@ -2,14 +2,19 @@ defmodule Mimo.Skills.Client do
   @moduledoc """
   Manages a single external MCP skill process via Port.
   Includes secure execution and config validation.
+
+  Delegates to extracted modules:
+  - `Mimo.Protocol.McpParser` - JSON-RPC protocol handling
+  - `Mimo.Skills.ProcessManager` - Port lifecycle management
   """
   use GenServer
   require Logger
 
-  alias Mimo.Skills.SecureExecutor
+  alias Mimo.Protocol.McpParser
+  alias Mimo.Skills.ProcessManager
   alias Mimo.Skills.Validator
 
-  defstruct [:skill_name, :port, :tool_prefix, :status, :tools]
+  defstruct [:skill_name, :port, :tool_prefix, :status, :tools, :port_monitor_ref]
 
   def start_link(skill_name, config) do
     GenServer.start_link(__MODULE__, {skill_name, config}, name: via_tuple(skill_name))
@@ -80,6 +85,9 @@ defmodule Mimo.Skills.Client do
   defp spawn_with_validated_config(skill_name, config) do
     case spawn_subprocess_secure(config) do
       {:ok, port} ->
+        # Monitor the port for cleanup
+        port_monitor_ref = Port.monitor(port)
+
         # Give the process time to start
         Process.sleep(1000)
 
@@ -93,7 +101,8 @@ defmodule Mimo.Skills.Client do
               port: port,
               tool_prefix: skill_name,
               status: :active,
-              tools: tools
+              tools: tools,
+              port_monitor_ref: port_monitor_ref
             }
 
             Logger.info("✓ Skill '#{skill_name}' loaded #{length(tools)} tools")
@@ -101,6 +110,8 @@ defmodule Mimo.Skills.Client do
 
           {:error, reason} ->
             Logger.error("✗ Skill '#{skill_name}' discovery failed: #{inspect(reason)}")
+            # Ensure port is closed on discovery failure
+            Port.close(port)
             {:stop, {:discovery_failed, reason}}
         end
 
@@ -112,103 +123,32 @@ defmodule Mimo.Skills.Client do
 
   # Use SecureExecutor for subprocess spawning when available
   defp spawn_subprocess_secure(config) do
-    case SecureExecutor.execute_skill(config) do
-      {:ok, port} ->
-        {:ok, port}
-
-      {:error, reason} ->
-        Logger.warning(
-          "SecureExecutor rejected config: #{inspect(reason)}, falling back to legacy spawn"
-        )
-
-        spawn_subprocess(config)
-    end
+    # Delegate to ProcessManager which handles SecureExecutor and fallback
+    ProcessManager.spawn_subprocess(config)
   end
-
-  # Legacy subprocess spawning (fallback)
-  defp spawn_subprocess(%{"command" => cmd, "args" => args} = config) do
-    raw_env = Map.get(config, "env", %{})
-
-    env_list =
-      Enum.map(raw_env, fn {k, v} ->
-        final_value = interpolate_env(v)
-        {String.to_charlist(k), String.to_charlist(final_value)}
-      end)
-
-    case System.find_executable(cmd) do
-      nil ->
-        {:error, "Command not found: #{cmd}"}
-
-      executable ->
-        port_options = [
-          :binary,
-          :exit_status,
-          :use_stdio,
-          {:env, env_list},
-          {:args, args}
-        ]
-
-        port = Port.open({:spawn_executable, executable}, port_options)
-        {:ok, port}
-    end
-  end
-
-  defp spawn_subprocess(_invalid_config) do
-    {:error, "Invalid config: missing 'command' or 'args'"}
-  end
-
-  # Interpolate ${VAR_NAME} patterns with actual env values
-  defp interpolate_env(value) when is_binary(value) do
-    Regex.replace(~r/\$\{([^}]+)\}/, value, fn _, var_name ->
-      System.get_env(var_name) || ""
-    end)
-  end
-
-  defp interpolate_env(value), do: to_string(value)
 
   defp discover_tools(port) do
     # Step 1: Send initialize request (required by MCP protocol)
-    init_request =
-      Jason.encode!(%{
-        "jsonrpc" => "2.0",
-        "method" => "initialize",
-        "params" => %{
-          "protocolVersion" => "2024-11-05",
-          "capabilities" => %{},
-          "clientInfo" => %{"name" => "mimo-mcp", "version" => "2.3.0"}
-        },
-        "id" => 1
-      })
-
-    Port.command(port, init_request <> "\n")
+    # Using McpParser for message building
+    init_request = McpParser.initialize_request(1)
+    Port.command(port, init_request)
 
     # Wait for initialize response (may get multiple messages)
     # 30s timeout to allow npx to download packages on first run
-    case wait_for_json_response(port, 30_000) do
+    case ProcessManager.receive_json_response(port, 30_000) do
       {:ok, %{"result" => _}} ->
         # Step 2: Send initialized notification
-        initialized =
-          Jason.encode!(%{
-            "jsonrpc" => "2.0",
-            "method" => "notifications/initialized"
-          })
-
-        Port.command(port, initialized <> "\n")
+        initialized = McpParser.initialized_notification()
+        Port.command(port, initialized)
 
         # Give server time to process
         Process.sleep(100)
 
         # Step 3: Request tools list
-        list_request =
-          Jason.encode!(%{
-            "jsonrpc" => "2.0",
-            "method" => "tools/list",
-            "id" => 2
-          })
+        list_request = McpParser.tools_list_request(2)
+        Port.command(port, list_request)
 
-        Port.command(port, list_request <> "\n")
-
-        case wait_for_json_response(port, 30_000) do
+        case ProcessManager.receive_json_response(port, 30_000) do
           {:ok, %{"result" => %{"tools" => tools}}} -> {:ok, tools}
           {:ok, %{"error" => error}} -> {:error, {:mcp_error, error}}
           {:error, reason} -> {:error, reason}
@@ -222,93 +162,44 @@ defmodule Mimo.Skills.Client do
     end
   end
 
-  # Wait for a valid JSON response, accumulating data across multiple receives
-  defp wait_for_json_response(port, timeout) do
-    wait_for_json_response(port, timeout, "")
-  end
-
-  defp wait_for_json_response(port, timeout, buffer) do
-    receive do
-      {^port, {:data, data}} ->
-        # Handle both raw binary and line-mode tuples
-        binary_data = case data do
-          {:eol, line} -> line <> "\n"
-          {:noeol, chunk} -> chunk
-          bin when is_binary(bin) -> bin
-          other -> inspect(other)
-        end
-        new_buffer = buffer <> binary_data
-
-        # Try to parse each line as JSON
-        case find_json_response(new_buffer) do
-          {:ok, response, _rest} ->
-            {:ok, response}
-
-          :incomplete ->
-            # Keep accumulating
-            wait_for_json_response(port, timeout, new_buffer)
-        end
-
-      {^port, {:exit_status, status}} ->
-        {:error, {:process_exited, status}}
-    after
-      timeout -> {:error, :discovery_timeout}
-    end
-  end
-
-  # Find a valid JSON-RPC response in the buffer (handles multi-line output)
-  defp find_json_response(buffer) do
-    buffer
-    |> String.split("\n", trim: true)
-    |> Enum.reduce_while(:incomplete, fn line, _acc ->
-      case Jason.decode(line) do
-        {:ok, %{"jsonrpc" => "2.0"} = response} ->
-          {:halt, {:ok, response, ""}}
-
-        _ ->
-          {:cont, :incomplete}
-      end
-    end)
-  end
-
   @impl true
   def handle_call({:call_tool, tool_name, arguments}, _from, state) do
     # Remove skill prefix from tool name
     base_tool_name = String.replace_prefix(tool_name, "#{state.tool_prefix}_", "")
 
+    # Use McpParser for request building
     request =
-      Jason.encode!(%{
-        "jsonrpc" => "2.0",
-        "method" => "tools/call",
-        "params" => %{"name" => base_tool_name, "arguments" => arguments},
-        "id" => System.unique_integer([:positive])
-      })
+      McpParser.tools_call_request(
+        base_tool_name,
+        arguments,
+        System.unique_integer([:positive])
+      )
 
-    # Use Port.command/2 for proper port communication
-    Port.command(state.port, request <> "\n")
+    Port.command(state.port, request)
 
-    receive do
-      {_, {:data, data}} ->
-        # Handle both raw binary and line-mode tuples
-        binary_data = case data do
-          {:eol, line} -> line
-          {:noeol, chunk} -> chunk
-          bin when is_binary(bin) -> bin
-          other -> inspect(other)
-        end
+    # Use ProcessManager for response handling
+    case ProcessManager.receive_data(state.port, 60_000) do
+      {:ok, binary_data} ->
         case Jason.decode(binary_data) do
           {:ok, %{"result" => result}} -> {:reply, {:ok, result}, state}
           {:ok, %{"error" => error}} -> {:reply, {:error, error}, state}
           {:error, _} -> {:reply, {:error, :invalid_response}, state}
         end
-    after
-      60_000 -> {:reply, {:error, :timeout}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
     end
   end
 
   @impl true
   def handle_call(:get_tools, _from, state) do
     {:reply, state.tools, state}
+  end
+
+  @impl true
+  def handle_info({:DOWN, ref, :port, port, _reason}, %{port: port, port_monitor_ref: ref} = state) do
+    Logger.error("Skill '#{state.skill_name}' port died unexpectedly")
+    {:stop, {:port_died, :unexpected}, state}
   end
 
   @impl true
@@ -331,8 +222,21 @@ defmodule Mimo.Skills.Client do
 
   @impl true
   def terminate(_reason, state) do
+    # Robust port cleanup
     if state.port do
-      Port.close(state.port)
+      try do
+        Port.close(state.port)
+        Logger.debug("Closed port for skill: #{state.skill_name}")
+      catch
+        :error, _ ->
+          Logger.debug("Port already closed for skill: #{state.skill_name}")
+          :ok
+      end
+    end
+
+    # Clean up port monitor
+    if state.port_monitor_ref do
+      Port.demonitor(state.port_monitor_ref, [:flush])
     end
 
     Mimo.ToolRegistry.unregister_skill(state.skill_name)

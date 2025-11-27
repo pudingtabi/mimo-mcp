@@ -1,0 +1,170 @@
+# =============================================================================
+# MIMO-MCP Prometheus Alert Rules
+# =============================================================================
+# These rules align with the thresholds configured in config/prod.exs
+# 
+# To use these rules:
+# 1. Add this file path to prometheus.yml under rule_files
+# 2. Configure alertmanager for notification routing
+# =============================================================================
+
+groups:
+  - name: mimo_memory_alerts
+    rules:
+      # Memory Warning - fires when memory exceeds 800MB
+      - alert: MimoMemoryWarning
+        expr: mimo_resource_monitor_memory_mb > 800
+        for: 1m
+        labels:
+          severity: warning
+          service: mimo-mcp
+        annotations:
+          summary: "MIMO memory usage is high"
+          description: "Memory usage is {{ $value }}MB, threshold is 800MB"
+
+      # Memory Critical - fires when memory exceeds 1000MB for 5+ minutes
+      - alert: MimoMemoryCritical
+        expr: mimo_resource_monitor_memory_mb > 1000
+        for: 5m
+        labels:
+          severity: critical
+          service: mimo-mcp
+        annotations:
+          summary: "MIMO memory usage is critically high"
+          description: "Memory usage has been above 1000MB for 5+ minutes. Current: {{ $value }}MB"
+          runbook_url: "https://docs.mimo-mcp.io/runbooks/memory-critical"
+
+  - name: mimo_process_alerts
+    rules:
+      # Process Count Warning - fires when process count exceeds 400
+      - alert: MimoProcessCountWarning
+        expr: mimo_resource_monitor_process_count > 400
+        for: 1m
+        labels:
+          severity: warning
+          service: mimo-mcp
+        annotations:
+          summary: "MIMO process count is high"
+          description: "Process count is {{ $value }}, threshold is 400"
+
+      # Process Count Critical - fires when process count exceeds 500 for 5+ minutes
+      - alert: MimoProcessCountCritical
+        expr: mimo_resource_monitor_process_count > 500
+        for: 5m
+        labels:
+          severity: critical
+          service: mimo-mcp
+        annotations:
+          summary: "MIMO process count is critically high"
+          description: "Process count has been above 500 for 5+ minutes. Current: {{ $value }}"
+          runbook_url: "https://docs.mimo-mcp.io/runbooks/process-critical"
+
+  - name: mimo_port_alerts
+    rules:
+      # Port Count Warning - fires when port count exceeds 80
+      - alert: MimoPortCountWarning
+        expr: mimo_resource_monitor_port_count > 80
+        for: 1m
+        labels:
+          severity: warning
+          service: mimo-mcp
+        annotations:
+          summary: "MIMO port count is high (possible port leak)"
+          description: "Port count is {{ $value }}, threshold is 80"
+
+      # Port Count Critical - fires when port count exceeds 100 for 5+ minutes
+      - alert: MimoPortCountCritical
+        expr: mimo_resource_monitor_port_count > 100
+        for: 5m
+        labels:
+          severity: critical
+          service: mimo-mcp
+        annotations:
+          summary: "MIMO port count is critically high (port leak detected)"
+          description: "Port count has been above 100 for 5+ minutes. Current: {{ $value }}"
+          runbook_url: "https://docs.mimo-mcp.io/runbooks/port-leak"
+
+  - name: mimo_performance_alerts
+    rules:
+      # High Latency Warning
+      - alert: MimoHighLatencyWarning
+        expr: histogram_quantile(0.95, rate(mimo_request_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          service: mimo-mcp
+        annotations:
+          summary: "MIMO request latency is high"
+          description: "95th percentile latency is {{ $value }}s, threshold is 1s"
+
+      # Error Rate Warning
+      - alert: MimoErrorRateHigh
+        expr: rate(mimo_request_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: mimo-mcp
+        annotations:
+          summary: "MIMO error rate is elevated"
+          description: "Error rate is {{ $value }} errors/second"
+
+  - name: mimo_circuit_breaker_alerts
+    rules:
+      # Circuit Breaker Open
+      - alert: MimoCircuitBreakerOpen
+        expr: mimo_circuit_breaker_state == 2  # 2 = open state
+        for: 1m
+        labels:
+          severity: warning
+          service: mimo-mcp
+        annotations:
+          summary: "MIMO circuit breaker is open for {{ $labels.service_name }}"
+          description: "Circuit breaker for {{ $labels.service_name }} has been open for 1+ minute"
+
+  - name: mimo_availability_alerts
+    rules:
+      # Service Down
+      - alert: MimoServiceDown
+        expr: up{job="mimo-mcp"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: mimo-mcp
+        annotations:
+          summary: "MIMO-MCP service is down"
+          description: "The MIMO-MCP service has been unreachable for 1+ minute"
+
+      # Health Check Failing
+      - alert: MimoHealthCheckFailing
+        expr: mimo_health_check_status == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: mimo-mcp
+        annotations:
+          summary: "MIMO health check is failing"
+          description: "Health check endpoint has been reporting unhealthy for 2+ minutes"
+
+  - name: mimo_ets_alerts
+    rules:
+      # ETS Table Size Warning
+      - alert: MimoETSTableSizeWarning
+        expr: mimo_ets_table_size > 8000
+        for: 5m
+        labels:
+          severity: warning
+          service: mimo-mcp
+        annotations:
+          summary: "MIMO ETS table {{ $labels.table_name }} is large"
+          description: "ETS table {{ $labels.table_name }} has {{ $value }} entries, threshold is 8000"
+
+      # ETS Table Size Critical
+      - alert: MimoETSTableSizeCritical
+        expr: mimo_ets_table_size > 10000
+        for: 5m
+        labels:
+          severity: critical
+          service: mimo-mcp
+        annotations:
+          summary: "MIMO ETS table {{ $labels.table_name }} is critically large"
+          description: "ETS table {{ $labels.table_name }} has {{ $value }} entries, threshold is 10000"

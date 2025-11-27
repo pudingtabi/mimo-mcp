@@ -26,6 +26,8 @@ defmodule Mimo.Application do
         Mimo.Repo,
         # Elixir Registry for via_tuple skill lookups
         {Registry, keys: :unique, name: Mimo.Skills.Registry},
+        # Circuit breaker registry for error handling
+        {Registry, keys: :unique, name: Mimo.CircuitBreaker.Registry},
         # Thread-safe tool registry with distributed coordination
         {Mimo.ToolRegistry, []},
         # Static tool catalog for lazy-loading (reads manifest)
@@ -33,13 +35,21 @@ defmodule Mimo.Application do
         # Task supervisor for async operations
         {Task.Supervisor, name: Mimo.TaskSupervisor},
         # Dynamic supervisor for lazy-spawned skills
-        {DynamicSupervisor, strategy: :one_for_one, name: Mimo.Skills.Supervisor},
+        {Mimo.Skills.Supervisor, []},
         # Hot reload manager for atomic skill reloading
         {Mimo.Skills.HotReload, []},
+        # Classifier cache for LLM embedding/classification results
+        {Mimo.Cache.Classifier, []},
         # Memory cleanup service with TTL management
         {Mimo.Brain.Cleanup, []},
         # Telemetry supervisor for metrics
-        Mimo.Telemetry
+        Mimo.Telemetry,
+        # Resource monitor for operational visibility
+        {Mimo.Telemetry.ResourceMonitor, []},
+        # Semantic Store: Background inference ("The Dreamer")
+        {Mimo.SemanticStore.Dreamer, []},
+        # Semantic Store: Proactive context ("The Observer")
+        {Mimo.SemanticStore.Observer, []}
       ] ++ synthetic_cortex_children()
 
     opts = [strategy: :one_for_one, name: Mimo.Supervisor]

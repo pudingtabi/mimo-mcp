@@ -88,6 +88,9 @@ defmodule Mimo.QueryInterface do
 
   defp search_semantic(_query, %{primary_store: :semantic} = _decision) do
     # TODO: Implement graph/JSON-LD semantic store
+    # v3.0 Roadmap: Replace ETS-based storage with graph database (Neo4j/Dgraph)
+    #               supporting JSON-LD semantic web standards for richer knowledge representation
+    # Current behavior: Returns {:error, "not_implemented"} - semantic queries handled by episodic store fallback
     %{status: "not_implemented", message: "Semantic store pending implementation"}
   end
 
@@ -95,6 +98,9 @@ defmodule Mimo.QueryInterface do
 
   defp search_procedural(_query, %{primary_store: :procedural} = _decision) do
     # TODO: Implement rule engine procedural store
+    # v3.0 Roadmap: Rule engine for procedural knowledge with forward/backward chaining
+    #               and integration with execution FSM for automated skill discovery
+    # Current behavior: Returns {:error, "not_implemented"} - procedural skills loaded from manifest
     %{status: "not_implemented", message: "Procedural store pending implementation"}
   end
 

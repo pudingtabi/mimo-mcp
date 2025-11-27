@@ -1,0 +1,57 @@
+name: Release Binary
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux_x86_64
+          - os: macos-latest
+            target: macos_x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: '1.15.7'
+          otp-version: '26.1.2'
+
+      - name: Install Dependencies
+        run: |
+          mix deps.get
+          
+      - name: Build Binary
+        run: |
+          mix release mimo
+          
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mimo-${{ matrix.target }}
+          path: burrito_out/mimo_${{ matrix.target }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            mimo-linux_x86_64/mimo_linux_x86_64
+            mimo-macos_x86_64/mimo_macos_x86_64

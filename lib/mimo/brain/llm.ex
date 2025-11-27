@@ -1,14 +1,127 @@
 defmodule Mimo.Brain.LLM do
   @moduledoc """
   Hybrid LLM adapter. OpenRouter for reasoning, local Ollama for embeddings.
+
+  All external calls are wrapped with circuit breaker protection to prevent
+  cascade failures when services are unavailable.
   """
   require Logger
+
+  alias Mimo.ErrorHandling.CircuitBreaker
 
   @openrouter_url "https://openrouter.ai/api/v1/chat/completions"
   # Use env var for model, default to fast kat-coder-pro (~2s response)
   @default_model System.get_env("OPENROUTER_MODEL", "kwaipilot/kat-coder-pro:free")
 
+  @doc """
+  Simple completion API for prompts.
+
+  Wrapped with circuit breaker protection.
+
+  ## Parameters
+    - `prompt` - The prompt to complete
+    - `opts` - Options:
+      - `:max_tokens` - Maximum tokens (default: 200)
+      - `:temperature` - Temperature (default: 0.1)
+      - `:format` - :json for JSON output
+
+  ## Returns
+    - `{:ok, response}` - Completion text
+    - `{:error, reason}` - Error
+  """
+  @spec complete(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def complete(prompt, opts \\ []) do
+    CircuitBreaker.call(:llm_service, fn ->
+      do_complete(prompt, opts)
+    end)
+  end
+
+  defp do_complete(prompt, opts) do
+    max_tokens = Keyword.get(opts, :max_tokens, 200)
+    temperature = Keyword.get(opts, :temperature, 0.1)
+    format = Keyword.get(opts, :format, :text)
+
+    system_prompt =
+      if format == :json do
+        "You are a helpful assistant. Respond only with valid JSON, no markdown or explanation."
+      else
+        "You are a helpful assistant. Be concise."
+      end
+
+    case api_key() do
+      nil ->
+        Logger.warning("No OpenRouter API key, using fallback")
+        {:error, :no_api_key}
+
+      key ->
+        do_complete_request(system_prompt, prompt, key, max_tokens, temperature)
+    end
+  end
+
+  defp do_complete_request(system_prompt, user_prompt, api_key, max_tokens, temperature) do
+    payload =
+      Jason.encode!(%{
+        "model" => @default_model,
+        "messages" => [
+          %{"role" => "system", "content" => system_prompt},
+          %{"role" => "user", "content" => user_prompt}
+        ],
+        "temperature" => temperature,
+        "max_tokens" => max_tokens
+      })
+
+    headers = [
+      {"Authorization", "Bearer #{api_key}"},
+      {"HTTP-Referer", "https://mimo.local"},
+      {"X-Title", "Mimo-MCP-Gateway"},
+      {"Content-Type", "application/json"}
+    ]
+
+    case Req.post(@openrouter_url,
+           json: Jason.decode!(payload),
+           headers: headers,
+           receive_timeout: 30_000
+         ) do
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        case body do
+          %{"choices" => [%{"message" => %{"content" => content}} | _]} ->
+            clean_content =
+              content
+              |> String.replace(~r/<think>.*?<\/think>/s, "")
+              |> String.trim()
+
+            {:ok, clean_content}
+
+          _ ->
+            {:error, {:openrouter_error, "Unexpected response format"}}
+        end
+
+      {:ok, %Req.Response{status: status, body: body}} ->
+        Logger.error("OpenRouter error #{status}: #{inspect(body)}")
+        {:error, {:openrouter_error, status, body}}
+
+      {:error, %Req.TransportError{reason: reason}} ->
+        Logger.error("OpenRouter request failed: #{inspect(reason)}")
+        {:error, {:request_failed, reason}}
+
+      {:error, reason} ->
+        Logger.error("OpenRouter request failed: #{inspect(reason)}")
+        {:error, {:request_failed, reason}}
+    end
+  end
+
+  @doc """
+  Consult chief of staff with memory context.
+
+  Wrapped with circuit breaker protection.
+  """
   def consult_chief_of_staff(query, memories) when is_list(memories) do
+    CircuitBreaker.call(:llm_service, fn ->
+      do_consult_chief_of_staff(query, memories)
+    end)
+  end
+
+  defp do_consult_chief_of_staff(query, memories) do
     memory_context =
       if Enum.empty?(memories) do
         "No relevant memories found."
@@ -62,10 +175,14 @@ defmodule Mimo.Brain.LLM do
       {"Content-Type", "application/json"}
     ]
 
-    case HTTPoison.post(@openrouter_url, payload, headers, recv_timeout: 30_000) do
-      {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
-        case Jason.decode(body) do
-          {:ok, %{"choices" => [%{"message" => %{"content" => content}} | _]}} ->
+    case Req.post(@openrouter_url,
+           json: Jason.decode!(payload),
+           headers: headers,
+           receive_timeout: 30_000
+         ) do
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        case body do
+          %{"choices" => [%{"message" => %{"content" => content}} | _]} ->
             # Remove thinking tags if present
             clean_content =
               content
@@ -74,18 +191,19 @@ defmodule Mimo.Brain.LLM do
 
             {:ok, clean_content}
 
-          {:ok, _} ->
+          _ ->
             {:error, {:openrouter_error, "Unexpected response format"}}
-
-          {:error, reason} ->
-            {:error, {:json_decode_error, reason}}
         end
 
-      {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
-        Logger.error("OpenRouter error #{status}: #{body}")
+      {:ok, %Req.Response{status: status, body: body}} ->
+        Logger.error("OpenRouter error #{status}: #{inspect(body)}")
         {:error, {:openrouter_error, status, body}}
 
-      {:error, %HTTPoison.Error{reason: reason}} ->
+      {:error, %Req.TransportError{reason: reason}} ->
+        Logger.error("OpenRouter request failed: #{inspect(reason)}")
+        {:error, {:request_failed, reason}}
+
+      {:error, reason} ->
         Logger.error("OpenRouter request failed: #{inspect(reason)}")
         {:error, {:request_failed, reason}}
     end
@@ -94,8 +212,16 @@ defmodule Mimo.Brain.LLM do
   @doc """
   Generate embeddings using local Ollama instance.
   Falls back to simple hash-based vectors if Ollama unavailable.
+
+  Wrapped with circuit breaker protection for Ollama service.
   """
   def generate_embedding(text) when is_binary(text) do
+    CircuitBreaker.call(:ollama, fn ->
+      do_generate_embedding(text)
+    end)
+  end
+
+  defp do_generate_embedding(text) do
     ollama_url = Application.get_env(:mimo_mcp, :ollama_url, "http://localhost:11434")
 
     payload =
@@ -106,10 +232,14 @@ defmodule Mimo.Brain.LLM do
 
     headers = [{"Content-Type", "application/json"}]
 
-    case HTTPoison.post("#{ollama_url}/api/embeddings", payload, headers, recv_timeout: 30_000) do
-      {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
-        case Jason.decode(body) do
-          {:ok, %{"embedding" => embedding}} ->
+    case Req.post("#{ollama_url}/api/embeddings",
+           json: Jason.decode!(payload),
+           headers: headers,
+           receive_timeout: 30_000
+         ) do
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        case body do
+          %{"embedding" => embedding} ->
             {:ok, embedding}
 
           _ ->
@@ -117,11 +247,15 @@ defmodule Mimo.Brain.LLM do
             {:ok, fallback_embedding(text)}
         end
 
-      {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
-        Logger.warning("Ollama embedding failed (#{status}): #{body}")
+      {:ok, %Req.Response{status: status, body: body}} ->
+        Logger.warning("Ollama embedding failed (#{status}): #{inspect(body)}")
         {:ok, fallback_embedding(text)}
 
-      {:error, %HTTPoison.Error{reason: reason}} ->
+      {:error, %Req.TransportError{reason: reason}} ->
+        Logger.warning("Ollama unavailable: #{inspect(reason)}, using fallback")
+        {:ok, fallback_embedding(text)}
+
+      {:error, reason} ->
         Logger.warning("Ollama unavailable: #{inspect(reason)}, using fallback")
         {:ok, fallback_embedding(text)}
     end

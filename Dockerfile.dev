@@ -1,0 +1,78 @@
+# Mimo MCP Development Environment
+# Multi-stage build with Rust toolchain for NIF compilation
+
+# =============================================================================
+# Stage 1: Rust Builder
+# =============================================================================
+FROM rust:1.75-slim AS rust-builder
+
+WORKDIR /app/native/vector_math
+
+# Install minimal dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Rust source
+COPY native/vector_math/Cargo.toml native/vector_math/Cargo.lock ./
+COPY native/vector_math/src ./src
+
+# Build release
+RUN cargo build --release
+
+# =============================================================================
+# Stage 2: Elixir Development
+# =============================================================================
+FROM elixir:1.15-slim AS development
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    curl \
+    inotify-tools \
+    postgresql-client \
+    sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust for development (needed for rustler recompilation)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Install hex and rebar
+RUN mix local.hex --force && \
+    mix local.rebar --force
+
+WORKDIR /app
+
+# Copy mix files first for caching
+COPY mix.exs mix.lock ./
+COPY config ./config
+
+# Install dependencies
+RUN mix deps.get
+
+# Copy pre-built NIF from rust-builder
+COPY --from=rust-builder /app/native/vector_math/target/release/*.so /app/priv/native/
+
+# Copy rest of application
+COPY . .
+
+# Compile application
+RUN mix compile
+
+# Expose ports
+# 4000 - Phoenix HTTP
+# 4001 - LiveView WebSocket
+EXPOSE 4000 4001
+
+# Environment
+ENV MIX_ENV=dev
+ENV PHX_HOST=localhost
+ENV DATABASE_PATH=/app/data/mimo_dev.db
+
+# Create data directory
+RUN mkdir -p /app/data
+
+# Default command: interactive shell
+CMD ["iex", "-S", "mix", "phx.server"]
