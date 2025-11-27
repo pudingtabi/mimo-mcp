@@ -37,3 +37,6 @@ erl_crash.dump
 /tmp/
 *.log
 native/vector_math/target/
+
+# Documentation (generated/reorganized)
+/docs/
