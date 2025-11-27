@@ -37,6 +37,12 @@ erl_crash.dump
 /tmp/
 *.log
 native/vector_math/target/
+/workspace/
 
 # Documentation (generated/reorganized)
 /docs/
+
+# Debug/temp scripts
+*.py
+debug_*.py
+extract_*.py
