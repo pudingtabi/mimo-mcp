@@ -8,6 +8,9 @@ on:
 
 env:
   MIX_ENV: test
+  # Provide minimal config for CI - tests should not call external APIs
+  MIMO_API_KEY: "test-api-key-for-ci-32-chars-minimum"
+  MIMO_SECRET_KEY_BASE: "test-secret-key-base-for-ci-tests-needs-to-be-at-least-64-characters-long-for-phoenix"
 
 jobs:
   test:
@@ -73,10 +76,10 @@ jobs:
       - name: Compile (includes Rust NIFs)
         run: mix compile --warnings-as-errors
 
-      - name: Setup Test Database
+      - name: Setup Database
         run: |
           mix ecto.create
           mix ecto.migrate
 
       - name: Run Tests
-        run: mix test
+        run: mix test --exclude integration --exclude external
