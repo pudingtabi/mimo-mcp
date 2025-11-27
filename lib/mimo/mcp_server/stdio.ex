@@ -62,7 +62,7 @@ defmodule Mimo.McpServer.Stdio do
       },
       "serverInfo" => %{
         "name" => "mimo-native",
-        "version" => "2.3.0"
+        "version" => "2.3.2"
       }
     })
   end

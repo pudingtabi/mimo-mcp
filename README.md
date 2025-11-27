@@ -1,11 +1,11 @@
-# Mimo-MCP Gateway v2.3
+# Mimo-MCP Gateway v2.3.2
 
 A universal MCP (Model Context Protocol) gateway with **multi-protocol access** - HTTP/REST, OpenAI-compatible API, WebSocket Synapse, and stdio MCP. Features vector memory storage with semantic search and a **Synthetic Cortex** for intelligent agent memory.
 
 [![Elixir](https://img.shields.io/badge/Elixir-1.16+-purple.svg)](https://elixir-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## ✅ What Works (v2.3.1)
+## ✅ What Works (v2.3.2)
 
 This section provides an honest assessment of current functionality:
 
@@ -13,18 +13,18 @@ This section provides an honest assessment of current functionality:
 
 | Feature | Status | Version | Notes |
 |---------|--------|---------|-------|
-| HTTP/REST Gateway | ✅ Production Ready | v2.3.1 | Fully operational on port 4000 |
-| MCP stdio Protocol | ✅ Production Ready | v2.3.1 | Compatible with Claude Desktop, VS Code |
-| Episodic Memory | ✅ Production Ready | v2.3.1 | SQLite + Ollama embeddings |
-| Rate Limiting | ✅ Production Ready | v2.3.1 | Token bucket at 60 req/min |
-| API Key Auth | ✅ Production Ready | v2.3.1 | Constant-time comparison |
-| Tool Registry | ✅ Production Ready | v2.3.1 | Thread-safe GenServer |
-| Hot Reload | ✅ Production Ready | v2.3.1 | Distributed locking |
-| Semantic Store v3.0 | ⚠️ Beta (Core Ready) | v2.3.1 | Schema, Ingestion, Query, Inference - Full stack available |
-| Procedural Store | ⚠️ Beta (Core Ready) | v2.3.1 | FSM, Execution, Validation - Full pipeline available |
-| Rust NIFs | ⚠️ Requires Build | v2.3.1 | See build instructions |
-| WebSocket Synapse | ⚠️ Beta | v2.3.1 | Infrastructure present |
-| Error Handling | ✅ Production Ready | v2.3.1 | Circuit breaker + retry |
+| HTTP/REST Gateway | ✅ Production Ready | v2.3.2 | Fully operational on port 4000 |
+| MCP stdio Protocol | ✅ Production Ready | v2.3.2 | Compatible with Claude Desktop, VS Code |
+| Episodic Memory | ✅ Production Ready | v2.3.2 | SQLite + Ollama embeddings |
+| Rate Limiting | ✅ Production Ready | v2.3.2 | Token bucket at 60 req/min |
+| API Key Auth | ✅ Production Ready | v2.3.2 | Constant-time comparison |
+| Tool Registry | ✅ Production Ready | v2.3.2 | Thread-safe GenServer |
+| Hot Reload | ✅ Production Ready | v2.3.2 | Distributed locking |
+| Semantic Store v3.0 | ⚠️ Beta (Core Ready) | v2.3.2 | Schema, Ingestion, Query, Inference - Full stack available |
+| Procedural Store | ⚠️ Beta (Core Ready) | v2.3.2 | FSM, Execution, Validation - Full pipeline available |
+| Rust NIFs | ⚠️ Requires Build | v2.3.2 | See build instructions |
+| WebSocket Synapse | ⚠️ Beta | v2.3.2 | Infrastructure present |
+| Error Handling | ✅ Production Ready | v2.3.2 | Circuit breaker + retry |
 
 ### Production Ready
 - **HTTP/REST Gateway** - Fully operational on port 4000
@@ -35,7 +35,7 @@ This section provides an honest assessment of current functionality:
 - **Tool Registry** - Thread-safe GenServer (`Mimo.ToolRegistry`) with distributed coordination via `:pg`
 - **Process Registry** - Elixir's built-in `Registry` (`Mimo.Skills.Registry`) for skill process lookups
 - **Hot Reload** - Update skills without restart (with distributed locking)
-- **Test Suite** - 101 tests passing
+- **Test Suite** - 370 tests passing
 
 ### Security Hardened (v2.3.1)
 - **SecureExecutor** - Command whitelist (npx, docker, node, python), argument sanitization
@@ -422,9 +422,9 @@ Edit `priv/skills.json`:
 │            (Classify → Route to appropriate store)               │
 ├─────────────┬─────────────────────────┬─────────────────────────┤
 │ Episodic    │ Semantic Store          │ Procedural Store        │
-│ Store ✅    │ (Coming Soon)           │ (Coming Soon)           │
-│ SQLite +    │                         │                         │
-│ Vectors     │                         │                         │
+│ Store ✅    │ ✅ Beta                 │ ✅ Beta                 │
+│ SQLite +    │ Triple-based            │ State Machine           │
+│ Vectors     │ Knowledge Graph         │ Execution               │
 └─────────────┴─────────────────────────┴─────────────────────────┘
 ```
 

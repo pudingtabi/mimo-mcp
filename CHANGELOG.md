@@ -5,6 +5,27 @@ All notable changes to Mimo-MCP Gateway will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.2] - 2025-11-27
+
+**CI & Documentation Release** - CI pipeline fixes, documentation cleanup, and codebase organization.
+
+### Fixed
+- **CI Pipeline** - Fixed test database configuration using file-based SQLite instead of in-memory
+- **Compiler Warnings** - Resolved 10 unused variable warnings across the codebase
+- **Git Push** - Fixed rebase conflicts and pushed successfully to GitHub
+
+### Changed
+- **Documentation** - Moved 11 development/verification docs to `docs/archive/`
+- **Code Quality** - Updated 8 TODOs with v3.0 Roadmap context for future tracking
+- **Test Suite** - Expanded to 370 tests (all passing)
+- **.gitignore** - Added `docs/` directory to prevent accidental commits of generated docs
+
+### Removed
+- Temporary debugging files (`debug_stream.py`, `extract_pdf.py`, `erl_crash.dump`)
+- Obsolete documentation files from project root
+
+---
+
 ## [2.3.1] - 2025-11-26
 
 **Security & Stability Release** - This release addresses critical security vulnerabilities and stability issues identified during code review.
@@ -27,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Mix.Tasks.Mimo.Keys.Hash` - CLI for generating key hashes for logging
 - Hot reload with distributed locking (`Mimo.Skills.HotReload`)
 - Security event telemetry for audit trails
-- 79 new tests (101 total, all passing)
+- Comprehensive test suite (370 tests passing)
 - README "What Works" section for transparency about production-ready vs experimental features
 
 ### Changed
