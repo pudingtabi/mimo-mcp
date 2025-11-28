@@ -98,7 +98,8 @@ defmodule Mimo.QueryInterface do
         # Fallback to episodic search if no semantic results
         search_episodic_fallback(query)
       else
-        {:ok, :semantic, %{triples: triples}}
+        # Return just the triples list (JSON-serializable)
+        %{source: "semantic", triples: triples}
       end
     rescue
       e ->
@@ -111,7 +112,8 @@ defmodule Mimo.QueryInterface do
 
   defp search_episodic_fallback(query) do
     results = Mimo.Brain.Memory.search_memories(query, limit: 5)
-    {:ok, :episodic_fallback, %{memories: results}}
+    # Return just the memories list, not a tuple (to be JSON-serializable)
+    results
   end
 
   defp search_procedural(query, %{primary_store: :procedural} = _decision) do
