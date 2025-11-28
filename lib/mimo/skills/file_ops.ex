@@ -22,17 +22,17 @@ defmodule Mimo.Skills.FileOps do
   # Get list of allowed roots (sandbox_root + any additional from MIMO_ALLOWED_PATHS)
   defp allowed_roots do
     base = [sandbox_root()]
-    
-    additional = 
+
+    additional =
       case System.get_env("MIMO_ALLOWED_PATHS") do
         nil -> []
         "" -> []
         paths -> String.split(paths, ":") |> Enum.map(&Path.expand/1)
       end
-    
+
     # Also allow /workspace by default for VS Code devcontainers
     workspace = ["/workspace"] |> Enum.filter(&File.dir?/1)
-    
+
     (base ++ additional ++ workspace) |> Enum.uniq()
   end
 
@@ -740,7 +740,7 @@ defmodule Mimo.Skills.FileOps do
   defp expand_safe(path) do
     roots = allowed_roots()
 
-    expanded = 
+    expanded =
       if Path.type(path) == :absolute do
         Path.expand(path)
       else
