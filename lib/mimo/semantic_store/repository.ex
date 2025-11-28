@@ -230,4 +230,92 @@ defmodule Mimo.SemanticStore.Repository do
       average_confidence: Float.round(avg_confidence, 3)
     }
   end
+
+  @doc """
+  Store a new semantic triple (convenience wrapper).
+
+  ## Parameters
+
+    * `subject` - Subject entity (string or {id, type} tuple)
+    * `predicate` - Relationship predicate
+    * `object` - Object entity (string or {id, type} tuple)
+    * `opts` - Additional options (confidence, source, etc.)
+  """
+  def store_triple(subject, predicate, object, opts \\ []) do
+    {subject_id, subject_type} = normalize_entity(subject)
+    {object_id, object_type} = normalize_entity(object)
+
+    attrs = %{
+      subject_id: subject_id,
+      subject_type: subject_type,
+      predicate: predicate,
+      object_id: object_id,
+      object_type: object_type,
+      confidence: Keyword.get(opts, :confidence, 1.0),
+      source: Keyword.get(opts, :source),
+      metadata: Keyword.get(opts, :metadata, %{})
+    }
+
+    upsert(attrs)
+  end
+
+  defp normalize_entity({id, type}), do: {id, type}
+  defp normalize_entity(id) when is_binary(id), do: {id, "entity"}
+
+  @doc """
+  Search triples by text query.
+
+  Searches subject_id, predicate, and object_id fields.
+
+  ## Options
+
+    * `:limit` - Maximum results (default: 10)
+    * `:min_confidence` - Minimum confidence threshold (default: 0.5)
+  """
+  @spec search(String.t(), keyword()) :: [map()]
+  def search(query, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 10)
+    min_confidence = Keyword.get(opts, :min_confidence, 0.5)
+    search_term = "%#{query}%"
+
+    from(t in Triple,
+      where:
+        (like(t.subject_id, ^search_term) or
+           like(t.predicate, ^search_term) or
+           like(t.object_id, ^search_term)) and
+          t.confidence >= ^min_confidence,
+      limit: ^limit,
+      order_by: [desc: t.confidence],
+      select: %{
+        id: t.id,
+        subject: t.subject_id,
+        subject_type: t.subject_type,
+        predicate: t.predicate,
+        object: t.object_id,
+        object_type: t.object_type,
+        confidence: t.confidence
+      }
+    )
+    |> Repo.all()
+  end
+
+  @doc """
+  Count total relationships (triples) for an entity.
+
+  Counts both outgoing (as subject) and incoming (as object) relationships.
+  """
+  @spec count_relationships(term()) :: non_neg_integer()
+  def count_relationships(entity_id) do
+    entity_str = to_string(entity_id)
+
+    outgoing =
+      from(t in Triple, where: t.subject_id == ^entity_str)
+      |> Repo.aggregate(:count, :id)
+
+    incoming =
+      from(t in Triple, where: t.object_id == ^entity_str)
+      |> Repo.aggregate(:count, :id)
+
+    outgoing + incoming
+  end
 end

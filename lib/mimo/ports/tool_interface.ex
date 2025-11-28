@@ -6,8 +6,21 @@ defmodule Mimo.ToolInterface do
   Routes to internal tools or external skills via Registry.
 
   Part of the Universal Aperture architecture - isolates Mimo Core from protocol concerns.
+
+  ## Timeout Protection
+
+  All tool executions are wrapped with timeout protection to prevent hanging:
+  - Internal tools: 30 second timeout
+  - External skills: 60 second timeout (allows for process startup)
+  - Retries on transient failures with exponential backoff
   """
   require Logger
+
+  alias Mimo.ErrorHandling.RetryStrategies
+
+  # Default timeouts
+  @internal_timeout 30_000
+  @external_timeout 60_000
 
   @doc """
   Execute a tool by name with given arguments.

@@ -285,16 +285,12 @@ defmodule Mimo.Skills.Terminal do
       Task.async(fn ->
         try do
           [cmd | args] = String.split(cmd_str)
-          stream = Exile.stream!([cmd | args])
 
-          output =
-            Enum.reduce(stream, "", fn
-              {:stdout, data}, acc -> acc <> data
-              {:stderr, data}, acc -> acc <> data
-              _, acc -> acc
-            end)
-
-          %{status: 0, output: output}
+          # Use System.cmd for simpler commands - more reliable in stdio context
+          case System.cmd(cmd, args, stderr_to_stdout: true) do
+            {output, 0} -> %{status: 0, output: output}
+            {output, status} -> %{status: status, output: output}
+          end
         rescue
           e -> %{status: 1, output: "Execution error: #{Exception.message(e)}"}
         end

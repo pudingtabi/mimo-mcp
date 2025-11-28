@@ -59,7 +59,18 @@ defmodule Mimo.Application do
         # Semantic Store: Background inference ("The Dreamer")
         {Mimo.SemanticStore.Dreamer, []},
         # Semantic Store: Proactive context ("The Observer")
-        {Mimo.SemanticStore.Observer, []}
+        {Mimo.SemanticStore.Observer, []},
+        # ===== Cognitive Memory System (SPEC-001 to SPEC-005) =====
+        # Working Memory: ETS-backed short-term storage with TTL
+        {Mimo.Brain.WorkingMemory, []},
+        # Working Memory Cleaner: Periodic TTL expiration
+        {Mimo.Brain.WorkingMemoryCleaner, []},
+        # Access Tracker: Async batched access tracking for decay scoring
+        {Mimo.Brain.AccessTracker, []},
+        # Consolidator: Working memory → Long-term memory transfer
+        {Mimo.Brain.Consolidator, []},
+        # Forgetting: Scheduled decay-based memory cleanup
+        {Mimo.Brain.Forgetting, []}
       ] ++ synthetic_cortex_children()
 
     opts = [strategy: :one_for_one, name: Mimo.Supervisor]
@@ -128,10 +139,26 @@ defmodule Mimo.Application do
 
   # Block until catalog has loaded tools from manifest
   defp wait_for_catalog_ready do
-    # 50 retries * 100ms = 5 seconds max
-    wait_for_catalog_ready(50)
+    # Quick check - if no external skills configured, don't wait
+    try do
+      tools = Mimo.Skills.Catalog.list_tools()
+
+      if tools == [] do
+        # Empty catalog is valid when no external skills are configured
+        Logger.info("✅ Catalog ready (no external skills configured)")
+        :ok
+      else
+        Logger.info("✅ Catalog ready with #{length(tools)} external tools")
+        :ok
+      end
+    rescue
+      e ->
+        Logger.warning("Catalog check failed: #{Exception.message(e)}, starting without catalog")
+        {:error, :catalog_timeout}
+    end
   end
 
+  # Legacy function - no longer needed but kept for compatibility
   defp wait_for_catalog_ready(0) do
     Logger.error("❌ Catalog not ready after 5 seconds - external skills may be unavailable")
     {:error, :catalog_timeout}

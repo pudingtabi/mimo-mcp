@@ -1,11 +1,11 @@
-# Mimo-MCP Gateway v2.3.4
+# Mimo-MCP Gateway v2.4.0
 
 A universal MCP (Model Context Protocol) gateway with **multi-protocol access** - HTTP/REST, OpenAI-compatible API, WebSocket Synapse, and stdio MCP. Features vector memory storage with semantic search and a **Synthetic Cortex** for intelligent agent memory.
 
 [![Elixir](https://img.shields.io/badge/Elixir-1.16+-purple.svg)](https://elixir-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## ✅ What Works (v2.3.4)
+## ✅ What Works (v2.4.0)
 
 This section provides an honest assessment of current functionality:
 
@@ -13,30 +13,40 @@ This section provides an honest assessment of current functionality:
 
 | Feature | Status | Version | Notes |
 |---------|--------|---------|-------|
-| HTTP/REST Gateway | ✅ Production Ready | v2.3.4 | Fully operational on port 4000 |
-| MCP stdio Protocol | ✅ Production Ready | v2.3.4 | Compatible with Claude Desktop, VS Code |
-| Native Elixir Tools | ✅ Production Ready | v2.3.4 | 8 consolidated tools, zero NPX deps |
-| Episodic Memory | ✅ Production Ready | v2.3.4 | SQLite + Ollama embeddings |
-| Rate Limiting | ✅ Production Ready | v2.3.4 | Token bucket at 60 req/min |
-| API Key Auth | ✅ Production Ready | v2.3.4 | Constant-time comparison |
-| Tool Registry | ✅ Production Ready | v2.3.4 | Thread-safe GenServer |
-| Hot Reload | ✅ Production Ready | v2.3.4 | Distributed locking |
-| Semantic Store v3.0 | ⚠️ Beta (Core Ready) | v2.3.4 | Schema, Ingestion, Query, Inference |
-| Procedural Store | ⚠️ Beta (Core Ready) | v2.3.4 | FSM, Execution, Validation |
-| Rust NIFs | ⚠️ Requires Build | v2.3.4 | See build instructions |
-| WebSocket Synapse | ⚠️ Beta | v2.3.4 | Infrastructure present |
+| HTTP/REST Gateway | ✅ Production Ready | v2.4.0 | Fully operational on port 4000 |
+| MCP stdio Protocol | ✅ Production Ready | v2.4.0 | Compatible with Claude Desktop, VS Code |
+| Native Elixir Tools | ✅ Production Ready | v2.4.0 | 8 consolidated tools, zero NPX deps |
+| Episodic Memory | ✅ Production Ready | v2.4.0 | SQLite + Ollama embeddings |
+| **Working Memory** | ✅ Production Ready | v2.4.0 | ETS-backed short-term buffer with TTL |
+| **Memory Consolidation** | ✅ Production Ready | v2.4.0 | Automatic working → long-term transfer |
+| **Forgetting & Decay** | ✅ Production Ready | v2.4.0 | Exponential decay with importance weighting |
+| **Hybrid Retrieval** | ✅ Production Ready | v2.4.0 | Multi-factor scoring (semantic + recency + importance) |
+| **Memory Router** | ✅ Production Ready | v2.4.0 | Unified interface to all memory stores |
+| Rate Limiting | ✅ Production Ready | v2.4.0 | Token bucket at 60 req/min |
+| API Key Auth | ✅ Production Ready | v2.4.0 | Constant-time comparison |
+| Tool Registry | ✅ Production Ready | v2.4.0 | Thread-safe GenServer |
+| Hot Reload | ✅ Production Ready | v2.4.0 | Distributed locking |
+| Semantic Store v3.0 | ⚠️ Beta (Core Ready) | v2.4.0 | Schema, Ingestion, Query, Inference |
+| Procedural Store | ⚠️ Beta (Core Ready) | v2.4.0 | FSM, Execution, Validation |
+| Rust NIFs | ⚠️ Requires Build | v2.4.0 | See build instructions |
+| WebSocket Synapse | ⚠️ Beta | v2.4.0 | Infrastructure present |
 | Error Handling | ✅ Production Ready | v2.3.4 | Circuit breaker + retry |
 
 ### Production Ready
 - **HTTP/REST Gateway** - Fully operational on port 4000
 - **MCP stdio Protocol** - Compatible with Claude Desktop, VS Code Copilot
 - **Episodic Memory** - SQLite + Ollama embeddings with semantic search
+- **Working Memory** - ETS-backed short-term buffer with configurable TTL (default 5 min)
+- **Memory Consolidation** - Automatic transfer from working to long-term memory based on importance
+- **Forgetting & Decay** - Exponential decay scoring with importance weighting and access boosting
+- **Hybrid Retrieval** - Multi-factor ranking combining semantic similarity, recency, importance, and popularity
+- **Memory Router** - Unified API routing queries to appropriate memory stores (working, episodic, semantic, procedural)
 - **Rate Limiting** - Token bucket at 60 req/min per IP
 - **API Key Authentication** - Secure endpoint protection with constant-time comparison
 - **Tool Registry** - Thread-safe GenServer (`Mimo.ToolRegistry`) with distributed coordination via `:pg`
 - **Process Registry** - Elixir's built-in `Registry` (`Mimo.Skills.Registry`) for skill process lookups
 - **Hot Reload** - Update skills without restart (with distributed locking)
-- **Test Suite** - 370 tests passing
+- **Test Suite** - 361 tests passing (84 excluded for integration/performance)
 
 ### Security Hardened (v2.3.1)
 - **SecureExecutor** - Command whitelist (npx, docker, node, python), argument sanitization
@@ -452,8 +462,11 @@ Mimo.Tools.list_tools()
 │  QueryInterface              │           ToolInterface           │
 │  (Natural Language)          │           (Direct Execution)      │
 ├─────────────────────────────────────────────────────────────────┤
-│                   Meta-Cognitive Router                          │
-│            (Classify → Route to appropriate store)               │
+│                   Memory Router (Unified API)                    │
+│         (Route to: working | episodic | semantic | procedural)   │
+├─────────────────────────────────────────────────────────────────┤
+│  Working Memory │ Consolidator │ Forgetting │ Hybrid Retrieval   │
+│  (ETS Buffer)   │ (WM→LTM)     │ (Decay)    │ (Multi-factor)     │
 ├─────────────┬─────────────────────────┬─────────────────────────┤
 │ Episodic    │ Semantic Store          │ Procedural Store        │
 │ Store ✅    │ ✅ Beta                 │ ✅ Beta                 │

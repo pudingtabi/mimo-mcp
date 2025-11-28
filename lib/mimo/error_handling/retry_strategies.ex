@@ -70,9 +70,67 @@ defmodule Mimo.ErrorHandling.RetryStrategies do
   def with_timeout(operation, timeout_ms) when is_function(operation, 0) do
     task = Task.async(fn -> operation.() end)
 
-    case Task.yield(task, timeout_ms) || Task.shutdown(task) do
+    case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
       {:ok, result} -> {:ok, result}
       nil -> {:error, :timeout}
+    end
+  end
+
+  @doc """
+  Executes operation with both timeout protection and retry logic.
+
+  Ideal for external tool calls that may hang or fail intermittently.
+
+  ## Options
+    - `:timeout` - Timeout per attempt in ms (default: 30_000)
+    - `:max_retries` - Maximum retry attempts (default: 2)
+    - `:base_delay` - Base delay between retries in ms (default: 1000)
+    - `:on_retry` - Callback function on retry
+  """
+  @spec with_timeout_and_retry((-> {:ok, any()} | {:error, any()}), keyword()) ::
+          {:ok, any()} | {:error, any()}
+  def with_timeout_and_retry(operation, opts \\ []) when is_function(operation, 0) do
+    timeout = Keyword.get(opts, :timeout, 30_000)
+    max_retries = Keyword.get(opts, :max_retries, 2)
+    base_delay = Keyword.get(opts, :base_delay, @base_delay_ms)
+    on_retry = Keyword.get(opts, :on_retry)
+
+    wrapped_operation = fn ->
+      case with_timeout(operation, timeout) do
+        {:ok, {:ok, result}} -> {:ok, result}
+        {:ok, {:error, reason}} -> {:error, reason}
+        {:ok, :ok} -> :ok
+        {:ok, other} -> {:ok, other}
+        {:error, :timeout} -> {:error, {:timeout, timeout}}
+      end
+    end
+
+    do_retry(wrapped_operation, 0, max_retries, base_delay, on_retry)
+  end
+
+  @doc """
+  Executes a GenServer call with timeout protection.
+
+  Wraps GenServer.call to prevent hanging when the server is unresponsive.
+  Returns gracefully on timeout instead of raising.
+  """
+  @spec safe_genserver_call(GenServer.server(), term(), non_neg_integer()) ::
+          {:ok, any()} | {:error, :timeout | :noproc | term()}
+  def safe_genserver_call(server, request, timeout \\ 30_000) do
+    try do
+      result = GenServer.call(server, request, timeout)
+      {:ok, result}
+    catch
+      :exit, {:timeout, _} ->
+        Logger.warning("GenServer call timed out after #{timeout}ms")
+        {:error, :timeout}
+
+      :exit, {:noproc, _} ->
+        {:error, :noproc}
+
+      :exit, reason ->
+        Logger.warning("GenServer call failed: #{inspect(reason)}")
+        {:error, reason}
     end
   end
 end

@@ -5,6 +5,48 @@ All notable changes to Mimo-MCP Gateway will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2025-11-28
+
+**Cognitive Memory Systems** - Complete implementation of human-inspired memory architecture based on cognitive science research.
+
+### Added
+- **Working Memory Buffer** (`Mimo.Brain.WorkingMemory`) - ETS-backed short-term memory with configurable TTL (default 5 min)
+  - `store/2` - Store items with automatic expiration
+  - `get/1`, `get_recent/1` - Retrieve items by ID or recency
+  - `WorkingMemoryCleaner` GenServer for automatic TTL cleanup
+- **Memory Consolidation** (`Mimo.Brain.Consolidator`) - Automatic transfer from working to long-term memory
+  - Importance-based consolidation threshold (default 0.7)
+  - Configurable batch size and intervals
+  - Telemetry integration for monitoring consolidation events
+- **Forgetting & Decay System** (`Mimo.Brain.Forgetting`, `Mimo.Brain.DecayScorer`)
+  - Exponential decay formula: `score = importance × e^(-λ×age_days) × (1 + log(1+access_count)×0.1)`
+  - Access count boosting to preserve frequently-used memories
+  - Protection flag for critical memories
+  - Scheduled pruning with configurable thresholds
+- **Hybrid Retrieval** (`Mimo.Brain.HybridScorer`, `Mimo.Brain.HybridRetriever`)
+  - Multi-factor scoring combining semantic similarity, recency, importance, and popularity
+  - Configurable weight presets: `balanced`, `semantic`, `recent`, `important`, `popular`
+  - `rank/3` - Score and sort memories by combined factors
+- **Memory Router** (`Mimo.Brain.MemoryRouter`) - Unified API for all memory stores
+  - `query/2` - Route queries to appropriate store (working, episodic, semantic, procedural)
+  - `store/2` - Intelligent storage routing based on memory type
+  - `episodic/2`, `semantic/2`, `procedural/2` - Direct store access
+- **Access Tracking** (`Mimo.Brain.AccessTracker`) - Track memory access patterns for decay scoring
+- **Database Migration** - Added `access_count`, `last_accessed_at`, `decay_rate`, `protected` fields to engrams
+
+### Changed
+- Updated architecture diagram to show cognitive memory layer
+- Enhanced `Mimo.Brain.Memory` with `hybrid_search/2` wrapper
+- Added facade modules for `SemanticStore` and `ProceduralStore`
+- Supervision tree now includes new GenServers: `WorkingMemoryCleaner`, `Consolidator`, `Forgetting`, `AccessTracker`
+
+### Technical Details
+- 10 new modules, 39 new tests
+- Full test suite: 361 tests, 0 failures (84 excluded for integration/performance)
+- All new modules follow OTP patterns with proper supervision
+
+---
+
 ## [2.3.4] - 2025-11-28
 
 **Native Tool Consolidation** - Removed all external NPX dependencies and consolidated 37 tools into 8 powerful native Elixir tools.

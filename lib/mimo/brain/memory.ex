@@ -257,6 +257,116 @@ defmodule Mimo.Brain.Memory do
     end
   end
 
+  @doc """
+  Get recent memories ordered by insertion time.
+  Used by hybrid retrieval for recency-weighted search.
+
+  ## Options
+
+    * `:limit` - Maximum results (default: 10)
+    * `:category` - Filter by category
+  """
+  def get_recent(opts \\ []) do
+    limit = Keyword.get(opts, :limit, 10)
+    category = Keyword.get(opts, :category)
+
+    query =
+      from(e in Engram,
+        order_by: [desc: e.inserted_at],
+        limit: ^limit,
+        select: %{
+          id: e.id,
+          content: e.content,
+          category: e.category,
+          importance: e.importance,
+          access_count: e.access_count,
+          last_accessed_at: e.last_accessed_at,
+          decay_rate: e.decay_rate,
+          protected: e.protected,
+          metadata: e.metadata,
+          embedding: e.embedding,
+          inserted_at: e.inserted_at
+        }
+      )
+
+    query =
+      if category do
+        from(e in query, where: e.category == ^category)
+      else
+        query
+      end
+
+    {:ok, Repo.all(query)}
+  rescue
+    e ->
+      Logger.error("Get recent failed: #{Exception.message(e)}")
+      {:error, e}
+  end
+
+  @doc """
+  Persist a memory with full metadata and embedding.
+  Used by Consolidator for working memory → long-term transfer.
+
+  ## Parameters
+
+    * `content` - Memory content
+    * `category` - Memory category
+    * `importance` - Importance score (0-1)
+    * `embedding` - Pre-computed embedding vector (optional)
+    * `metadata` - Additional metadata map
+  """
+  def persist_memory(content, category, importance, embedding, metadata \\ %{}) do
+    RetryStrategies.with_retry(
+      fn -> do_persist_memory_full(content, category, importance, embedding, metadata) end,
+      max_retries: 3,
+      base_delay: 100,
+      on_retry: fn attempt, reason ->
+        Logger.warning("Memory persist retry #{attempt}: #{inspect(reason)}")
+      end
+    )
+  end
+
+  defp do_persist_memory_full(content, category, importance, embedding, metadata) do
+    Repo.transaction(fn ->
+      with :ok <- validate_content_size(content) do
+        # Use provided embedding or generate new one
+        final_embedding =
+          case embedding do
+            emb when is_list(emb) and length(emb) > 0 ->
+              emb
+
+            _ ->
+              case generate_embedding(content) do
+                {:ok, emb} -> emb
+                _ -> []
+              end
+          end
+
+        changeset =
+          Engram.changeset(%Engram{}, %{
+            content: content,
+            category: category,
+            importance: importance,
+            embedding: final_embedding,
+            metadata: metadata,
+            last_accessed_at: NaiveDateTime.utc_now()
+          })
+
+        case Repo.insert(changeset) do
+          {:ok, engram} ->
+            log_memory_event(:stored, engram.id, category)
+            {:ok, engram}
+
+          {:error, changeset} ->
+            Repo.rollback(changeset.errors)
+        end
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+    |> unwrap_transaction_result()
+  end
+
   # ==========================================================================
   # Private Functions - Streaming Search
   # ==========================================================================
