@@ -1,11 +1,11 @@
-# Mimo-MCP Gateway v2.3.3
+# Mimo-MCP Gateway v2.3.4
 
 A universal MCP (Model Context Protocol) gateway with **multi-protocol access** - HTTP/REST, OpenAI-compatible API, WebSocket Synapse, and stdio MCP. Features vector memory storage with semantic search and a **Synthetic Cortex** for intelligent agent memory.
 
 [![Elixir](https://img.shields.io/badge/Elixir-1.16+-purple.svg)](https://elixir-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## ✅ What Works (v2.3.3)
+## ✅ What Works (v2.3.4)
 
 This section provides an honest assessment of current functionality:
 
@@ -13,18 +13,19 @@ This section provides an honest assessment of current functionality:
 
 | Feature | Status | Version | Notes |
 |---------|--------|---------|-------|
-| HTTP/REST Gateway | ✅ Production Ready | v2.3.3 | Fully operational on port 4000 |
-| MCP stdio Protocol | ✅ Production Ready | v2.3.3 | Compatible with Claude Desktop, VS Code |
-| Episodic Memory | ✅ Production Ready | v2.3.3 | SQLite + Ollama embeddings |
-| Rate Limiting | ✅ Production Ready | v2.3.3 | Token bucket at 60 req/min |
-| API Key Auth | ✅ Production Ready | v2.3.3 | Constant-time comparison |
-| Tool Registry | ✅ Production Ready | v2.3.3 | Thread-safe GenServer |
-| Hot Reload | ✅ Production Ready | v2.3.3 | Distributed locking |
-| Semantic Store v3.0 | ⚠️ Beta (Core Ready) | v2.3.3 | Schema, Ingestion, Query, Inference - Full stack available |
-| Procedural Store | ⚠️ Beta (Core Ready) | v2.3.3 | FSM, Execution, Validation - Full pipeline available |
-| Rust NIFs | ⚠️ Requires Build | v2.3.3 | See build instructions |
-| WebSocket Synapse | ⚠️ Beta | v2.3.3 | Infrastructure present |
-| Error Handling | ✅ Production Ready | v2.3.3 | Circuit breaker + retry |
+| HTTP/REST Gateway | ✅ Production Ready | v2.3.4 | Fully operational on port 4000 |
+| MCP stdio Protocol | ✅ Production Ready | v2.3.4 | Compatible with Claude Desktop, VS Code |
+| Native Elixir Tools | ✅ Production Ready | v2.3.4 | 8 consolidated tools, zero NPX deps |
+| Episodic Memory | ✅ Production Ready | v2.3.4 | SQLite + Ollama embeddings |
+| Rate Limiting | ✅ Production Ready | v2.3.4 | Token bucket at 60 req/min |
+| API Key Auth | ✅ Production Ready | v2.3.4 | Constant-time comparison |
+| Tool Registry | ✅ Production Ready | v2.3.4 | Thread-safe GenServer |
+| Hot Reload | ✅ Production Ready | v2.3.4 | Distributed locking |
+| Semantic Store v3.0 | ⚠️ Beta (Core Ready) | v2.3.4 | Schema, Ingestion, Query, Inference |
+| Procedural Store | ⚠️ Beta (Core Ready) | v2.3.4 | FSM, Execution, Validation |
+| Rust NIFs | ⚠️ Requires Build | v2.3.4 | See build instructions |
+| WebSocket Synapse | ⚠️ Beta | v2.3.4 | Infrastructure present |
+| Error Handling | ✅ Production Ready | v2.3.4 | Circuit breaker + retry |
 
 ### Production Ready
 - **HTTP/REST Gateway** - Fully operational on port 4000
@@ -350,18 +351,31 @@ Add to `~/.vscode/mcp.json`:
 
 ---
 
-## Available Tools (~35+)
+## Available Tools (12 Native)
 
-Mimo provides tools through multiple sources, managed by the **Tool Registry** (`Mimo.ToolRegistry`).
+Mimo provides **12 native Elixir tools** with zero external dependencies. Managed by the **Tool Registry** (`Mimo.ToolRegistry`).
 
-### Tool Categories
+### Tool Architecture (v2.3.4)
 
-| Category | Source | Count | Description |
-|----------|--------|-------|-------------|
-| **Internal** | `Mimo.ToolRegistry` | 4 | Core memory operations |
-| **Core (Mimo.Tools)** | `Mimo.Tools` | 9 | Built-in file, terminal, fetch tools |
-| **Catalog** | `priv/skills_manifest.json` | 8+ | Pre-defined skill schemas |
-| **External Skills** | MCP subprocess | 20+ | Filesystem, playwright, etc. |
+| Category | Count | Description |
+|----------|-------|-------------|
+| **Internal** | 4 | Core memory operations (ask_mimo, store_fact, search_vibes, reload) |
+| **Mimo.Tools** | 8 | Consolidated native tools (file, terminal, fetch, think, etc.) |
+
+### Consolidated Core Tools (Mimo.Tools)
+
+Each tool handles multiple operations via the `operation` parameter:
+
+| Tool | Operations | Description |
+|------|------------|-------------|
+| `file` | read, write, ls, read_lines, insert_after, insert_before, replace_lines, delete_lines, search, replace_string, list_directory, get_info, move, create_directory, read_multiple | All file system operations |
+| `terminal` | execute, start_process, read_output, interact, kill, force_kill, list_sessions, list_processes | Command execution and process management |
+| `fetch` | text, html, json, markdown, raw | HTTP requests with format conversion |
+| `think` | thought, plan, sequential | Cognitive operations and reasoning |
+| `web_parse` | (html→markdown) | Convert HTML to clean Markdown |
+| `search` | web, code | Web search via Exa AI |
+| `sonar` | (auto-detect platform) | UI accessibility scanner (Linux/macOS) |
+| `knowledge` | query, teach | Knowledge graph operations |
 
 ### Internal Tools
 
@@ -372,76 +386,43 @@ Mimo provides tools through multiple sources, managed by the **Tool Registry** (
 | `search_vibes` | Vector similarity search | `query` |
 | `mimo_reload_skills` | Hot-reload skills without restart | (none) |
 
-> **Note:** `mimo_store_memory` was removed in v2.3.3 - use `store_fact` instead.
+### Example Usage
 
-### Core Tools (Mimo.Tools)
+```bash
+# File operations
+curl -X POST http://localhost:4000/v1/mimo/tool \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"tool": "file", "arguments": {"operation": "read", "path": "README.md"}}'
 
-These tools are built into Mimo and always available:
+# Terminal command
+curl -X POST http://localhost:4000/v1/mimo/tool \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"tool": "terminal", "arguments": {"command": "ls -la"}}'
 
-| Tool | Description | Module |
-|------|-------------|--------|
-| `mimo_fetch` | HTTP requests with format conversion | `Mimo.Tools.Fetch` |
-| `mimo_terminal` | Execute shell commands (sandboxed) | `Mimo.Tools.Terminal` |
-| `mimo_file` | File operations (read/write/list) | `Mimo.Tools.File` |
-| `mimo_multi_file` | Batch file operations | `Mimo.Tools.MultiFile` |
-| `mimo_search` | Search files with patterns | `Mimo.Tools.Search` |
-| `mimo_edit` | Edit files with diffs | `Mimo.Tools.Edit` |
-| `mimo_batch` | Execute multiple tool calls | `Mimo.Tools.Batch` |
-| `mimo_notebook` | Jupyter notebook operations | `Mimo.Tools.Notebook` |
-| `mimo_task` | Background task management | `Mimo.Tools.Task` |
+# Fetch with format
+curl -X POST http://localhost:4000/v1/mimo/tool \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"tool": "fetch", "arguments": {"url": "https://api.example.com", "format": "json"}}'
 
-### External Skills (via MCP)
-
-| Skill | Tools | Description |
-|-------|-------|-------------|
-| **filesystem** | 14 | Read, write, search, edit files |
-| **playwright** | 22 | Browser automation & screenshots |
-| **fetch** | 4 | HTTP requests (txt, json, html, md) |
-| **exa_search** | 2 | Web search via Exa AI |
-| **sequential_thinking** | 1 | Structured reasoning |
-
-### Feature-Gated Tools
-
-Some tools are only available when feature flags are enabled:
-
-| Tool | Required Flag | Description |
-|------|---------------|-------------|
-| `procedural_*` | `procedural_store` | Procedure execution tools |
-| `semantic_*` | `semantic_store` | Knowledge graph tools |
+# Web search
+curl -X POST http://localhost:4000/v1/mimo/tool \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"tool": "search", "arguments": {"query": "Elixir programming"}}'
+```
 
 ### Tool Discovery
 
 ```elixir
 # List all registered tools (IEx)
 Mimo.ToolRegistry.list_all_tools() |> length()
-# => ~35 (varies based on loaded skills)
+# => 12 (4 internal + 8 core)
 
-# Get tool by name
-Mimo.ToolRegistry.get_tool("store_fact")
+# Get tool owner
+Mimo.ToolRegistry.get_tool_owner("file")
+# => {:ok, {:mimo_core, :file}}
 
-# List tools by category
-Mimo.ToolRegistry.list_internal_tools()   # Internal tools
-Mimo.ToolRegistry.mimo_core_tools()       # Mimo.Tools definitions
-Mimo.ToolRegistry.list_catalog_tools()    # From skills_manifest.json
-```
-
-### Configure External Skills
-
-Edit `priv/skills.json`:
-
-```json
-{
-  "filesystem": {
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
-    "env": {}
-  },
-  "exa_search": {
-    "command": "npx",
-    "args": ["-y", "exa-mcp-server"],
-    "env": { "EXA_API_KEY": "${EXA_API_KEY}" }
-  }
-}
+# List available tools via dispatch
+Mimo.Tools.list_tools()
 ```
 
 ---

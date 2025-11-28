@@ -1,21 +1,24 @@
 defmodule Mimo.Skills.Terminal do
   @moduledoc """
   Non-blocking, secure command executor using Exile.
+
+  Native replacement for desktop_commander terminal/process operations.
   """
+  require Logger
 
   @default_timeout 30_000
   @restricted_mode true
 
   @allowed_commands MapSet.new(~w[
     ls cat grep head tail echo git date pwd whoami find wc stat file which
-    ps kill pkill pgrep mkdir touch
+    ps kill pkill pgrep mkdir touch env node npm npx python python3 elixir mix
+    curl wget rg fd ag tree df du free uptime uname hostname ip ifconfig
   ])
 
   @blocked_commands MapSet.new(~w[
     rm mv cp shred dd chmod chown chgrp chattr
     sh bash zsh csh fish dash tcsh ksh
     sudo su doas pkexec runuser
-    curl wget aria2c axel ftp sftp scp tftp
     mysql psql sqlite3 mongo redis-cli psqlodbc
     docker podman kubectl helm minikube
   ])
@@ -28,6 +31,38 @@ defmodule Mimo.Skills.Terminal do
     ssh sshd telnet
   ])
 
+  # ==========================================================================
+  # Process Registry (for tracking running processes)
+  # ==========================================================================
+
+  defmodule Registry do
+    use Agent
+
+    def start_link(_opts) do
+      Agent.start_link(fn -> %{} end, name: __MODULE__)
+    end
+
+    def register(pid, info) do
+      Agent.update(__MODULE__, &Map.put(&1, pid, info))
+    end
+
+    def unregister(pid) do
+      Agent.update(__MODULE__, &Map.delete(&1, pid))
+    end
+
+    def get(pid) do
+      Agent.get(__MODULE__, &Map.get(&1, pid))
+    end
+
+    def list_all do
+      Agent.get(__MODULE__, & &1)
+    end
+  end
+
+  # ==========================================================================
+  # Public API - Single Command Execution
+  # ==========================================================================
+
   def execute(cmd_str, opts \\ []) when is_binary(cmd_str) do
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     restricted = Keyword.get(opts, :restricted, @restricted_mode)
@@ -37,6 +72,180 @@ defmodule Mimo.Skills.Terminal do
       {:error, reason} -> %{status: 1, output: "Security error: #{reason}"}
     end
   end
+
+  # ==========================================================================
+  # Process Management (replaces desktop_commander process tools)
+  # ==========================================================================
+
+  @doc """
+  Start a background process with smart output detection.
+  Returns PID for later interaction.
+  """
+  def start_process(cmd_str, opts \\ []) when is_binary(cmd_str) do
+    timeout_ms = Keyword.get(opts, :timeout_ms, 5000)
+
+    case validate_cmd(cmd_str, false) do
+      :ok ->
+        try do
+          [cmd | args] = String.split(cmd_str)
+
+          # Start process with Exile
+          {:ok, process} = Exile.Process.start_link([cmd | args])
+          pid = Exile.Process.os_pid(process)
+
+          # Register for tracking
+          ensure_registry_started()
+
+          Registry.register(pid, %{
+            command: cmd_str,
+            started_at: DateTime.utc_now(),
+            process: process,
+            output: ""
+          })
+
+          # Collect initial output
+          initial_output = collect_output(process, timeout_ms)
+
+          {:ok,
+           %{
+             pid: pid,
+             command: cmd_str,
+             initial_output: initial_output
+           }}
+        rescue
+          e -> {:error, "Failed to start process: #{Exception.message(e)}"}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Read output from a running process.
+  """
+  def read_process_output(pid, opts \\ []) when is_integer(pid) do
+    timeout_ms = Keyword.get(opts, :timeout_ms, 1000)
+
+    ensure_registry_started()
+
+    case Registry.get(pid) do
+      nil ->
+        {:error, :process_not_found}
+
+      %{process: process} ->
+        output = collect_output(process, timeout_ms)
+        {:ok, %{pid: pid, output: output}}
+    end
+  end
+
+  @doc """
+  Send input to a running process.
+  """
+  def interact_with_process(pid, input) when is_integer(pid) and is_binary(input) do
+    ensure_registry_started()
+
+    case Registry.get(pid) do
+      nil ->
+        {:error, :process_not_found}
+
+      %{process: process} ->
+        Exile.Process.write(process, input <> "\n")
+        # Give time for response
+        Process.sleep(100)
+        output = collect_output(process, 1000)
+        {:ok, %{pid: pid, output: output}}
+    end
+  end
+
+  @doc """
+  Kill a running process.
+  """
+  def kill_process(pid) when is_integer(pid) do
+    ensure_registry_started()
+
+    case Registry.get(pid) do
+      nil ->
+        {:error, :process_not_found}
+
+      %{process: process} ->
+        Exile.Process.kill(process, :sigterm)
+        Registry.unregister(pid)
+        {:ok, %{pid: pid, status: :killed}}
+    end
+  end
+
+  @doc """
+  Force terminate a process.
+  """
+  def force_terminate(pid) when is_integer(pid) do
+    System.cmd("kill", ["-9", Integer.to_string(pid)])
+    ensure_registry_started()
+    Registry.unregister(pid)
+    {:ok, %{pid: pid, status: :force_terminated}}
+  end
+
+  @doc """
+  List all active terminal sessions.
+  """
+  def list_sessions do
+    ensure_registry_started()
+    sessions = Registry.list_all()
+
+    active =
+      Enum.map(sessions, fn {pid, info} ->
+        %{
+          pid: pid,
+          command: info.command,
+          started_at: info.started_at,
+          runtime_seconds: DateTime.diff(DateTime.utc_now(), info.started_at)
+        }
+      end)
+
+    {:ok, active}
+  end
+
+  @doc """
+  List all running processes on the system.
+  """
+  def list_processes do
+    case System.cmd("ps", ["aux"]) do
+      {output, 0} ->
+        lines = String.split(output, "\n", trim: true)
+        processes = parse_ps_output(lines)
+        {:ok, processes}
+
+      {_, _} ->
+        {:error, :failed_to_list_processes}
+    end
+  end
+
+  defp parse_ps_output([_header | lines]) do
+    Enum.map(lines, fn line ->
+      parts = String.split(line, ~r/\s+/, parts: 11)
+
+      case parts do
+        [user, pid, cpu, mem, _vsz, _rss, _tty, _stat, _start, _time | cmd_parts] ->
+          %{
+            user: user,
+            pid: String.to_integer(pid),
+            cpu: cpu,
+            mem: mem,
+            command: Enum.join(cmd_parts, " ")
+          }
+
+        _ ->
+          nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp parse_ps_output(_), do: []
+
+  # ==========================================================================
+  # Private Helpers
+  # ==========================================================================
 
   defp validate_cmd(cmd_str, restricted) do
     parts = String.split(cmd_str)
@@ -94,6 +303,32 @@ defmodule Mimo.Skills.Terminal do
     case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
       {:ok, result} -> result
       nil -> %{status: 1, output: "Command timed out after #{timeout}ms"}
+    end
+  end
+
+  defp collect_output(process, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    collect_output_loop(process, "", deadline)
+  end
+
+  defp collect_output_loop(process, acc, deadline) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+
+    if remaining <= 0 do
+      acc
+    else
+      case Exile.Process.read(process, min(100, remaining)) do
+        {:ok, data} -> collect_output_loop(process, acc <> data, deadline)
+        {:eof, _} -> acc
+        _ -> acc
+      end
+    end
+  end
+
+  defp ensure_registry_started do
+    case Process.whereis(Registry) do
+      nil -> Registry.start_link([])
+      _ -> :ok
     end
   end
 end

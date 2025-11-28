@@ -308,7 +308,7 @@ defmodule Mimo.Telemetry do
 
     if duration_ms > 100 do
       Logger.warning(
-        "[TELEMETRY] Slow semantic query: #{query_type} returned #{result_count} results (#{Float.round(duration_ms, 2)}ms)"
+        "[TELEMETRY] Slow semantic query: #{query_type} returned #{result_count} results (#{Float.round(duration_ms / 1, 2)}ms)"
       )
     end
   end
@@ -320,7 +320,7 @@ defmodule Mimo.Telemetry do
     source = Map.get(metadata, :source, "unknown")
 
     Logger.info(
-      "[TELEMETRY] Ingested #{triple_count} triples from #{source} (#{Float.round(duration_ms, 2)}ms)"
+      "[TELEMETRY] Ingested #{triple_count} triples from #{source} (#{Float.round(duration_ms / 1, 2)}ms)"
     )
   end
 

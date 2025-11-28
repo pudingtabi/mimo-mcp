@@ -4,7 +4,7 @@ defmodule Mimo.MixProject do
   def project do
     [
       app: :mimo_mcp,
-      version: "2.3.3",
+      version: "2.3.4",
       elixir: "~> 1.12",
       start_permanent: Mix.env() == :prod,
       deps: deps(),

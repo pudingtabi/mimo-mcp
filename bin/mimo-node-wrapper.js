@@ -9,8 +9,13 @@ const readline = require('readline');
 const MIMO_DIR = '/workspace/mrc-server/mimo-mcp';
 
 // Spawn the Elixir process with proper shell environment
+// Load .env file if it exists
 const elixir = spawn('/bin/bash', ['-l', '-c', `
   cd "${MIMO_DIR}"
+  # Load .env file
+  if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs)
+  fi
   export MIX_ENV=dev
   export ELIXIR_ERL_OPTIONS="+fnu"
   export MIMO_HTTP_PORT=$((50000 + $$ % 10000))

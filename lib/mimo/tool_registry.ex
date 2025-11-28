@@ -343,16 +343,21 @@ defmodule Mimo.ToolRegistry do
   defp classify_tool("store_fact"), do: {:internal, :store_fact}
   defp classify_tool("mimo_reload_skills"), do: {:internal, :reload}
 
-  # Mimo.Tools core capabilities
-  defp classify_tool("http_request"), do: {:mimo_core, :http_request}
-  defp classify_tool("web_parse"), do: {:mimo_core, :web_parse}
-  defp classify_tool("terminal"), do: {:mimo_core, :terminal}
+  # Mimo.Tools core capabilities (consolidated 8 tools)
   defp classify_tool("file"), do: {:mimo_core, :file}
-  defp classify_tool("sonar"), do: {:mimo_core, :sonar}
+  defp classify_tool("terminal"), do: {:mimo_core, :terminal}
+  defp classify_tool("fetch"), do: {:mimo_core, :fetch}
   defp classify_tool("think"), do: {:mimo_core, :think}
-  defp classify_tool("plan"), do: {:mimo_core, :plan}
-  defp classify_tool("consult_graph"), do: {:mimo_core, :consult_graph}
-  defp classify_tool("teach_mimo"), do: {:mimo_core, :teach_mimo}
+  defp classify_tool("web_parse"), do: {:mimo_core, :web_parse}
+  defp classify_tool("search"), do: {:mimo_core, :search}
+  defp classify_tool("sonar"), do: {:mimo_core, :sonar}
+  defp classify_tool("knowledge"), do: {:mimo_core, :knowledge}
+
+  # Legacy tool names (keep for backward compatibility)
+  defp classify_tool("http_request"), do: {:mimo_core, :fetch}
+  defp classify_tool("plan"), do: {:mimo_core, :think}
+  defp classify_tool("consult_graph"), do: {:mimo_core, :knowledge}
+  defp classify_tool("teach_mimo"), do: {:mimo_core, :knowledge}
 
   defp classify_tool(_), do: :external
 

@@ -5,6 +5,43 @@ All notable changes to Mimo-MCP Gateway will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.4] - 2025-11-28
+
+**Native Tool Consolidation** - Removed all external NPX dependencies and consolidated 37 tools into 8 powerful native Elixir tools.
+
+### Added
+- **Consolidated Native Tools** - 8 unified tools replacing 37 external NPX-based tools:
+  - `file` - All file operations (read, write, ls, search, replace, move, etc.)
+  - `terminal` - Command execution and process management
+  - `fetch` - HTTP requests with multiple formats (text, html, json, markdown, raw)
+  - `think` - Cognitive operations (thought, plan, sequential thinking)
+  - `web_parse` - HTML to Markdown conversion
+  - `search` - Web search via Exa AI
+  - `sonar` - UI accessibility scanner (Linux native + macOS support)
+  - `knowledge` - Knowledge graph operations (query, teach)
+- **Linux Sonar Support** - Native Linux accessibility scanning using xdotool, wmctrl, xprop, and AT-SPI
+- **Headless Server Support** - Sonar fallback showing process/session info on servers without display
+- **.env Auto-Loading** - MCP wrapper now automatically loads environment variables from `.env`
+
+### Fixed
+- **Tool Registry Classification** - All 8 consolidated tools now properly classified as `mimo_core`
+- **Floki HTML Parsing** - Robust error handling with fallback for edge cases
+- **Telemetry Float.round** - Fixed integer-to-float conversion in telemetry handlers
+- **Exile Process API** - Changed from `.stop/1` to `.kill/2` for process termination
+- **Task.yield Timeout** - Added nil timeout handling in tool dispatch
+
+### Changed
+- **Zero External Dependencies** - Removed NPX requirements for desktop_commander, fetch, sequential_thinking, exa_search
+- **Skill Architecture** - Tools now dispatch via operation parameter for multiple functions per tool
+- **MCP Server Cleanup** - Removed dead code from mcp_server.ex (stdio handled by Stdio module)
+
+### Removed
+- External NPX skill dependencies from `priv/skills.json`
+- Legacy tool definitions from `priv/skills_manifest.json`
+- 29 granular tools replaced by 8 consolidated tools
+
+---
+
 ## [2.3.3] - 2025-11-28
 
 **VS Code MCP Integration Fix** - Resolved critical issues preventing MCP tools from being accessible in VS Code Copilot Chat.

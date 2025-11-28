@@ -1,32 +1,4 @@
 {
-  "exa_search": {
-    "command": "npx",
-    "args": ["-y", "exa-mcp-server"],
-    "env": {
-      "EXA_API_KEY": "${EXA_API_KEY}"
-    }
-  },
-  "fetch": {
-    "command": "npx",
-    "args": ["-y", "@tokenizin/mcp-npx-fetch"],
-    "env": {}
-  },
-  "puppeteer": {
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-puppeteer"],
-    "env": {
-      "PUPPETEER_SKIP_CHROMIUM_DOWNLOAD": "true",
-      "PUPPETEER_EXECUTABLE_PATH": "/usr/bin/chromium-browser"
-    }
-  },
-  "sequential_thinking": {
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
-    "env": {}
-  },
-  "desktop_commander": {
-    "command": "npx",
-    "args": ["-y", "@wonderwhy-er/desktop-commander@latest"],
-    "env": {}
-  }
+  "_comment": "External NPX skills removed - all tools are now native Elixir implementations",
+  "_backup": "See skills.json.bak for previous external skill configuration"
 }

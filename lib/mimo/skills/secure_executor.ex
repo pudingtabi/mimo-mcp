@@ -33,10 +33,10 @@ defmodule Mimo.Skills.SecureExecutor do
         ~r/^--yes$/,
         ~r/^-p$/,
         ~r/^--package$/,
-        # Scoped packages like @anthropic/tool
-        ~r/^@[\w\-\.\/]+$/,
-        # Simple package names
-        ~r/^[\w\-\.]+$/,
+        # Scoped packages like @anthropic/tool or @wonderwhy-er/desktop-commander@latest
+        ~r/^@[\w\-\.\/]+(@[\w\-\.]+)?$/,
+        # Simple package names with optional version like package@1.0.0 or package@latest
+        ~r/^[\w\-\.]+(@[\w\-\.]+)?$/,
         # Flags with values
         ~r/^--[\w\-]+=[\w\-\.:\/]+$/
       ]
