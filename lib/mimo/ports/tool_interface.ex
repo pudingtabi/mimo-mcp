@@ -16,11 +16,9 @@ defmodule Mimo.ToolInterface do
   """
   require Logger
 
-  alias Mimo.ErrorHandling.RetryStrategies
-
-  # Default timeouts
-  @internal_timeout 30_000
-  @external_timeout 60_000
+  # Timeouts documented for reference (used by skill executor)
+  # @internal_timeout 30_000
+  # @external_timeout 60_000
 
   @doc """
   Execute a tool by name with given arguments.
