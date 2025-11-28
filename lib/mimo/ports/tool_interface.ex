@@ -38,8 +38,7 @@ defmodule Mimo.ToolInterface do
      }}
   end
 
-  def execute("store_fact", %{"content" => content} = args) do
-    category = Map.get(args, "category", "fact")
+  def execute("store_fact", %{"content" => content, "category" => category} = args) do
     importance = Map.get(args, "importance", 0.5)
 
     case Mimo.Brain.Memory.persist_memory(content, category, importance) do
@@ -56,17 +55,39 @@ defmodule Mimo.ToolInterface do
     end
   end
 
-  def execute("recall_procedure", %{"name" => _name} = _args) do
-    # TODO: Implement procedural store retrieval
-    # v3.0 Roadmap: Procedural store retrieval with FSM state machine lookup
-    #               and execution context preparation for complex multi-step procedures
-    # Current behavior: Returns "not_implemented" - procedures accessed via skills manifest
-    {:ok,
-     %{
-       tool_call_id: UUID.uuid4(),
-       status: "success",
-       data: %{status: "not_implemented", message: "Procedural store pending implementation"}
-     }}
+  def execute("store_fact", _args) do
+    {:error, "Missing required arguments: 'content' and 'category' are required"}
+  end
+
+  def execute("recall_procedure", %{"name" => name} = args) do
+    # Check if procedural store is enabled before attempting to use it
+    if Mimo.Application.feature_enabled?(:procedural_store) do
+      version = Map.get(args, "version", "latest")
+
+      case Mimo.ProceduralStore.Loader.load(name, version) do
+        {:ok, procedure} ->
+          {:ok,
+           %{
+             tool_call_id: UUID.uuid4(),
+             status: "success",
+             data: %{
+               name: procedure.name,
+               version: procedure.version,
+               description: procedure.description,
+               steps: procedure.steps,
+               hash: procedure.hash
+             }
+           }}
+
+        {:error, :not_found} ->
+          {:error, "Procedure '#{name}' (version: #{version}) not found"}
+
+        {:error, reason} ->
+          {:error, "Failed to load procedure: #{inspect(reason)}"}
+      end
+    else
+      {:error, "Procedural store is not enabled. Set PROCEDURAL_STORE_ENABLED=true to enable."}
+    end
   end
 
   def execute("mimo_reload_skills", _args) do
@@ -81,23 +102,6 @@ defmodule Mimo.ToolInterface do
 
       {:error, reason} ->
         {:error, "Reload failed: #{inspect(reason)}"}
-    end
-  end
-
-  def execute("mimo_store_memory", %{"content" => content, "category" => category} = args) do
-    importance = Map.get(args, "importance", 0.5)
-
-    case Mimo.Brain.Memory.persist_memory(content, category, importance) do
-      {:ok, id} ->
-        {:ok,
-         %{
-           tool_call_id: UUID.uuid4(),
-           status: "success",
-           data: %{stored: true, id: id}
-         }}
-
-      {:error, reason} ->
-        {:error, "Failed to store memory: #{inspect(reason)}"}
     end
   end
 
@@ -116,14 +120,48 @@ defmodule Mimo.ToolInterface do
     end
   end
 
-  # Fallback: route unknown tools through Registry (external skills)
+  # Fallback: route unknown tools through Registry (external skills or Mimo.Tools)
   def execute(tool_name, arguments) do
     case Mimo.ToolRegistry.get_tool_owner(tool_name) do
-      {:ok, {:skill, skill_name, _pid}} ->
-        # Route to external skill
-        Logger.debug("Routing #{tool_name} to skill #{skill_name}")
+      {:ok, {:mimo_core, _tool_atom}} ->
+        # Route to Mimo.Tools core capabilities
+        Logger.debug("Dispatching #{tool_name} to Mimo.Tools")
+
+        case Mimo.Tools.dispatch(tool_name, arguments) do
+          {:ok, result} ->
+            {:ok,
+             %{
+               tool_call_id: UUID.uuid4(),
+               status: "success",
+               data: result
+             }}
+
+          {:error, reason} ->
+            {:error, "Core tool execution failed: #{inspect(reason)}"}
+        end
+
+      {:ok, {:skill, skill_name, _pid, _tool_def}} ->
+        # Route to already-running external skill
+        Logger.debug("Routing #{tool_name} to running skill #{skill_name}")
 
         case Mimo.Skills.Client.call_tool(skill_name, tool_name, arguments) do
+          {:ok, result} ->
+            {:ok,
+             %{
+               tool_call_id: UUID.uuid4(),
+               status: "success",
+               data: result
+             }}
+
+          {:error, reason} ->
+            {:error, "Skill execution failed: #{inspect(reason)}"}
+        end
+
+      {:ok, {:skill_lazy, skill_name, config, _nil}} ->
+        # Lazy-spawn external skill on first call
+        Logger.debug("Lazy-spawning skill #{skill_name} for tool #{tool_name}")
+
+        case Mimo.Skills.Client.call_tool_sync(skill_name, config, tool_name, arguments) do
           {:ok, result} ->
             {:ok,
              %{

@@ -1,11 +1,11 @@
-# Mimo-MCP Gateway v2.3.2
+# Mimo-MCP Gateway v2.3.3
 
 A universal MCP (Model Context Protocol) gateway with **multi-protocol access** - HTTP/REST, OpenAI-compatible API, WebSocket Synapse, and stdio MCP. Features vector memory storage with semantic search and a **Synthetic Cortex** for intelligent agent memory.
 
 [![Elixir](https://img.shields.io/badge/Elixir-1.16+-purple.svg)](https://elixir-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## ✅ What Works (v2.3.2)
+## ✅ What Works (v2.3.3)
 
 This section provides an honest assessment of current functionality:
 
@@ -13,18 +13,18 @@ This section provides an honest assessment of current functionality:
 
 | Feature | Status | Version | Notes |
 |---------|--------|---------|-------|
-| HTTP/REST Gateway | ✅ Production Ready | v2.3.2 | Fully operational on port 4000 |
-| MCP stdio Protocol | ✅ Production Ready | v2.3.2 | Compatible with Claude Desktop, VS Code |
-| Episodic Memory | ✅ Production Ready | v2.3.2 | SQLite + Ollama embeddings |
-| Rate Limiting | ✅ Production Ready | v2.3.2 | Token bucket at 60 req/min |
-| API Key Auth | ✅ Production Ready | v2.3.2 | Constant-time comparison |
-| Tool Registry | ✅ Production Ready | v2.3.2 | Thread-safe GenServer |
-| Hot Reload | ✅ Production Ready | v2.3.2 | Distributed locking |
-| Semantic Store v3.0 | ⚠️ Beta (Core Ready) | v2.3.2 | Schema, Ingestion, Query, Inference - Full stack available |
-| Procedural Store | ⚠️ Beta (Core Ready) | v2.3.2 | FSM, Execution, Validation - Full pipeline available |
-| Rust NIFs | ⚠️ Requires Build | v2.3.2 | See build instructions |
-| WebSocket Synapse | ⚠️ Beta | v2.3.2 | Infrastructure present |
-| Error Handling | ✅ Production Ready | v2.3.2 | Circuit breaker + retry |
+| HTTP/REST Gateway | ✅ Production Ready | v2.3.3 | Fully operational on port 4000 |
+| MCP stdio Protocol | ✅ Production Ready | v2.3.3 | Compatible with Claude Desktop, VS Code |
+| Episodic Memory | ✅ Production Ready | v2.3.3 | SQLite + Ollama embeddings |
+| Rate Limiting | ✅ Production Ready | v2.3.3 | Token bucket at 60 req/min |
+| API Key Auth | ✅ Production Ready | v2.3.3 | Constant-time comparison |
+| Tool Registry | ✅ Production Ready | v2.3.3 | Thread-safe GenServer |
+| Hot Reload | ✅ Production Ready | v2.3.3 | Distributed locking |
+| Semantic Store v3.0 | ⚠️ Beta (Core Ready) | v2.3.3 | Schema, Ingestion, Query, Inference - Full stack available |
+| Procedural Store | ⚠️ Beta (Core Ready) | v2.3.3 | FSM, Execution, Validation - Full pipeline available |
+| Rust NIFs | ⚠️ Requires Build | v2.3.3 | See build instructions |
+| WebSocket Synapse | ⚠️ Beta | v2.3.3 | Infrastructure present |
+| Error Handling | ✅ Production Ready | v2.3.3 | Circuit breaker + retry |
 
 ### Production Ready
 - **HTTP/REST Gateway** - Fully operational on port 4000
@@ -350,17 +350,45 @@ Add to `~/.vscode/mcp.json`:
 
 ---
 
-## Available Tools (48+)
+## Available Tools (~35+)
+
+Mimo provides tools through multiple sources, managed by the **Tool Registry** (`Mimo.ToolRegistry`).
+
+### Tool Categories
+
+| Category | Source | Count | Description |
+|----------|--------|-------|-------------|
+| **Internal** | `Mimo.ToolRegistry` | 4 | Core memory operations |
+| **Core (Mimo.Tools)** | `Mimo.Tools` | 9 | Built-in file, terminal, fetch tools |
+| **Catalog** | `priv/skills_manifest.json` | 8+ | Pre-defined skill schemas |
+| **External Skills** | MCP subprocess | 20+ | Filesystem, playwright, etc. |
 
 ### Internal Tools
 
-| Tool | Description |
-|------|-------------|
-| `ask_mimo` | Query Mimo's memory system |
-| `store_fact` | Store facts/observations with embeddings |
-| `search_vibes` | Vector similarity search |
-| `mimo_store_memory` | Store memory (alias) |
-| `mimo_reload_skills` | Hot-reload skills without restart |
+| Tool | Description | Required Args |
+|------|-------------|---------------|
+| `ask_mimo` | Query Mimo's memory system | `query` |
+| `store_fact` | Store facts/observations with embeddings | `content`, `category` |
+| `search_vibes` | Vector similarity search | `query` |
+| `mimo_reload_skills` | Hot-reload skills without restart | (none) |
+
+> **Note:** `mimo_store_memory` was removed in v2.3.3 - use `store_fact` instead.
+
+### Core Tools (Mimo.Tools)
+
+These tools are built into Mimo and always available:
+
+| Tool | Description | Module |
+|------|-------------|--------|
+| `mimo_fetch` | HTTP requests with format conversion | `Mimo.Tools.Fetch` |
+| `mimo_terminal` | Execute shell commands (sandboxed) | `Mimo.Tools.Terminal` |
+| `mimo_file` | File operations (read/write/list) | `Mimo.Tools.File` |
+| `mimo_multi_file` | Batch file operations | `Mimo.Tools.MultiFile` |
+| `mimo_search` | Search files with patterns | `Mimo.Tools.Search` |
+| `mimo_edit` | Edit files with diffs | `Mimo.Tools.Edit` |
+| `mimo_batch` | Execute multiple tool calls | `Mimo.Tools.Batch` |
+| `mimo_notebook` | Jupyter notebook operations | `Mimo.Tools.Notebook` |
+| `mimo_task` | Background task management | `Mimo.Tools.Task` |
 
 ### External Skills (via MCP)
 
@@ -371,6 +399,31 @@ Add to `~/.vscode/mcp.json`:
 | **fetch** | 4 | HTTP requests (txt, json, html, md) |
 | **exa_search** | 2 | Web search via Exa AI |
 | **sequential_thinking** | 1 | Structured reasoning |
+
+### Feature-Gated Tools
+
+Some tools are only available when feature flags are enabled:
+
+| Tool | Required Flag | Description |
+|------|---------------|-------------|
+| `procedural_*` | `procedural_store` | Procedure execution tools |
+| `semantic_*` | `semantic_store` | Knowledge graph tools |
+
+### Tool Discovery
+
+```elixir
+# List all registered tools (IEx)
+Mimo.ToolRegistry.list_all_tools() |> length()
+# => ~35 (varies based on loaded skills)
+
+# Get tool by name
+Mimo.ToolRegistry.get_tool("store_fact")
+
+# List tools by category
+Mimo.ToolRegistry.list_internal_tools()   # Internal tools
+Mimo.ToolRegistry.mimo_core_tools()       # Mimo.Tools definitions
+Mimo.ToolRegistry.list_catalog_tools()    # From skills_manifest.json
+```
 
 ### Configure External Skills
 
@@ -651,6 +704,30 @@ config :mimo_mcp, :feature_flags,
   procedural_store: true,
   websocket_synapse: true
 ```
+
+### Feature Flag Effects
+
+| Flag | When Enabled | When Disabled |
+|------|--------------|---------------|
+| `rust_nifs` | Uses SIMD-accelerated Rust for vector math | Falls back to pure Elixir implementation |
+| `semantic_store` | Semantic query routing available, triple store active | Queries bypass semantic layer |
+| `procedural_store` | Procedure tools available via `ToolInterface` | Procedure-related tool calls return `{:error, :feature_disabled}` |
+| `websocket_synapse` | WebSocket channels active for real-time communication | WebSocket connections rejected |
+
+### Runtime Configuration (v2.3.3)
+
+The `:environment` config controls runtime behavior:
+
+```elixir
+# config/runtime.exs
+config :mimo_mcp,
+  environment: config_env()  # :dev, :test, or :prod
+```
+
+This affects:
+- **Authentication bypass**: Disabled in production
+- **Rate limiting**: Stricter in production
+- **Logging verbosity**: Reduced in production
 
 Check module status:
 

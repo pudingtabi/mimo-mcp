@@ -64,7 +64,7 @@ IO.puts("Testing compilation...")
 IO.puts("✓ All modules compiled successfully")
 
 IO.puts("Testing tool definitions...")
-tools = Mimo.Registry.list_all_tools()
+tools = Mimo.ToolRegistry.list_all_tools()
 IO.puts("✓ Found " <> Integer.to_string(length(tools)) <> " internal tools")
 
 IO.puts("")

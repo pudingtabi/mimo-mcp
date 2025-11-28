@@ -10,6 +10,9 @@ config :mimo_mcp, Mimo.Repo,
 config :mimo_mcp,
   api_key: "test-key-for-ci-minimum-32-characters-long",
   openrouter_api_key: nil,
-  skip_external_apis: true
+  skip_external_apis: true,
+  # Use fast timeouts in tests
+  ollama_timeout: 1_000,
+  environment: :test
 
 config :logger, level: :warning

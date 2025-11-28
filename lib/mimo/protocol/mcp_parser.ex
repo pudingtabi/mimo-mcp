@@ -202,7 +202,7 @@ defmodule Mimo.Protocol.McpParser do
       "params" => %{
         "protocolVersion" => "2024-11-05",
         "capabilities" => %{},
-        "clientInfo" => %{"name" => "mimo-mcp", "version" => "2.3.2"}
+        "clientInfo" => %{"name" => "mimo-mcp", "version" => "2.3.3"}
       },
       "id" => id
     }

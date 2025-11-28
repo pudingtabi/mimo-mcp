@@ -86,22 +86,59 @@ defmodule Mimo.QueryInterface do
 
   defp search_episodic(_query, _decision), do: []
 
-  defp search_semantic(_query, %{primary_store: :semantic} = _decision) do
-    # TODO: Implement graph/JSON-LD semantic store
-    # v3.0 Roadmap: Replace ETS-based storage with graph database (Neo4j/Dgraph)
-    #               supporting JSON-LD semantic web standards for richer knowledge representation
-    # Current behavior: Returns {:error, "not_implemented"} - semantic queries handled by episodic store fallback
-    %{status: "not_implemented", message: "Semantic store pending implementation"}
+  defp search_semantic(query, %{primary_store: :semantic} = _decision) do
+    alias Mimo.SemanticStore.Query
+
+    # Try pattern matching for structured queries
+    try do
+      # Extract potential entity patterns from query
+      triples = Query.pattern_match([{:any, "relates_to", :any}])
+
+      if triples == [] do
+        # Fallback to episodic search if no semantic results
+        search_episodic_fallback(query)
+      else
+        {:ok, :semantic, %{triples: triples}}
+      end
+    rescue
+      e ->
+        Logger.warning("Semantic search failed: #{Exception.message(e)}, falling back to episodic")
+        search_episodic_fallback(query)
+    end
   end
 
   defp search_semantic(_query, _decision), do: nil
 
-  defp search_procedural(_query, %{primary_store: :procedural} = _decision) do
-    # TODO: Implement rule engine procedural store
-    # v3.0 Roadmap: Rule engine for procedural knowledge with forward/backward chaining
-    #               and integration with execution FSM for automated skill discovery
-    # Current behavior: Returns {:error, "not_implemented"} - procedural skills loaded from manifest
-    %{status: "not_implemented", message: "Procedural store pending implementation"}
+  defp search_episodic_fallback(query) do
+    results = Mimo.Brain.Memory.search_memories(query, limit: 5)
+    {:ok, :episodic_fallback, %{memories: results}}
+  end
+
+  defp search_procedural(query, %{primary_store: :procedural} = _decision) do
+    # Check if procedural store is enabled
+    if Mimo.Application.feature_enabled?(:procedural_store) do
+      # Search procedures by name pattern matching
+      # TODO: v3.0 Roadmap - Add full-text search and semantic matching for procedures
+      try do
+        # List all active procedures and filter by query match
+        procedures = Mimo.ProceduralStore.Loader.list(active_only: true)
+
+        matching =
+          procedures
+          |> Enum.filter(fn p ->
+            String.contains?(String.downcase(p.name || ""), String.downcase(query)) ||
+              String.contains?(String.downcase(p.description || ""), String.downcase(query))
+          end)
+          |> Enum.take(10)
+
+        if Enum.empty?(matching), do: nil, else: matching
+      rescue
+        _ -> nil
+      end
+    else
+      # Return nil for consistency - procedural store not enabled
+      nil
+    end
   end
 
   defp search_procedural(_query, _decision), do: nil

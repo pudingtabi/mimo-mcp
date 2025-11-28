@@ -1,5 +1,5 @@
 defmodule Mimo.SemanticStore.IngestorTest do
-  use Mimo.DataCase, async: true
+  use Mimo.DataCase, async: false
 
   alias Mimo.SemanticStore.{Ingestor, Repository}
 

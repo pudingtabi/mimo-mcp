@@ -104,6 +104,7 @@ defmodule Mimo.Skills.SecureExecutor do
   }
 
   # Environment variables that can be interpolated
+  # NOTE: Must stay in sync with @allowed_interpolation_vars in Mimo.Skills.Validator
   @allowed_env_vars ~w(
     EXA_API_KEY
     GITHUB_TOKEN
@@ -116,6 +117,9 @@ defmodule Mimo.Skills.SecureExecutor do
     PATH
     NODE_PATH
     PYTHONPATH
+    MEMORY_PATH
+    DATA_DIR
+    CONFIG_DIR
   )
 
   # Dangerous shell metacharacters

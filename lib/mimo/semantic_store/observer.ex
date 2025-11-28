@@ -166,10 +166,13 @@ defmodule Mimo.SemanticStore.Observer do
   end
 
   defp filter_not_mentioned(suggestions, conversation_history) do
-    # Extract all text from conversation
+    # Extract all text from conversation with input validation
     conversation_text =
       conversation_history
-      |> Enum.map(fn msg -> msg["content"] || msg[:content] || "" end)
+      |> Enum.map(fn
+        msg when is_map(msg) -> msg["content"] || msg[:content] || ""
+        _ -> ""
+      end)
       |> Enum.join(" ")
       |> String.downcase()
 
@@ -189,16 +192,22 @@ defmodule Mimo.SemanticStore.Observer do
 
   defp extract_mention_timestamps(conversation_history) do
     # Extract entity mentions with timestamps from conversation
-    # This is a simplified implementation
+    # This is a simplified implementation with input validation
     conversation_history
     |> Enum.with_index()
     |> Enum.flat_map(fn {msg, _idx} ->
-      content = msg["content"] || msg[:content] || ""
-      timestamp = msg["timestamp"] || DateTime.utc_now()
+      case msg do
+        msg when is_map(msg) ->
+          content = msg["content"] || msg[:content] || ""
+          timestamp = msg["timestamp"] || DateTime.utc_now()
 
-      # Extract entity-like patterns (word:word format)
-      Regex.scan(~r/\b([a-z]+:[a-z_]+)\b/i, content)
-      |> Enum.map(fn [_, entity] -> {String.downcase(entity), timestamp} end)
+          # Extract entity-like patterns (word:word format)
+          Regex.scan(~r/\b([a-z]+:[a-z_]+)\b/i, content)
+          |> Enum.map(fn [_, entity] -> {String.downcase(entity), timestamp} end)
+
+        _ ->
+          []
+      end
     end)
     |> Map.new()
   end

@@ -49,6 +49,21 @@ defmodule MimoWeb.Plugs.RateLimiter do
     end
   end
 
+  @doc """
+  Periodic cleanup of stale rate limit entries.
+  Called by Telemetry poller to prevent unbounded ETS growth.
+  """
+  def cleanup_stale_entries do
+    if :ets.whereis(@table_name) != :undefined do
+      now = System.monotonic_time(:millisecond)
+      window_ms = Application.get_env(:mimo_mcp, :rate_limit_window_ms, @default_window_ms)
+      cleanup_old_entries(now, window_ms)
+    end
+  rescue
+    # Ignore cleanup errors - table may not exist yet
+    _ -> :ok
+  end
+
   defp ensure_table_exists do
     case :ets.whereis(@table_name) do
       :undefined ->

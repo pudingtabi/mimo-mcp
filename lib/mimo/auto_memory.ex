@@ -35,7 +35,15 @@ defmodule Mimo.AutoMemory do
         try do
           maybe_store_memory(tool_name, arguments, result)
         rescue
-          e -> Logger.debug("AutoMemory failed: #{inspect(e)}")
+          e ->
+            # Emit telemetry for monitoring/alerting
+            :telemetry.execute(
+              [:mimo, :auto_memory, :failure],
+              %{count: 1},
+              %{tool: tool_name, error: Exception.message(e)}
+            )
+
+            Logger.warning("AutoMemory storage failed for #{tool_name}: #{Exception.message(e)}")
         end
       end)
     end

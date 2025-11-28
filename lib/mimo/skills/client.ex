@@ -135,7 +135,8 @@ defmodule Mimo.Skills.Client do
 
     # Wait for initialize response (may get multiple messages)
     # 30s timeout to allow npx to download packages on first run
-    case ProcessManager.receive_json_response(port, 30_000) do
+    # Skip any notification messages that arrive before the result
+    case receive_result_response(port, 30_000) do
       {:ok, %{"result" => _}} ->
         # Step 2: Send initialized notification
         initialized = McpParser.initialized_notification()
@@ -148,7 +149,7 @@ defmodule Mimo.Skills.Client do
         list_request = McpParser.tools_list_request(2)
         Port.command(port, list_request)
 
-        case ProcessManager.receive_json_response(port, 30_000) do
+        case receive_result_response(port, 30_000) do
           {:ok, %{"result" => %{"tools" => tools}}} -> {:ok, tools}
           {:ok, %{"error" => error}} -> {:error, {:mcp_error, error}}
           {:error, reason} -> {:error, reason}
@@ -159,6 +160,60 @@ defmodule Mimo.Skills.Client do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # Receives JSON response, skipping notification messages
+  # MCP servers can send notifications at any time; we need to filter them during handshake
+  defp receive_result_response(port, timeout, start_time \\ nil) do
+    start_time = start_time || System.monotonic_time(:millisecond)
+    elapsed = System.monotonic_time(:millisecond) - start_time
+    remaining_timeout = max(timeout - elapsed, 0)
+
+    if remaining_timeout <= 0 do
+      {:error, :timeout}
+    else
+      case ProcessManager.receive_json_response(port, remaining_timeout) do
+        {:ok, %{"method" => "notifications/" <> _} = _notification} ->
+          # Skip notification and continue waiting for result
+          Logger.debug("Skipping MCP notification during handshake")
+          receive_result_response(port, timeout, start_time)
+
+        {:ok, response} ->
+          # Got a non-notification response
+          {:ok, response}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  # Receives tool call response, skipping notification messages that may arrive during execution
+  defp receive_tool_response(port, timeout, start_time \\ nil) do
+    start_time = start_time || System.monotonic_time(:millisecond)
+    elapsed = System.monotonic_time(:millisecond) - start_time
+    remaining_timeout = max(timeout - elapsed, 0)
+
+    if remaining_timeout <= 0 do
+      {:error, :timeout}
+    else
+      case ProcessManager.receive_json_response(port, remaining_timeout) do
+        {:ok, %{"method" => "notifications/" <> _} = notification} ->
+          # Skip notification and continue waiting for result
+          Logger.debug(
+            "Skipping MCP notification during tool call: #{inspect(notification["params"]["data"])}"
+          )
+
+          receive_tool_response(port, timeout, start_time)
+
+        {:ok, response} ->
+          # Got a non-notification response (result or error)
+          {:ok, response}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
@@ -177,17 +232,11 @@ defmodule Mimo.Skills.Client do
 
     Port.command(state.port, request)
 
-    # Use ProcessManager for response handling
-    case ProcessManager.receive_data(state.port, 60_000) do
-      {:ok, binary_data} ->
-        case Jason.decode(binary_data) do
-          {:ok, %{"result" => result}} -> {:reply, {:ok, result}, state}
-          {:ok, %{"error" => error}} -> {:reply, {:error, error}, state}
-          {:error, _} -> {:reply, {:error, :invalid_response}, state}
-        end
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
+    # Use receive_tool_response to handle notifications during tool execution
+    case receive_tool_response(state.port, 60_000) do
+      {:ok, %{"result" => result}} -> {:reply, {:ok, result}, state}
+      {:ok, %{"error" => error}} -> {:reply, {:error, error}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 

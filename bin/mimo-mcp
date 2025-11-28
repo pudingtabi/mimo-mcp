@@ -1,0 +1,21 @@
+#!/bin/bash
+# Mimo MCP wrapper script for VS Code
+
+# Set up asdf environment
+export ASDF_DIR="/root/.asdf"
+export PATH="/root/.asdf/installs/elixir/1.15.7-otp-26/bin:/root/.asdf/installs/erlang/26.0/bin:$PATH"
+
+# Silence logs for clean JSON-RPC
+export LOGGER_LEVEL=none
+export MIX_ENV=dev
+export ELIXIR_ERL_OPTIONS="+fnu"
+
+# Disable features that bind to ports (not needed for stdio MCP)
+export PROMETHEUS_DISABLED=true
+
+cd /workspace/mrc-server/mimo-mcp
+
+# Kill any existing beam processes to free ports
+pkill -9 -f "beam.*mimo" 2>/dev/null
+
+exec mix run -e "Mimo.McpServer.Stdio.start()"

@@ -1,5 +1,5 @@
 defmodule Mimo.SemanticStore.ResolverTest do
-  use Mimo.DataCase, async: true
+  use Mimo.DataCase, async: false
 
   alias Mimo.SemanticStore.Resolver
 

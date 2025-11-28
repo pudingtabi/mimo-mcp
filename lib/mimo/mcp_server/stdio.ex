@@ -29,11 +29,12 @@ defmodule Mimo.McpServer.Stdio do
   defp loop do
     case IO.read(:stdio, :line) do
       :eof ->
-        :ok
+        # Cleanly exit the VM when stdin closes
+        System.halt(0)
 
-      {:error, reason} ->
-        send_error(nil, @internal_error, "IO Error: #{inspect(reason)}")
-        :ok
+      {:error, _reason} ->
+        # Exit on IO error
+        System.halt(0)
 
       line when is_binary(line) ->
         process_line(String.trim(line))
@@ -61,8 +62,8 @@ defmodule Mimo.McpServer.Stdio do
         "tools" => %{"listChanged" => true}
       },
       "serverInfo" => %{
-        "name" => "mimo-native",
-        "version" => "2.3.2"
+        "name" => "mimo-mcp",
+        "version" => "2.3.3"
       }
     })
   end
@@ -73,9 +74,8 @@ defmodule Mimo.McpServer.Stdio do
   end
 
   defp handle_request(%{"method" => "tools/list", "id" => id}) do
-    tools = Mimo.Tools.list_tools()
-    # Transform internal tool definition to MCP format if needed
-    # (Mimo.Tools structure is already MCP compliant)
+    # Use ToolRegistry for complete tool list (internal + core + catalog + skills)
+    tools = Mimo.ToolRegistry.list_all_tools()
     send_response(id, %{"tools" => tools})
   end
 
@@ -83,13 +83,62 @@ defmodule Mimo.McpServer.Stdio do
     tool_name = params["name"]
     args = params["arguments"] || %{}
 
-    case Mimo.Tools.dispatch(tool_name, args) do
-      {:ok, result} ->
-        content = format_content(result)
-        send_response(id, %{"content" => content})
+    # Check ToolRegistry first for both internal and external tools
+    case Mimo.ToolRegistry.get_tool_owner(tool_name) do
+      {:ok, {:skill, skill_name, _pid, _tool_def}} ->
+        # External skill - already running
+        case Mimo.Skills.Client.call_tool(skill_name, tool_name, args) do
+          {:ok, result} ->
+            send_response(id, %{
+              "content" => [%{"type" => "text", "text" => Jason.encode!(result, pretty: true)}]
+            })
 
-      {:error, reason} ->
-        send_error(id, @internal_error, to_string(reason))
+          {:error, reason} ->
+            send_error(id, @internal_error, "Skill error: #{inspect(reason)}")
+        end
+
+      {:ok, {:skill_lazy, skill_name, config, _}} ->
+        # External skill - lazy spawn
+        case Mimo.Skills.Client.call_tool_sync(skill_name, config, tool_name, args) do
+          {:ok, result} ->
+            send_response(id, %{
+              "content" => [%{"type" => "text", "text" => Jason.encode!(result, pretty: true)}]
+            })
+
+          {:error, reason} ->
+            send_error(id, @internal_error, "Skill error: #{inspect(reason)}")
+        end
+
+      {:ok, {:internal, _}} ->
+        # Internal tool - use ToolInterface for consistency
+        case Mimo.ToolInterface.execute(tool_name, args) do
+          {:ok, result} ->
+            content = format_content(result)
+            send_response(id, %{"content" => content})
+
+          {:error, reason} ->
+            send_error(id, @internal_error, to_string(reason))
+        end
+
+      {:ok, {:mimo_core, _}} ->
+        # Mimo.Tools core capabilities - use ToolInterface for consistency
+        case Mimo.ToolInterface.execute(tool_name, args) do
+          {:ok, result} ->
+            content = format_content(result)
+            send_response(id, %{"content" => content})
+
+          {:error, reason} ->
+            send_error(id, @internal_error, to_string(reason))
+        end
+
+      {:error, :not_found} ->
+        available = Mimo.ToolRegistry.list_all_tools() |> Enum.map(& &1["name"])
+
+        send_error(
+          id,
+          @internal_error,
+          "Tool '#{tool_name}' not found. Available: #{inspect(available)}"
+        )
     end
   end
 
@@ -135,6 +184,8 @@ defmodule Mimo.McpServer.Stdio do
   defp emit_json(map) do
     json = Jason.encode!(map)
     IO.write(:stdio, json <> "\n")
+    # Force flush to ensure immediate delivery
+    :io.put_chars(:standard_io, [])
   end
 
   defp format_content(result) when is_binary(result) do

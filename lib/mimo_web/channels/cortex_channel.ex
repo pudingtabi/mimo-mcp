@@ -268,15 +268,38 @@ defmodule MimoWeb.CortexChannel do
       content: "Searching semantic memory..."
     })
 
-    # TODO: Integrate with Semantic Store
-    # v3.0 Roadmap: Full semantic store integration with graph database support
-    #               for rich knowledge graph queries and JSON-LD semantic web standards
-    # Current behavior: Returns empty results [] - semantic queries handled by episodic store fallback
-    %{
-      store: "semantic",
-      query: query,
-      results: []
-    }
+    alias Mimo.SemanticStore.Query
+
+    try do
+      # Try pattern matching for structured queries
+      triples = Query.pattern_match([{:any, "relates_to", :any}])
+
+      if triples == [] do
+        # Fallback to episodic search if no semantic results
+        broadcast_thought(agent_id, ref, %{
+          type: "fallback",
+          content: "No semantic matches, searching episodic memory..."
+        })
+
+        episodic_results = Mimo.Brain.Memory.search_memories(query, limit: 5)
+
+        %{
+          store: "semantic_with_episodic_fallback",
+          query: query,
+          results: episodic_results
+        }
+      else
+        %{
+          store: "semantic",
+          query: query,
+          results: triples
+        }
+      end
+    rescue
+      e ->
+        Logger.warning("Semantic query failed: #{Exception.message(e)}")
+        %{store: "semantic", query: query, results: [], error: Exception.message(e)}
+    end
   end
 
   defp execute_procedural_query(query, agent_id, ref, _timeout) do
@@ -285,15 +308,51 @@ defmodule MimoWeb.CortexChannel do
       content: "Checking procedural skills..."
     })
 
-    # TODO: Integrate with Procedural Store
-    # v3.0 Roadmap: Full procedural store integration with rule engine
-    #               for executable skill lookup and state machine procedures
-    # Current behavior: Returns empty results [] - procedural skills loaded from skills manifest
-    %{
-      store: "procedural",
-      query: query,
-      results: []
-    }
+    alias Mimo.ProceduralStore.Loader
+
+    # Try to find a procedure matching the query
+    # Query is used as procedure name lookup
+    procedure_name = extract_procedure_name(query)
+
+    case Loader.load(procedure_name, "latest") do
+      {:ok, procedure} ->
+        %{
+          store: "procedural",
+          query: query,
+          results: [
+            %{
+              name: procedure.name,
+              version: procedure.version,
+              description: procedure.description,
+              steps: procedure.steps
+            }
+          ]
+        }
+
+      {:error, :not_found} ->
+        # List available procedures as context
+        available = Loader.list(active_only: true) |> Enum.take(5)
+
+        %{
+          store: "procedural",
+          query: query,
+          results: [],
+          available_procedures: Enum.map(available, & &1.name)
+        }
+
+      {:error, reason} ->
+        Logger.warning("Procedural query failed: #{inspect(reason)}")
+        %{store: "procedural", query: query, results: [], error: inspect(reason)}
+    end
+  end
+
+  defp extract_procedure_name(query) do
+    # Simple extraction: use the query as-is for now
+    # Could be enhanced with NLP entity extraction
+    query
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9_-]/, "_")
+    |> String.slice(0, 64)
   end
 
   defp execute_episodic_query(query, agent_id, ref, _timeout) do

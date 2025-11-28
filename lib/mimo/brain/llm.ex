@@ -214,15 +214,23 @@ defmodule Mimo.Brain.LLM do
   Falls back to simple hash-based vectors if Ollama unavailable.
 
   Wrapped with circuit breaker protection for Ollama service.
+  In test mode (skip_external_apis: true), returns fallback immediately.
   """
   def generate_embedding(text) when is_binary(text) do
-    CircuitBreaker.call(:ollama, fn ->
-      do_generate_embedding(text)
-    end)
+    if Application.get_env(:mimo_mcp, :skip_external_apis, false) do
+      # Test mode - skip external API calls entirely
+      {:ok, fallback_embedding(text)}
+    else
+      CircuitBreaker.call(:ollama, fn ->
+        do_generate_embedding(text)
+      end)
+    end
   end
 
   defp do_generate_embedding(text) do
     ollama_url = Application.get_env(:mimo_mcp, :ollama_url, "http://localhost:11434")
+    # Use shorter timeout in dev/test, longer in production
+    timeout = Application.get_env(:mimo_mcp, :ollama_timeout, 10_000)
 
     payload =
       Jason.encode!(%{
@@ -235,7 +243,8 @@ defmodule Mimo.Brain.LLM do
     case Req.post("#{ollama_url}/api/embeddings",
            json: Jason.decode!(payload),
            headers: headers,
-           receive_timeout: 30_000
+           connect_timeout: 2_000,
+           receive_timeout: timeout
          ) do
       {:ok, %Req.Response{status: 200, body: body}} ->
         case body do

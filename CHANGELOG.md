@@ -5,6 +5,22 @@ All notable changes to Mimo-MCP Gateway will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.3] - 2025-11-28
+
+**VS Code MCP Integration Fix** - Resolved critical issues preventing MCP tools from being accessible in VS Code Copilot Chat.
+
+### Fixed
+- **Empty Schema Validation** - Fixed `desktop_commander_set_config_value.value` having empty schema `{}` which caused VS Code validation failure
+- **Stale Tool Classification** - Updated `tool_registry.ex` to classify `http_request` instead of legacy `fetch` tool name
+- **Process Hang on EOF** - Added `System.halt(0)` in stdio loop so Elixir VM exits cleanly when stdin closes, preventing tool call timeouts
+- **Node Wrapper EOF Handling** - Added stdin `end` and `close` event handlers for proper process termination
+
+### Changed
+- All 50 MCP tools now accessible and working in VS Code Copilot Chat
+- Tool calls complete within seconds instead of timing out
+
+---
+
 ## [2.3.2] - 2025-11-27
 
 **CI & Documentation Release** - CI pipeline fixes, documentation cleanup, and codebase organization.

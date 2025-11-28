@@ -4,16 +4,19 @@ defmodule Mimo.MixProject do
   def project do
     [
       app: :mimo_mcp,
-      version: "2.3.2",
+      version: "2.3.3",
       elixir: "~> 1.12",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
       compilers: Mix.compilers(),
       releases: releases(),
-      test_coverage: [tool: ExCoveralls],
-      preferred_cli_env: [coveralls: :test, "coveralls.detail": :test, "coveralls.html": :test]
+      test_coverage: [tool: ExCoveralls]
     ]
+  end
+
+  def cli do
+    [preferred_envs: [coveralls: :test, "coveralls.detail": :test, "coveralls.html": :test]]
   end
 
   def application do

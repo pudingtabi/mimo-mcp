@@ -69,7 +69,7 @@ defmodule Mimo.McpServer do
         },
         "serverInfo" => %{
           "name" => "mimo-mcp",
-          "version" => "2.1.0"
+          "version" => "2.3.3"
         }
       },
       "id" => id
@@ -95,12 +95,20 @@ defmodule Mimo.McpServer do
     # Delegate to ToolInterface for consistent handling across all adapters
     result =
       case Mimo.ToolRegistry.get_tool_owner(tool_name) do
-        {:ok, {:skill, skill_name, _client_pid}} ->
+        {:ok, {:skill, skill_name, _pid, _tool_def}} ->
           # External skills still go through Skills.Client
           Mimo.Skills.Client.call_tool(skill_name, tool_name, arguments)
 
-        {:ok, _internal} ->
-          # Internal tools now use ToolInterface for consistency with HTTP adapter
+        {:ok, {:skill_lazy, skill_name, config, _}} ->
+          # Lazy-spawned skill - use call_tool_sync
+          Mimo.Skills.Client.call_tool_sync(skill_name, config, tool_name, arguments)
+
+        {:ok, {:internal, _}} ->
+          # Internal tools use ToolInterface for consistency with HTTP adapter
+          Mimo.ToolInterface.execute(tool_name, arguments)
+
+        {:ok, {:mimo_core, _}} ->
+          # Mimo.Tools core capabilities use ToolInterface which dispatches to Mimo.Tools
           Mimo.ToolInterface.execute(tool_name, arguments)
 
         {:error, :not_found} ->

@@ -54,48 +54,14 @@ defmodule Mimo.Skills.ProcessManager do
   end
 
   @doc """
-  Spawns using SecureExecutor, with fallback to legacy spawn.
+  Spawns using SecureExecutor. Returns error if SecureExecutor rejects the config.
+
+  Note: Previously fell back to spawn_legacy, but this was removed as a security risk.
+  All skill execution must go through SecureExecutor validation.
   """
   @spec spawn_secure(map()) :: spawn_result()
   def spawn_secure(config) do
-    case SecureExecutor.execute_skill(config) do
-      {:ok, port} ->
-        {:ok, port}
-
-      {:error, reason} ->
-        Logger.warning("SecureExecutor rejected config: #{inspect(reason)}, falling back")
-        spawn_legacy(config)
-    end
-  end
-
-  @doc """
-  Legacy subprocess spawning (fallback when SecureExecutor fails).
-  """
-  @spec spawn_legacy(map()) :: spawn_result()
-  def spawn_legacy(%{"command" => cmd, "args" => args} = config) do
-    raw_env = Map.get(config, "env", %{})
-    env_list = build_env_list(raw_env)
-
-    case System.find_executable(cmd) do
-      nil ->
-        {:error, "Command not found: #{cmd}"}
-
-      executable ->
-        port_options = [
-          :binary,
-          :exit_status,
-          :use_stdio,
-          {:env, env_list},
-          {:args, args}
-        ]
-
-        port = Port.open({:spawn_executable, executable}, port_options)
-        {:ok, port}
-    end
-  end
-
-  def spawn_legacy(_invalid_config) do
-    {:error, "Invalid config: missing 'command' or 'args'"}
+    SecureExecutor.execute_skill(config)
   end
 
   # ==========================================================================
@@ -213,24 +179,6 @@ defmodule Mimo.Skills.ProcessManager do
   # ==========================================================================
   # Private Helpers
   # ==========================================================================
-
-  defp build_env_list(raw_env) when is_map(raw_env) do
-    Enum.map(raw_env, fn {k, v} ->
-      final_value = interpolate_env(v)
-      {String.to_charlist(k), String.to_charlist(final_value)}
-    end)
-  end
-
-  defp build_env_list(_), do: []
-
-  # Interpolate ${VAR_NAME} patterns with actual env values
-  defp interpolate_env(value) when is_binary(value) do
-    Regex.replace(~r/\$\{([^}]+)\}/, value, fn _, var_name ->
-      System.get_env(var_name) || ""
-    end)
-  end
-
-  defp interpolate_env(value), do: to_string(value)
 
   # Normalize port data to binary (handles both raw and line-mode)
   defp normalize_port_data({:eol, line}), do: line <> "\n"

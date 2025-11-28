@@ -60,7 +60,7 @@
     },
     "tools": [
       {"name": "get_config", "description": "Get the complete server configuration as JSON", "inputSchema": {"type": "object", "properties": {}, "required": []}},
-      {"name": "set_config_value", "description": "Set a specific configuration value by key (blockedCommands, defaultShell, allowedDirectories, fileReadLineLimit, fileWriteLineLimit, telemetryEnabled)", "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}, "value": {}}, "required": ["key", "value"]}},
+      {"name": "set_config_value", "description": "Set a specific configuration value by key (blockedCommands, defaultShell, allowedDirectories, fileReadLineLimit, fileWriteLineLimit, telemetryEnabled)", "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}, "value": {"description": "The configuration value to set"}}, "required": ["key", "value"]}},
       {"name": "start_process", "description": "Start a terminal process with smart detection of when ready for input", "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "timeout_ms": {"type": "number"}, "shell": {"type": "string"}}, "required": ["command", "timeout_ms"]}},
       {"name": "interact_with_process", "description": "Send commands to running processes and get responses", "inputSchema": {"type": "object", "properties": {"pid": {"type": "number"}, "input": {"type": "string"}}, "required": ["pid", "input"]}},
       {"name": "read_process_output", "description": "Read output from running processes", "inputSchema": {"type": "object", "properties": {"pid": {"type": "number"}, "timeout_ms": {"type": "number"}}, "required": ["pid"]}},

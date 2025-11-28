@@ -20,7 +20,15 @@ defmodule Mimo.Brain.Engram do
     timestamps()
   end
 
-  @valid_categories ["fact", "action", "observation", "plan", "episode", "procedure"]
+  @valid_categories [
+    "fact",
+    "action",
+    "observation",
+    "plan",
+    "episode",
+    "procedure",
+    "entity_anchor"
+  ]
 
   def changeset(engram, attrs) do
     engram

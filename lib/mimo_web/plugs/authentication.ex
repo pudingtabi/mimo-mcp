@@ -21,7 +21,7 @@ defmodule MimoWeb.Plugs.Authentication do
     api_key = get_configured_key()
 
     # PRODUCTION SAFETY: Always require authentication in prod
-    if Mix.env() == :prod and (is_nil(api_key) or api_key == "") do
+    if production?() and (is_nil(api_key) or api_key == "") do
       Logger.error("[SECURITY] No API key configured in production - blocking all requests")
 
       conn
@@ -46,7 +46,7 @@ defmodule MimoWeb.Plugs.Authentication do
 
         {:error, :missing_header} ->
           # Allow in dev mode only if no key configured
-          if Mix.env() != :prod and (is_nil(api_key) or api_key == "") do
+          if not production?() and (is_nil(api_key) or api_key == "") do
             Logger.debug("No API key configured in dev mode, allowing request")
             conn
           else
@@ -59,6 +59,11 @@ defmodule MimoWeb.Plugs.Authentication do
           authentication_error(conn, :malformed_credentials)
       end
     end
+  end
+
+  # Check if running in production environment (runtime safe)
+  defp production? do
+    Application.get_env(:mimo_mcp, :environment) == :prod
   end
 
   # Extract and validate bearer token format

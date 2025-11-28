@@ -44,6 +44,9 @@ config :mimo_mcp, MimoWeb.Endpoint,
   server: true,
   render_errors: [formats: [json: MimoWeb.ErrorJSON]]
 
+# Runtime environment (cannot use Mix.env() in releases)
+config :mimo_mcp, :environment, config_env()
+
 # API Authentication
 config :mimo_mcp, :api_key, System.get_env("MIMO_API_KEY")
 

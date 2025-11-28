@@ -170,7 +170,7 @@ defmodule Mimo.SemanticStore.Dreamer do
   end
 
   defp run_inference_pass(graph_id) do
-    # Run inside transaction with immediate mode for SQLite
+    # Run inside transaction with configurable mode
     Repo.transaction(
       fn ->
         # Get transitive predicates
@@ -201,9 +201,17 @@ defmodule Mimo.SemanticStore.Dreamer do
           timestamp: DateTime.utc_now()
         }
       end,
-      mode: :immediate,
-      timeout: 30_000
+      transaction_opts()
     )
+  end
+
+  # Configurable transaction options based on database adapter
+  defp transaction_opts do
+    case Application.get_env(:mimo_mcp, :database_adapter, :sqlite) do
+      :sqlite -> [mode: :immediate, timeout: 30_000]
+      :postgres -> [timeout: 30_000]
+      _ -> [timeout: 30_000]
+    end
   end
 
   defp apply_inverse_rules(graph_id) do

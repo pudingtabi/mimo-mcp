@@ -24,16 +24,25 @@ defmodule Mimo.Telemetry do
     # Attach telemetry handlers
     attach_handlers()
 
+    # Check if Prometheus should be disabled (for stdio MCP mode)
+    prometheus_disabled = System.get_env("PROMETHEUS_DISABLED") == "true"
+
     children = [
       # Telemetry poller for periodic metrics
       {:telemetry_poller,
        measurements: periodic_measurements(),
        period: :timer.seconds(10),
-       name: :mimo_telemetry_poller},
-
-      # Prometheus metrics exporter
-      {TelemetryMetricsPrometheus, [metrics: prometheus_metrics()]}
+       name: :mimo_telemetry_poller}
     ]
+
+    # Only add Prometheus exporter if not disabled
+    children =
+      if prometheus_disabled do
+        Logger.info("Prometheus metrics disabled (stdio mode)")
+        children
+      else
+        children ++ [{TelemetryMetricsPrometheus, [metrics: prometheus_metrics()]}]
+      end
 
     Supervisor.init(children, strategy: :one_for_one)
   end
@@ -246,6 +255,9 @@ defmodule Mimo.Telemetry do
     %{latency_ms: latency_ms} = measurements
     %{method: method, path: path, status: status} = metadata
 
+    # Record latency for p99 calculation in LatencyGuard
+    MimoWeb.Plugs.LatencyGuard.record_latency(latency_ms)
+
     if latency_ms > 50 do
       Logger.warning(
         "[TELEMETRY] Slow HTTP: #{method} #{path} → #{status} (#{Float.round(latency_ms, 2)}ms)"
@@ -320,7 +332,7 @@ defmodule Mimo.Telemetry do
 
     if duration_ms > 50 do
       Logger.warning(
-        "[TELEMETRY] Slow entity resolution: #{method} (#{Float.round(duration_ms, 2)}ms, confidence: #{confidence})"
+        "[TELEMETRY] Slow entity resolution: #{method} (#{Float.round(duration_ms * 1.0, 2)}ms, confidence: #{confidence})"
       )
     end
   end
@@ -332,7 +344,7 @@ defmodule Mimo.Telemetry do
     graph_id = Map.get(metadata, :graph_id, "global")
 
     Logger.info(
-      "[TELEMETRY] Inference pass on #{graph_id}: #{triples_created} new triples (#{Float.round(duration_ms, 2)}ms)"
+      "[TELEMETRY] Inference pass on #{graph_id}: #{triples_created} new triples (#{Float.round(duration_ms * 1.0, 2)}ms)"
     )
   end
 
@@ -345,7 +357,7 @@ defmodule Mimo.Telemetry do
 
     if duration_ms > 20 do
       Logger.warning(
-        "[TELEMETRY] Slow classification: #{intent} via #{path} (#{Float.round(duration_ms, 2)}ms, confidence: #{confidence})"
+        "[TELEMETRY] Slow classification: #{intent} via #{path} (#{Float.round(duration_ms * 1.0, 2)}ms, confidence: #{confidence})"
       )
     end
   end
@@ -353,7 +365,8 @@ defmodule Mimo.Telemetry do
   defp periodic_measurements do
     [
       {__MODULE__, :measure_memory, []},
-      {__MODULE__, :measure_schedulers, []}
+      {__MODULE__, :measure_schedulers, []},
+      {MimoWeb.Plugs.RateLimiter, :cleanup_stale_entries, []}
     ]
   end
 

@@ -28,6 +28,16 @@ defmodule Mimo.Application do
         {Registry, keys: :unique, name: Mimo.Skills.Registry},
         # Circuit breaker registry for error handling
         {Registry, keys: :unique, name: Mimo.CircuitBreaker.Registry},
+        # Circuit breakers for external services (must start after Registry)
+        # Use explicit IDs to avoid duplicate_child_name errors
+        Supervisor.child_spec(
+          {Mimo.ErrorHandling.CircuitBreaker, name: :llm_service, failure_threshold: 5},
+          id: :circuit_breaker_llm_service
+        ),
+        Supervisor.child_spec(
+          {Mimo.ErrorHandling.CircuitBreaker, name: :ollama, failure_threshold: 3},
+          id: :circuit_breaker_ollama
+        ),
         # Thread-safe tool registry with distributed coordination
         {Mimo.ToolRegistry, []},
         # Static tool catalog for lazy-loading (reads manifest)
@@ -56,29 +66,45 @@ defmodule Mimo.Application do
     {:ok, sup} = Supervisor.start_link(children, opts)
 
     # Ensure catalog is fully loaded before servers start
-    wait_for_catalog_ready()
+    case wait_for_catalog_ready() do
+      :ok ->
+        # Start HTTP endpoint (Universal Aperture)
+        start_http_endpoint(sup)
 
-    # Start HTTP endpoint (Universal Aperture)
-    start_http_endpoint(sup)
+        # Start MCP server (stdio for GitHub Copilot)
+        start_mcp_server(sup)
 
-    # Start MCP server (stdio for GitHub Copilot)
-    start_mcp_server(sup)
+        Logger.info("Mimo-MCP Gateway v2.3.3 started (Universal Aperture mode)")
+        Logger.info("  HTTP API: http://localhost:#{http_port()}")
+        Logger.info("  MCP Server: stdio (port #{mcp_port()})")
 
-    Logger.info("Mimo-MCP Gateway v2.3.2 started (Universal Aperture mode)")
-    Logger.info("  HTTP API: http://localhost:#{http_port()}")
-    Logger.info("  MCP Server: stdio (port #{mcp_port()})")
+      {:error, :catalog_timeout} ->
+        Logger.warning("⚠️ Catalog not ready, starting servers with internal tools only")
+        # Still start servers but with degraded functionality
+        start_http_endpoint(sup)
+        start_mcp_server(sup)
+
+        Logger.warning("Mimo-MCP Gateway v2.3.3 started (degraded mode - catalog not loaded)")
+    end
+
     {:ok, sup}
   end
 
   defp start_http_endpoint(sup) do
-    child_spec = {MimoWeb.Endpoint, []}
+    # Skip HTTP in stdio mode (MIMO_DISABLE_HTTP=true)
+    if System.get_env("MIMO_DISABLE_HTTP") == "true" do
+      Logger.info("HTTP Gateway disabled (stdio mode)")
+      :ok
+    else
+      child_spec = {MimoWeb.Endpoint, []}
 
-    case Supervisor.start_child(sup, child_spec) do
-      {:ok, _pid} ->
-        Logger.info("✅ HTTP Gateway started on port #{http_port()}")
+      case Supervisor.start_child(sup, child_spec) do
+        {:ok, _pid} ->
+          Logger.info("✅ HTTP Gateway started on port #{http_port()}")
 
-      {:error, reason} ->
-        Logger.warning("⚠️ HTTP Gateway failed to start: #{inspect(reason)}")
+        {:error, reason} ->
+          Logger.warning("⚠️ HTTP Gateway failed to start: #{inspect(reason)}")
+      end
     end
   end
 
@@ -96,19 +122,8 @@ defmodule Mimo.Application do
         Logger.info("✅ MCP Server started")
 
       {:error, reason} ->
-        Logger.warning("MCP Server start failed: #{inspect(reason)}, using fallback")
-        start_fallback_server(sup, port)
+        Logger.error("❌ MCP Server failed to start: #{inspect(reason)}")
     end
-  end
-
-  defp start_fallback_server(sup, port) do
-    child_spec = %{
-      id: Mimo.McpServer.Fallback,
-      start: {Mimo.McpServer.Fallback, :start_link, [[port: port]]},
-      restart: :permanent
-    }
-
-    Supervisor.start_child(sup, child_spec)
   end
 
   # Block until catalog has loaded tools from manifest
@@ -118,19 +133,26 @@ defmodule Mimo.Application do
   end
 
   defp wait_for_catalog_ready(0) do
-    Logger.warning("⚠️ Catalog not ready after timeout, starting anyway")
-    :ok
+    Logger.error("❌ Catalog not ready after 5 seconds - external skills may be unavailable")
+    {:error, :catalog_timeout}
   end
 
   defp wait_for_catalog_ready(retries) do
-    tools = Mimo.Skills.Catalog.list_tools()
+    try do
+      tools = Mimo.Skills.Catalog.list_tools()
 
-    if tools != [] do
-      Logger.info("✅ Catalog ready with #{length(tools)} tools")
-      :ok
-    else
-      Process.sleep(100)
-      wait_for_catalog_ready(retries - 1)
+      if tools != [] do
+        Logger.info("✅ Catalog ready with #{length(tools)} tools")
+        :ok
+      else
+        Process.sleep(100)
+        wait_for_catalog_ready(retries - 1)
+      end
+    rescue
+      e ->
+        Logger.warning("Catalog check failed: #{Exception.message(e)}, retrying...")
+        Process.sleep(100)
+        wait_for_catalog_ready(retries - 1)
     end
   end
 

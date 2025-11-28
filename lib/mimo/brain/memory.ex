@@ -292,6 +292,7 @@ defmodule Mimo.Brain.Memory do
       content: engram.content,
       category: engram.category,
       importance: engram.importance,
+      metadata: engram.metadata || %{},
       similarity: similarity
     }
   end

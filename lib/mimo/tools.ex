@@ -5,8 +5,9 @@ defmodule Mimo.Tools do
 
   @tool_definitions [
     %{
-      name: "fetch",
-      description: "Fetches HTTP/HTTPS content",
+      name: "http_request",
+      description:
+        "Advanced HTTP client supporting POST, PUT, DELETE, custom headers, timeout control, and streaming responses. For simple GET-only requests, external fetch_* tools may be simpler.",
       input_schema: %{
         type: "object",
         properties: %{
@@ -14,7 +15,13 @@ defmodule Mimo.Tools do
           method: %{type: "string", enum: ["get", "post"], default: "get"},
           json: %{type: "object"},
           timeout: %{type: "integer"},
-          headers: %{type: "array"}
+          headers: %{
+            type: "array",
+            items: %{
+              type: "object",
+              properties: %{name: %{type: "string"}, value: %{type: "string"}}
+            }
+          }
         },
         required: ["url"]
       }
@@ -32,7 +39,8 @@ defmodule Mimo.Tools do
     },
     %{
       name: "terminal",
-      description: "Executes Linux commands (Sandboxed)",
+      description:
+        "Execute sandboxed single commands with security allowlist. For interactive sessions with process management and pid tracking, use desktop_commander_* tools.",
       input_schema: %{
         type: "object",
         properties: %{
@@ -106,7 +114,8 @@ defmodule Mimo.Tools do
     # Semantic Store Tools (Knowledge Graph)
     %{
       name: "consult_graph",
-      description: "Query the knowledge graph for relationships and dependencies",
+      description:
+        "Query the semantic knowledge graph for entity relationships, dependencies, and transitive closures. Use this for structured relationship queries (e.g., 'what depends on X?'). For unstructured text search, use search_vibes or episodic memory tools.",
       input_schema: %{
         type: "object",
         properties: %{
@@ -139,7 +148,7 @@ defmodule Mimo.Tools do
 
   def dispatch(tool_name, arguments \\ %{}) do
     case tool_name do
-      "fetch" ->
+      "http_request" ->
         Mimo.Skills.Network.fetch(arguments["url"], normalize_opts(arguments))
 
       "web_parse" ->

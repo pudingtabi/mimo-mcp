@@ -112,7 +112,6 @@ defmodule Mimo.ToolRegistryTest do
       assert ToolRegistry.internal_tool?("ask_mimo")
       assert ToolRegistry.internal_tool?("search_vibes")
       assert ToolRegistry.internal_tool?("store_fact")
-      assert ToolRegistry.internal_tool?("mimo_store_memory")
       assert ToolRegistry.internal_tool?("mimo_reload_skills")
     end
 

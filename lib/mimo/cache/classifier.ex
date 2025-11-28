@@ -214,7 +214,9 @@ defmodule Mimo.Cache.Classifier do
   # ==========================================================================
 
   defp get_or_compute(key, compute_fn) do
-    GenServer.call(__MODULE__, {:get_or_compute, key, compute_fn}, 30_000)
+    # Use shorter timeout in test mode since we're using fallback embeddings
+    timeout = if Application.get_env(:mimo_mcp, :skip_external_apis, false), do: 5_000, else: 30_000
+    GenServer.call(__MODULE__, {:get_or_compute, key, compute_fn}, timeout)
   catch
     :exit, {:noproc, _} ->
       # Cache not started, compute directly

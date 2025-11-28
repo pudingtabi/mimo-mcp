@@ -85,4 +85,15 @@ defmodule Mimo.Skills.Catalog do
     :ets.delete_all_objects(@catalog_table)
     load_catalog()
   end
+
+  @doc """
+  Get skill config by skill name.
+  """
+  def get_skill_config(skill_name) do
+    # Find first tool for this skill and extract config
+    case :ets.match(@catalog_table, {:_, skill_name, :"$1", :_}) do
+      [[config] | _] -> config
+      [] -> %{}
+    end
+  end
 end

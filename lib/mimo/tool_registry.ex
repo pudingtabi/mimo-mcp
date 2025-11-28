@@ -37,7 +37,6 @@ defmodule Mimo.ToolRegistry do
     "ask_mimo",
     "search_vibes",
     "store_fact",
-    "mimo_store_memory",
     "mimo_reload_skills"
   ]
 
@@ -70,21 +69,23 @@ defmodule Mimo.ToolRegistry do
 
   Returns:
   - `{:ok, {:internal, atom}}` for internal tools
+  - `{:ok, {:mimo_core, atom}}` for Mimo.Tools core capabilities
   - `{:ok, {:skill, skill_name, pid, tool_def}}` for skill tools
   - `{:error, :not_found}` if tool doesn't exist
   """
   def get_tool_owner(tool_name) do
     case classify_tool(tool_name) do
       {:internal, _} = result -> {:ok, result}
+      {:mimo_core, _} = result -> {:ok, result}
       :external -> GenServer.call(__MODULE__, {:lookup, tool_name})
     end
   end
 
   @doc """
-  List all available tools (internal + catalog + active skills).
+  List all available tools (internal + mimo core + catalog + active skills).
   """
   def list_all_tools do
-    internal_tools() ++ catalog_tools() ++ active_skill_tools()
+    internal_tools() ++ mimo_core_tools() ++ catalog_tools() ++ active_skill_tools()
   end
 
   @doc """
@@ -340,8 +341,19 @@ defmodule Mimo.ToolRegistry do
   defp classify_tool("ask_mimo"), do: {:internal, :ask_mimo}
   defp classify_tool("search_vibes"), do: {:internal, :search_vibes}
   defp classify_tool("store_fact"), do: {:internal, :store_fact}
-  defp classify_tool("mimo_store_memory"), do: {:internal, :store_memory}
   defp classify_tool("mimo_reload_skills"), do: {:internal, :reload}
+
+  # Mimo.Tools core capabilities
+  defp classify_tool("http_request"), do: {:mimo_core, :http_request}
+  defp classify_tool("web_parse"), do: {:mimo_core, :web_parse}
+  defp classify_tool("terminal"), do: {:mimo_core, :terminal}
+  defp classify_tool("file"), do: {:mimo_core, :file}
+  defp classify_tool("sonar"), do: {:mimo_core, :sonar}
+  defp classify_tool("think"), do: {:mimo_core, :think}
+  defp classify_tool("plan"), do: {:mimo_core, :plan}
+  defp classify_tool("consult_graph"), do: {:mimo_core, :consult_graph}
+  defp classify_tool("teach_mimo"), do: {:mimo_core, :teach_mimo}
+
   defp classify_tool(_), do: :external
 
   defp cleanup_skill(state, skill_name) do
@@ -376,54 +388,15 @@ defmodule Mimo.ToolRegistry do
     if Code.ensure_loaded?(Mimo.Skills.Catalog) do
       case Mimo.Skills.Catalog.get_skill_for_tool(tool_name) do
         {:ok, skill_name, config} ->
-          # Lazy spawn the skill
-          case ensure_skill_running(skill_name, config) do
-            {:ok, pid} ->
-              # After spawning, the skill will register itself
-              # Wait a moment and then look up again
-              Process.sleep(100)
-              {:ok, {:skill, skill_name, pid, nil}}
-
-            {:error, reason} ->
-              {:error, {:spawn_failed, reason}}
-          end
+          # Don't spawn synchronously - this would block the GenServer
+          # Instead, return a special marker that tells the caller to use call_tool_sync
+          {:ok, {:skill_lazy, skill_name, config, nil}}
 
         {:error, :not_found} ->
           {:error, :not_found}
       end
     else
       {:error, :not_found}
-    end
-  end
-
-  defp ensure_skill_running(skill_name, config) do
-    case Registry.lookup(Mimo.Skills.Registry, skill_name) do
-      [{pid, _}] when is_pid(pid) ->
-        if Process.alive?(pid) do
-          {:ok, pid}
-        else
-          start_skill(skill_name, config)
-        end
-
-      [] ->
-        start_skill(skill_name, config)
-    end
-  end
-
-  defp start_skill(skill_name, config) do
-    Logger.info("🚀 Lazy-spawning skill: #{skill_name}")
-
-    child_spec = %{
-      id: {Mimo.Skills.Client, skill_name},
-      start: {Mimo.Skills.Client, :start_link, [skill_name, config]},
-      restart: :transient,
-      shutdown: 30_000
-    }
-
-    case DynamicSupervisor.start_child(Mimo.Skills.Supervisor, child_spec) do
-      {:ok, pid} -> {:ok, pid}
-      {:error, {:already_started, pid}} -> {:ok, pid}
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -493,28 +466,6 @@ defmodule Mimo.ToolRegistry do
               "description" => "Importance score (0-1)"
             }
           },
-          "required" => ["content"]
-        }
-      },
-      %{
-        "name" => "mimo_store_memory",
-        "description" => "Store a new memory/fact in Mimo's brain",
-        "inputSchema" => %{
-          "type" => "object",
-          "properties" => %{
-            "content" => %{"type" => "string", "description" => "The content to remember"},
-            "category" => %{
-              "type" => "string",
-              "enum" => ["fact", "action", "observation", "plan"],
-              "description" => "Category of the memory"
-            },
-            "importance" => %{
-              "type" => "number",
-              "minimum" => 0,
-              "maximum" => 1,
-              "description" => "Importance score (0-1)"
-            }
-          },
           "required" => ["content", "category"]
         }
       },
@@ -538,6 +489,42 @@ defmodule Mimo.ToolRegistry do
       []
     end
   end
+
+  # Core tools from Mimo.Tools module (internal capabilities)
+  defp mimo_core_tools do
+    if Code.ensure_loaded?(Mimo.Tools) do
+      try do
+        Mimo.Tools.list_tools()
+        |> Enum.map(&convert_to_mcp_format/1)
+      rescue
+        _ -> []
+      end
+    else
+      []
+    end
+  end
+
+  # Convert atom-keyed tool definition to MCP JSON string format
+  defp convert_to_mcp_format(%{name: name, description: desc, input_schema: schema}) do
+    %{
+      "name" => to_string(name),
+      "description" => desc,
+      "inputSchema" => convert_schema(schema)
+    }
+  end
+
+  defp convert_to_mcp_format(tool), do: tool
+
+  # Recursively convert schema atom keys to strings
+  defp convert_schema(schema) when is_map(schema) do
+    for {k, v} <- schema, into: %{} do
+      key = if is_atom(k), do: Atom.to_string(k), else: k
+      value = if is_map(v), do: convert_schema(v), else: v
+      {key, value}
+    end
+  end
+
+  defp convert_schema(value), do: value
 
   # Tools from already-running skill processes
   defp active_skill_tools do

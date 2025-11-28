@@ -91,34 +91,8 @@ defmodule Mimo.Skills.ProcessManagerTest do
     end
   end
 
-  describe "spawn_legacy/1" do
-    test "returns error for command not found" do
-      config = %{
-        "command" => "nonexistent_command_xyz_12345",
-        "args" => []
-      }
-
-      result = ProcessManager.spawn_legacy(config)
-      assert match?({:error, _}, result)
-    end
-
-    test "spawns valid command" do
-      config = %{
-        "command" => "echo",
-        "args" => ["hello"]
-      }
-
-      case ProcessManager.spawn_legacy(config) do
-        {:ok, port} ->
-          assert is_port(port)
-          ProcessManager.close_port(port)
-
-        {:error, _} ->
-          # echo might not be available on all systems
-          :ok
-      end
-    end
-  end
+  # spawn_legacy/1 was removed in v2.3.2 for security reasons (SEC-002)
+  # All skill execution must go through spawn_secure/1 -> SecureExecutor
 
   # ==========================================================================
   # Communication Tests
