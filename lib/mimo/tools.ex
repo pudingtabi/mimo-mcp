@@ -24,7 +24,7 @@ defmodule Mimo.Tools do
     %{
       name: "file",
       description:
-        "Sandboxed file operations. Operations: read, write, ls, read_lines, insert_after, insert_before, replace_lines, delete_lines, search, replace_string, list_directory, get_info, move, create_directory, read_multiple",
+        "Sandboxed file operations. Operations: read, write, ls, read_lines, insert_after, insert_before, replace_lines, delete_lines, search, replace_string, list_directory, get_info, move, create_directory, read_multiple, list_symbols, read_symbol, search_symbols",
       input_schema: %{
         type: "object",
         properties: %{
@@ -45,7 +45,10 @@ defmodule Mimo.Tools do
               "get_info",
               "move",
               "create_directory",
-              "read_multiple"
+              "read_multiple",
+              "list_symbols",
+              "read_symbol",
+              "search_symbols"
             ]
           },
           path: %{type: "string", description: "File or directory path"},
@@ -59,7 +62,13 @@ defmodule Mimo.Tools do
           new_str: %{type: "string"},
           destination: %{type: "string", description: "For move operation"},
           depth: %{type: "integer", description: "For list_directory recursion"},
-          mode: %{type: "string", enum: ["rewrite", "append"], description: "For write"}
+          mode: %{type: "string", enum: ["rewrite", "append"], description: "For write"},
+          offset: %{type: "integer", description: "Start line for chunked read (1-indexed)"},
+          limit: %{type: "integer", description: "Max lines to read (default 500)"},
+          symbol_name: %{type: "string", description: "For read_symbol operation"},
+          context_before: %{type: "integer", description: "Lines of context before symbol"},
+          context_after: %{type: "integer", description: "Lines of context after symbol"},
+          max_results: %{type: "integer", description: "Max results for search operations"}
         },
         required: ["operation"]
       }
@@ -158,17 +167,18 @@ defmodule Mimo.Tools do
       }
     },
     # ==========================================================================
-    # SEARCH - Web search via Exa AI
+    # SEARCH - Web search (native, no API key required)
     # ==========================================================================
     %{
       name: "search",
       description:
-        "Search the web using Exa AI. Operations: web (default), code. Requires EXA_API_KEY.",
+        "Search the web using DuckDuckGo. Operations: web (default), code. No API key required.",
       input_schema: %{
         type: "object",
         properties: %{
           query: %{type: "string"},
-          operation: %{type: "string", enum: ["web", "code"], default: "web"}
+          operation: %{type: "string", enum: ["web", "code"], default: "web"},
+          num_results: %{type: "integer", description: "Max results (default 10)"}
         },
         required: ["query"]
       }
@@ -261,12 +271,15 @@ defmodule Mimo.Tools do
 
     case op do
       "read" ->
-        Mimo.Skills.FileOps.read(path)
+        opts = []
+        opts = if args["offset"], do: Keyword.put(opts, :offset, args["offset"]), else: opts
+        opts = if args["limit"], do: Keyword.put(opts, :limit, args["limit"]), else: opts
+        Mimo.Skills.FileOps.read(path, opts)
 
       "write" ->
         content = args["content"] || ""
         mode = if args["mode"] == "append", do: :append, else: :rewrite
-        Mimo.Skills.FileOps.write_with_mode(path, content, mode)
+        Mimo.Skills.FileOps.write(path, content, mode: mode)
 
       "ls" ->
         Mimo.Skills.FileOps.ls(path)
@@ -297,7 +310,8 @@ defmodule Mimo.Tools do
         Mimo.Skills.FileOps.delete_lines(path, start_line, end_line)
 
       "search" ->
-        Mimo.Skills.FileOps.search_content(path, args["pattern"] || "")
+        opts = [max_results: args["max_results"] || 50]
+        Mimo.Skills.FileOps.search(path, args["pattern"] || "", opts)
 
       "replace_string" ->
         Mimo.Skills.FileOps.replace_string(path, args["old_str"] || "", args["new_str"] || "")
@@ -316,6 +330,28 @@ defmodule Mimo.Tools do
 
       "read_multiple" ->
         Mimo.Skills.FileOps.read_multiple(args["paths"] || [])
+
+      "list_symbols" ->
+        Mimo.Skills.FileOps.list_symbols(path)
+
+      "read_symbol" ->
+        opts = []
+
+        opts =
+          if args["context_before"],
+            do: Keyword.put(opts, :context_before, args["context_before"]),
+            else: opts
+
+        opts =
+          if args["context_after"],
+            do: Keyword.put(opts, :context_after, args["context_after"]),
+            else: opts
+
+        Mimo.Skills.FileOps.read_symbol(path, args["symbol_name"] || "", opts)
+
+      "search_symbols" ->
+        opts = [max_results: args["max_results"] || 50]
+        Mimo.Skills.FileOps.search_symbols(path, args["pattern"] || "", opts)
 
       _ ->
         {:error, "Unknown file operation: #{op}"}
@@ -444,10 +480,11 @@ defmodule Mimo.Tools do
   defp dispatch_search(args) do
     query = args["query"] || ""
     op = args["operation"] || "web"
+    opts = if args["num_results"], do: [num_results: args["num_results"]], else: []
 
     case op do
-      "web" -> Mimo.Skills.Network.exa_web_search(query)
-      "code" -> Mimo.Skills.Network.exa_code_context(query)
+      "web" -> Mimo.Skills.Network.web_search(query, opts)
+      "code" -> Mimo.Skills.Network.code_search(query, opts)
       _ -> {:error, "Unknown search operation: #{op}"}
     end
   end
