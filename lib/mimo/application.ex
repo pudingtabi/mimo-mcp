@@ -158,7 +158,6 @@ defmodule Mimo.Application do
     end
   end
 
-
   defp http_port do
     Application.get_env(:mimo_mcp, MimoWeb.Endpoint)[:http][:port] || 4000
   end
