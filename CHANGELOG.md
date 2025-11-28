@@ -39,10 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced `Mimo.Brain.Memory` with `hybrid_search/2` wrapper
 - Added facade modules for `SemanticStore` and `ProceduralStore`
 - Supervision tree now includes new GenServers: `WorkingMemoryCleaner`, `Consolidator`, `Forgetting`, `AccessTracker`
+- **Promoted to Production Ready**: Semantic Store v3.0, Procedural Store, Rust NIFs, WebSocket Synapse
+- Updated README.md with accurate tool counts (8 core + 4 internal = 12 total), file structure, and version references
 
 ### Technical Details
-- 10 new modules, 39 new tests
-- Full test suite: 361 tests, 0 failures (84 excluded for integration/performance)
+- 91 source files in lib/
+- Full test suite: 652 tests, 0 failures (552 unit + 100 integration)
+- Rust NIF performance: 3-7x speedup over pure Elixir for vector operations
 - All new modules follow OTP patterns with proper supervision
 
 ---

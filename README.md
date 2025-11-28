@@ -2,7 +2,7 @@
 
 A universal MCP (Model Context Protocol) gateway with **multi-protocol access** - HTTP/REST, OpenAI-compatible API, WebSocket Synapse, and stdio MCP. Features vector memory storage with semantic search and a **Synthetic Cortex** for intelligent agent memory.
 
-[![Elixir](https://img.shields.io/badge/Elixir-1.16+-purple.svg)](https://elixir-lang.org/)
+[![Elixir](https://img.shields.io/badge/Elixir-1.12+-purple.svg)](https://elixir-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✅ What Works (v2.4.0)
@@ -73,11 +73,11 @@ This section provides an honest assessment of current functionality:
 Mimo is an **intelligent Memory OS** that provides:
 - 🌐 **Multi-Protocol Access**: HTTP/REST, OpenAI-compatible, WebSocket, and MCP stdio
 - 🧠 **Meta-Cognitive Router**: Intelligent query classification to memory stores
-- 🔗 **48+ Tools**: Combines filesystem, browser automation, web search, and memory tools
+- 🔗 **12 Native Tools**: 8 consolidated core tools + 4 internal memory tools (zero NPX dependencies)
 - 💾 **Vector Memory**: SQLite + Ollama embeddings for semantic search
 - 📊 **Semantic Store**: Triple-based knowledge graph for exact relationships
 - ⚙️ **Procedural Store**: Deterministic state machine execution
-- 🦀 **Rust NIFs**: SIMD-accelerated vector operations
+- 🦀 **Rust NIFs**: SIMD-accelerated vector operations (3-7x speedup)
 - ⚡ **WebSocket Synapse**: Real-time bidirectional cognitive signaling
 - 🔄 **Hot-Reload**: Update skills without restart
 - 🛡️ **Rate Limiting**: Built-in DoS protection (60 req/min)
@@ -166,7 +166,7 @@ curl http://localhost:4000/health
 
 ### Option 2: Local without Docker (Native Elixir)
 
-**Prerequisites:** Elixir 1.16+, Erlang 26+, SQLite3, [Ollama](https://ollama.ai)
+**Prerequisites:** Elixir 1.12+, Erlang 24+, SQLite3, [Ollama](https://ollama.ai)
 
 ```bash
 # Install Ollama and pull embedding model
@@ -360,7 +360,7 @@ Add to `~/.vscode/mcp.json`:
 
 Mimo provides **12 native Elixir tools** with zero external dependencies. Managed by the **Tool Registry** (`Mimo.ToolRegistry`).
 
-### Tool Architecture (v2.3.4)
+### Tool Architecture (v2.4.0)
 
 | Category | Count | Description |
 |----------|-------|-------------|
@@ -464,7 +464,7 @@ Mimo.Tools.list_tools()
 │  (ETS Buffer)   │ (WM→LTM)     │ (Decay)    │ (Multi-factor)     │
 ├─────────────┬─────────────────────────┬─────────────────────────┤
 │ Episodic    │ Semantic Store          │ Procedural Store        │
-│ Store ✅    │ ✅ Beta                 │ ✅ Beta                 │
+│ Store ✅    │ ✅ Production           │ ✅ Production           │
 │ SQLite +    │ Triple-based            │ State Machine           │
 │ Vectors     │ Knowledge Graph         │ Execution               │
 └─────────────┴─────────────────────────┴─────────────────────────┘
@@ -575,7 +575,7 @@ Our goal is to evolve Mimo from a simple gateway into a complete **Memory Operat
 
 ---
 
-## Synthetic Cortex Features (v2.3)
+## Synthetic Cortex Features (v2.4.0)
 
 ### Semantic Store - The World Model
 
@@ -703,7 +703,7 @@ config :mimo_mcp, :feature_flags,
 | `procedural_store` | Procedure tools available via `ToolInterface` | Procedure-related tool calls return `{:error, :feature_disabled}` |
 | `websocket_synapse` | WebSocket channels active for real-time communication | WebSocket connections rejected |
 
-### Runtime Configuration (v2.3.3)
+### Runtime Configuration (v2.4.0)
 
 The `:environment` config controls runtime behavior:
 
@@ -732,7 +732,7 @@ Mimo.Application.cortex_status()
 
 ---
 
-## File Structure (v2.3)
+## File Structure (v2.4.0)
 
 ```
 lib/
@@ -740,21 +740,37 @@ lib/
 ├── mimo_web.ex                      # Phoenix web helpers
 ├── mimo/
 │   ├── application.ex               # OTP application with feature flags
-│   ├── cli.ex                       # Burrito CLI Entry Point (New)
+│   ├── cli.ex                       # Burrito CLI Entry Point
+│   ├── tools.ex                     # Consolidated 8 core tools (file, terminal, fetch, etc.)
+│   ├── tool_registry.ex             # Thread-safe tool registration
+│   ├── auto_memory.ex               # Automatic memory capture
+│   ├── meta_cognitive_router.ex     # Query classification router
 │   ├── mcp_server/
-│   │   └── stdio.ex                 # Native MCP Stdio (New)
-│   ├── skills/                      # Native Skills (New)
-│   │   ├── network.ex               # HTTP
-│   │   ├── terminal.ex              # Command Execution
+│   │   └── stdio.ex                 # Native MCP Stdio
+│   ├── skills/                      # Skill implementations
+│   │   ├── network.ex               # HTTP client
+│   │   ├── terminal.ex              # Command execution
+│   │   ├── file_ops.ex              # File operations
+│   │   ├── cognition.ex             # Thinking operations
+│   │   ├── sonar.ex                 # UI accessibility scanner
 │   │   └── ...
-│   ├── brain/                       # Episodic memory
-│   ├── semantic_store/              # Phase 2: Knowledge Graph
-│   ├── procedural_store/            # Phase 2: State Machines
-│   └── synapse/                     # Phase 3: WebSocket
+│   ├── brain/                       # Episodic memory (Working + Long-term)
+│   │   ├── working_memory.ex        # ETS-backed short-term buffer
+│   │   ├── consolidator.ex          # Working → Long-term transfer
+│   │   ├── forgetting.ex            # Decay and importance weighting
+│   │   ├── hybrid_retriever.ex      # Multi-factor scoring
+│   │   └── ...
+│   ├── semantic_store/              # Triple-based knowledge graph
+│   ├── procedural_store/            # FSM execution engine
+│   ├── synapse/                     # WebSocket channels
+│   └── vector/                      # Vector math (Rust NIF + fallback)
 ├── mimo_web/
-│   └── endpoint.ex                  # HTTP + WebSocket
+│   ├── endpoint.ex                  # HTTP + WebSocket endpoint
+│   ├── router.ex                    # Route definitions
+│   └── channels/
+│       └── cortex_channel.ex        # Real-time cognitive signaling
 native/
-└── vector_math/                     # Rust NIF
+└── vector_math/                     # Rust NIF for SIMD operations
 ```
 
 ---
