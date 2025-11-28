@@ -70,6 +70,10 @@ defmodule Mimo.ProceduralStore.Validator do
       not is_binary(initial) ->
         ["initial_state must be a string" | errors]
 
+      not is_map(states) ->
+        # Skip this check if states is not a map (will be caught by validate_states)
+        errors
+
       not Map.has_key?(states, initial) ->
         ["initial_state '#{initial}' not found in states" | errors]
 
@@ -171,66 +175,101 @@ defmodule Mimo.ProceduralStore.Validator do
 
   defp validate_transitions(errors, definition) do
     states = Map.get(definition, "states", %{})
-    state_names = Map.keys(states) |> MapSet.new()
 
-    # Check all transition targets exist
-    states
-    |> Enum.reduce(errors, fn {name, state}, acc ->
-      transitions = Map.get(state, "transitions", [])
+    # Skip if states is not a map
+    if not is_map(states) do
+      errors
+    else
+      state_names = Map.keys(states) |> MapSet.new()
 
-      invalid_targets =
-        transitions
-        |> Enum.map(&Map.get(&1, "target"))
-        |> Enum.reject(&is_nil/1)
-        |> Enum.reject(&MapSet.member?(state_names, &1))
-
-      case invalid_targets do
-        [] ->
+      # Check all transition targets exist
+      states
+      |> Enum.reduce(errors, fn {name, state}, acc ->
+        # Skip if state is not a map
+        if not is_map(state) do
           acc
+        else
+          transitions = Map.get(state, "transitions", [])
 
-        targets ->
-          [
-            "state '#{name}' has transitions to non-existent states: #{Enum.join(targets, ", ")}"
-            | acc
-          ]
-      end
-    end)
+          # Skip if transitions is not a list
+          if not is_list(transitions) do
+            acc
+          else
+            invalid_targets =
+              transitions
+              |> Enum.filter(&is_map/1)
+              |> Enum.map(&Map.get(&1, "target"))
+              |> Enum.reject(&is_nil/1)
+              |> Enum.reject(&MapSet.member?(state_names, &1))
+
+            case invalid_targets do
+              [] ->
+                acc
+
+              targets ->
+                [
+                  "state '#{name}' has transitions to non-existent states: #{Enum.join(targets, ", ")}"
+                  | acc
+                ]
+            end
+          end
+        end
+      end)
+    end
   end
 
   defp validate_no_orphan_states(errors, definition) do
     states = Map.get(definition, "states", %{})
-    initial = Map.get(definition, "initial_state")
 
-    # Find all reachable states from initial
-    reachable = find_reachable_states(states, initial, MapSet.new([initial]))
+    # Skip if states is not a map
+    if not is_map(states) do
+      errors
+    else
+      initial = Map.get(definition, "initial_state")
 
-    # Find orphans (states not reachable from initial)
-    all_states = Map.keys(states) |> MapSet.new()
-    orphans = MapSet.difference(all_states, reachable)
+      # Find all reachable states from initial
+      reachable = find_reachable_states(states, initial, MapSet.new([initial]))
 
-    case MapSet.to_list(orphans) do
-      [] ->
-        errors
+      # Find orphans (states not reachable from initial)
+      all_states = Map.keys(states) |> MapSet.new()
+      orphans = MapSet.difference(all_states, reachable)
 
-      orphan_list ->
-        ["unreachable states from initial: #{Enum.join(orphan_list, ", ")}" | errors]
+      case MapSet.to_list(orphans) do
+        [] ->
+          errors
+
+        orphan_list ->
+          ["unreachable states from initial: #{Enum.join(orphan_list, ", ")}" | errors]
+      end
     end
   end
 
   defp find_reachable_states(states, current, visited) do
     state = Map.get(states, current, %{})
-    transitions = Map.get(state, "transitions", [])
 
-    targets =
-      transitions
-      |> Enum.map(&Map.get(&1, "target"))
-      |> Enum.reject(&is_nil/1)
-      |> Enum.reject(&MapSet.member?(visited, &1))
+    # If state is not a map, return visited as-is
+    if not is_map(state) do
+      visited
+    else
+      transitions = Map.get(state, "transitions", [])
 
-    new_visited = Enum.reduce(targets, visited, &MapSet.put(&2, &1))
+      # If transitions is not a list, return visited as-is
+      if not is_list(transitions) do
+        visited
+      else
+        targets =
+          transitions
+          |> Enum.filter(&is_map/1)
+          |> Enum.map(&Map.get(&1, "target"))
+          |> Enum.reject(&is_nil/1)
+          |> Enum.reject(&MapSet.member?(visited, &1))
 
-    Enum.reduce(targets, new_visited, fn target, acc ->
-      find_reachable_states(states, target, acc)
-    end)
+        new_visited = Enum.reduce(targets, visited, &MapSet.put(&2, &1))
+
+        Enum.reduce(targets, new_visited, fn target, acc ->
+          find_reachable_states(states, target, acc)
+        end)
+      end
+    end
   end
 end

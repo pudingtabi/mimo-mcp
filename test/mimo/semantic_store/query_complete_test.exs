@@ -171,30 +171,39 @@ defmodule Mimo.SemanticStore.QueryCompleteTest do
       refute "conf_c" in ids
     end
 
-    test "backward traversal finds ancestors" do
-      # Create: parent -> child -> grandchild
+    test "backward traversal finds subjects pointing to entity" do
+      # Create: alice -> bob, carol -> bob (both point to bob)
       Repository.create!(%{
-        subject_id: "parent",
+        subject_id: "alice",
         subject_type: "person",
-        predicate: "parent_of",
-        object_id: "child",
+        predicate: "knows",
+        object_id: "bob",
         object_type: "person"
       })
 
       Repository.create!(%{
-        subject_id: "child",
+        subject_id: "carol",
         subject_type: "person",
-        predicate: "parent_of",
-        object_id: "grandchild",
+        predicate: "knows",
+        object_id: "bob",
         object_type: "person"
       })
 
-      # Find ancestors of grandchild
-      results = Query.transitive_closure("grandchild", "person", "parent_of", direction: :backward)
+      Repository.create!(%{
+        subject_id: "dave",
+        subject_type: "person",
+        predicate: "knows",
+        object_id: "alice",
+        object_type: "person"
+      })
+
+      # Find who knows bob (backward from bob)
+      results = Query.transitive_closure("bob", "person", "knows", direction: :backward)
       ids = Enum.map(results, & &1.id)
 
-      assert "child" in ids
-      assert "parent" in ids
+      # Should find alice and carol (direct), and dave (through alice)
+      assert "alice" in ids
+      assert "carol" in ids
     end
   end
 

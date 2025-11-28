@@ -257,8 +257,9 @@ defmodule Mimo.SemanticStore.InferenceEngine do
                 a
               end
 
-            # Continue BFS
-            bfs_traverse(graph, neighbor, max_depth, new_vis, new_a)
+            # Continue BFS - recurse and get back updated state
+            recursive_acc = bfs_traverse(graph, neighbor, max_depth, new_vis, new_a)
+            {new_vis, recursive_acc}
           end
         end)
 
