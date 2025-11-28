@@ -1,7 +1,7 @@
 defmodule Mimo.ProceduralStore.ExecutionFSMCompleteTest do
   @moduledoc """
   Comprehensive FSM execution tests.
-  
+
   SPEC-007: Validates state transitions, error handling, and FSM patterns.
   """
   use ExUnit.Case, async: false

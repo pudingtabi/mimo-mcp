@@ -179,11 +179,12 @@ defmodule Mimo.Vector.NifValidationTest do
 
     test "handles large corpus (100 vectors)" do
       query = for _ <- 1..768, do: :rand.uniform() * 2 - 1
-      corpus = for _ <- 1..100, do: (for _ <- 1..768, do: :rand.uniform() * 2 - 1)
+      corpus = for _ <- 1..100, do: for(_ <- 1..768, do: :rand.uniform() * 2 - 1)
 
       {:ok, similarities} = Math.batch_similarity(query, corpus)
 
       assert length(similarities) == 100
+
       Enum.each(similarities, fn sim ->
         assert sim >= -1.0 and sim <= 1.0
       end)
@@ -191,7 +192,7 @@ defmodule Mimo.Vector.NifValidationTest do
 
     test "handles large corpus (1000 vectors)" do
       query = for _ <- 1..768, do: :rand.uniform() * 2 - 1
-      corpus = for _ <- 1..1000, do: (for _ <- 1..768, do: :rand.uniform() * 2 - 1)
+      corpus = for _ <- 1..1000, do: for(_ <- 1..768, do: :rand.uniform() * 2 - 1)
 
       {:ok, similarities} = Math.batch_similarity(query, corpus)
 
@@ -277,7 +278,7 @@ defmodule Mimo.Vector.NifValidationTest do
 
     test "handles large corpus top-k search" do
       query = for _ <- 1..768, do: :rand.uniform() * 2 - 1
-      corpus = for _ <- 1..1000, do: (for _ <- 1..768, do: :rand.uniform() * 2 - 1)
+      corpus = for _ <- 1..1000, do: for(_ <- 1..768, do: :rand.uniform() * 2 - 1)
 
       {:ok, results} = Math.top_k_similar(query, corpus, 10)
 
@@ -359,7 +360,7 @@ defmodule Mimo.Vector.NifValidationTest do
 
     test "Math and Fallback produce same results for batch_similarity" do
       query = for _ <- 1..768, do: :rand.uniform() * 2 - 1
-      corpus = for _ <- 1..50, do: (for _ <- 1..768, do: :rand.uniform() * 2 - 1)
+      corpus = for _ <- 1..50, do: for(_ <- 1..768, do: :rand.uniform() * 2 - 1)
 
       {:ok, math_results} = Math.batch_similarity(query, corpus)
       {:ok, fallback_results} = Fallback.batch_similarity(query, corpus)
@@ -371,7 +372,7 @@ defmodule Mimo.Vector.NifValidationTest do
 
     test "Math and Fallback produce same results for top_k_similar" do
       query = for _ <- 1..768, do: :rand.uniform() * 2 - 1
-      corpus = for _ <- 1..100, do: (for _ <- 1..768, do: :rand.uniform() * 2 - 1)
+      corpus = for _ <- 1..100, do: for(_ <- 1..768, do: :rand.uniform() * 2 - 1)
 
       {:ok, math_results} = Math.top_k_similar(query, corpus, 10)
       {:ok, fallback_results} = Fallback.top_k_similar(query, corpus, 10)

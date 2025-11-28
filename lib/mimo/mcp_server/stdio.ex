@@ -90,27 +90,39 @@ defmodule Mimo.McpServer.Stdio do
     case Mimo.ToolRegistry.get_tool_owner(tool_name) do
       {:ok, {:skill, skill_name, _pid, _tool_def}} ->
         # External skill - already running (with timeout)
-        execute_with_timeout(fn ->
-          Mimo.Skills.Client.call_tool(skill_name, tool_name, args)
-        end, id)
+        execute_with_timeout(
+          fn ->
+            Mimo.Skills.Client.call_tool(skill_name, tool_name, args)
+          end,
+          id
+        )
 
       {:ok, {:skill_lazy, skill_name, config, _}} ->
         # External skill - lazy spawn (with timeout)
-        execute_with_timeout(fn ->
-          Mimo.Skills.Client.call_tool_sync(skill_name, config, tool_name, args)
-        end, id)
+        execute_with_timeout(
+          fn ->
+            Mimo.Skills.Client.call_tool_sync(skill_name, config, tool_name, args)
+          end,
+          id
+        )
 
       {:ok, {:internal, _}} ->
         # Internal tool - use ToolInterface for consistency (with timeout)
-        execute_with_timeout(fn ->
-          Mimo.ToolInterface.execute(tool_name, args)
-        end, id)
+        execute_with_timeout(
+          fn ->
+            Mimo.ToolInterface.execute(tool_name, args)
+          end,
+          id
+        )
 
       {:ok, {:mimo_core, _}} ->
         # Mimo.Tools core capabilities - use ToolInterface for consistency (with timeout)
-        execute_with_timeout(fn ->
-          Mimo.ToolInterface.execute(tool_name, args)
-        end, id)
+        execute_with_timeout(
+          fn ->
+            Mimo.ToolInterface.execute(tool_name, args)
+          end,
+          id
+        )
 
       {:error, :not_found} ->
         available = Mimo.ToolRegistry.list_all_tools() |> Enum.map(& &1["name"])

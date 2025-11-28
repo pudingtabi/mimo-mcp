@@ -1,7 +1,7 @@
 defmodule Mimo.SemanticStore.RepositoryTest do
   @moduledoc """
   Unit tests for Semantic Store Repository.
-  
+
   SPEC-006: Validates CRUD operations, batch ingestion, and edge cases.
   """
   use ExUnit.Case, async: true

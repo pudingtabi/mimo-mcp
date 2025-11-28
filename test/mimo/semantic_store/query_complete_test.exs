@@ -1,7 +1,7 @@
 defmodule Mimo.SemanticStore.QueryCompleteTest do
   @moduledoc """
   Comprehensive query tests for Semantic Store.
-  
+
   SPEC-006: Tests transitive closure, pattern matching, path finding,
   cycle detection, and edge cases.
   """

@@ -1,7 +1,7 @@
 defmodule Mimo.ProceduralStore.ValidatorTest do
   @moduledoc """
   Unit tests for Procedural Store definition validator.
-  
+
   SPEC-007: Validates FSM definition correctness.
   """
   use ExUnit.Case, async: true
@@ -280,7 +280,8 @@ defmodule Mimo.ProceduralStore.ValidatorTest do
             ]
           },
           "done" => %{},
-          "orphan" => %{}  # Not reachable from start
+          # Not reachable from start
+          "orphan" => %{}
         }
       }
 

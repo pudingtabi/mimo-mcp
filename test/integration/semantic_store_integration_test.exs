@@ -1,7 +1,7 @@
 defmodule Mimo.Integration.SemanticStoreIntegrationTest do
   @moduledoc """
   Integration tests for Semantic Store.
-  
+
   SPEC-006: Tests full workflows, concurrent access, and real-world scenarios.
   """
   use ExUnit.Case

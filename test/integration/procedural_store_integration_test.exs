@@ -1,7 +1,7 @@
 defmodule Mimo.Integration.ProceduralStoreIntegrationTest do
   @moduledoc """
   Integration tests for Procedural Store.
-  
+
   SPEC-007: Tests real-world workflows, concurrent execution, and error recovery.
   """
   use ExUnit.Case
