@@ -19,6 +19,23 @@ defmodule Mimo.Skills.FileOps do
     (System.get_env("MIMO_ROOT") || File.cwd!()) |> Path.expand()
   end
 
+  # Get list of allowed roots (sandbox_root + any additional from MIMO_ALLOWED_PATHS)
+  defp allowed_roots do
+    base = [sandbox_root()]
+    
+    additional = 
+      case System.get_env("MIMO_ALLOWED_PATHS") do
+        nil -> []
+        "" -> []
+        paths -> String.split(paths, ":") |> Enum.map(&Path.expand/1)
+      end
+    
+    # Also allow /workspace by default for VS Code devcontainers
+    workspace = ["/workspace"] |> Enum.filter(&File.dir?/1)
+    
+    (base ++ additional ++ workspace) |> Enum.uniq()
+  end
+
   # ==========================================================================
   # SMART READ - Chunked reading for large files
   # ==========================================================================
@@ -720,25 +737,28 @@ defmodule Mimo.Skills.FileOps do
   # PATH SECURITY
   # ==========================================================================
 
-  defp expand_safe(relative_path) do
-    root = sandbox_root()
+  defp expand_safe(path) do
+    roots = allowed_roots()
 
-    if Path.type(relative_path) == :absolute do
-      {:error, :absolute_path_not_allowed}
-    else
-      expanded = Path.expand(relative_path, root)
-
-      resolved =
-        case File.read_link(expanded) do
-          {:ok, link_target} -> Path.expand(link_target, root)
-          {:error, _} -> expanded
-        end
-
-      if String.starts_with?(resolved, root) do
-        {:ok, resolved}
+    expanded = 
+      if Path.type(path) == :absolute do
+        Path.expand(path)
       else
-        {:error, :path_traversal_attempt}
+        Path.expand(path, sandbox_root())
       end
+
+    # Resolve symlinks
+    resolved =
+      case File.read_link(expanded) do
+        {:ok, link_target} -> Path.expand(link_target, Path.dirname(expanded))
+        {:error, _} -> expanded
+      end
+
+    # Check if resolved path is within any allowed root
+    if Enum.any?(roots, fn root -> String.starts_with?(resolved, root) end) do
+      {:ok, resolved}
+    else
+      {:error, :path_outside_allowed_roots}
     end
   end
 end
