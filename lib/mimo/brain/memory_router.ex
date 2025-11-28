@@ -32,9 +32,11 @@ defmodule Mimo.Brain.MemoryRouter do
   alias Mimo.ProceduralStore
 
   # Query type indicators
+  # Note: "how" is only procedural when followed by "to" or "do" (how-to patterns)
   @relational_indicators ~w(related relationship connected link between association)
   @temporal_indicators ~w(recent recently latest today yesterday last first newest oldest ago)
-  @procedural_indicators ~w(how steps process procedure guide tutorial workflow setup configure)
+  @procedural_indicators ~w(steps process procedure guide tutorial workflow setup configure)
+  @procedural_how_patterns ["how to", "how do", "how can", "how should"]
   @factual_indicators ~w(what is define meaning explain describe definition)
 
   # ==========================================================================
@@ -129,11 +131,14 @@ defmodule Mimo.Brain.MemoryRouter do
       |> String.replace(~r/[^\w\s]/, "")
       |> String.split()
 
+    # Check for procedural "how to" patterns
+    procedural_how_score = if has_how_pattern?(query_lower), do: 0.5, else: 0.0
+
     # Score each type
     scores = %{
       relational: score_indicators(words, @relational_indicators),
       temporal: score_indicators(words, @temporal_indicators),
-      procedural: score_indicators(words, @procedural_indicators),
+      procedural: max(score_indicators(words, @procedural_indicators), procedural_how_score),
       factual: score_indicators(words, @factual_indicators)
     }
 
@@ -179,10 +184,13 @@ defmodule Mimo.Brain.MemoryRouter do
       |> String.replace(~r/[^\w\s]/, "")
       |> String.split()
 
+    # Check for procedural "how to" patterns
+    procedural_how_score = if has_how_pattern?(query_lower), do: 0.5, else: 0.0
+
     scores = %{
       relational: score_indicators(words, @relational_indicators),
       temporal: score_indicators(words, @temporal_indicators),
-      procedural: score_indicators(words, @procedural_indicators),
+      procedural: max(score_indicators(words, @procedural_indicators), procedural_how_score),
       factual: score_indicators(words, @factual_indicators)
     }
 
@@ -291,6 +299,10 @@ defmodule Mimo.Brain.MemoryRouter do
 
   defp find_matched(words, indicators) do
     Enum.filter(words, &(&1 in indicators))
+  end
+
+  defp has_how_pattern?(query_lower) do
+    Enum.any?(@procedural_how_patterns, &String.contains?(query_lower, &1))
   end
 
   defp get_recommended_stores(:relational), do: [:graph, :vector]
