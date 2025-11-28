@@ -158,30 +158,6 @@ defmodule Mimo.Application do
     end
   end
 
-  # Legacy function - no longer needed but kept for compatibility
-  defp wait_for_catalog_ready(0) do
-    Logger.error("❌ Catalog not ready after 5 seconds - external skills may be unavailable")
-    {:error, :catalog_timeout}
-  end
-
-  defp wait_for_catalog_ready(retries) do
-    try do
-      tools = Mimo.Skills.Catalog.list_tools()
-
-      if tools != [] do
-        Logger.info("✅ Catalog ready with #{length(tools)} tools")
-        :ok
-      else
-        Process.sleep(100)
-        wait_for_catalog_ready(retries - 1)
-      end
-    rescue
-      e ->
-        Logger.warning("Catalog check failed: #{Exception.message(e)}, retrying...")
-        Process.sleep(100)
-        wait_for_catalog_ready(retries - 1)
-    end
-  end
 
   defp http_port do
     Application.get_env(:mimo_mcp, MimoWeb.Endpoint)[:http][:port] || 4000

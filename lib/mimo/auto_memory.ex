@@ -76,9 +76,6 @@ defmodule Mimo.AutoMemory do
       {:process, command} ->
         store_process_memory(command, arguments, result)
 
-      {:error, _} ->
-        store_error_memory(tool_name, arguments, result)
-
       :skip ->
         :ok
     end
@@ -220,17 +217,6 @@ defmodule Mimo.AutoMemory do
   end
 
   defp store_process_memory(_, _, _), do: :ok
-
-  # Store memory for errors (useful for debugging context)
-  defp store_error_memory(tool_name, arguments, {:error, reason}) do
-    store_memory(
-      "Tool failed: #{tool_name}\nArgs: #{inspect(arguments)}\nError: #{inspect(reason)}",
-      "error",
-      0.4
-    )
-  end
-
-  defp store_error_memory(_, _, _), do: :ok
 
   # Actually store the memory
   defp store_memory(content, category, importance) do

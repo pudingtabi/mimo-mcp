@@ -74,9 +74,6 @@ defmodule Mimo.SemanticStore.Resolver do
             # Ambiguous
             {:error, :ambiguous, Enum.map(candidates, &elem(&1, 0))}
           end
-
-        {:error, reason} ->
-          {:error, reason}
       end
 
     # Emit telemetry
@@ -158,11 +155,6 @@ defmodule Mimo.SemanticStore.Resolver do
           |> Enum.sort_by(&elem(&1, 1), :desc)
 
         {:ok, candidates}
-
-      {:error, reason} ->
-        Logger.warning("Entity anchor search failed: #{inspect(reason)}")
-        # Return empty on search failure, will create new
-        {:ok, []}
     end
   end
 

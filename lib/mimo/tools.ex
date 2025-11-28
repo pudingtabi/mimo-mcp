@@ -492,9 +492,6 @@ defmodule Mimo.Tools do
 
           {:error, :ambiguous, candidates} ->
             {:ok, %{ambiguous: true, candidates: candidates}}
-
-          {:error, _} ->
-            {:ok, %{results: [], message: "No matching entities"}}
         end
 
       true ->

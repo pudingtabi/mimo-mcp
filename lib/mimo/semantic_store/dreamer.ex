@@ -184,7 +184,6 @@ defmodule Mimo.SemanticStore.Dreamer do
                    graph_id: graph_id
                  ) do
               {:ok, inferred} -> length(inferred)
-              {:error, _} -> 0
             end
           end)
 
