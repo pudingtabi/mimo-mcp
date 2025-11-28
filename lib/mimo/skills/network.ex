@@ -104,7 +104,7 @@ defmodule Mimo.Skills.Network do
   # ==========================================================================
 
   @doc """
-  Search the web using DuckDuckGo HTML scraping.
+  Search the web using DuckDuckGo Instant Answer API.
   No API key required - fully native.
 
   ## Options
@@ -114,118 +114,103 @@ defmodule Mimo.Skills.Network do
     num_results = Keyword.get(opts, :num_results, 10)
     encoded_query = URI.encode(query)
 
-    # Try lite version first (more reliable)
-    url = "https://lite.duckduckgo.com/lite/?q=#{encoded_query}"
-
-    headers = [
-      {"user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-      {"accept", "text/html,application/xhtml+xml"},
-      {"accept-language", "en-US,en;q=0.9"}
-    ]
+    # Use DuckDuckGo Instant Answer API (no CAPTCHA, returns JSON)
+    url = "https://api.duckduckgo.com/?q=#{encoded_query}&format=json&no_html=1&skip_disambig=0"
 
     req_opts = [
-      headers: headers,
       receive_timeout: @search_timeout,
       redirect: true,
-      max_redirects: 5
+      max_redirects: 3
     ]
 
     case Req.get(url, req_opts) do
-      {:ok, %{status: 200, body: body}} ->
-        results = parse_lite_results(body, num_results)
-
-        if results == [] do
-          # Try alternate parser
-          try_html_search(query, num_results)
-        else
-          {:ok, results}
+      {:ok, %{status: 200, body: body}} when is_binary(body) ->
+        case Jason.decode(body) do
+          {:ok, data} -> {:ok, parse_ddg_api_results(data, num_results)}
+          {:error, _} -> {:ok, []}
         end
 
-      {:ok, %{status: _status}} ->
-        try_html_search(query, num_results)
+      {:ok, %{status: 200, body: body}} when is_map(body) ->
+        # Req may auto-decode JSON
+        {:ok, parse_ddg_api_results(body, num_results)}
+
+      {:ok, %{status: status}} ->
+        {:error, "DuckDuckGo API returned status #{status}"}
 
       {:error, error} ->
         {:error, "Search failed: #{inspect(error)}"}
     end
   end
 
-  defp try_html_search(query, num_results) do
-    encoded_query = URI.encode(query)
-    url = "https://html.duckduckgo.com/html/?q=#{encoded_query}"
+  defp parse_ddg_api_results(data, max_results) do
+    results = []
 
-    headers = [
-      {"user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-      {"accept", "text/html"}
-    ]
+    # Abstract result (main answer)
+    results =
+      if data["AbstractURL"] && data["AbstractURL"] != "" do
+        [
+          %{
+            title: data["Heading"] || "DuckDuckGo Result",
+            url: data["AbstractURL"],
+            snippet: data["AbstractText"] || data["Abstract"] || ""
+          }
+          | results
+        ]
+      else
+        results
+      end
 
-    case Req.get(url, headers: headers, receive_timeout: @search_timeout) do
-      {:ok, %{status: 200, body: body}} ->
-        results = parse_html_results(body, num_results)
-        {:ok, results}
+    # Related topics
+    related =
+      (data["RelatedTopics"] || [])
+      |> Enum.flat_map(fn item ->
+        case item do
+          %{"Topics" => topics} when is_list(topics) ->
+            # Nested category
+            Enum.map(topics, &parse_ddg_topic/1)
 
-      _ ->
-        {:ok, []}
-    end
+          topic when is_map(topic) ->
+            [parse_ddg_topic(topic)]
+
+          _ ->
+            []
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    # Direct results (if any)
+    direct =
+      (data["Results"] || [])
+      |> Enum.map(fn r ->
+        %{
+          title: r["Text"] || "Result",
+          url: r["FirstURL"] || "",
+          snippet: ""
+        }
+      end)
+      |> Enum.reject(fn r -> r.url == "" end)
+
+    (results ++ direct ++ related)
+    |> Enum.take(max_results)
   end
 
-  defp parse_lite_results(html, max_results) do
-    case Floki.parse_document(html) do
-      {:ok, document} ->
-        # DuckDuckGo lite uses tables with links
-        document
-        |> Floki.find("table tr a")
-        |> Enum.filter(fn link ->
-          href = Floki.attribute(link, "href") |> List.first() || ""
-          String.starts_with?(href, "http")
-        end)
-        |> Enum.take(max_results)
-        |> Enum.map(fn link ->
-          title = Floki.text(link) |> String.trim()
-          url = Floki.attribute(link, "href") |> List.first()
-          %{title: title, url: url, snippet: ""}
-        end)
-        |> Enum.reject(fn r -> r.title == "" end)
+  defp parse_ddg_topic(%{"FirstURL" => url, "Text" => text}) when is_binary(url) and url != "" do
+    # Extract title from text (before the description)
+    {title, snippet} =
+      case String.split(text, " ", parts: 2) do
+        [t] -> {t, ""}
+        [t, s] -> {t, s}
+      end
 
-      {:error, _} ->
-        []
-    end
+    # Better parsing - text format is "Title Description..."
+    %{
+      title: title,
+      url: url,
+      snippet: snippet
+    }
   end
 
-  defp parse_html_results(html, max_results) do
-    case Floki.parse_document(html) do
-      {:ok, document} ->
-        document
-        |> Floki.find(".result")
-        |> Enum.take(max_results)
-        |> Enum.map(fn result ->
-          title = result |> Floki.find(".result__a") |> Floki.text() |> String.trim()
-
-          url =
-            result
-            |> Floki.find(".result__a")
-            |> Floki.attribute("href")
-            |> List.first()
-            |> extract_url()
-
-          snippet = result |> Floki.find(".result__snippet") |> Floki.text() |> String.trim()
-
-          %{title: title, url: url, snippet: snippet}
-        end)
-        |> Enum.reject(fn r -> r.url == nil or r.title == "" end)
-
-      {:error, _} ->
-        []
-    end
-  end
-
-  defp extract_url(nil), do: nil
-
-  defp extract_url(href) do
-    case URI.decode_query(URI.parse(href).query || "") do
-      %{"uddg" => url} -> url
-      _ -> href
-    end
-  end
+  defp parse_ddg_topic(_), do: nil
 
   @doc "Search for code-related content."
   def code_search(query, opts \\ []) when is_binary(query) do
