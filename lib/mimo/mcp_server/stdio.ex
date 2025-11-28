@@ -11,6 +11,9 @@ defmodule Mimo.McpServer.Stdio do
   @method_not_found -32601
   @internal_error -32603
 
+  # Timeout for tool execution (30 seconds)
+  @tool_timeout 30_000
+
   @doc """
   Starts the Stdio server loop.
   This function blocks until EOF is received on stdin.
@@ -86,50 +89,28 @@ defmodule Mimo.McpServer.Stdio do
     # Check ToolRegistry first for both internal and external tools
     case Mimo.ToolRegistry.get_tool_owner(tool_name) do
       {:ok, {:skill, skill_name, _pid, _tool_def}} ->
-        # External skill - already running
-        case Mimo.Skills.Client.call_tool(skill_name, tool_name, args) do
-          {:ok, result} ->
-            send_response(id, %{
-              "content" => [%{"type" => "text", "text" => Jason.encode!(result, pretty: true)}]
-            })
-
-          {:error, reason} ->
-            send_error(id, @internal_error, "Skill error: #{inspect(reason)}")
-        end
+        # External skill - already running (with timeout)
+        execute_with_timeout(fn ->
+          Mimo.Skills.Client.call_tool(skill_name, tool_name, args)
+        end, id)
 
       {:ok, {:skill_lazy, skill_name, config, _}} ->
-        # External skill - lazy spawn
-        case Mimo.Skills.Client.call_tool_sync(skill_name, config, tool_name, args) do
-          {:ok, result} ->
-            send_response(id, %{
-              "content" => [%{"type" => "text", "text" => Jason.encode!(result, pretty: true)}]
-            })
-
-          {:error, reason} ->
-            send_error(id, @internal_error, "Skill error: #{inspect(reason)}")
-        end
+        # External skill - lazy spawn (with timeout)
+        execute_with_timeout(fn ->
+          Mimo.Skills.Client.call_tool_sync(skill_name, config, tool_name, args)
+        end, id)
 
       {:ok, {:internal, _}} ->
-        # Internal tool - use ToolInterface for consistency
-        case Mimo.ToolInterface.execute(tool_name, args) do
-          {:ok, result} ->
-            content = format_content(result)
-            send_response(id, %{"content" => content})
-
-          {:error, reason} ->
-            send_error(id, @internal_error, to_string(reason))
-        end
+        # Internal tool - use ToolInterface for consistency (with timeout)
+        execute_with_timeout(fn ->
+          Mimo.ToolInterface.execute(tool_name, args)
+        end, id)
 
       {:ok, {:mimo_core, _}} ->
-        # Mimo.Tools core capabilities - use ToolInterface for consistency
-        case Mimo.ToolInterface.execute(tool_name, args) do
-          {:ok, result} ->
-            content = format_content(result)
-            send_response(id, %{"content" => content})
-
-          {:error, reason} ->
-            send_error(id, @internal_error, to_string(reason))
-        end
+        # Mimo.Tools core capabilities - use ToolInterface for consistency (with timeout)
+        execute_with_timeout(fn ->
+          Mimo.ToolInterface.execute(tool_name, args)
+        end, id)
 
       {:error, :not_found} ->
         available = Mimo.ToolRegistry.list_all_tools() |> Enum.map(& &1["name"])
@@ -157,6 +138,26 @@ defmodule Mimo.McpServer.Stdio do
   end
 
   # --- Helpers ---
+
+  # Execute a tool function with timeout protection
+  defp execute_with_timeout(fun, id) do
+    task = Task.async(fun)
+
+    case Task.yield(task, @tool_timeout) || Task.shutdown(task) do
+      {:ok, {:ok, result}} ->
+        content = format_content(result)
+        send_response(id, %{"content" => content})
+
+      {:ok, {:error, reason}} ->
+        send_error(id, @internal_error, to_string(reason))
+
+      nil ->
+        send_error(id, @internal_error, "Tool execution timed out after #{@tool_timeout}ms")
+    end
+  rescue
+    e ->
+      send_error(id, @internal_error, "Tool execution error: #{Exception.message(e)}")
+  end
 
   defp send_response(id, result) do
     msg = %{
