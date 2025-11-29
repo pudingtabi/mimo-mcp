@@ -72,15 +72,16 @@ defmodule Mimo.ToolInterface do
             # Get execution ID from FSM state
             {_state, data} = ExecutionFSM.get_state(pid)
 
-            {:ok, %{
-              tool_call_id: UUID.uuid4(),
-              status: "success",
-              data: %{
-                execution_id: data.execution_id,
-                status: "running",
-                pid: inspect(pid)
-              }
-            }}
+            {:ok,
+             %{
+               tool_call_id: UUID.uuid4(),
+               status: "success",
+               data: %{
+                 execution_id: data.execution_id,
+                 status: "running",
+                 pid: inspect(pid)
+               }
+             }}
 
           {:error, reason} ->
             {:error, "Failed to start procedure: #{inspect(reason)}"}
@@ -104,18 +105,19 @@ defmodule Mimo.ToolInterface do
                 # Get execution record for full history
                 execution = get_latest_execution(name)
 
-                {:ok, %{
-                  tool_call_id: UUID.uuid4(),
-                  status: "success",
-                  data: %{
-                    execution_id: execution && execution.id,
-                    status: to_string(status),
-                    final_state: execution && execution.current_state,
-                    context: final_context,
-                    history: (execution && execution.history) || [],
-                    duration_ms: duration
-                  }
-                }}
+                {:ok,
+                 %{
+                   tool_call_id: UUID.uuid4(),
+                   status: "success",
+                   data: %{
+                     execution_id: execution && execution.id,
+                     status: to_string(status),
+                     final_state: execution && execution.current_state,
+                     context: final_context,
+                     history: (execution && execution.history) || [],
+                     duration_ms: duration
+                   }
+                 }}
             after
               timeout ->
                 {:error, "Procedure execution timed out after #{timeout}ms"}
@@ -153,19 +155,20 @@ defmodule Mimo.ToolInterface do
               0
             end
 
-          {:ok, %{
-            tool_call_id: UUID.uuid4(),
-            status: "success",
-            data: %{
-              execution_id: execution.id,
-              status: execution.status,
-              current_state: execution.current_state,
-              context: execution.context,
-              history: execution.history,
-              elapsed_ms: elapsed_ms,
-              error: execution.error
-            }
-          }}
+          {:ok,
+           %{
+             tool_call_id: UUID.uuid4(),
+             status: "success",
+             data: %{
+               execution_id: execution.id,
+               status: execution.status,
+               current_state: execution.current_state,
+               context: execution.context,
+               history: execution.history,
+               elapsed_ms: elapsed_ms,
+               error: execution.error
+             }
+           }}
       end
     else
       {:error, "Procedural store is not enabled. Set PROCEDURAL_STORE_ENABLED=true to enable."}
@@ -199,14 +202,15 @@ defmodule Mimo.ToolInterface do
           }
         end)
 
-      {:ok, %{
-        tool_call_id: UUID.uuid4(),
-        status: "success",
-        data: %{
-          procedures: procedure_list,
-          count: length(procedure_list)
-        }
-      }}
+      {:ok,
+       %{
+         tool_call_id: UUID.uuid4(),
+         status: "success",
+         data: %{
+           procedures: procedure_list,
+           count: length(procedure_list)
+         }
+       }}
     else
       {:error, "Procedural store is not enabled. Set PROCEDURAL_STORE_ENABLED=true to enable."}
     end
@@ -265,7 +269,8 @@ defmodule Mimo.ToolInterface do
   end
 
   def execute("memory", %{"operation" => op}) do
-    {:error, "Unknown memory operation: #{op}. Valid: store, search, list, delete, stats, decay_check"}
+    {:error,
+     "Unknown memory operation: #{op}. Valid: store, search, list, delete, stats, decay_check"}
   end
 
   def execute("memory", _args) do
@@ -294,11 +299,12 @@ defmodule Mimo.ToolInterface do
 
     case Mimo.Ingest.ingest_file(path, opts) do
       {:ok, result} ->
-        {:ok, %{
-          tool_call_id: UUID.uuid4(),
-          status: "success",
-          data: result
-        }}
+        {:ok,
+         %{
+           tool_call_id: UUID.uuid4(),
+           status: "success",
+           data: result
+         }}
 
       {:error, {:file_too_large, size, max}} ->
         {:error, "File too large: #{size} bytes (max: #{max} bytes)"}
@@ -482,11 +488,12 @@ defmodule Mimo.ToolInterface do
   defp execute_memory_store(content, category, importance) do
     case Memory.persist_memory(content, category, importance) do
       {:ok, id} ->
-        {:ok, %{
-          tool_call_id: UUID.uuid4(),
-          status: "success",
-          data: %{stored: true, id: id, embedding_generated: true}
-        }}
+        {:ok,
+         %{
+           tool_call_id: UUID.uuid4(),
+           status: "success",
+           data: %{stored: true, id: id, embedding_generated: true}
+         }}
 
       {:error, reason} ->
         {:error, "Failed to store memory: #{inspect(reason)}"}
@@ -525,9 +532,12 @@ defmodule Mimo.ToolInterface do
 
               Enum.filter(filtered, fn result ->
                 case Map.get(result, :inserted_at) do
-                  nil -> true
-                  dt -> NaiveDateTime.compare(dt, from_naive) != :lt and
-                        NaiveDateTime.compare(dt, to_naive) != :gt
+                  nil ->
+                    true
+
+                  dt ->
+                    NaiveDateTime.compare(dt, from_naive) != :lt and
+                      NaiveDateTime.compare(dt, to_naive) != :gt
                 end
               end)
 
@@ -553,14 +563,15 @@ defmodule Mimo.ToolInterface do
         }
       end)
 
-    {:ok, %{
-      tool_call_id: UUID.uuid4(),
-      status: "success",
-      data: %{
-        results: formatted,
-        total_searched: length(base_results)
-      }
-    }}
+    {:ok,
+     %{
+       tool_call_id: UUID.uuid4(),
+       status: "success",
+       data: %{
+         results: formatted,
+         total_searched: length(base_results)
+       }
+     }}
   end
 
   defp execute_memory_list(args) do
@@ -581,7 +592,8 @@ defmodule Mimo.ToolInterface do
     query =
       case sort do
         "importance" -> from(e in query, order_by: [desc: e.importance])
-        "decay_score" -> from(e in query, order_by: [asc: e.importance])  # Approximate
+        # Approximate
+        "decay_score" -> from(e in query, order_by: [asc: e.importance])
         _ -> from(e in query, order_by: [desc: e.inserted_at])
       end
 
@@ -601,16 +613,17 @@ defmodule Mimo.ToolInterface do
         }
       end)
 
-    {:ok, %{
-      tool_call_id: UUID.uuid4(),
-      status: "success",
-      data: %{
-        memories: formatted,
-        total: total,
-        offset: offset,
-        limit: limit
-      }
-    }}
+    {:ok,
+     %{
+       tool_call_id: UUID.uuid4(),
+       status: "success",
+       data: %{
+         memories: formatted,
+         total: total,
+         offset: offset,
+         limit: limit
+       }
+     }}
   end
 
   defp execute_memory_delete(id) do
@@ -621,11 +634,12 @@ defmodule Mimo.ToolInterface do
       engram ->
         case Repo.delete(engram) do
           {:ok, _deleted} ->
-            {:ok, %{
-              tool_call_id: UUID.uuid4(),
-              status: "success",
-              data: %{deleted: true, id: id}
-            }}
+            {:ok,
+             %{
+               tool_call_id: UUID.uuid4(),
+               status: "success",
+               data: %{deleted: true, id: id}
+             }}
 
           {:error, reason} ->
             {:error, "Failed to delete memory: #{inspect(reason)}"}
@@ -666,18 +680,19 @@ defmodule Mimo.ToolInterface do
         )
       )
 
-    {:ok, %{
-      tool_call_id: UUID.uuid4(),
-      status: "success",
-      data: %{
-        total_memories: stats.total || 0,
-        by_category: by_category,
-        avg_importance: stats.avg_importance && Float.round(stats.avg_importance, 2),
-        at_risk_count: at_risk_count || 0,
-        oldest: format_datetime(stats.min_inserted),
-        newest: format_datetime(stats.max_inserted)
-      }
-    }}
+    {:ok,
+     %{
+       tool_call_id: UUID.uuid4(),
+       status: "success",
+       data: %{
+         total_memories: stats.total || 0,
+         by_category: by_category,
+         avg_importance: stats.avg_importance && Float.round(stats.avg_importance, 2),
+         at_risk_count: at_risk_count || 0,
+         oldest: format_datetime(stats.min_inserted),
+         newest: format_datetime(stats.max_inserted)
+       }
+     }}
   end
 
   defp execute_memory_decay_check(threshold, limit) do
@@ -710,15 +725,16 @@ defmodule Mimo.ToolInterface do
       |> Enum.filter(&(&1.decay_score < threshold))
       |> Enum.take(limit)
 
-    {:ok, %{
-      tool_call_id: UUID.uuid4(),
-      status: "success",
-      data: %{
-        at_risk: at_risk,
-        threshold: threshold,
-        total_checked: length(memories)
-      }
-    }}
+    {:ok,
+     %{
+       tool_call_id: UUID.uuid4(),
+       status: "success",
+       data: %{
+         at_risk: at_risk,
+         threshold: threshold,
+         total_checked: length(memories)
+       }
+     }}
   end
 
   # ============================================================================

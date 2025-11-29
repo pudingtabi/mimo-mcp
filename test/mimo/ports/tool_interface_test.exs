@@ -143,12 +143,13 @@ defmodule Mimo.ToolInterfaceTest do
     end
 
     test "memory store operation works" do
-      result = ToolInterface.execute("memory", %{
-        "operation" => "store",
-        "content" => "Test memory content for unified tool",
-        "category" => "fact",
-        "importance" => 0.7
-      })
+      result =
+        ToolInterface.execute("memory", %{
+          "operation" => "store",
+          "content" => "Test memory content for unified tool",
+          "category" => "fact",
+          "importance" => 0.7
+        })
 
       assert {:ok, response} = result
       assert response.status == "success"
@@ -157,10 +158,11 @@ defmodule Mimo.ToolInterfaceTest do
     end
 
     test "memory store requires content" do
-      result = ToolInterface.execute("memory", %{
-        "operation" => "store",
-        "category" => "fact"
-      })
+      result =
+        ToolInterface.execute("memory", %{
+          "operation" => "store",
+          "category" => "fact"
+        })
 
       assert {:error, message} = result
       assert message =~ "content"
@@ -174,10 +176,11 @@ defmodule Mimo.ToolInterfaceTest do
         "category" => "fact"
       })
 
-      result = ToolInterface.execute("memory", %{
-        "operation" => "search",
-        "query" => "unique123"
-      })
+      result =
+        ToolInterface.execute("memory", %{
+          "operation" => "search",
+          "query" => "unique123"
+        })
 
       assert {:ok, response} = result
       assert response.status == "success"
@@ -185,30 +188,33 @@ defmodule Mimo.ToolInterfaceTest do
     end
 
     test "memory search requires query" do
-      result = ToolInterface.execute("memory", %{
-        "operation" => "search"
-      })
+      result =
+        ToolInterface.execute("memory", %{
+          "operation" => "search"
+        })
 
       assert {:error, message} = result
       assert message =~ "query"
     end
 
     test "memory search with time_filter" do
-      result = ToolInterface.execute("memory", %{
-        "operation" => "search",
-        "query" => "test",
-        "time_filter" => "last week"
-      })
+      result =
+        ToolInterface.execute("memory", %{
+          "operation" => "search",
+          "query" => "test",
+          "time_filter" => "last week"
+        })
 
       assert {:ok, response} = result
       assert response.status == "success"
     end
 
     test "memory list operation works" do
-      result = ToolInterface.execute("memory", %{
-        "operation" => "list",
-        "limit" => 5
-      })
+      result =
+        ToolInterface.execute("memory", %{
+          "operation" => "list",
+          "limit" => 5
+        })
 
       assert {:ok, response} = result
       assert response.status == "success"
@@ -217,12 +223,13 @@ defmodule Mimo.ToolInterfaceTest do
     end
 
     test "memory list with pagination" do
-      result = ToolInterface.execute("memory", %{
-        "operation" => "list",
-        "limit" => 10,
-        "offset" => 0,
-        "sort" => "importance"
-      })
+      result =
+        ToolInterface.execute("memory", %{
+          "operation" => "list",
+          "limit" => 10,
+          "offset" => 0,
+          "sort" => "importance"
+        })
 
       assert {:ok, response} = result
       assert response.data.limit == 10
@@ -230,9 +237,10 @@ defmodule Mimo.ToolInterfaceTest do
     end
 
     test "memory delete operation requires id" do
-      result = ToolInterface.execute("memory", %{
-        "operation" => "delete"
-      })
+      result =
+        ToolInterface.execute("memory", %{
+          "operation" => "delete"
+        })
 
       assert {:error, message} = result
       assert message =~ "id"
@@ -240,19 +248,21 @@ defmodule Mimo.ToolInterfaceTest do
 
     test "memory delete operation works" do
       # First store something
-      {:ok, store_response} = ToolInterface.execute("memory", %{
-        "operation" => "store",
-        "content" => "Memory to be deleted",
-        "category" => "fact"
-      })
+      {:ok, store_response} =
+        ToolInterface.execute("memory", %{
+          "operation" => "store",
+          "content" => "Memory to be deleted",
+          "category" => "fact"
+        })
 
       id = store_response.data.id
 
       # Now delete it
-      result = ToolInterface.execute("memory", %{
-        "operation" => "delete",
-        "id" => id
-      })
+      result =
+        ToolInterface.execute("memory", %{
+          "operation" => "delete",
+          "id" => id
+        })
 
       assert {:ok, response} = result
       assert response.data.deleted == true
@@ -262,9 +272,10 @@ defmodule Mimo.ToolInterfaceTest do
     end
 
     test "memory stats operation works" do
-      result = ToolInterface.execute("memory", %{
-        "operation" => "stats"
-      })
+      result =
+        ToolInterface.execute("memory", %{
+          "operation" => "stats"
+        })
 
       assert {:ok, response} = result
       assert response.status == "success"
@@ -273,11 +284,12 @@ defmodule Mimo.ToolInterfaceTest do
     end
 
     test "memory decay_check operation works" do
-      result = ToolInterface.execute("memory", %{
-        "operation" => "decay_check",
-        "threshold" => 0.1,
-        "limit" => 10
-      })
+      result =
+        ToolInterface.execute("memory", %{
+          "operation" => "decay_check",
+          "threshold" => 0.1,
+          "limit" => 10
+        })
 
       assert {:ok, response} = result
       assert response.status == "success"
@@ -286,9 +298,10 @@ defmodule Mimo.ToolInterfaceTest do
     end
 
     test "memory unknown operation returns error" do
-      result = ToolInterface.execute("memory", %{
-        "operation" => "invalid_op"
-      })
+      result =
+        ToolInterface.execute("memory", %{
+          "operation" => "invalid_op"
+        })
 
       assert {:error, message} = result
       assert message =~ "Unknown memory operation"
@@ -311,10 +324,11 @@ defmodule Mimo.ToolInterfaceTest do
       path = Path.join(@test_dir, "ingest_test.txt")
       File.write!(path, content)
 
-      result = ToolInterface.execute("ingest", %{
-        "path" => path,
-        "category" => "fact"
-      })
+      result =
+        ToolInterface.execute("ingest", %{
+          "path" => path,
+          "category" => "fact"
+        })
 
       assert {:ok, response} = result
       assert response.status == "success"
@@ -327,10 +341,11 @@ defmodule Mimo.ToolInterfaceTest do
       path = Path.join(@test_dir, "markdown_test.md")
       File.write!(path, content)
 
-      result = ToolInterface.execute("ingest", %{
-        "path" => path,
-        "strategy" => "markdown"
-      })
+      result =
+        ToolInterface.execute("ingest", %{
+          "path" => path,
+          "strategy" => "markdown"
+        })
 
       assert {:ok, response} = result
       assert response.data.strategy_used == :markdown
@@ -341,11 +356,12 @@ defmodule Mimo.ToolInterfaceTest do
       path = Path.join(@test_dir, "tagged_test.txt")
       File.write!(path, content)
 
-      result = ToolInterface.execute("ingest", %{
-        "path" => path,
-        "tags" => ["test", "ingestion"],
-        "metadata" => %{"source" => "test"}
-      })
+      result =
+        ToolInterface.execute("ingest", %{
+          "path" => path,
+          "tags" => ["test", "ingestion"],
+          "metadata" => %{"source" => "test"}
+        })
 
       assert {:ok, response} = result
       assert response.status == "success"
@@ -356,9 +372,10 @@ defmodule Mimo.ToolInterfaceTest do
     end
 
     test "ingest returns error for non-existent file" do
-      result = ToolInterface.execute("ingest", %{
-        "path" => "/nonexistent/file.txt"
-      })
+      result =
+        ToolInterface.execute("ingest", %{
+          "path" => "/nonexistent/file.txt"
+        })
 
       assert {:error, _message} = result
     end
@@ -370,19 +387,21 @@ defmodule Mimo.ToolInterfaceTest do
 
   describe "execute/2 - deprecated tools" do
     test "store_fact still works (with deprecation)" do
-      result = ToolInterface.execute("store_fact", %{
-        "content" => "Legacy store fact test",
-        "category" => "fact"
-      })
+      result =
+        ToolInterface.execute("store_fact", %{
+          "content" => "Legacy store fact test",
+          "category" => "fact"
+        })
 
       assert {:ok, response} = result
       assert response.data.stored == true
     end
 
     test "search_vibes still works (with deprecation)" do
-      result = ToolInterface.execute("search_vibes", %{
-        "query" => "test search"
-      })
+      result =
+        ToolInterface.execute("search_vibes", %{
+          "query" => "test search"
+        })
 
       assert {:ok, response} = result
       assert response.status == "success"

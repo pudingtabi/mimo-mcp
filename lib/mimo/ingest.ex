@@ -29,20 +29,22 @@ defmodule Mimo.Ingest do
   alias Mimo.Brain.Memory
 
   # Configuration
-  @max_file_size 10_485_760  # 10MB
+  # 10MB
+  @max_file_size 10_485_760
   @max_chunks 1000
-  @min_chunk_size 10  # Minimum characters per chunk
+  # Minimum characters per chunk
+  @min_chunk_size 10
 
   @type strategy :: :auto | :paragraphs | :markdown | :lines | :sentences | :whole
   @type ingest_opts :: [
-    strategy: strategy(),
-    category: String.t(),
-    importance: float(),
-    tags: [String.t()],
-    chunk_size: pos_integer(),
-    overlap: non_neg_integer(),
-    metadata: map()
-  ]
+          strategy: strategy(),
+          category: String.t(),
+          importance: float(),
+          tags: [String.t()],
+          chunk_size: pos_integer(),
+          overlap: non_neg_integer(),
+          metadata: map()
+        ]
 
   @doc """
   Ingest a file into Mimo's memory system.
@@ -88,13 +90,14 @@ defmodule Mimo.Ingest do
         %{path: path, strategy: actual_strategy}
       )
 
-      {:ok, %{
-        chunks_created: length(ids),
-        file_size: byte_size(content),
-        strategy_used: actual_strategy,
-        ids: ids,
-        source_file: path
-      }}
+      {:ok,
+       %{
+         chunks_created: length(ids),
+         file_size: byte_size(content),
+         strategy_used: actual_strategy,
+         ids: ids,
+         source_file: path
+       }}
     end
   end
 
@@ -115,12 +118,13 @@ defmodule Mimo.Ingest do
     with :ok <- validate_content_size(content),
          {:ok, chunks} <- chunk_content(content, strategy, opts),
          {:ok, ids} <- store_chunks(chunks, category, importance, tags, source, metadata) do
-      {:ok, %{
-        chunks_created: length(ids),
-        content_size: byte_size(content),
-        strategy_used: strategy,
-        ids: ids
-      }}
+      {:ok,
+       %{
+         chunks_created: length(ids),
+         content_size: byte_size(content),
+         strategy_used: strategy,
+         ids: ids
+       }}
     end
   end
 
@@ -281,15 +285,16 @@ defmodule Mimo.Ingest do
       chunks
       |> Enum.with_index()
       |> Enum.map(fn {chunk, index} ->
-        chunk_metadata = Map.merge(metadata, %{
-          "source_file" => source,
-          "chunk_index" => index,
-          "total_chunks" => total_chunks,
-          "tags" => tags
-        })
+        chunk_metadata =
+          Map.merge(metadata, %{
+            "source_file" => source,
+            "chunk_index" => index,
+            "total_chunks" => total_chunks,
+            "tags" => tags
+          })
 
         # Build content with source context
-        content_with_context = 
+        content_with_context =
           if total_chunks > 1 do
             "[From: #{Path.basename(to_string(source))} (#{index + 1}/#{total_chunks})]\n#{chunk}"
           else
@@ -300,6 +305,7 @@ defmodule Mimo.Ingest do
           {:ok, engram} ->
             engram_id = if is_map(engram), do: engram.id, else: engram
             {:ok, engram_id}
+
           {:error, reason} ->
             {:error, reason}
         end

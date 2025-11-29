@@ -167,7 +167,8 @@ defmodule Mimo.Skills.Network do
       redirect: true,
       max_redirects: 5,
       headers: [
-        {"user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
+        {"user-agent",
+         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
         {"accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
         {"accept-language", "en-US,en;q=0.5"}
       ]
@@ -209,10 +210,10 @@ defmodule Mimo.Skills.Network do
       [link | _] ->
         title = Floki.text(link) |> String.trim()
         href = Floki.attribute(link, "href") |> List.first() || ""
-        
+
         # DDG wraps URLs - extract actual URL from redirect
         url = extract_ddg_url(href)
-        
+
         # Get snippet from result__snippet
         snippet =
           case Floki.find(result_el, ".result__snippet") do
@@ -474,8 +475,8 @@ defmodule Mimo.Skills.Network do
   defp extract_title(doc) do
     # Try og:title first, then <title>, then h1
     extract_meta(doc, "og:title") ||
-      (doc |> Floki.find("title") |> Floki.text() |> String.trim()) ||
-      (doc |> Floki.find("h1") |> List.first() |> Floki.text() |> String.trim()) ||
+      doc |> Floki.find("title") |> Floki.text() |> String.trim() ||
+      doc |> Floki.find("h1") |> List.first() |> Floki.text() |> String.trim() ||
       ""
   end
 
@@ -498,7 +499,7 @@ defmodule Mimo.Skills.Network do
     extract_meta(doc, "article:published_time") ||
       extract_meta(doc, "date") ||
       extract_meta(doc, "pubdate") ||
-      (doc |> Floki.find("time[datetime]") |> List.first() |> extract_datetime()) ||
+      doc |> Floki.find("time[datetime]") |> List.first() |> extract_datetime() ||
       nil
   end
 

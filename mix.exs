@@ -58,6 +58,8 @@ defmodule Mimo.MixProject do
       # --- Goldilocks Stack: Production-hardened dependencies ---
       # HTTP client (replaces HTTPoison)
       {:req, "~> 0.5.0"},
+      # Brotli decompression (enables Req brotli support)
+      {:brotli, "~> 0.3.1"},
       # HTML parser for LLM-optimized markdown
       {:floki, "~> 0.36.0"},
       # Non-blocking, zombie-free process manager

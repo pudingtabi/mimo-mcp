@@ -239,7 +239,8 @@ defmodule Mimo.Tools do
             type: "string",
             description:
               "What to analyze. Examples: 'Describe this image', 'Read all text', 'Analyze the UI layout', 'What colors are used?'",
-            default: "Describe this image in detail, including any text, UI elements, or notable features."
+            default:
+              "Describe this image in detail, including any text, UI elements, or notable features."
           },
           max_tokens: %{
             type: "integer",
@@ -552,11 +553,17 @@ defmodule Mimo.Tools do
   defp dispatch_search(args) do
     query = args["query"] || ""
     op = args["operation"] || "web"
-    
+
     # Build options
     opts = []
-    opts = if args["num_results"], do: Keyword.put(opts, :num_results, args["num_results"]), else: opts
-    opts = if args["backend"], do: Keyword.put(opts, :backend, String.to_atom(args["backend"])), else: opts
+
+    opts =
+      if args["num_results"], do: Keyword.put(opts, :num_results, args["num_results"]), else: opts
+
+    opts =
+      if args["backend"],
+        do: Keyword.put(opts, :backend, String.to_atom(args["backend"])),
+        else: opts
 
     case op do
       "web" -> Mimo.Skills.Network.web_search(query, opts)
@@ -664,7 +671,8 @@ defmodule Mimo.Tools do
             {:ok, %{analysis: analysis, model: "nvidia/nemotron-nano-12b-v2-vl:free"}}
 
           {:error, :no_api_key} ->
-            {:error, "No OpenRouter API key configured. Set OPENROUTER_API_KEY environment variable."}
+            {:error,
+             "No OpenRouter API key configured. Set OPENROUTER_API_KEY environment variable."}
 
           {:error, reason} ->
             {:error, "Vision analysis failed: #{inspect(reason)}"}

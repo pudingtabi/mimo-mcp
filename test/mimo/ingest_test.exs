@@ -119,10 +119,11 @@ defmodule Mimo.IngestTest do
       path = Path.join(@test_dir, "opts_test.txt")
       File.write!(path, content)
 
-      {:ok, result} = Ingest.ingest_file(path,
-        category: "observation",
-        importance: 0.9
-      )
+      {:ok, result} =
+        Ingest.ingest_file(path,
+          category: "observation",
+          importance: 0.9
+        )
 
       assert result.chunks_created == 2
 
@@ -137,9 +138,10 @@ defmodule Mimo.IngestTest do
       path = Path.join(@test_dir, "tagged.txt")
       File.write!(path, content)
 
-      {:ok, result} = Ingest.ingest_file(path,
-        tags: ["test", "ingestion"]
-      )
+      {:ok, result} =
+        Ingest.ingest_file(path,
+          tags: ["test", "ingestion"]
+        )
 
       engram = Repo.get(Engram, hd(result.ids))
       assert engram.metadata["tags"] == ["test", "ingestion"]
@@ -208,10 +210,11 @@ defmodule Mimo.IngestTest do
     test "applies options to direct text" do
       content = "Direct text content."
 
-      {:ok, result} = Ingest.ingest_text(content,
-        category: "plan",
-        importance: 0.8
-      )
+      {:ok, result} =
+        Ingest.ingest_text(content,
+          category: "plan",
+          importance: 0.8
+        )
 
       engram = Repo.get(Engram, hd(result.ids))
       assert engram.category == "plan"
