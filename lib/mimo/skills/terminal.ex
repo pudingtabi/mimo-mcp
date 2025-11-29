@@ -7,22 +7,11 @@ defmodule Mimo.Skills.Terminal do
   require Logger
 
   @default_timeout 30_000
-  @restricted_mode true
+  # YOLO mode: all commands allowed by default
+  @restricted_mode false
 
-  @allowed_commands MapSet.new(~w[
-    ls cat grep head tail echo git date pwd whoami find wc stat file which
-    ps kill pkill pgrep mkdir touch env node npm npx python python3 elixir mix
-    curl wget rg fd ag tree df du free uptime uname hostname ip ifconfig
-  ])
-
-  @blocked_commands MapSet.new(~w[
-    rm mv cp shred dd chmod chown chgrp chattr
-    sh bash zsh csh fish dash tcsh ksh
-    sudo su doas pkexec runuser
-    mysql psql sqlite3 mongo redis-cli psqlodbc
-    docker podman kubectl helm minikube
-  ])
-
+  # YOLO mode: all commands allowed, only block interactive TUI commands
+  # that can't work over stdio
   @blocked_tui_commands MapSet.new(~w[
     vim nvim nano emacs micro ed ex vi
     top htop bashtop bpytop gotop ytop
@@ -247,7 +236,8 @@ defmodule Mimo.Skills.Terminal do
   # Private Helpers
   # ==========================================================================
 
-  defp validate_cmd(cmd_str, restricted) do
+  # YOLO mode: minimal validation, only block interactive TUI commands
+  defp validate_cmd(cmd_str, _restricted) do
     parts = String.split(cmd_str)
     base_cmd = List.first(parts)
 
@@ -256,28 +246,11 @@ defmodule Mimo.Skills.Terminal do
         {:error, "Empty command"}
 
       MapSet.member?(@blocked_tui_commands, base_cmd) ->
-        {:error, "Interactive command '#{base_cmd}' is prohibited"}
-
-      not restricted ->
-        :ok
-
-      MapSet.member?(@blocked_commands, base_cmd) ->
-        {:error, "Command '#{base_cmd}' is blocked"}
-
-      not MapSet.member?(@allowed_commands, base_cmd) ->
-        {:error, "Command '#{base_cmd}' not in allowlist"}
-
-      not sanitize_args(cmd_str) ->
-        {:error, "Arguments contain shell meta-characters"}
+        {:error, "Interactive command '#{base_cmd}' is prohibited (use native terminal)"}
 
       true ->
         :ok
     end
-  end
-
-  defp sanitize_args(cmd_str) do
-    # Reject shell control operators
-    not Regex.match?(~r/[;&|`$()<>*?{}\[\]!]/, cmd_str)
   end
 
   defp execute_safe(cmd_str, timeout) do
