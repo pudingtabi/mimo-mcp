@@ -1,7 +1,8 @@
 defmodule Mimo.Skills.Sonar do
   @moduledoc """
-  UI accessibility scanner for LLMs.
+  UI accessibility scanner for LLMs with optional vision analysis.
   Supports Linux (xdotool/wmctrl/atspi) and macOS (AppleScript).
+  Can take screenshots for AI vision analysis.
   """
   require Logger
 
@@ -12,6 +13,103 @@ defmodule Mimo.Skills.Sonar do
       :linux -> scan_linux()
       :headless -> scan_headless()
       _ -> {:error, :unsupported_platform}
+    end
+  end
+
+  @doc """
+  Takes a screenshot and returns it as base64-encoded PNG.
+  Used for vision analysis of UI.
+  """
+  def take_screenshot do
+    case detect_environment() do
+      :wsl -> {:error, :wsl_not_supported}
+      :macos -> screenshot_macos()
+      :linux -> screenshot_linux()
+      :headless -> {:error, :no_display}
+      _ -> {:error, :unsupported_platform}
+    end
+  end
+
+  defp screenshot_macos do
+    # Use screencapture on macOS
+    tmp_file = "/tmp/mimo_screenshot_#{System.unique_integer([:positive])}.png"
+
+    try do
+      case System.cmd("screencapture", ["-x", "-t", "png", tmp_file], stderr_to_stdout: true) do
+        {_, 0} ->
+          case File.read(tmp_file) do
+            {:ok, data} ->
+              File.rm(tmp_file)
+              {:ok, Base.encode64(data)}
+
+            {:error, reason} ->
+              File.rm(tmp_file)
+              {:error, {:file_read_failed, reason}}
+          end
+
+        {output, code} ->
+          {:error, {:screencapture_failed, code, output}}
+      end
+    rescue
+      e ->
+        File.rm(tmp_file)
+        {:error, {:screenshot_failed, Exception.message(e)}}
+    end
+  end
+
+  defp screenshot_linux do
+    tmp_file = "/tmp/mimo_screenshot_#{System.unique_integer([:positive])}.png"
+
+    # Try different screenshot tools in order of preference
+    screenshot_cmd =
+      cond do
+        System.find_executable("gnome-screenshot") ->
+          {"gnome-screenshot", ["-f", tmp_file]}
+
+        System.find_executable("scrot") ->
+          {"scrot", [tmp_file]}
+
+        System.find_executable("import") ->
+          # ImageMagick
+          {"import", ["-window", "root", tmp_file]}
+
+        System.find_executable("maim") ->
+          {"maim", [tmp_file]}
+
+        true ->
+          nil
+      end
+
+    case screenshot_cmd do
+      nil ->
+        {:error, :no_screenshot_tool}
+
+      {cmd, args} ->
+        try do
+          case System.cmd(cmd, args, stderr_to_stdout: true) do
+            {_, 0} ->
+              # Give it a moment to write
+              Process.sleep(100)
+
+              case File.read(tmp_file) do
+                {:ok, data} ->
+                  File.rm(tmp_file)
+                  {:ok, Base.encode64(data)}
+
+                {:error, reason} ->
+                  File.rm(tmp_file)
+                  {:error, {:file_read_failed, reason}}
+              end
+
+            {output, code} ->
+              File.rm(tmp_file)
+              {:error, {:screenshot_failed, code, output}}
+          end
+        rescue
+          e ->
+            File.rm(tmp_file)
+            {:error, {:screenshot_failed, Exception.message(e)}}
+        end
     end
   end
 

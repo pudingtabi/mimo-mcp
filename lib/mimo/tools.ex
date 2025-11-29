@@ -218,12 +218,29 @@ defmodule Mimo.Tools do
       }
     },
     # ==========================================================================
-    # SONAR - UI accessibility scanner
+    # SONAR - UI accessibility scanner with vision
     # ==========================================================================
     %{
       name: "sonar",
-      description: "UI Accessibility Scanner",
-      input_schema: %{type: "object", properties: %{}}
+      description:
+        "UI Accessibility Scanner with optional vision analysis. Scans UI elements via accessibility APIs (Linux/macOS) and can take screenshots for AI vision analysis using NVIDIA Nemotron.",
+      input_schema: %{
+        type: "object",
+        properties: %{
+          vision: %{
+            type: "boolean",
+            description:
+              "If true, takes a screenshot and analyzes it with NVIDIA vision model for UI/accessibility insights",
+            default: false
+          },
+          prompt: %{
+            type: "string",
+            description: "Custom prompt for vision analysis (only used when vision=true)",
+            default:
+              "Analyze this UI screenshot for accessibility issues, layout problems, text readability, color contrast, and interactive elements. List any potential usability concerns."
+          }
+        }
+      }
     },
     # ==========================================================================
     # VISION - Image analysis with multimodal LLM
@@ -422,7 +439,7 @@ defmodule Mimo.Tools do
         dispatch_web_extract(arguments)
 
       "sonar" ->
-        Mimo.Skills.Sonar.scan_ui()
+        dispatch_sonar(arguments)
 
       "vision" ->
         dispatch_vision(arguments)
@@ -771,6 +788,64 @@ defmodule Mimo.Tools do
 
       true ->
         {:error, "Text or subject+predicate+object required"}
+    end
+  end
+
+  # ==========================================================================
+  # SONAR DISPATCHER - UI accessibility scanner with vision
+  # ==========================================================================
+
+  defp dispatch_sonar(args) do
+    use_vision = args["vision"] || false
+
+    prompt =
+      args["prompt"] ||
+        "Analyze this UI screenshot for accessibility issues, layout problems, text readability, color contrast, and interactive elements. List any potential usability concerns."
+
+    # First, get basic accessibility scan
+    basic_scan =
+      case Mimo.Skills.Sonar.scan_ui() do
+        {:ok, scan_result} -> scan_result
+        {:error, reason} -> "Accessibility scan unavailable: #{inspect(reason)}"
+      end
+
+    if use_vision do
+      # Take screenshot and analyze with vision
+      case Mimo.Skills.Sonar.take_screenshot() do
+        {:ok, screenshot_base64} ->
+          case Mimo.Brain.LLM.analyze_image(screenshot_base64, prompt, max_tokens: 1500) do
+            {:ok, vision_analysis} ->
+              {:ok,
+               %{
+                 accessibility_scan: basic_scan,
+                 vision_analysis: vision_analysis,
+                 model: "nvidia/nemotron-nano-12b-v2-vl:free"
+               }}
+
+            {:error, :no_api_key} ->
+              {:ok,
+               %{
+                 accessibility_scan: basic_scan,
+                 vision_analysis: "Vision unavailable: No OPENROUTER_API_KEY configured"
+               }}
+
+            {:error, reason} ->
+              {:ok,
+               %{
+                 accessibility_scan: basic_scan,
+                 vision_analysis: "Vision analysis failed: #{inspect(reason)}"
+               }}
+          end
+
+        {:error, reason} ->
+          {:ok,
+           %{
+             accessibility_scan: basic_scan,
+             vision_analysis: "Screenshot unavailable: #{inspect(reason)}"
+           }}
+      end
+    else
+      {:ok, %{accessibility_scan: basic_scan}}
     end
   end
 
