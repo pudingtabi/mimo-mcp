@@ -59,3 +59,17 @@ priv/skills_manifest.json
 *.pem
 *.key
 secrets/
+credentials/
+
+# Benchmark results (may contain environment-specific data)
+bench/results/
+
+# Crash dumps
+erl_crash.dump
+*.dump
+
+# Local config overrides
+config/local.exs
+
+# Native build artifacts
+native/*/target/

@@ -103,7 +103,7 @@ defmodule Mimo.Tools do
           timeout: %{type: "integer", description: "Timeout in ms"},
           yolo: %{
             type: "boolean",
-            description: "YOLO mode: bypass ALL safety checks (default false)"
+            description: "YOLO mode: skip confirmation prompts (default false)"
           },
           confirm: %{type: "boolean", description: "Confirm destructive commands (rm, kill, etc.)"}
         },
@@ -272,6 +272,50 @@ defmodule Mimo.Tools do
         },
         required: ["query"]
       }
+    },
+    # ==========================================================================
+    # BLINK - Enhanced web retrieval with browser profiles
+    # ==========================================================================
+    %{
+      name: "blink",
+      description:
+        "Enhanced web fetch with realistic browser profiles. Handles sites that require specific client configurations. Use when standard fetch returns unexpected responses. Operations: fetch (default), analyze, smart.",
+      input_schema: %{
+        type: "object",
+        properties: %{
+          url: %{type: "string", description: "URL to fetch"},
+          operation: %{
+            type: "string",
+            enum: ["fetch", "analyze", "smart"],
+            default: "fetch",
+            description:
+              "fetch: direct request, analyze: examine response characteristics, smart: adaptive approach"
+          },
+          browser: %{
+            type: "string",
+            enum: ["chrome", "firefox", "safari", "random"],
+            default: "chrome",
+            description: "Browser profile to use"
+          },
+          layer: %{
+            type: "integer",
+            default: 1,
+            description: "Configuration layer (0: basic, 1: enhanced, 2: advanced)"
+          },
+          max_retries: %{
+            type: "integer",
+            default: 3,
+            description: "Max retry attempts with progressive configuration"
+          },
+          format: %{
+            type: "string",
+            enum: ["raw", "text", "markdown"],
+            default: "raw",
+            description: "Output format"
+          }
+        },
+        required: ["url"]
+      }
     }
   ]
 
@@ -309,6 +353,9 @@ defmodule Mimo.Tools do
 
       "knowledge" ->
         dispatch_knowledge(arguments)
+
+      "blink" ->
+        dispatch_blink(arguments)
 
       # Legacy aliases for backward compatibility
       "http_request" ->
@@ -729,6 +776,112 @@ defmodule Mimo.Tools do
           {:error, reason} ->
             {:error, "Failed to fetch URL: #{reason}"}
         end
+    end
+  end
+
+  # ==========================================================================
+  # BLINK DISPATCHER - Enhanced web retrieval with browser profiles
+  # ==========================================================================
+
+  defp dispatch_blink(args) do
+    url = args["url"]
+    op = args["operation"] || "fetch"
+    browser_input = args["browser"] || "chrome"
+    # Map user-friendly names to actual profile names
+    browser =
+      case browser_input do
+        "chrome" -> :chrome_136
+        "firefox" -> :firefox_135
+        "safari" -> :safari_18
+        "random" -> Enum.random([:chrome_136, :firefox_135, :safari_18])
+        other when is_atom(other) -> other
+        other -> String.to_atom(other)
+      end
+
+    layer = args["layer"] || 1
+    max_retries = args["max_retries"] || 3
+    format = args["format"] || "raw"
+
+    cond do
+      is_nil(url) or url == "" ->
+        {:error, "URL is required"}
+
+      true ->
+        case op do
+          "fetch" ->
+            case Mimo.Skills.Blink.fetch(url, browser: browser, layer: layer) do
+              {:ok, response} ->
+                body = format_blink_response(response.body, format)
+
+                {:ok,
+                 %{
+                   status: response.status,
+                   body: body,
+                   body_size: byte_size(response.body),
+                   headers: Map.new(response.headers),
+                   browser: browser,
+                   layer: layer
+                 }}
+
+              {:error, reason} ->
+                {:error, "Blink fetch failed: #{inspect(reason)}"}
+            end
+
+          "analyze" ->
+            case Mimo.Skills.Blink.analyze_protection(url) do
+              {:ok, analysis} ->
+                {:ok, analysis}
+
+              {:error, reason} ->
+                {:error, "Protection analysis failed: #{inspect(reason)}"}
+            end
+
+          "smart" ->
+            case Mimo.Skills.Blink.smart_fetch(url, max_retries, browser: browser) do
+              {:ok, response} ->
+                body = format_blink_response(response.body, format)
+
+                {:ok,
+                 %{
+                   status: response.status,
+                   body: body,
+                   body_size: byte_size(response.body),
+                   headers: Map.new(response.headers),
+                   browser: browser,
+                   mode: "smart"
+                 }}
+
+              {:error, reason} ->
+                {:error, "Smart fetch failed: #{inspect(reason)}"}
+            end
+
+          _ ->
+            {:error, "Unknown blink operation: #{op}"}
+        end
+    end
+  end
+
+  defp format_blink_response(body, format) do
+    case format do
+      "text" ->
+        # Strip HTML tags for plain text
+        body
+        |> String.replace(~r/<script[^>]*>.*?<\/script>/is, "")
+        |> String.replace(~r/<style[^>]*>.*?<\/style>/is, "")
+        |> String.replace(~r/<[^>]+>/, " ")
+        |> String.replace(~r/\s+/, " ")
+        |> String.trim()
+
+      "markdown" ->
+        # Convert to markdown using existing web_parse
+        case Mimo.Skills.Web.parse(body) do
+          {:ok, md} -> md
+          _ -> body
+        end
+
+      _ ->
+        # raw - return as-is
+        body
     end
   end
 end

@@ -373,6 +373,7 @@ defmodule Mimo.ToolRegistry do
   defp classify_tool("knowledge"), do: {:mimo_core, :knowledge}
   defp classify_tool("vision"), do: {:mimo_core, :vision}
   defp classify_tool("web_extract"), do: {:mimo_core, :web_extract}
+  defp classify_tool("blink"), do: {:mimo_core, :blink}
 
   # Legacy tool names (keep for backward compatibility)
   defp classify_tool("http_request"), do: {:mimo_core, :fetch}

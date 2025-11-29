@@ -76,7 +76,7 @@ defmodule Mimo.Skills.Terminal do
     yolo = Keyword.get(opts, :yolo, false)
     confirmed = Keyword.get(opts, :confirm, false) || yolo
 
-    # YOLO mode: bypass ALL safety checks (including TUI block)
+    # YOLO mode: skip confirmation prompts for advanced users
     if yolo do
       execute_safe(cmd_str, timeout)
     else

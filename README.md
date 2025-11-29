@@ -563,7 +563,7 @@ Our goal is to evolve Mimo from a simple gateway into a complete **Memory Operat
 | Component | Simple Pitch | Complex Architecture | Status |
 |-----------|--------------|---------------------|--------|
 | **Semantic Store** | Vector memory is fuzzy—it knows 'King' and 'Queen' are similar. The Semantic Store is precise—it knows 'King' *is married to* 'Queen'. It's the difference between a vibe and a fact. | Lightweight Knowledge Graph using SQLite Recursive CTEs as a Triple Store (Subject → Predicate → Object). Enables multi-hop reasoning with forward/backward chaining inference. | ✅ Production Ready |
-| **Procedural Store** | LLMs are creative, but sometimes you need them to follow a checklist exactly. This gives Mimo 'muscle memory'—stored recipes for tasks that need to happen the same way every time. | Deterministic Finite Automata (DFA) engine using `gen_statem`. Bypasses LLM generation for rigid state machine pipelines with automatic retries and rollback support. | ✅ Production Ready |
+| **Procedural Store** | LLMs are creative, but sometimes you need them to follow a checklist exactly. This gives Mimo 'muscle memory'—stored recipes for tasks that need to happen the same way every time. | Deterministic Finite Automata (DFA) engine using `gen_statem`. Executes rigid state machine pipelines with automatic retries and rollback support. | ✅ Production Ready |
 
 ### Phase 3: The Nervous System ✅
 *Speed and Connectivity*
@@ -699,7 +699,7 @@ config :mimo_mcp, :feature_flags,
 | Flag | When Enabled | When Disabled |
 |------|--------------|---------------|
 | `rust_nifs` | Uses SIMD-accelerated Rust for vector math | Falls back to pure Elixir implementation |
-| `semantic_store` | Semantic query routing available, triple store active | Queries bypass semantic layer |
+| `semantic_store` | Semantic query routing available, triple store active | Queries use direct path |
 | `procedural_store` | Procedure tools available via `ToolInterface` | Procedure-related tool calls return `{:error, :feature_disabled}` |
 | `websocket_synapse` | WebSocket channels active for real-time communication | WebSocket connections rejected |
 
@@ -714,7 +714,7 @@ config :mimo_mcp,
 ```
 
 This affects:
-- **Authentication bypass**: Disabled in production
+- **Authentication mode**: Development-only relaxed auth in dev environment
 - **Rate limiting**: Stricter in production
 - **Logging verbosity**: Reduced in production
 

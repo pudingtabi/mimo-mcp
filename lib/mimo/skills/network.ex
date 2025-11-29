@@ -6,12 +6,12 @@ defmodule Mimo.Skills.Network do
   Provides multiple output formats: raw, text, JSON, HTML, Markdown.
   Web search via multi-backend scraping (DuckDuckGo, Bing, Brave) - no API key required.
   AI-powered content extraction for clean text from messy HTML.
-  
-  ## Blink Integration
-  
-  For protected sites (Cloudflare, Akamai, etc.), this module integrates with
-  `Mimo.Skills.Blink` to automatically handle browser fingerprinting and
-  challenge bypass. Enable with `use_blink: true` option.
+
+  ## Browser Profile Integration
+
+  For sites that require specific client configurations, this module integrates
+  with `Mimo.Skills.Blink` to provide realistic browser profiles and adaptive
+  request handling. Enable with `use_blink: true` option.
   """
 
   alias Mimo.Skills.Blink
@@ -20,7 +20,7 @@ defmodule Mimo.Skills.Network do
   @search_timeout 15_000
   @default_headers [{"accept", "application/json, text/html, */*"}]
 
-  # User-Agent rotation for better bot evasion
+  # User-Agent rotation for varied client representation
   @user_agents [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
@@ -37,26 +37,26 @@ defmodule Mimo.Skills.Network do
 
   @doc """
   Fetch a URL with options.
-  
+
   ## Options
-  
+
   - `:timeout` - Request timeout in ms (default: 10000)
   - `:method` - HTTP method (default: :get)
   - `:headers` - Additional headers
   - `:json` - JSON body for POST requests
   - `:user_agent` - Custom User-Agent
-  - `:use_blink` - Use Blink for browser fingerprinting (default: false)
-  - `:auto_blink` - Auto-fallback to Blink on challenge detection (default: false)
+  - `:use_blink` - Use Blink for browser profiles (default: false)
+  - `:auto_blink` - Auto-fallback to Blink on unexpected responses (default: false)
   """
   def fetch(url, opts \\ []) when is_binary(url) do
     use_blink = Keyword.get(opts, :use_blink, false)
     auto_blink = Keyword.get(opts, :auto_blink, false)
-    
+
     if use_blink do
       fetch_with_blink(url, opts)
     else
       result = fetch_standard(url, opts)
-      
+
       # Auto-fallback to Blink if we detect a challenge
       if auto_blink and is_challenge_response?(result) do
         fetch_with_blink(url, opts)
@@ -65,7 +65,7 @@ defmodule Mimo.Skills.Network do
       end
     end
   end
-  
+
   defp fetch_standard(url, opts) do
     merged_opts =
       Keyword.merge(
@@ -105,28 +105,29 @@ defmodule Mimo.Skills.Network do
 
   defp fetch_with_blink(url, opts) do
     browser = Keyword.get(opts, :browser, :chrome_136)
-    
+
     case Blink.fetch(url, browser: browser) do
       {:ok, response} ->
-        {:ok, %{
-          status: response.status,
-          body: response.body,
-          headers: response.headers,
-          method: :blink,
-          layer: response.layer_used
-        }}
-      
+        {:ok,
+         %{
+           status: response.status,
+           body: response.body,
+           headers: response.headers,
+           method: :blink,
+           layer: response.layer_used
+         }}
+
       {:challenge, info} ->
         {:error, "Challenge detected: #{info.type} (layer #{info.layer})"}
-      
+
       {:blocked, info} ->
         {:error, "Blocked: #{info.reason}"}
-      
+
       {:error, reason} ->
         {:error, "Blink fetch failed: #{inspect(reason)}"}
     end
   end
-  
+
   defp is_challenge_response?({:ok, %{body: body, status: status}}) when is_binary(body) do
     challenge_patterns = [
       "just a moment",
@@ -135,14 +136,14 @@ defmodule Mimo.Skills.Network do
       "please wait",
       "verify you are human"
     ]
-    
+
     cond do
       status in [403, 429, 503, 520, 521, 522, 523, 524] -> true
       Enum.any?(challenge_patterns, &String.contains?(String.downcase(body), &1)) -> true
       true -> false
     end
   end
-  
+
   defp is_challenge_response?(_), do: false
 
   # ==========================================================================

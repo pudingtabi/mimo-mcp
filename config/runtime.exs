@@ -40,7 +40,7 @@ config :mimo_mcp, MimoWeb.Endpoint,
   url: [host: System.get_env("MIMO_HOST") || "localhost", port: http_port],
   secret_key_base:
     System.get_env("MIMO_SECRET_KEY_BASE") ||
-      "mimo_dev_secret_key_base_32_chars_min_for_security_please_change_in_production",
+      Base.encode64(:crypto.strong_rand_bytes(48)),
   server: true,
   render_errors: [formats: [json: MimoWeb.ErrorJSON]]
 

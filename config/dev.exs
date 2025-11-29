@@ -20,7 +20,8 @@ config :mimo_mcp, MimoWeb.Endpoint,
   check_origin: false,
   code_reloader: false,
   debug_errors: true,
-  secret_key_base: "mimo_dev_secret_key_base_32_chars_min_for_security_please_change_in_production",
+  secret_key_base:
+    System.get_env("MIMO_SECRET_KEY_BASE") || Base.encode64(:crypto.strong_rand_bytes(32)),
   server: true
 
 # No API key required in development

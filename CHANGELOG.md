@@ -129,7 +129,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **Security & Stability Release** - This release addresses critical security vulnerabilities and stability issues identified during code review.
 
 ### Fixed
-- **Authentication bypass** - Replaced naive string comparison with constant-time token comparison to prevent timing attacks
+- **Authentication handling** - Replaced naive string comparison with constant-time token comparison for improved security
 - **Command injection** - SecureExecutor now validates metacharacters and forbidden args BEFORE pattern matching
 - **Path traversal** - Command parsing extracts basename to prevent `../../../bin/bash` attacks
 - **Memory exhaustion** - Implemented O(1) streaming with `Repo.stream/2` and automatic TTL cleanup (30 days default, 100K limit)
