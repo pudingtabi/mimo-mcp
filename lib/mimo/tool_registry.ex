@@ -37,7 +37,15 @@ defmodule Mimo.ToolRegistry do
     "ask_mimo",
     "search_vibes",
     "store_fact",
-    "mimo_reload_skills"
+    "mimo_reload_skills",
+    # SPEC-011.1: Procedural Store Tools
+    "run_procedure",
+    "procedure_status",
+    "list_procedures",
+    # SPEC-011.2: Unified Memory Tool
+    "memory",
+    # SPEC-011.3: File Ingestion
+    "ingest"
   ]
 
   # ==========================================================================
@@ -343,7 +351,18 @@ defmodule Mimo.ToolRegistry do
   defp classify_tool("store_fact"), do: {:internal, :store_fact}
   defp classify_tool("mimo_reload_skills"), do: {:internal, :reload}
 
-  # Mimo.Tools core capabilities (consolidated 8 tools)
+  # SPEC-011.1: Procedural Store Tools
+  defp classify_tool("run_procedure"), do: {:internal, :run_procedure}
+  defp classify_tool("procedure_status"), do: {:internal, :procedure_status}
+  defp classify_tool("list_procedures"), do: {:internal, :list_procedures}
+
+  # SPEC-011.2: Unified Memory Tool
+  defp classify_tool("memory"), do: {:internal, :memory}
+
+  # SPEC-011.3: File Ingestion
+  defp classify_tool("ingest"), do: {:internal, :ingest}
+
+  # Mimo.Tools core capabilities (consolidated 9 tools)
   defp classify_tool("file"), do: {:mimo_core, :file}
   defp classify_tool("terminal"), do: {:mimo_core, :terminal}
   defp classify_tool("fetch"), do: {:mimo_core, :fetch}
@@ -352,6 +371,8 @@ defmodule Mimo.ToolRegistry do
   defp classify_tool("search"), do: {:mimo_core, :search}
   defp classify_tool("sonar"), do: {:mimo_core, :sonar}
   defp classify_tool("knowledge"), do: {:mimo_core, :knowledge}
+  defp classify_tool("vision"), do: {:mimo_core, :vision}
+  defp classify_tool("web_extract"), do: {:mimo_core, :web_extract}
 
   # Legacy tool names (keep for backward compatibility)
   defp classify_tool("http_request"), do: {:mimo_core, :fetch}
@@ -429,7 +450,7 @@ defmodule Mimo.ToolRegistry do
       %{
         "name" => "search_vibes",
         "description" =>
-          "Vector similarity search in Mimo's episodic memory. Find memories semantically related to a query.",
+          "[Deprecated: use memory operation=search] Vector similarity search in Mimo's episodic memory.",
         "inputSchema" => %{
           "type" => "object",
           "properties" => %{
@@ -453,7 +474,7 @@ defmodule Mimo.ToolRegistry do
       },
       %{
         "name" => "store_fact",
-        "description" => "Store a fact or observation in Mimo's memory with semantic embedding.",
+        "description" => "[Deprecated: use memory operation=store] Store a fact in Mimo's memory.",
         "inputSchema" => %{
           "type" => "object",
           "properties" => %{
@@ -478,6 +499,185 @@ defmodule Mimo.ToolRegistry do
         "name" => "mimo_reload_skills",
         "description" => "Hot-reload all skills from skills.json without restart",
         "inputSchema" => %{"type" => "object", "properties" => %{}}
+      },
+      # ========================================================================
+      # SPEC-011.1: Procedural Store Tools
+      # ========================================================================
+      %{
+        "name" => "run_procedure",
+        "description" =>
+          "Execute a registered procedure as a state machine. Procedures run deterministically without LLM involvement.",
+        "inputSchema" => %{
+          "type" => "object",
+          "properties" => %{
+            "name" => %{
+              "type" => "string",
+              "description" => "Procedure name"
+            },
+            "version" => %{
+              "type" => "string",
+              "default" => "latest",
+              "description" => "Procedure version (or 'latest')"
+            },
+            "context" => %{
+              "type" => "object",
+              "default" => %{},
+              "description" => "Initial execution context"
+            },
+            "async" => %{
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Return immediately with execution_id instead of waiting"
+            },
+            "timeout" => %{
+              "type" => "integer",
+              "default" => 60000,
+              "description" => "Timeout in milliseconds (sync mode only)"
+            }
+          },
+          "required" => ["name"]
+        }
+      },
+      %{
+        "name" => "procedure_status",
+        "description" => "Check status of a procedure execution (especially for async executions).",
+        "inputSchema" => %{
+          "type" => "object",
+          "properties" => %{
+            "execution_id" => %{
+              "type" => "string",
+              "description" => "Execution ID returned from run_procedure"
+            }
+          },
+          "required" => ["execution_id"]
+        }
+      },
+      %{
+        "name" => "list_procedures",
+        "description" => "List all registered procedures available for execution.",
+        "inputSchema" => %{
+          "type" => "object",
+          "properties" => %{}
+        }
+      },
+      # ========================================================================
+      # SPEC-011.2: Unified Memory Tool
+      # ========================================================================
+      %{
+        "name" => "memory",
+        "description" =>
+          "Unified memory operations: store, search, list, delete, stats, decay_check. Replaces store_fact and search_vibes.",
+        "inputSchema" => %{
+          "type" => "object",
+          "properties" => %{
+            "operation" => %{
+              "type" => "string",
+              "enum" => ["store", "search", "list", "delete", "stats", "decay_check"],
+              "description" => "Memory operation to perform"
+            },
+            # Store operation
+            "content" => %{
+              "type" => "string",
+              "description" => "For store: content to store"
+            },
+            "category" => %{
+              "type" => "string",
+              "enum" => ["fact", "action", "observation", "plan"],
+              "description" => "For store/search/list: memory category"
+            },
+            "importance" => %{
+              "type" => "number",
+              "minimum" => 0,
+              "maximum" => 1,
+              "default" => 0.5,
+              "description" => "For store: importance score (0-1)"
+            },
+            # Search operation
+            "query" => %{
+              "type" => "string",
+              "description" => "For search: semantic search query"
+            },
+            "threshold" => %{
+              "type" => "number",
+              "default" => 0.3,
+              "description" => "For search/decay_check: minimum threshold"
+            },
+            "time_filter" => %{
+              "type" => "string",
+              "description" =>
+                "For search: natural language time filter (e.g., 'yesterday', 'last week', '3 days ago')"
+            },
+            # List operation
+            "limit" => %{
+              "type" => "integer",
+              "default" => 20,
+              "description" => "For search/list/decay_check: max results"
+            },
+            "offset" => %{
+              "type" => "integer",
+              "default" => 0,
+              "description" => "For list: pagination offset"
+            },
+            "sort" => %{
+              "type" => "string",
+              "enum" => ["recent", "importance", "decay_score"],
+              "default" => "recent",
+              "description" => "For list: sort order"
+            },
+            # Delete operation
+            "id" => %{
+              "type" => "string",
+              "description" => "For delete: memory ID to delete"
+            }
+          },
+          "required" => ["operation"]
+        }
+      },
+      # ========================================================================
+      # SPEC-011.3: File Ingestion
+      # ========================================================================
+      %{
+        "name" => "ingest",
+        "description" =>
+          "Ingest file content into memory with automatic chunking. Supports markdown, text, and code files.",
+        "inputSchema" => %{
+          "type" => "object",
+          "properties" => %{
+            "path" => %{
+              "type" => "string",
+              "description" => "File path to ingest"
+            },
+            "strategy" => %{
+              "type" => "string",
+              "enum" => ["auto", "paragraphs", "markdown", "lines", "sentences", "whole"],
+              "default" => "auto",
+              "description" => "Chunking strategy (auto detects from file extension)"
+            },
+            "category" => %{
+              "type" => "string",
+              "enum" => ["fact", "action", "observation", "plan"],
+              "default" => "fact",
+              "description" => "Category for stored chunks"
+            },
+            "importance" => %{
+              "type" => "number",
+              "minimum" => 0,
+              "maximum" => 1,
+              "default" => 0.5,
+              "description" => "Base importance for chunks"
+            },
+            "tags" => %{
+              "type" => "array",
+              "items" => %{"type" => "string"},
+              "description" => "Tags to apply to all chunks"
+            },
+            "metadata" => %{
+              "type" => "object",
+              "description" => "Additional metadata for chunks"
+            }
+          },
+          "required" => ["path"]
+        }
       }
     ]
   end

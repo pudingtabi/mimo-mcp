@@ -12,6 +12,8 @@ defmodule Mimo.Brain.LLM do
   @openrouter_url "https://openrouter.ai/api/v1/chat/completions"
   # Use env var for model, default to Mistral Small 3.1 24B (128K context, function calling, RAG optimized, free)
   @default_model System.get_env("OPENROUTER_MODEL", "mistralai/mistral-small-3.1-24b-instruct:free")
+  # Vision model - NVIDIA Nemotron Nano 2 VL (FREE multimodal vision model with reasoning)
+  @vision_model System.get_env("OPENROUTER_VISION_MODEL", "nvidia/nemotron-nano-12b-v2-vl:free")
   # Embedding model configuration
   @default_embedding_model System.get_env("OLLAMA_EMBEDDING_MODEL", "qwen3-embedding:0.6b")
   @default_embedding_dim 1024
@@ -202,7 +204,7 @@ defmodule Mimo.Brain.LLM do
           end
 
         payload = %{
-          "model" => @default_model,
+          "model" => @vision_model,
           "messages" => [
             %{
               "role" => "user",

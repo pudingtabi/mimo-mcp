@@ -171,20 +171,46 @@ defmodule Mimo.Tools do
       }
     },
     # ==========================================================================
-    # SEARCH - Web search (native, no API key required)
+    # SEARCH - Web search (native, multi-backend, no API key required)
     # ==========================================================================
     %{
       name: "search",
       description:
-        "Search the web using DuckDuckGo. Operations: web (default), code. No API key required.",
+        "Search the web using DuckDuckGo, Bing, or Brave with automatic fallback. Operations: web (default), code. No API key required.",
       input_schema: %{
         type: "object",
         properties: %{
           query: %{type: "string"},
           operation: %{type: "string", enum: ["web", "code"], default: "web"},
-          num_results: %{type: "integer", description: "Max results (default 10)"}
+          num_results: %{type: "integer", description: "Max results (default 10)"},
+          backend: %{
+            type: "string",
+            enum: ["auto", "duckduckgo", "bing", "brave"],
+            default: "auto",
+            description: "Search backend (auto tries all with fallback)"
+          }
         },
         required: ["query"]
+      }
+    },
+    # ==========================================================================
+    # WEB_EXTRACT - Content extraction from URLs (Phase 2)
+    # ==========================================================================
+    %{
+      name: "web_extract",
+      description:
+        "Extract clean content from web pages. Uses Readability-style algorithms to remove ads, navigation, and noise. Returns title, main content, and metadata.",
+      input_schema: %{
+        type: "object",
+        properties: %{
+          url: %{type: "string", description: "URL to extract content from"},
+          include_structured: %{
+            type: "boolean",
+            default: false,
+            description: "Include JSON-LD, OpenGraph, and Twitter Card data"
+          }
+        },
+        required: ["url"]
       }
     },
     # ==========================================================================
@@ -194,6 +220,35 @@ defmodule Mimo.Tools do
       name: "sonar",
       description: "UI Accessibility Scanner",
       input_schema: %{type: "object", properties: %{}}
+    },
+    # ==========================================================================
+    # VISION - Image analysis with multimodal LLM
+    # ==========================================================================
+    %{
+      name: "vision",
+      description:
+        "Analyze images using vision-capable LLM (Mistral). Supports URLs or base64 encoded images. Useful for: describing images, reading text from screenshots, analyzing charts/diagrams, accessibility audits, UI analysis.",
+      input_schema: %{
+        type: "object",
+        properties: %{
+          image: %{
+            type: "string",
+            description: "Image URL (https://...) or base64 encoded image data"
+          },
+          prompt: %{
+            type: "string",
+            description:
+              "What to analyze. Examples: 'Describe this image', 'Read all text', 'Analyze the UI layout', 'What colors are used?'",
+            default: "Describe this image in detail, including any text, UI elements, or notable features."
+          },
+          max_tokens: %{
+            type: "integer",
+            description: "Maximum response length (default 1000)",
+            default: 1000
+          }
+        },
+        required: ["image"]
+      }
     },
     # ==========================================================================
     # KNOWLEDGE - Knowledge graph operations
@@ -242,8 +297,14 @@ defmodule Mimo.Tools do
       "search" ->
         dispatch_search(arguments)
 
+      "web_extract" ->
+        dispatch_web_extract(arguments)
+
       "sonar" ->
         Mimo.Skills.Sonar.scan_ui()
+
+      "vision" ->
+        dispatch_vision(arguments)
 
       "knowledge" ->
         dispatch_knowledge(arguments)
@@ -263,7 +324,7 @@ defmodule Mimo.Tools do
 
       _ ->
         {:error,
-         "Unknown tool: #{tool_name}. Available: file, terminal, fetch, think, web_parse, search, sonar, knowledge"}
+         "Unknown tool: #{tool_name}. Available: file, terminal, fetch, think, web_parse, search, web_extract, sonar, vision, knowledge"}
     end
   end
 
@@ -486,12 +547,16 @@ defmodule Mimo.Tools do
   end
 
   # ==========================================================================
-  # SEARCH DISPATCHER
+  # SEARCH DISPATCHER - Multi-backend web search
   # ==========================================================================
   defp dispatch_search(args) do
     query = args["query"] || ""
     op = args["operation"] || "web"
-    opts = if args["num_results"], do: [num_results: args["num_results"]], else: []
+    
+    # Build options
+    opts = []
+    opts = if args["num_results"], do: Keyword.put(opts, :num_results, args["num_results"]), else: opts
+    opts = if args["backend"], do: Keyword.put(opts, :backend, String.to_atom(args["backend"])), else: opts
 
     case op do
       "web" -> Mimo.Skills.Network.web_search(query, opts)
@@ -573,6 +638,89 @@ defmodule Mimo.Tools do
 
       true ->
         {:error, "Text or subject+predicate+object required"}
+    end
+  end
+
+  # ==========================================================================
+  # VISION DISPATCHER - Image analysis with multimodal LLM
+  # ==========================================================================
+
+  defp dispatch_vision(args) do
+    image = args["image"]
+
+    prompt =
+      args["prompt"] ||
+        "Describe this image in detail, including any text, UI elements, or notable features."
+
+    max_tokens = args["max_tokens"] || 1000
+
+    cond do
+      is_nil(image) or image == "" ->
+        {:error, "Image URL or base64 data is required"}
+
+      true ->
+        case Mimo.Brain.LLM.analyze_image(image, prompt, max_tokens: max_tokens) do
+          {:ok, analysis} ->
+            {:ok, %{analysis: analysis, model: "nvidia/nemotron-nano-12b-v2-vl:free"}}
+
+          {:error, :no_api_key} ->
+            {:error, "No OpenRouter API key configured. Set OPENROUTER_API_KEY environment variable."}
+
+          {:error, reason} ->
+            {:error, "Vision analysis failed: #{inspect(reason)}"}
+        end
+    end
+  end
+
+  # ==========================================================================
+  # WEB_EXTRACT DISPATCHER - Content extraction from URLs
+  # ==========================================================================
+
+  defp dispatch_web_extract(args) do
+    url = args["url"]
+    include_structured = args["include_structured"] || false
+
+    cond do
+      is_nil(url) or url == "" ->
+        {:error, "URL is required"}
+
+      true ->
+        # Fetch the HTML first
+        case Mimo.Skills.Network.fetch_html(url) do
+          {:ok, html} ->
+            # Extract content
+            case Mimo.Skills.Network.extract_content(html) do
+              {:ok, content} ->
+                result = %{
+                  url: url,
+                  title: content.title,
+                  content: content.content,
+                  description: content.description,
+                  author: content.author,
+                  date: content.date,
+                  word_count: content.word_count
+                }
+
+                # Optionally include structured data
+                if include_structured do
+                  case Mimo.Skills.Network.extract_structured_data(html) do
+                    {:ok, structured} ->
+                      {:ok, Map.merge(result, %{structured_data: structured})}
+
+                    _ ->
+                      {:ok, result}
+                  end
+                else
+                  {:ok, result}
+                end
+
+              {:error, reason} ->
+                {:error, "Content extraction failed: #{reason}"}
+            end
+
+          {:error, reason} ->
+            {:error, "Failed to fetch URL: #{reason}"}
+        end
     end
   end
 end
