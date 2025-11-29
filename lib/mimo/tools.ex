@@ -101,7 +101,10 @@ defmodule Mimo.Tools do
           pid: %{type: "integer", description: "Process ID for process operations"},
           input: %{type: "string", description: "Input for interact operation"},
           timeout: %{type: "integer", description: "Timeout in ms"},
-          restricted: %{type: "boolean", description: "Use restricted mode (default false)"},
+          yolo: %{
+            type: "boolean",
+            description: "YOLO mode: bypass ALL safety checks (default false)"
+          },
           confirm: %{type: "boolean", description: "Confirm destructive commands (rm, kill, etc.)"}
         },
         required: ["command"]
@@ -371,13 +374,13 @@ defmodule Mimo.Tools do
     case op do
       "execute" ->
         timeout = args["timeout"] || 30_000
-        restricted = Map.get(args, "restricted", false)
-        confirm = Map.get(args, "confirm", false)
+        yolo = Map.get(args, "yolo", false)
+        confirm = Map.get(args, "confirm", false) || yolo
 
         {:ok,
          Mimo.Skills.Terminal.execute(command,
            timeout: timeout,
-           restricted: restricted,
+           yolo: yolo,
            confirm: confirm
          )}
 

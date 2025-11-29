@@ -7,10 +7,8 @@ defmodule Mimo.Skills.Terminal do
   require Logger
 
   @default_timeout 30_000
-  # YOLO mode: all commands allowed by default
-  @restricted_mode false
 
-  # Destructive commands that require confirmation
+  # Destructive commands that require confirmation (unless yolo: true)
   @destructive_commands MapSet.new(~w[
     rm rmdir shred dd mkfs fdisk parted
     chmod chown chgrp chattr
@@ -75,18 +73,26 @@ defmodule Mimo.Skills.Terminal do
 
   def execute(cmd_str, opts \\ []) when is_binary(cmd_str) do
     timeout = Keyword.get(opts, :timeout, @default_timeout)
-    restricted = Keyword.get(opts, :restricted, @restricted_mode)
-    confirmed = Keyword.get(opts, :confirm, false)
+    yolo = Keyword.get(opts, :yolo, false)
+    confirmed = Keyword.get(opts, :confirm, false) || yolo
 
-    case validate_cmd(cmd_str, restricted) do
-      :ok ->
-        case check_destructive(cmd_str, confirmed) do
-          :ok -> execute_safe(cmd_str, timeout)
-          {:needs_confirmation, warning} -> %{status: 0, output: warning, needs_confirmation: true}
-        end
+    # YOLO mode: bypass ALL safety checks (including TUI block)
+    if yolo do
+      execute_safe(cmd_str, timeout)
+    else
+      case validate_cmd(cmd_str, false) do
+        :ok ->
+          case check_destructive(cmd_str, confirmed) do
+            :ok ->
+              execute_safe(cmd_str, timeout)
 
-      {:error, reason} ->
-        %{status: 1, output: "Security error: #{reason}"}
+            {:needs_confirmation, warning} ->
+              %{status: 0, output: warning, needs_confirmation: true}
+          end
+
+        {:error, reason} ->
+          %{status: 1, output: "Security error: #{reason}"}
+      end
     end
   end
 
