@@ -15,6 +15,20 @@ defmodule Mimo.Skills.FileOps do
   @max_file_size 10 * 1024 * 1024
   @file_timeout 5_000
 
+  # Convert file system errors to human-readable messages
+  defp format_file_error(:enoent, path), do: {:error, "File not found: #{path}"}
+  defp format_file_error(:eacces, path), do: {:error, "Permission denied: #{path}"}
+  defp format_file_error(:eisdir, path), do: {:error, "Is a directory: #{path}"}
+  defp format_file_error(:enotdir, path), do: {:error, "Not a directory: #{path}"}
+  defp format_file_error(:enospc, _path), do: {:error, "No space left on device"}
+  defp format_file_error(:enomem, _path), do: {:error, "Out of memory"}
+  defp format_file_error(:eexist, path), do: {:error, "File already exists: #{path}"}
+  defp format_file_error(:path_outside_allowed_roots, path), do: {:error, "Path outside allowed roots: #{path}"}
+  defp format_file_error(:file_too_large, path), do: {:error, "File too large (max 10MB): #{path}"}
+  defp format_file_error(:timeout, path), do: {:error, "Operation timed out: #{path}"}
+  defp format_file_error(reason, path) when is_atom(reason), do: {:error, "#{reason}: #{path}"}
+  defp format_file_error(reason, _path), do: {:error, "#{inspect(reason)}"}
+
   defp sandbox_root do
     (System.get_env("MIMO_ROOT") || File.cwd!()) |> Path.expand()
   end
@@ -102,8 +116,8 @@ defmodule Mimo.Skills.FileOps do
          next_offset: offset + lines_read
        }}
     else
-      {:error, _} = err -> err
-      false -> {:error, :file_too_large}
+      {:error, reason} -> format_file_error(reason, path)
+      false -> format_file_error(:file_too_large, path)
     end
   end
 
