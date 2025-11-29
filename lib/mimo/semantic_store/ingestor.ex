@@ -132,14 +132,23 @@ defmodule Mimo.SemanticStore.Ingestor do
       {:ok, response} ->
         parse_extraction_response(response)
 
+      {:error, :no_api_key} ->
+        Logger.warning("No LLM API key configured - cannot extract relationships from text")
+
+        {:error,
+         "LLM extraction requires an API key. Use subject+predicate+object instead of text."}
+
       {:error, reason} ->
         Logger.warning("LLM extraction failed: #{inspect(reason)}")
-        {:error, :llm_extraction_failed}
+        {:error, "LLM extraction failed: #{inspect(reason)}"}
     end
   end
 
   defp parse_extraction_response(response) do
-    case Jason.decode(response) do
+    # Try to extract JSON from the response (LLM might include markdown or extra text)
+    json_str = extract_json_from_response(response)
+
+    case Jason.decode(json_str) do
       {:ok, list} when is_list(list) ->
         valid =
           Enum.filter(list, fn item ->
@@ -151,13 +160,67 @@ defmodule Mimo.SemanticStore.Ingestor do
 
         {:ok, valid}
 
+      {:ok, %{"relationships" => list}} when is_list(list) ->
+        # Handle wrapped format
+        valid =
+          Enum.filter(list, fn item ->
+            is_map(item) and
+              Map.has_key?(item, "subject") and
+              Map.has_key?(item, "predicate") and
+              Map.has_key?(item, "object")
+          end)
+
+        {:ok, valid}
+
       {:ok, _} ->
-        {:error, :invalid_extraction_format}
+        {:error,
+         "LLM returned invalid format. Expected JSON array of {subject, predicate, object}."}
 
       {:error, _} ->
-        {:error, :json_parse_failed}
+        {:error, "Failed to parse LLM response as JSON. Use subject+predicate+object instead."}
     end
   end
+
+  # Extract JSON from LLM response (handles markdown code blocks)
+  defp extract_json_from_response(response) when is_binary(response) do
+    cond do
+      # Check for ```json code block
+      String.contains?(response, "```json") ->
+        response
+        |> String.split("```json")
+        |> Enum.at(1, "")
+        |> String.split("```")
+        |> List.first()
+        |> String.trim()
+
+      # Check for ``` code block
+      String.contains?(response, "```") ->
+        response
+        |> String.split("```")
+        |> Enum.at(1, response)
+        |> String.trim()
+
+      # Try to find JSON array directly
+      String.contains?(response, "[") ->
+        # Find first [ and last ]
+        start_idx = :binary.match(response, "[")
+        end_idx = String.reverse(response) |> :binary.match("]")
+
+        case {start_idx, end_idx} do
+          {{s, _}, {e, _}} ->
+            len = byte_size(response) - s - e
+            :binary.part(response, s, len)
+
+          _ ->
+            response
+        end
+
+      true ->
+        response
+    end
+  end
+
+  defp extract_json_from_response(response), do: inspect(response)
 
   defp resolve_and_structure(extracted, source, graph_id) do
     triples =
