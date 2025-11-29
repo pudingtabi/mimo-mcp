@@ -10,8 +10,11 @@ defmodule Mimo.Brain.LLM do
   alias Mimo.ErrorHandling.CircuitBreaker
 
   @openrouter_url "https://openrouter.ai/api/v1/chat/completions"
-  # Use env var for model, default to Grok 4.1 Fast (76 TPS, vision-capable, free)
-  @default_model System.get_env("OPENROUTER_MODEL", "x-ai/grok-4.1-fast:free")
+  # Use env var for model, default to Mistral Small 3.1 24B (128K context, function calling, RAG optimized, free)
+  @default_model System.get_env("OPENROUTER_MODEL", "mistralai/mistral-small-3.1-24b-instruct:free")
+  # Embedding model configuration
+  @default_embedding_model System.get_env("OLLAMA_EMBEDDING_MODEL", "qwen3-embedding:0.6b")
+  @default_embedding_dim 1024
 
   @doc """
   Simple completion API for prompts.
@@ -157,7 +160,7 @@ defmodule Mimo.Brain.LLM do
   end
 
   @doc """
-  Analyze an image with vision-capable model (Grok 4.1 Fast).
+  Analyze an image with vision-capable model.
 
   ## Parameters
     - `image_data` - Base64 encoded image or URL
@@ -334,13 +337,13 @@ defmodule Mimo.Brain.LLM do
 
     payload =
       Jason.encode!(%{
-        "model" => "nomic-embed-text",
-        "prompt" => text
+        "model" => @default_embedding_model,
+        "input" => text
       })
 
     headers = [{"Content-Type", "application/json"}]
 
-    case Req.post("#{ollama_url}/api/embeddings",
+    case Req.post("#{ollama_url}/api/embed",
            json: Jason.decode!(payload),
            headers: headers,
            connect_options: [timeout: 2_000],
@@ -348,7 +351,7 @@ defmodule Mimo.Brain.LLM do
          ) do
       {:ok, %Req.Response{status: 200, body: body}} ->
         case body do
-          %{"embedding" => embedding} ->
+          %{"embeddings" => [embedding | _]} ->
             {:ok, embedding}
 
           _ ->
@@ -372,7 +375,7 @@ defmodule Mimo.Brain.LLM do
 
   # Simple fallback embedding using hash - not ideal but works without Ollama
   defp fallback_embedding(text) do
-    dim = Application.get_env(:mimo_mcp, :embedding_dim, 768)
+    dim = Application.get_env(:mimo_mcp, :embedding_dim, @default_embedding_dim)
     hash = :erlang.phash2(text, 1_000_000)
     :rand.seed(:exsss, {hash, hash * 2, hash * 3})
     for _ <- 1..dim, do: :rand.uniform() * 2 - 1

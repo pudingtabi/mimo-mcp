@@ -349,7 +349,7 @@ defmodule Mimo.Integration.GracefulDegradationTest do
 
   # Helper to directly test hash-based embedding generation
   defp generate_hash_embedding(text) do
-    dim = Application.get_env(:mimo_mcp, :embedding_dim, 768)
+    dim = Application.get_env(:mimo_mcp, :embedding_dim, 1024)
     hash = :erlang.phash2(text, 1_000_000)
     :rand.seed(:exsss, {hash, hash * 2, hash * 3})
     embedding = for _ <- 1..dim, do: :rand.uniform() * 2 - 1

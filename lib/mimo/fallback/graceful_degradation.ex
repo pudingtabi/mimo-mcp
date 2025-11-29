@@ -277,7 +277,7 @@ defmodule Mimo.Fallback.GracefulDegradation do
   end
 
   defp hash_based_embedding(text) do
-    dim = Application.get_env(:mimo_mcp, :embedding_dim, 768)
+    dim = Application.get_env(:mimo_mcp, :embedding_dim, 1024)
     hash = :erlang.phash2(text, 1_000_000)
     :rand.seed(:exsss, {hash, hash * 2, hash * 3})
     for _ <- 1..dim, do: :rand.uniform() * 2 - 1

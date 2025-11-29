@@ -73,8 +73,8 @@ config :mimo_mcp, :max_concurrent_requests, 50
 config :mimo_mcp, :max_skill_processes, 10
 config :mimo_mcp, :memory_cleanup_days, 30
 
-# Embedding dimensions (nomic-embed-text uses 768)
-config :mimo_mcp, :embedding_dim, 768
+# Embedding dimensions (qwen3-embedding:0.6b uses 1024)
+config :mimo_mcp, :embedding_dim, 1024
 
 # Latency targets (Universal Aperture)
 config :mimo_mcp, :latency_target_ms, 50

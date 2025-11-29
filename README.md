@@ -136,8 +136,8 @@ cd mimo-mcp
 # Start services (Mimo + Ollama)
 docker-compose up -d
 
-# Pull embedding model (~274MB, one-time download)
-docker exec mimo-ollama ollama pull nomic-embed-text
+# Pull embedding model (~639MB, one-time download)
+docker exec mimo-ollama ollama pull qwen3-embedding:0.6b
 
 # Run database migrations
 docker exec mimo-mcp sh -c "MIX_ENV=prod mix ecto.migrate"
@@ -171,7 +171,7 @@ curl http://localhost:4000/health
 ```bash
 # Install Ollama and pull embedding model
 curl -fsSL https://ollama.ai/install.sh | sh
-ollama pull nomic-embed-text
+ollama pull qwen3-embedding:0.6b
 
 # Clone and setup
 git clone https://github.com/pudingtabi/mimo-mcp.git
@@ -203,7 +203,7 @@ EOF
 
 # Deploy
 docker-compose up -d
-docker exec mimo-ollama ollama pull nomic-embed-text
+docker exec mimo-ollama ollama pull qwen3-embedding:0.6b
 docker exec mimo-mcp sh -c "MIX_ENV=prod mix ecto.migrate"
 
 # Open firewall
