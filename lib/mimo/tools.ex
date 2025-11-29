@@ -119,7 +119,8 @@ defmodule Mimo.Tools do
     # ==========================================================================
     %{
       name: "fetch",
-      description: "Fetch URL content. Format: text, html, json, markdown, raw. Supports GET/POST.",
+      description:
+        "Fetch URL content. Format: text, html, json, markdown, raw. Supports GET/POST. Can auto-analyze images with NVIDIA vision for non-vision AI agents.",
       input_schema: %{
         type: "object",
         properties: %{
@@ -138,7 +139,13 @@ defmodule Mimo.Tools do
               properties: %{name: %{type: "string"}, value: %{type: "string"}}
             }
           },
-          timeout: %{type: "integer"}
+          timeout: %{type: "integer"},
+          analyze_image: %{
+            type: "boolean",
+            description:
+              "If URL is an image, analyze it with NVIDIA vision and return description (useful for non-vision AI agents)",
+            default: false
+          }
         },
         required: ["url"]
       }
@@ -180,18 +187,34 @@ defmodule Mimo.Tools do
     %{
       name: "search",
       description:
-        "Search the web using DuckDuckGo, Bing, or Brave with automatic fallback. Operations: web (default), code. No API key required.",
+        "Search the web using DuckDuckGo, Bing, or Brave with automatic fallback. Operations: web (default), code, images. For image search, can auto-analyze results with NVIDIA vision. No API key required.",
       input_schema: %{
         type: "object",
         properties: %{
           query: %{type: "string"},
-          operation: %{type: "string", enum: ["web", "code"], default: "web"},
+          operation: %{
+            type: "string",
+            enum: ["web", "code", "images"],
+            default: "web",
+            description: "Search type: web, code, or images"
+          },
           num_results: %{type: "integer", description: "Max results (default 10)"},
           backend: %{
             type: "string",
             enum: ["auto", "duckduckgo", "bing", "brave"],
             default: "auto",
             description: "Search backend (auto tries all with fallback)"
+          },
+          analyze_images: %{
+            type: "boolean",
+            default: false,
+            description:
+              "For image search: analyze top results with NVIDIA vision to describe content (useful for non-vision AI agents)"
+          },
+          max_analyze: %{
+            type: "integer",
+            default: 3,
+            description: "Maximum number of images to analyze (default 3, to save API calls)"
           }
         },
         required: ["query"]
@@ -621,7 +644,67 @@ defmodule Mimo.Tools do
   defp dispatch_fetch(args) do
     url = args["url"]
     format = args["format"] || "text"
+    analyze_image = args["analyze_image"] || false
 
+    # Check if URL looks like an image
+    is_image_url = is_image_url?(url)
+
+    # Auto-analyze images when requested or when format suggests image
+    if analyze_image or (is_image_url and analyze_image != false) do
+      analyze_image_url(url, args)
+    else
+      fetch_content(url, format, args)
+    end
+  end
+
+  defp is_image_url?(url) when is_binary(url) do
+    lower_url = String.downcase(url)
+
+    String.ends_with?(lower_url, [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"]) or
+      String.contains?(lower_url, ["/image/", "/img/", "/photo/", "/picture/"]) or
+      String.contains?(lower_url, ["imgur.com", "i.redd.it", "pbs.twimg.com"])
+  end
+
+  defp is_image_url?(_), do: false
+
+  defp analyze_image_url(url, args) do
+    prompt =
+      args["prompt"] ||
+        "Describe this image in detail, including any text, objects, people, colors, and layout. Be comprehensive so a non-vision AI can understand the image content."
+
+    case Mimo.Brain.LLM.analyze_image(url, prompt, max_tokens: 1500) do
+      {:ok, analysis} ->
+        {:ok,
+         %{
+           url: url,
+           type: "image",
+           analysis: analysis,
+           model: "nvidia/nemotron-nano-12b-v2-vl:free",
+           note: "Image analyzed by vision AI for non-vision agents"
+         }}
+
+      {:error, :no_api_key} ->
+        # Fallback to just returning the URL
+        {:ok,
+         %{
+           url: url,
+           type: "image",
+           analysis: "Vision analysis unavailable (no OPENROUTER_API_KEY). This is an image URL.",
+           note: "Set OPENROUTER_API_KEY to enable image analysis"
+         }}
+
+      {:error, reason} ->
+        {:ok,
+         %{
+           url: url,
+           type: "image",
+           analysis: "Vision analysis failed: #{inspect(reason)}",
+           note: "Image could not be analyzed"
+         }}
+    end
+  end
+
+  defp fetch_content(url, format, args) do
     case format do
       "text" ->
         Mimo.Skills.Network.fetch_txt(url)
@@ -696,6 +779,8 @@ defmodule Mimo.Tools do
   defp dispatch_search(args) do
     query = args["query"] || ""
     op = args["operation"] || "web"
+    analyze_images = args["analyze_images"] || false
+    max_analyze = args["max_analyze"] || 3
 
     # Build options
     opts = []
@@ -709,10 +794,90 @@ defmodule Mimo.Tools do
         else: opts
 
     case op do
-      "web" -> Mimo.Skills.Network.web_search(query, opts)
-      "code" -> Mimo.Skills.Network.code_search(query, opts)
-      _ -> {:error, "Unknown search operation: #{op}"}
+      "web" ->
+        Mimo.Skills.Network.web_search(query, opts)
+
+      "code" ->
+        Mimo.Skills.Network.code_search(query, opts)
+
+      "images" ->
+        search_images(query, opts, analyze_images, max_analyze)
+
+      _ ->
+        {:error, "Unknown search operation: #{op}"}
     end
+  end
+
+  defp search_images(query, opts, analyze_images, max_analyze) do
+    # Use DuckDuckGo image search
+    search_url =
+      "https://duckduckgo.com/?q=#{URI.encode_www_form(query)}&t=h_&iax=images&ia=images"
+
+    case Mimo.Skills.Network.fetch_html(search_url) do
+      {:ok, html} ->
+        # Extract image URLs from search results
+        image_urls = extract_image_urls(html)
+        num_results = Keyword.get(opts, :num_results, 10)
+        image_urls = Enum.take(image_urls, num_results)
+
+        if analyze_images and length(image_urls) > 0 do
+          # Analyze top images with vision
+          analyzed = analyze_search_images(image_urls, max_analyze)
+
+          {:ok,
+           %{
+             query: query,
+             type: "image_search",
+             total_found: length(image_urls),
+             analyzed_count: length(analyzed),
+             images: analyzed,
+             note: "Images analyzed with NVIDIA vision for non-vision AI agents"
+           }}
+        else
+          {:ok,
+           %{
+             query: query,
+             type: "image_search",
+             total_found: length(image_urls),
+             images: Enum.map(image_urls, &%{url: &1}),
+             note: "Set analyze_images=true to get AI descriptions"
+           }}
+        end
+
+      {:error, reason} ->
+        {:error, "Image search failed: #{inspect(reason)}"}
+    end
+  end
+
+  defp extract_image_urls(html) do
+    # Extract image URLs from DuckDuckGo image search results
+    ~r/vqd=[\d-]+.*?u=(https?[^&"']+\.(jpg|jpeg|png|gif|webp))/i
+    |> Regex.scan(html)
+    |> Enum.map(fn [_, url | _] -> URI.decode(url) end)
+    |> Enum.uniq()
+    |> Enum.filter(&valid_image_url?/1)
+  end
+
+  defp valid_image_url?(url) do
+    String.starts_with?(url, "http") and
+      not String.contains?(url, ["duckduckgo.com", "bing.com", "google.com"])
+  end
+
+  defp analyze_search_images(image_urls, max_analyze) do
+    image_urls
+    |> Enum.take(max_analyze)
+    |> Enum.map(fn url ->
+      prompt =
+        "Describe this image concisely: what it shows, any text visible, colors, and key elements. Keep it under 100 words."
+
+      case Mimo.Brain.LLM.analyze_image(url, prompt, max_tokens: 300) do
+        {:ok, analysis} ->
+          %{url: url, description: analysis, analyzed: true}
+
+        {:error, _reason} ->
+          %{url: url, description: "Analysis unavailable", analyzed: false}
+      end
+    end)
   end
 
   # ==========================================================================
