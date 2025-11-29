@@ -10,6 +10,27 @@ defmodule Mimo.Skills.Terminal do
   # YOLO mode: all commands allowed by default
   @restricted_mode false
 
+  # Destructive commands that require confirmation
+  @destructive_commands MapSet.new(~w[
+    rm rmdir shred dd mkfs fdisk parted
+    chmod chown chgrp chattr
+    kill pkill killall
+  ])
+
+  # Dangerous patterns that require confirmation (checked via regex)
+  @dangerous_patterns [
+    # rm with absolute path
+    ~r/rm\s+(-[rf]+\s+)*\//,
+    # rm with wildcard
+    ~r/rm\s+-[rf]*\s+\*/,
+    # write to device
+    ~r/>\s*\/dev\//,
+    # format filesystem
+    ~r/mkfs/,
+    # dd write operations
+    ~r/dd\s+.*of=/
+  ]
+
   # YOLO mode: all commands allowed, only block interactive TUI commands
   # that can't work over stdio
   @blocked_tui_commands MapSet.new(~w[
@@ -55,10 +76,17 @@ defmodule Mimo.Skills.Terminal do
   def execute(cmd_str, opts \\ []) when is_binary(cmd_str) do
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     restricted = Keyword.get(opts, :restricted, @restricted_mode)
+    confirmed = Keyword.get(opts, :confirm, false)
 
     case validate_cmd(cmd_str, restricted) do
-      :ok -> execute_safe(cmd_str, timeout)
-      {:error, reason} -> %{status: 1, output: "Security error: #{reason}"}
+      :ok ->
+        case check_destructive(cmd_str, confirmed) do
+          :ok -> execute_safe(cmd_str, timeout)
+          {:needs_confirmation, warning} -> %{status: 0, output: warning, needs_confirmation: true}
+        end
+
+      {:error, reason} ->
+        %{status: 1, output: "Security error: #{reason}"}
     end
   end
 
@@ -250,6 +278,36 @@ defmodule Mimo.Skills.Terminal do
 
       true ->
         :ok
+    end
+  end
+
+  # Check if command is destructive and needs confirmation
+  defp check_destructive(cmd_str, confirmed) do
+    if confirmed do
+      :ok
+    else
+      parts = String.split(cmd_str)
+      base_cmd = List.first(parts)
+
+      is_destructive_cmd = MapSet.member?(@destructive_commands, base_cmd)
+      is_dangerous_pattern = Enum.any?(@dangerous_patterns, &Regex.match?(&1, cmd_str))
+
+      if is_destructive_cmd or is_dangerous_pattern do
+        warning = """
+        ⚠️  DESTRUCTIVE COMMAND DETECTED
+
+        Command: #{cmd_str}
+
+        This command may cause data loss or system changes.
+        To execute, call again with confirm: true
+
+        Example: terminal(command: "#{cmd_str}", confirm: true)
+        """
+
+        {:needs_confirmation, warning}
+      else
+        :ok
+      end
     end
   end
 
