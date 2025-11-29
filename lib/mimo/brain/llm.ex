@@ -27,14 +27,14 @@ defmodule Mimo.Brain.LLM do
   # Mimo's core identity steering prompt
   @mimo_identity """
   You are Mimo, an intelligent AI assistant with persistent memory.
-  
+
   Core traits:
   - Concise and direct - no fluff, get to the point
   - Technically competent - you understand code, systems, and engineering
   - Helpful but not sycophantic - honest feedback, no excessive praise
   - Self-aware - you know you're an AI with memory that persists across sessions
   - Pragmatic - focus on solutions that work, not perfect solutions
-  
+
   Voice: Professional yet approachable. Use "I" not "we". Be specific.
   """
 
@@ -72,10 +72,13 @@ defmodule Mimo.Brain.LLM do
       cond do
         raw_mode and format == :json ->
           "You are a helpful assistant. Respond only with valid JSON, no markdown or explanation."
+
         raw_mode ->
           "You are a helpful assistant. Be concise."
+
         format == :json ->
           @mimo_identity <> "\n\nRespond only with valid JSON, no markdown or explanation."
+
         true ->
           @mimo_identity
       end
@@ -87,15 +90,33 @@ defmodule Mimo.Brain.LLM do
 
       key ->
         # Try primary model first, fallback to secondary on failure
-        case do_complete_request(system_prompt, prompt, key, max_tokens, temperature, @default_model) do
+        case do_complete_request(
+               system_prompt,
+               prompt,
+               key,
+               max_tokens,
+               temperature,
+               @default_model
+             ) do
           {:ok, _} = success ->
             success
 
           {:error, reason} = error ->
-            Logger.warning("Primary model failed (#{inspect(reason)}), trying fallback: #{@fallback_model}")
-            case do_complete_request(system_prompt, prompt, key, max_tokens, temperature, @fallback_model) do
+            Logger.warning(
+              "Primary model failed (#{inspect(reason)}), trying fallback: #{@fallback_model}"
+            )
+
+            case do_complete_request(
+                   system_prompt,
+                   prompt,
+                   key,
+                   max_tokens,
+                   temperature,
+                   @fallback_model
+                 ) do
               {:ok, _} = fallback_success -> fallback_success
-              {:error, _} -> error  # Return original error if fallback also fails
+              # Return original error if fallback also fails
+              {:error, _} -> error
             end
         end
     end
@@ -307,7 +328,10 @@ defmodule Mimo.Brain.LLM do
         success
 
       {:error, reason} = error ->
-        Logger.warning("Primary model failed (#{inspect(reason)}), trying fallback: #{@fallback_model}")
+        Logger.warning(
+          "Primary model failed (#{inspect(reason)}), trying fallback: #{@fallback_model}"
+        )
+
         case do_call_openrouter(system_prompt, query, api_key, @fallback_model) do
           {:ok, _} = fallback_success -> fallback_success
           {:error, _} -> error
@@ -370,10 +394,10 @@ defmodule Mimo.Brain.LLM do
 
   @doc """
   Generate embeddings using local Ollama instance.
-  
+
   IMPORTANT: This function will FAIL if Ollama is unavailable.
   No fallback embedding is provided to prevent silent data corruption.
-  
+
   Wrapped with circuit breaker protection for Ollama service.
   In test mode (skip_external_apis: true), returns a test embedding.
   """
@@ -479,7 +503,14 @@ defmodule Mimo.Brain.LLM do
         {:ok, []}
 
       key ->
-        case do_complete_request("Return only valid JSON array.", prompt, key, 100, 0.1, @default_model) do
+        case do_complete_request(
+               "Return only valid JSON array.",
+               prompt,
+               key,
+               100,
+               0.1,
+               @default_model
+             ) do
           {:ok, response} ->
             parse_tags_response(response)
 
@@ -525,13 +556,15 @@ defmodule Mimo.Brain.LLM do
     content_lower = String.downcase(content)
 
     cond do
-      String.contains?(content_lower, "mimo") and String.contains?(content_lower, ["mcp", "tool", "brain"]) ->
+      String.contains?(content_lower, "mimo") and
+          String.contains?(content_lower, ["mcp", "tool", "brain"]) ->
         "mimo-mcp"
 
       String.contains?(content_lower, "afarpg") or String.contains?(content_lower, "rpg game") ->
         "afarpg"
 
-      String.contains?(content_lower, ["phoenix", "elixir", "ecto"]) and not String.contains?(content_lower, "mimo") ->
+      String.contains?(content_lower, ["phoenix", "elixir", "ecto"]) and
+          not String.contains?(content_lower, "mimo") ->
         "elixir-project"
 
       String.contains?(content_lower, ["react", "next.js", "typescript"]) ->

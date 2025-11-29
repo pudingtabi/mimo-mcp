@@ -419,21 +419,21 @@ defmodule Mimo.Brain.Memory do
   defp calculate_similarity(vec1, vec2) when is_list(vec1) and is_list(vec2) do
     len1 = length(vec1)
     len2 = length(vec2)
-    
+
     # Handle empty vectors
     if len1 == 0 or len2 == 0 do
       0.0
     else
       # Truncate to smaller dimension to handle mixed embeddings
       # This preserves semantic meaning in overlapping dimensions
-      {v1, v2} = 
+      {v1, v2} =
         if len1 != len2 do
           min_len = min(len1, len2)
           {Enum.take(vec1, min_len), Enum.take(vec2, min_len)}
         else
           {vec1, vec2}
         end
-      
+
       dot = Enum.zip(v1, v2) |> Enum.reduce(0.0, fn {a, b}, acc -> acc + a * b end)
       mag1 = :math.sqrt(Enum.reduce(v1, 0.0, fn x, acc -> acc + x * x end))
       mag2 = :math.sqrt(Enum.reduce(v2, 0.0, fn x, acc -> acc + x * x end))
@@ -523,7 +523,13 @@ defmodule Mimo.Brain.Memory do
     :telemetry.execute(
       [:mimo, :brain, :memory, event],
       %{count: 1},
-      %{id: id, category: category, project_id: project_id, tags: tags, timestamp: System.system_time(:second)}
+      %{
+        id: id,
+        category: category,
+        project_id: project_id,
+        tags: tags,
+        timestamp: System.system_time(:second)
+      }
     )
   end
 

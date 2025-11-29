@@ -59,7 +59,9 @@ defmodule Mimo.Skills.Browser do
   # Check if Puppeteer is available
   defp puppeteer_available? do
     case System.find_executable("node") do
-      nil -> false
+      nil ->
+        false
+
       _path ->
         script = script_path()
         File.exists?(script)
@@ -121,7 +123,8 @@ defmodule Mimo.Skills.Browser do
   """
   def browser_fetch(url, opts \\ []) do
     if not puppeteer_available?() do
-      {:error, "Puppeteer not available. Install with: npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth"}
+      {:error,
+       "Puppeteer not available. Install with: npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth"}
     else
       options = %{
         url: url,
@@ -334,15 +337,18 @@ defmodule Mimo.Skills.Browser do
   def analyze(url) do
     case Blink.analyze_protection(url) do
       {:ok, analysis} ->
-        needs_browser = analysis.challenge_type in [:browser_check, :captcha] or
-                        analysis.protection in [:cloudflare, :akamai, :datadome]
+        needs_browser =
+          analysis.challenge_type in [:browser_check, :captcha] or
+            analysis.protection in [:cloudflare, :akamai, :datadome]
 
-        {:ok, Map.merge(analysis, %{
-          recommended_method: if(needs_browser, do: :browser, else: :blink),
-          puppeteer_available: puppeteer_available?()
-        })}
+        {:ok,
+         Map.merge(analysis, %{
+           recommended_method: if(needs_browser, do: :browser, else: :blink),
+           puppeteer_available: puppeteer_available?()
+         })}
 
-      error -> error
+      error ->
+        error
     end
   end
 
@@ -355,9 +361,10 @@ defmodule Mimo.Skills.Browser do
     Logger.debug("[Browser] Executing #{command} with options: #{inspect(options)}")
 
     # Use Task with timeout instead of System.cmd timeout (which isn't supported)
-    task = Task.async(fn ->
-      System.cmd("node", [script, command, options_json], stderr_to_stdout: true)
-    end)
+    task =
+      Task.async(fn ->
+        System.cmd("node", [script, command, options_json], stderr_to_stdout: true)
+      end)
 
     case Task.yield(task, @node_timeout) || Task.shutdown(task, :brutal_kill) do
       {:ok, {output, 0}} ->

@@ -108,6 +108,7 @@ defmodule Mimo.Brain.Engram do
     case {get_field(changeset, :original_importance), get_change(changeset, :importance)} do
       {nil, importance} when is_number(importance) ->
         put_change(changeset, :original_importance, importance)
+
       _ ->
         changeset
     end
@@ -121,6 +122,7 @@ defmodule Mimo.Brain.Engram do
         importance = get_field(changeset, :importance) || 0.5
         decay_rate = importance_to_decay_rate(importance)
         put_change(changeset, :decay_rate, decay_rate)
+
       _ ->
         changeset
     end
@@ -132,11 +134,16 @@ defmodule Mimo.Brain.Engram do
   Higher importance = lower decay rate = longer memory retention.
   Based on exponential decay: half_life = ln(2) / decay_rate
   """
-  def importance_to_decay_rate(importance) when importance >= 0.9, do: 0.0001  # ~693 days half-life
-  def importance_to_decay_rate(importance) when importance >= 0.7, do: 0.001   # ~69 days half-life
-  def importance_to_decay_rate(importance) when importance >= 0.5, do: 0.005   # ~14 days half-life
-  def importance_to_decay_rate(importance) when importance >= 0.3, do: 0.02    # ~3.5 days half-life
-  def importance_to_decay_rate(_importance), do: 0.1                           # ~17 hours half-life
+  # ~693 days half-life
+  def importance_to_decay_rate(importance) when importance >= 0.9, do: 0.0001
+  # ~69 days half-life
+  def importance_to_decay_rate(importance) when importance >= 0.7, do: 0.001
+  # ~14 days half-life
+  def importance_to_decay_rate(importance) when importance >= 0.5, do: 0.005
+  # ~3.5 days half-life
+  def importance_to_decay_rate(importance) when importance >= 0.3, do: 0.02
+  # ~17 hours half-life
+  def importance_to_decay_rate(_importance), do: 0.1
 
   @doc """
   Calculates the current effective importance after decay.
@@ -149,7 +156,9 @@ defmodule Mimo.Brain.Engram do
 
     days_since_creation =
       case engram.inserted_at do
-        nil -> 0
+        nil ->
+          0
+
         inserted_at ->
           NaiveDateTime.diff(NaiveDateTime.utc_now(), inserted_at, :second) / 86400.0
       end

@@ -23,15 +23,15 @@ defmodule Mimo.Brain.Interaction do
   @foreign_key_type :binary_id
 
   schema "interactions" do
-    field :tool_name, :string
-    field :arguments, :map, default: %{}
-    field :result_summary, :string
-    field :duration_ms, :integer
-    field :timestamp, :utc_datetime_usec
-    field :consolidated, :boolean, default: false
+    field(:tool_name, :string)
+    field(:arguments, :map, default: %{})
+    field(:result_summary, :string)
+    field(:duration_ms, :integer)
+    field(:timestamp, :utc_datetime_usec)
+    field(:consolidated, :boolean, default: false)
 
-    belongs_to :thread, Thread
-    many_to_many :engrams, Mimo.Brain.Engram, join_through: "interaction_engrams"
+    belongs_to(:thread, Thread)
+    many_to_many(:engrams, Mimo.Brain.Engram, join_through: "interaction_engrams")
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -41,7 +41,15 @@ defmodule Mimo.Brain.Interaction do
   """
   def changeset(interaction, attrs) do
     interaction
-    |> cast(attrs, [:tool_name, :arguments, :result_summary, :duration_ms, :timestamp, :consolidated, :thread_id])
+    |> cast(attrs, [
+      :tool_name,
+      :arguments,
+      :result_summary,
+      :duration_ms,
+      :timestamp,
+      :consolidated,
+      :thread_id
+    ])
     |> validate_required([:tool_name])
     |> put_default_timestamp()
     |> truncate_result_summary()
@@ -57,11 +65,15 @@ defmodule Mimo.Brain.Interaction do
   # Keep result summaries reasonable (max 10KB)
   defp truncate_result_summary(changeset) do
     case get_change(changeset, :result_summary) do
-      nil -> changeset
+      nil ->
+        changeset
+
       summary when byte_size(summary) > 10_000 ->
         truncated = String.slice(summary, 0, 9_900) <> "\n... [truncated]"
         put_change(changeset, :result_summary, truncated)
-      _ -> changeset
+
+      _ ->
+        changeset
     end
   end
 
@@ -101,7 +113,7 @@ defmodule Mimo.Brain.Interaction do
   """
   def get_unconsolidated(opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
-    
+
     # Get interactions older than 5 minutes (give time for context to accumulate)
     cutoff = DateTime.add(DateTime.utc_now(), -5, :minute)
 
@@ -218,12 +230,12 @@ defmodule Mimo.Brain.Interaction do
   end
 
   defp format_interaction(interaction) do
-    args_str = 
+    args_str =
       interaction.arguments
       |> summarize_args()
       |> Jason.encode!(pretty: false)
 
-    result_str = 
+    result_str =
       case interaction.result_summary do
         nil -> "No result captured"
         summary -> String.slice(summary, 0, 500)
@@ -244,16 +256,20 @@ defmodule Mimo.Brain.Interaction do
     |> Enum.map(fn {k, v} -> {k, summarize_value(v)} end)
     |> Map.new()
   end
+
   defp summarize_args(args), do: args
 
   defp summarize_value(v) when is_binary(v) and byte_size(v) > 200 do
     String.slice(v, 0, 200) <> "..."
   end
+
   defp summarize_value(v) when is_map(v) do
     summarize_args(v)
   end
+
   defp summarize_value(v) when is_list(v) and length(v) > 5 do
     Enum.take(v, 5) ++ ["... (#{length(v) - 5} more)"]
   end
+
   defp summarize_value(v), do: v
 end

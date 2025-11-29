@@ -179,32 +179,36 @@ defmodule Mimo.McpServer.Stdio do
   # Record interaction to ThreadManager for passive memory (SPEC-012)
   defp record_interaction(tool_name, args, result, duration_ms) do
     result_summary = summarize_result(result)
-    
+
     Mimo.Brain.ThreadManager.record_interaction(tool_name,
       arguments: args,
       result_summary: result_summary,
       duration_ms: duration_ms
     )
   rescue
-    _ -> :ok  # Don't let recording failures affect tool execution
+    # Don't let recording failures affect tool execution
+    _ -> :ok
   end
 
   # Create a brief summary of the result for storage
   defp summarize_result({:ok, result}) when is_binary(result) do
     truncate_string(result, 2000)
   end
+
   defp summarize_result({:ok, result}) when is_map(result) do
     result
     |> summarize_map()
     |> Jason.encode!()
     |> truncate_string(2000)
   end
+
   defp summarize_result({:error, reason}), do: "Error: #{inspect(reason)}"
   defp summarize_result(other), do: truncate_string(inspect(other), 2000)
 
   defp summarize_map(map) when is_map(map) do
     map
-    |> Enum.take(10)  # Limit keys
+    # Limit keys
+    |> Enum.take(10)
     |> Enum.map(fn {k, v} -> {k, summarize_value(v)} end)
     |> Map.new()
   end
@@ -217,6 +221,7 @@ defmodule Mimo.McpServer.Stdio do
   defp truncate_string(s, max_len) when byte_size(s) > max_len do
     String.slice(s, 0, max_len - 3) <> "..."
   end
+
   defp truncate_string(s, _), do: s
 
   # Execute a tool function with timeout protection

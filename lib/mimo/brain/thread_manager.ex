@@ -100,16 +100,17 @@ defmodule Mimo.Brain.ThreadManager do
   @impl true
   def init(_opts) do
     Logger.info("[ThreadManager] Starting thread manager")
-    
+
     # Schedule periodic cleanup
     schedule_cleanup()
 
     # Try to resume the most recent active thread
-    state = 
+    state =
       case Thread.get_or_create_current() do
         {:ok, thread} ->
           Logger.info("[ThreadManager] Resumed thread #{thread.id}")
           %{current_thread_id: thread.id, thread_cache: %{thread.id => thread}}
+
         {:error, reason} ->
           Logger.warning("[ThreadManager] Could not create thread: #{inspect(reason)}")
           %{current_thread_id: nil, thread_cache: %{}}
@@ -123,6 +124,7 @@ defmodule Mimo.Brain.ThreadManager do
     case ensure_thread(state) do
       {:ok, thread_id, new_state} ->
         {:reply, thread_id, new_state}
+
       {:error, reason} ->
         {:reply, {:error, reason}, state}
     end
@@ -134,6 +136,7 @@ defmodule Mimo.Brain.ThreadManager do
       {:ok, thread_id, new_state} ->
         thread = Map.get(new_state.thread_cache, thread_id)
         {:reply, thread, new_state}
+
       {:error, reason} ->
         {:reply, {:error, reason}, state}
     end
@@ -144,12 +147,15 @@ defmodule Mimo.Brain.ThreadManager do
     case Thread.create(opts) do
       {:ok, thread} ->
         Logger.info("[ThreadManager] Created new thread #{thread.id}")
+
         new_state = %{
-          state |
-          current_thread_id: thread.id,
-          thread_cache: Map.put(state.thread_cache, thread.id, thread)
+          state
+          | current_thread_id: thread.id,
+            thread_cache: Map.put(state.thread_cache, thread.id, thread)
         }
+
         {:reply, {:ok, thread.id}, new_state}
+
       {:error, reason} ->
         {:reply, {:error, reason}, state}
     end
@@ -160,6 +166,7 @@ defmodule Mimo.Brain.ThreadManager do
     case state.current_thread_id do
       nil ->
         {:reply, :ok, state}
+
       thread_id ->
         Thread.disconnect(thread_id)
         Logger.info("[ThreadManager] Disconnected thread #{thread_id}")
@@ -190,9 +197,11 @@ defmodule Mimo.Brain.ThreadManager do
         # Record the interaction asynchronously
         Task.start(fn ->
           opts_with_thread = Keyword.put(opts, :thread_id, thread_id)
+
           case Interaction.record(tool_name, opts_with_thread) do
             {:ok, _interaction} ->
               Logger.debug("[ThreadManager] Recorded interaction: #{tool_name}")
+
             {:error, reason} ->
               Logger.warning("[ThreadManager] Failed to record interaction: #{inspect(reason)}")
           end
@@ -211,7 +220,9 @@ defmodule Mimo.Brain.ThreadManager do
   @impl true
   def handle_cast(:touch, state) do
     case state.current_thread_id do
-      nil -> {:noreply, state}
+      nil ->
+        {:noreply, state}
+
       thread_id ->
         Task.start(fn -> Thread.touch(thread_id) end)
         {:noreply, state}
@@ -232,7 +243,7 @@ defmodule Mimo.Brain.ThreadManager do
     # Refresh thread cache - remove stale entries
     new_cache =
       state.thread_cache
-      |> Enum.filter(fn {id, _thread} -> 
+      |> Enum.filter(fn {id, _thread} ->
         id == state.current_thread_id
       end)
       |> Map.new()
@@ -251,14 +262,17 @@ defmodule Mimo.Brain.ThreadManager do
         case Thread.get_or_create_current() do
           {:ok, thread} ->
             new_state = %{
-              state |
-              current_thread_id: thread.id,
-              thread_cache: Map.put(state.thread_cache, thread.id, thread)
+              state
+              | current_thread_id: thread.id,
+                thread_cache: Map.put(state.thread_cache, thread.id, thread)
             }
+
             {:ok, thread.id, new_state}
+
           {:error, reason} ->
             {:error, reason}
         end
+
       thread_id ->
         {:ok, thread_id, state}
     end

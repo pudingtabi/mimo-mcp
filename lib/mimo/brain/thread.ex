@@ -26,15 +26,15 @@ defmodule Mimo.Brain.Thread do
   @statuses ~w(active idle disconnected archived)
 
   schema "threads" do
-    field :name, :string
-    field :client_info, :map, default: %{}
-    field :started_at, :utc_datetime_usec
-    field :last_active_at, :utc_datetime_usec
-    field :status, :string, default: "active"
-    field :metadata, :map, default: %{}
+    field(:name, :string)
+    field(:client_info, :map, default: %{})
+    field(:started_at, :utc_datetime_usec)
+    field(:last_active_at, :utc_datetime_usec)
+    field(:status, :string, default: "active")
+    field(:metadata, :map, default: %{})
 
-    has_many :interactions, Mimo.Brain.Interaction
-    has_many :engrams, Mimo.Brain.Engram
+    has_many(:interactions, Mimo.Brain.Interaction)
+    has_many(:engrams, Mimo.Brain.Engram)
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -52,6 +52,7 @@ defmodule Mimo.Brain.Thread do
 
   defp set_timestamps(changeset) do
     now = DateTime.utc_now()
+
     changeset
     |> put_default(:started_at, now)
     |> put_default(:last_active_at, now)
@@ -106,11 +107,13 @@ defmodule Mimo.Brain.Thread do
   def get_or_create_current(opts \\ []) do
     thirty_minutes_ago = DateTime.add(DateTime.utc_now(), -30, :minute)
 
-    query = from t in __MODULE__,
-      where: t.status in ["active", "idle"],
-      where: t.last_active_at > ^thirty_minutes_ago,
-      order_by: [desc: t.last_active_at],
-      limit: 1
+    query =
+      from(t in __MODULE__,
+        where: t.status in ["active", "idle"],
+        where: t.last_active_at > ^thirty_minutes_ago,
+        order_by: [desc: t.last_active_at],
+        limit: 1
+      )
 
     case Repo.one(query) do
       nil -> create(opts)
@@ -154,7 +157,7 @@ defmodule Mimo.Brain.Thread do
   Lists all threads, optionally filtered by status.
   """
   def list(opts \\ []) do
-    query = from t in __MODULE__, order_by: [desc: t.last_active_at]
+    query = from(t in __MODULE__, order_by: [desc: t.last_active_at])
 
     query =
       case Keyword.get(opts, :status) do
@@ -203,9 +206,11 @@ defmodule Mimo.Brain.Thread do
   Gets statistics for threads.
   """
   def stats do
-    query = from t in __MODULE__,
-      group_by: t.status,
-      select: {t.status, count(t.id)}
+    query =
+      from(t in __MODULE__,
+        group_by: t.status,
+        select: {t.status, count(t.id)}
+      )
 
     stats_map =
       query
