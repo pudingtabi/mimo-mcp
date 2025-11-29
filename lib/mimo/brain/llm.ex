@@ -343,7 +343,7 @@ defmodule Mimo.Brain.LLM do
     case Req.post("#{ollama_url}/api/embeddings",
            json: Jason.decode!(payload),
            headers: headers,
-           connect_timeout: 2_000,
+           connect_options: [timeout: 2_000],
            receive_timeout: timeout
          ) do
       {:ok, %Req.Response{status: 200, body: body}} ->
