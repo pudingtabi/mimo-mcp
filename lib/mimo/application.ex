@@ -85,7 +85,7 @@ defmodule Mimo.Application do
         # Start MCP server (stdio for GitHub Copilot)
         start_mcp_server(sup)
 
-        Logger.info("Mimo-MCP Gateway v2.3.3 started (Universal Aperture mode)")
+        Logger.info("Mimo-MCP Gateway v2.4.0 started (Universal Aperture mode)")
         Logger.info("  HTTP API: http://localhost:#{http_port()}")
         Logger.info("  MCP Server: stdio (port #{mcp_port()})")
 
@@ -95,7 +95,7 @@ defmodule Mimo.Application do
         start_http_endpoint(sup)
         start_mcp_server(sup)
 
-        Logger.warning("Mimo-MCP Gateway v2.3.3 started (degraded mode - catalog not loaded)")
+        Logger.warning("Mimo-MCP Gateway v2.4.0 started (degraded mode - catalog not loaded)")
     end
 
     {:ok, sup}

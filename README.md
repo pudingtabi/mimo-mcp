@@ -378,7 +378,7 @@ Each tool handles multiple operations via the `operation` parameter:
 | `fetch` | text, html, json, markdown, raw | HTTP requests with format conversion |
 | `think` | thought, plan, sequential | Cognitive operations and reasoning |
 | `web_parse` | (html→markdown) | Convert HTML to clean Markdown |
-| `search` | web, code | Web search via Exa AI |
+| `search` | web, code | Web search via DuckDuckGo (no API key required) |
 | `sonar` | (auto-detect platform) | UI accessibility scanner (Linux/macOS) |
 | `knowledge` | query, teach | Knowledge graph operations |
 

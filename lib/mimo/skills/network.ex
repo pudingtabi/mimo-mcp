@@ -9,7 +9,7 @@ defmodule Mimo.Skills.Network do
 
   @default_timeout 10_000
   @search_timeout 15_000
-  @user_agent "Mimo/2.3"
+  @user_agent "Mimo/2.4"
   @default_headers [{"accept", "application/json, text/html, */*"}]
 
   # ==========================================================================
