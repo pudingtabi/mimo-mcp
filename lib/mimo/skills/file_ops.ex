@@ -23,7 +23,10 @@ defmodule Mimo.Skills.FileOps do
   defp format_file_error(:enospc, _path), do: {:error, "No space left on device"}
   defp format_file_error(:enomem, _path), do: {:error, "Out of memory"}
   defp format_file_error(:eexist, path), do: {:error, "File already exists: #{path}"}
-  defp format_file_error(:path_outside_allowed_roots, path), do: {:error, "Path outside allowed roots: #{path}"}
+
+  defp format_file_error(:path_outside_allowed_roots, path),
+    do: {:error, "Path outside allowed roots: #{path}"}
+
   defp format_file_error(:file_too_large, path), do: {:error, "File too large (max 10MB): #{path}"}
   defp format_file_error(:timeout, path), do: {:error, "Operation timed out: #{path}"}
   defp format_file_error(reason, path) when is_atom(reason), do: {:error, "#{reason}: #{path}"}
@@ -89,7 +92,8 @@ defmodule Mimo.Skills.FileOps do
   defp do_chunked_read(path, offset, limit) do
     with {:ok, safe_path} <- expand_safe(path),
          {:ok, stat} <- File.stat(safe_path),
-         true <- stat.size <= @max_file_size do
+         :ok <- check_not_directory(stat),
+         :ok <- check_file_size(stat) do
       # Stream-read for efficiency
       lines =
         safe_path
@@ -117,9 +121,14 @@ defmodule Mimo.Skills.FileOps do
        }}
     else
       {:error, reason} -> format_file_error(reason, path)
-      false -> format_file_error(:file_too_large, path)
     end
   end
+
+  defp check_not_directory(%{type: :directory}), do: {:error, :eisdir}
+  defp check_not_directory(_), do: :ok
+
+  defp check_file_size(%{size: size}) when size > @max_file_size, do: {:error, :file_too_large}
+  defp check_file_size(_), do: :ok
 
   defp count_lines_fast(path) do
     path
