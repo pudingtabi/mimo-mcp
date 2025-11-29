@@ -87,17 +87,23 @@ defmodule Mimo.Brain.Memory do
       with :ok <- validate_content_size(content),
            {:ok, embedding} <- generate_embedding(content),
            :ok <- validate_embedding_dimension(embedding) do
+        # Auto-detect project and generate tags
+        project_id = Mimo.Brain.LLM.detect_project(content)
+        tags = auto_generate_tags(content)
+
         changeset =
           Engram.changeset(%Engram{}, %{
             content: content,
             category: category,
             importance: importance,
-            embedding: embedding
+            embedding: embedding,
+            project_id: project_id,
+            tags: tags
           })
 
         case Repo.insert(changeset) do
           {:ok, engram} ->
-            log_memory_event(:stored, engram.id, category)
+            log_memory_event(:stored, engram.id, category, project_id, tags)
             {:ok, engram.id}
 
           {:error, changeset} ->
@@ -408,13 +414,29 @@ defmodule Mimo.Brain.Memory do
   end
 
   # Simple cosine similarity - for production use Nx or Rust NIF
+  # Handles dimension mismatch by truncating to smaller dimension
+  # This allows searching mixed-dimension embeddings (legacy data migration)
   defp calculate_similarity(vec1, vec2) when is_list(vec1) and is_list(vec2) do
-    if length(vec1) != length(vec2) do
+    len1 = length(vec1)
+    len2 = length(vec2)
+    
+    # Handle empty vectors
+    if len1 == 0 or len2 == 0 do
       0.0
     else
-      dot = Enum.zip(vec1, vec2) |> Enum.reduce(0.0, fn {a, b}, acc -> acc + a * b end)
-      mag1 = :math.sqrt(Enum.reduce(vec1, 0.0, fn x, acc -> acc + x * x end))
-      mag2 = :math.sqrt(Enum.reduce(vec2, 0.0, fn x, acc -> acc + x * x end))
+      # Truncate to smaller dimension to handle mixed embeddings
+      # This preserves semantic meaning in overlapping dimensions
+      {v1, v2} = 
+        if len1 != len2 do
+          min_len = min(len1, len2)
+          {Enum.take(vec1, min_len), Enum.take(vec2, min_len)}
+        else
+          {vec1, vec2}
+        end
+      
+      dot = Enum.zip(v1, v2) |> Enum.reduce(0.0, fn {a, b}, acc -> acc + a * b end)
+      mag1 = :math.sqrt(Enum.reduce(v1, 0.0, fn x, acc -> acc + x * x end))
+      mag2 = :math.sqrt(Enum.reduce(v2, 0.0, fn x, acc -> acc + x * x end))
 
       if mag1 == 0.0 or mag2 == 0.0, do: 0.0, else: dot / (mag1 * mag2)
     end
@@ -497,11 +519,19 @@ defmodule Mimo.Brain.Memory do
   defp unwrap_transaction_result({:ok, {:error, reason}}), do: {:error, reason}
   defp unwrap_transaction_result({:error, reason}), do: {:error, reason}
 
-  defp log_memory_event(event, id, category) do
+  defp log_memory_event(event, id, category, project_id \\ "global", tags \\ []) do
     :telemetry.execute(
       [:mimo, :brain, :memory, event],
       %{count: 1},
-      %{id: id, category: category, timestamp: System.system_time(:second)}
+      %{id: id, category: category, project_id: project_id, tags: tags, timestamp: System.system_time(:second)}
     )
+  end
+
+  # Auto-generate tags using LLM (async, best-effort)
+  defp auto_generate_tags(content) do
+    case Mimo.Brain.LLM.auto_tag(content) do
+      {:ok, tags} -> tags
+      {:error, _} -> []
+    end
   end
 end

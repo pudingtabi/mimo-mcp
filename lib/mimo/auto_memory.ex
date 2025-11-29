@@ -60,23 +60,31 @@ defmodule Mimo.AutoMemory do
 
   # Determine if and how to store memory based on tool and result
   defp maybe_store_memory(tool_name, arguments, result) do
+    Logger.debug("AutoMemory: Processing tool=#{tool_name}")
+
     case categorize_tool(tool_name) do
       {:file_read, path} ->
+        Logger.debug("AutoMemory: Categorized as file_read")
         store_file_read_memory(path, arguments, result)
 
       {:file_write, path} ->
+        Logger.debug("AutoMemory: Categorized as file_write")
         store_file_write_memory(path, arguments, result)
 
       {:search, query} ->
+        Logger.debug("AutoMemory: Categorized as search")
         store_search_memory(query, arguments, result)
 
       {:browser, action} ->
+        Logger.debug("AutoMemory: Categorized as browser, action=#{action}")
         store_browser_memory(action, arguments, result)
 
       {:process, command} ->
+        Logger.debug("AutoMemory: Categorized as process")
         store_process_memory(command, arguments, result)
 
       :skip ->
+        Logger.debug("AutoMemory: Skipped tool=#{tool_name}")
         :ok
     end
   end
@@ -95,8 +103,9 @@ defmodule Mimo.AutoMemory do
       String.contains?(tool_name, "search") or String.contains?(tool_name, "vibes") ->
         {:search, :from_args}
 
-      # Browser operations
-      String.contains?(tool_name, "puppeteer") or String.contains?(tool_name, "browser") ->
+      # Browser operations (including blink for protected sites)
+      String.contains?(tool_name, "puppeteer") or String.contains?(tool_name, "browser") or
+          String.contains?(tool_name, "blink") ->
         {:browser, tool_name}
 
       # Process/terminal operations
@@ -104,7 +113,7 @@ defmodule Mimo.AutoMemory do
         {:process, :from_args}
 
       # Fetch operations (URL reads)
-      String.contains?(tool_name, "fetch") ->
+      String.contains?(tool_name, "fetch") or String.contains?(tool_name, "web_extract") ->
         {:file_read, :url}
 
       # Skip internal memory tools (avoid recursion)
@@ -125,6 +134,7 @@ defmodule Mimo.AutoMemory do
   end
 
   # Store memory for file reads
+  # Category: "observation" - recording what was seen/read
   defp store_file_read_memory(_, arguments, {:ok, content}) do
     path = arguments["path"] || arguments["url"] || "unknown"
 
@@ -136,7 +146,7 @@ defmodule Mimo.AutoMemory do
 
       store_memory(
         "Read file: #{path}\nContent preview: #{summary}",
-        "file_read",
+        "observation",
         calculate_importance(content_str)
       )
     end
@@ -145,13 +155,14 @@ defmodule Mimo.AutoMemory do
   defp store_file_read_memory(_, _, _), do: :ok
 
   # Store memory for file writes
+  # Category: "action" - recording what was done
   defp store_file_write_memory(_, arguments, {:ok, _}) do
     path = arguments["path"] || "unknown"
     content = arguments["content"] || ""
 
     store_memory(
       "Wrote file: #{path}\nContent: #{summarize_content(content, 150)}",
-      "file_write",
+      "action",
       0.6
     )
   end
@@ -159,6 +170,7 @@ defmodule Mimo.AutoMemory do
   defp store_file_write_memory(_, _, _), do: :ok
 
   # Store memory for search results
+  # Category: "observation" - recording what was found
   defp store_search_memory(_, arguments, {:ok, results}) do
     query = arguments["query"] || arguments["pattern"] || "unknown"
     results_str = extract_content_string(results)
@@ -166,7 +178,7 @@ defmodule Mimo.AutoMemory do
     if String.length(results_str) > 20 do
       store_memory(
         "Search query: #{query}\nResults: #{summarize_content(results_str, 300)}",
-        "search",
+        "observation",
         0.7
       )
     end
@@ -175,11 +187,24 @@ defmodule Mimo.AutoMemory do
   defp store_search_memory(_, _, _), do: :ok
 
   # Store memory for browser actions
-  defp store_browser_memory(action, arguments, {:ok, _result}) do
+  # Category: "action" - recording what was done in browser
+  defp store_browser_memory(action, arguments, {:ok, result}) do
+    Logger.debug("AutoMemory browser: action=#{action}, url=#{inspect(arguments["url"])}")
     url = arguments["url"] || ""
 
     content =
       cond do
+        # Blink tool - record URL visits with protection info
+        String.contains?(action, "blink") ->
+          operation = arguments["operation"] || "fetch"
+          status = get_in_result(result, ["status"]) || get_in_result(result, ["data", "status"])
+          protection = get_in_result(result, ["data", "protection"])
+
+          status_str = if status, do: " (status: #{status})", else: ""
+          protection_str = if protection, do: " [protected by: #{protection}]", else: ""
+
+          "Blink #{operation}: #{url}#{status_str}#{protection_str}"
+
         String.contains?(action, "navigate") and url != "" ->
           "Visited URL: #{url}"
 
@@ -191,17 +216,44 @@ defmodule Mimo.AutoMemory do
           "Clicked: #{selector}#{if url != "", do: " on #{url}", else: ""}"
 
         true ->
+          Logger.debug("AutoMemory browser: No content match for action=#{action}")
           nil
       end
 
     if content do
-      store_memory(content, "browser", 0.5)
+      Logger.debug("AutoMemory browser: Storing content=#{content}")
+      store_memory(content, "action", 0.5)
     end
   end
 
-  defp store_browser_memory(_, _, _), do: :ok
+  defp store_browser_memory(_action, _arguments, other) do
+    Logger.debug("AutoMemory browser: Pattern not matched, result=#{inspect(other)}")
+    :ok
+  end
+
+  # Helper to safely get nested values from result maps (handles both atom and string keys)
+  defp get_in_result(result, keys) when is_map(result) and is_list(keys) do
+    Enum.reduce_while(keys, result, fn key, acc ->
+      cond do
+        is_map(acc) and Map.has_key?(acc, key) ->
+          {:cont, Map.get(acc, key)}
+
+        is_map(acc) and is_binary(key) and Map.has_key?(acc, String.to_atom(key)) ->
+          {:cont, Map.get(acc, String.to_atom(key))}
+
+        is_map(acc) and is_atom(key) and Map.has_key?(acc, Atom.to_string(key)) ->
+          {:cont, Map.get(acc, Atom.to_string(key))}
+
+        true ->
+          {:halt, nil}
+      end
+    end)
+  end
+
+  defp get_in_result(_, _), do: nil
 
   # Store memory for process/command execution
+  # Category: "action" - recording commands executed
   defp store_process_memory(_, arguments, {:ok, output}) do
     command = arguments["command"] || "unknown"
     output_str = extract_content_string(output)
@@ -210,7 +262,7 @@ defmodule Mimo.AutoMemory do
     if String.length(output_str) > 30 do
       store_memory(
         "Executed: #{command}\nOutput: #{summarize_content(output_str, 200)}",
-        "process",
+        "action",
         0.5
       )
     end

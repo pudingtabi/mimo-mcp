@@ -7,14 +7,24 @@ defmodule Mimo.Skills.Network do
   Web search via multi-backend scraping (DuckDuckGo, Bing, Brave) - no API key required.
   AI-powered content extraction for clean text from messy HTML.
 
-  ## Browser Profile Integration
+  ## Fetch Hierarchy (Speed vs Capability)
 
-  For sites that require specific client configurations, this module integrates
-  with `Mimo.Skills.Blink` to provide realistic browser profiles and adaptive
-  request handling. Enable with `use_blink: true` option.
+  | Layer   | Speed  | JS | Description                                    |
+  |---------|--------|----|-------------------------------------------------|
+  | Standard| Fast   | No | Basic HTTP request with Req library            |
+  | Blink   | Medium | No | HTTP with browser headers/TLS fingerprinting   |
+  | Browser | Slow   | Yes| Real Chromium browser via Puppeteer            |
+
+  ## Options to control fetch behavior:
+
+  - `use_blink: true` - Use Blink HTTP emulation (no JS)
+  - `auto_blink: true` - Auto-escalate to Blink if standard fetch is blocked
+  - `use_browser: true` - Use real browser with Puppeteer (executes JS)
+  - `auto_browser: true` - Auto-escalate to Browser if Blink fails
   """
 
   alias Mimo.Skills.Blink
+  alias Mimo.Skills.Browser
 
   @default_timeout 10_000
   @search_timeout 15_000
@@ -47,22 +57,81 @@ defmodule Mimo.Skills.Network do
   - `:user_agent` - Custom User-Agent
   - `:use_blink` - Use Blink for browser profiles (default: false)
   - `:auto_blink` - Auto-fallback to Blink on unexpected responses (default: false)
+  - `:use_browser` - Use full browser automation with Puppeteer (default: false)
+  - `:auto_browser` - Auto-fallback to Browser when Blink detects challenge (default: false)
+
+  ## Fetch Hierarchy
+
+  The hierarchy is: Standard → Blink → Browser
+
+  - `use_browser: true` - Skip to full browser (most powerful, slowest)
+  - `use_blink: true` - Use Blink HTTP profiles
+  - `auto_browser: true` - Try Blink first, escalate to Browser on challenge
+  - `auto_blink: true` - Try standard first, escalate to Blink on challenge
   """
   def fetch(url, opts \\ []) when is_binary(url) do
     use_blink = Keyword.get(opts, :use_blink, false)
     auto_blink = Keyword.get(opts, :auto_blink, false)
+    use_browser = Keyword.get(opts, :use_browser, false)
+    auto_browser = Keyword.get(opts, :auto_browser, false)
 
-    if use_blink do
-      fetch_with_blink(url, opts)
-    else
-      result = fetch_standard(url, opts)
+    cond do
+      # Direct to full browser automation
+      use_browser ->
+        fetch_with_browser(url, opts)
 
-      # Auto-fallback to Blink if we detect a challenge
-      if auto_blink and is_challenge_response?(result) do
-        fetch_with_blink(url, opts)
-      else
-        result
-      end
+      # Direct to Blink with optional browser fallback
+      use_blink ->
+        result = fetch_with_blink(url, opts)
+
+        if auto_browser and is_challenge_result?(result) do
+          fetch_with_browser(url, opts)
+        else
+          result
+        end
+
+      # Standard fetch with optional escalation
+      true ->
+        result = fetch_standard(url, opts)
+
+        cond do
+          # Auto-escalate to browser on challenge
+          auto_browser and is_challenge_response?(result) ->
+            blink_result = fetch_with_blink(url, opts)
+
+            if is_challenge_result?(blink_result) do
+              fetch_with_browser(url, opts)
+            else
+              blink_result
+            end
+
+          # Auto-escalate to Blink on challenge
+          auto_blink and is_challenge_response?(result) ->
+            fetch_with_blink(url, opts)
+
+          true ->
+            result
+        end
+    end
+  end
+
+  defp fetch_with_browser(url, opts) do
+    profile = Keyword.get(opts, :browser, "chrome") |> to_string()
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
+
+    case Browser.browser_fetch(url, profile: profile, timeout: timeout) do
+      {:ok, response} ->
+        {:ok,
+         %{
+           status: response.status,
+           body: response.body,
+           headers: response.headers || %{},
+           method: :browser,
+           puppeteer: true
+         }}
+
+      {:error, reason} ->
+        {:error, "Browser fetch failed: #{reason}"}
     end
   end
 
@@ -145,6 +214,15 @@ defmodule Mimo.Skills.Network do
   end
 
   defp is_challenge_response?(_), do: false
+
+  # Check if a Blink result indicates a challenge that needs browser escalation
+  defp is_challenge_result?({:error, msg}) when is_binary(msg) do
+    String.contains?(msg, "Challenge detected") or String.contains?(msg, "Blocked")
+  end
+
+  # Future patterns that may be returned by Blink/Browser modules
+  defp is_challenge_result?({tag, _}) when tag in [:challenge, :blocked], do: true
+  defp is_challenge_result?(_), do: false
 
   # ==========================================================================
   # Fetch Formats

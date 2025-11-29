@@ -70,7 +70,10 @@ defmodule Mimo.Application do
         # Consolidator: Working memory → Long-term memory transfer
         {Mimo.Brain.Consolidator, []},
         # Forgetting: Scheduled decay-based memory cleanup
-        {Mimo.Brain.Forgetting, []}
+        {Mimo.Brain.Forgetting, []},
+        # ===== Passive Memory System (SPEC-012) =====
+        # Thread Manager: AI session tracking and interaction recording
+        {Mimo.Brain.ThreadManager, []}
       ] ++ synthetic_cortex_children()
 
     opts = [strategy: :one_for_one, name: Mimo.Supervisor]

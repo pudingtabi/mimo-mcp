@@ -1,18 +1,28 @@
 # Dependencies
 /deps/
 /_build/
+node_modules/
+package-lock.json
 
-# Database
+# Database - NEVER commit user data
 *.db
 *.db-journal
 *.db-shm
 *.db-wal
 priv/*.db
+priv/mimo_mcp.db
 
-# Environment
+# Environment & Secrets - CRITICAL
 .env
 .env.local
 .env.*.local
+.env.production
+.env.development
+*.pem
+*.key
+*.crt
+secrets/
+credentials/
 
 # IDE
 .idea/
@@ -51,15 +61,8 @@ native/vector_math/target/
 debug_*.py
 extract_*.py
 
-# Skills manifest (user-specific)
+# Skills manifest (user-specific, generated at runtime)
 priv/skills_manifest.json
-
-# Secrets and credentials
-.env*
-*.pem
-*.key
-secrets/
-credentials/
 
 # Benchmark results (may contain environment-specific data)
 bench/results/
@@ -73,3 +76,6 @@ config/local.exs
 
 # Native build artifacts
 native/*/target/
+
+# User-specific files
+*.local

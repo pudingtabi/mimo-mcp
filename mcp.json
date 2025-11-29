@@ -2,8 +2,8 @@
   "servers": {
     "mimo": {
       "type": "stdio",
-      "command": "node",
-      "args": ["/workspace/mrc-server/mimo-mcp/bin/mimo-node-wrapper.js"]
+      "command": "/workspace/mrc-server/mimo-mcp/bin/mimo-mcp-stdio",
+      "args": []
     }
   }
 }

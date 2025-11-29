@@ -15,7 +15,7 @@ This section provides an honest assessment of current functionality:
 |---------|--------|---------|-------|
 | HTTP/REST Gateway | ✅ Production Ready | v2.4.0 | Fully operational on port 4000 |
 | MCP stdio Protocol | ✅ Production Ready | v2.4.0 | Compatible with Claude Desktop, VS Code |
-| Native Elixir Tools | ✅ Production Ready | v2.4.0 | 8 consolidated tools, zero NPX deps |
+| Native Elixir Tools | ✅ Production Ready | v2.4.0 | 20 native tools (11 core + 9 internal), zero NPX deps |
 | Episodic Memory | ✅ Production Ready | v2.4.0 | SQLite + Ollama embeddings |
 | **Working Memory** | ✅ Production Ready | v2.4.0 | ETS-backed short-term buffer with TTL |
 | **Memory Consolidation** | ✅ Production Ready | v2.4.0 | Automatic working → long-term transfer |
@@ -53,18 +53,18 @@ This section provides an honest assessment of current functionality:
 - **Test Suite** - 652 tests passing (including 100 integration tests)
 
 ### Security Hardened (v2.3.1)
-- **SecureExecutor** - Command whitelist (npx, docker, node, python), argument sanitization
+- **SecureExecutor** - Command whitelist (docker, node, python, etc.), argument sanitization
 - **Config Validator** - JSON schema validation, dangerous pattern detection, path traversal prevention
 - **Memory Cleanup** - Automatic TTL-based cleanup (30 days default), 100K memory limit
 - **ACID Transactions** - Memory persistence with proper transaction handling
 - **Telemetry** - Security event logging for audit trails
 
 ### Known Limitations
-- External MCP skills (filesystem, playwright) spawn real subprocesses - use in trusted environments
 - Ollama required for embeddings - falls back to simple hashing if unavailable
 - Single-node deployment tested; distributed mode experimental
 - Semantic search is O(n) - limited to ~50K entities for optimal performance
-- Process limits not enforced by default (use Mimo.Skills.Supervisor for bounded execution)
+- Terminal commands execute in sandboxed environment - use in trusted environments
+- Vision tool requires OPENROUTER_API_KEY for image analysis
 
 ---
 
@@ -73,7 +73,7 @@ This section provides an honest assessment of current functionality:
 Mimo is an **intelligent Memory OS** that provides:
 - 🌐 **Multi-Protocol Access**: HTTP/REST, OpenAI-compatible, WebSocket, and MCP stdio
 - 🧠 **Meta-Cognitive Router**: Intelligent query classification to memory stores
-- 🔗 **12 Native Tools**: 8 consolidated core tools + 4 internal memory tools (zero NPX dependencies)
+- 🔗 **20 Native Tools**: 11 core tools + 9 internal tools (zero NPX dependencies)
 - 💾 **Vector Memory**: SQLite + Ollama embeddings for semantic search
 - 📊 **Semantic Store**: Triple-based knowledge graph for exact relationships
 - ⚙️ **Procedural Store**: Deterministic state machine execution
@@ -89,7 +89,7 @@ Mimo is an **intelligent Memory OS** that provides:
 |--------|----------|--------------|
 | **Option 0: Single Binary** | Enterprise/Production | None (Self-contained) |
 | **Option 1: Local + Docker** | Most users | Docker Desktop |
-| **Option 2: Local Native** | Developers | Elixir 1.16+, Ollama |
+| **Option 2: Local Native** | Developers | Elixir 1.12+, Ollama |
 | **Option 3: VPS** | Always-on, multi-device | VPS with 2GB+ RAM |
 
 ---
@@ -176,6 +176,11 @@ ollama pull qwen3-embedding:0.6b
 # Clone and setup
 git clone https://github.com/pudingtabi/mimo-mcp.git
 cd mimo-mcp
+
+# Configure environment (optional but recommended)
+cp .env.example .env
+# Edit .env to add your OPENROUTER_API_KEY (free at https://openrouter.ai/keys)
+
 mix deps.get
 mix ecto.create
 mix ecto.migrate
@@ -356,16 +361,16 @@ Add to `~/.vscode/mcp.json`:
 
 ---
 
-## Available Tools (12 Native)
+## Available Tools (20 Native)
 
-Mimo provides **12 native Elixir tools** with zero external dependencies. Managed by the **Tool Registry** (`Mimo.ToolRegistry`).
+Mimo provides **20 native Elixir tools** with zero external dependencies. Managed by the **Tool Registry** (`Mimo.ToolRegistry`).
 
 ### Tool Architecture (v2.4.0)
 
 | Category | Count | Description |
-|----------|-------|-------------|
-| **Internal** | 4 | Core memory operations (ask_mimo, store_fact, search_vibes, reload) |
-| **Mimo.Tools** | 8 | Consolidated native tools (file, terminal, fetch, think, etc.) |
+|----------|-------|--------------|
+| **Internal** | 9 | Memory & procedure operations (ask_mimo, store_fact, search_vibes, memory, ingest, run_procedure, procedure_status, list_procedures, reload) |
+| **Mimo.Tools** | 11 | Consolidated native tools (file, terminal, fetch, think, search, vision, blink, etc.) |
 
 ### Consolidated Core Tools (Mimo.Tools)
 
@@ -373,22 +378,30 @@ Each tool handles multiple operations via the `operation` parameter:
 
 | Tool | Operations | Description |
 |------|------------|-------------|
-| `file` | read, write, ls, read_lines, insert_after, insert_before, replace_lines, delete_lines, search, replace_string, list_directory, get_info, move, create_directory, read_multiple | All file system operations |
+| `file` | read, write, ls, read_lines, insert_after, insert_before, replace_lines, delete_lines, search, replace_string, list_directory, get_info, move, create_directory, read_multiple, list_symbols, read_symbol, search_symbols | All file system operations |
 | `terminal` | execute, start_process, read_output, interact, kill, force_kill, list_sessions, list_processes | Command execution and process management |
 | `fetch` | text, html, json, markdown, raw | HTTP requests with format conversion |
 | `think` | thought, plan, sequential | Cognitive operations and reasoning |
 | `web_parse` | (html→markdown) | Convert HTML to clean Markdown |
-| `search` | web, code | Web search via DuckDuckGo (no API key required) |
+| `search` | web, code | Web search via DuckDuckGo, Bing, or Brave (auto-fallback, no API key required) |
+| `web_extract` | (url→content) | Extract clean content from web pages (Readability-style) |
 | `sonar` | (auto-detect platform) | UI accessibility scanner (Linux/macOS) |
+| `vision` | (image→analysis) | Analyze images using vision-capable LLM (Mistral via OpenRouter) |
 | `knowledge` | query, teach | Knowledge graph operations |
+| `blink` | fetch, analyze, smart | Enhanced web fetch with browser fingerprinting to bypass protection |
 
 ### Internal Tools
 
 | Tool | Description | Required Args |
 |------|-------------|---------------|
 | `ask_mimo` | Query Mimo's memory system | `query` |
-| `store_fact` | Store facts/observations with embeddings | `content`, `category` |
-| `search_vibes` | Vector similarity search | `query` |
+| `store_fact` | [Deprecated: use memory] Store facts/observations | `content`, `category` |
+| `search_vibes` | [Deprecated: use memory] Vector similarity search | `query` |
+| `memory` | Unified memory operations (store, search, list, delete, stats, decay_check) | `operation` |
+| `ingest` | Ingest file content into memory with chunking | `path` |
+| `run_procedure` | Execute a registered procedure as FSM | `name` |
+| `procedure_status` | Check status of procedure execution | `execution_id` |
+| `list_procedures` | List all registered procedures | (none) |
 | `mimo_reload_skills` | Hot-reload skills without restart | (none) |
 
 ### Example Usage
@@ -420,7 +433,7 @@ curl -X POST http://localhost:4000/v1/mimo/tool \
 ```elixir
 # List all registered tools (IEx)
 Mimo.ToolRegistry.list_all_tools() |> length()
-# => 12 (4 internal + 8 core)
+# => 20 (9 internal + 11 core)
 
 # Get tool owner
 Mimo.ToolRegistry.get_tool_owner("file")
@@ -481,8 +494,7 @@ Mimo.Tools.list_tools()
 | `MIMO_API_KEY` | (none) | API key for authentication |
 | `MIMO_SECRET_KEY_BASE` | (auto) | Phoenix secret key |
 | `OLLAMA_URL` | http://ollama:11434 | Embeddings server |
-| `OPENROUTER_API_KEY` | (none) | AI reasoning |
-| `EXA_API_KEY` | (none) | Web search |
+| `OPENROUTER_API_KEY` | (none) | Vision/AI reasoning (optional) |
 | `LOGGER_LEVEL` | info | `none` for clean stdio |
 
 ---
@@ -741,7 +753,7 @@ lib/
 ├── mimo/
 │   ├── application.ex               # OTP application with feature flags
 │   ├── cli.ex                       # Burrito CLI Entry Point
-│   ├── tools.ex                     # Consolidated 8 core tools (file, terminal, fetch, etc.)
+│   ├── tools.ex                     # Consolidated 11 core tools (file, terminal, fetch, vision, blink, etc.)
 │   ├── tool_registry.ex             # Thread-safe tool registration
 │   ├── auto_memory.ex               # Automatic memory capture
 │   ├── meta_cognitive_router.ex     # Query classification router

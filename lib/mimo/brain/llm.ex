@@ -1,22 +1,42 @@
 defmodule Mimo.Brain.LLM do
   @moduledoc """
-  Hybrid LLM adapter. OpenRouter for reasoning, local Ollama for embeddings.
+  Hybrid LLM adapter:
+  - OpenRouter (Mistral Small 3.1 24B primary, Gemma 3 27B fallback) for reasoning/chat
+  - Local Ollama (Qwen3-embedding) for embeddings
 
   All external calls are wrapped with circuit breaker protection to prevent
   cascade failures when services are unavailable.
+
+  All LLM responses are steered to maintain Mimo's identity and personality.
   """
   require Logger
 
   alias Mimo.ErrorHandling.CircuitBreaker
 
   @openrouter_url "https://openrouter.ai/api/v1/chat/completions"
-  # Use env var for model, default to Mistral Small 3.1 24B (128K context, function calling, RAG optimized, free)
+  # Main brain: Mistral Small 3.1 24B (free, 128K context, function calling, RAG optimized)
   @default_model System.get_env("OPENROUTER_MODEL", "mistralai/mistral-small-3.1-24b-instruct:free")
+  # Fallback model: Gemma 3 27B (free, 128K context, multimodal)
+  @fallback_model System.get_env("OPENROUTER_FALLBACK_MODEL", "google/gemma-3-27b-it:free")
   # Vision model - NVIDIA Nemotron Nano 2 VL (FREE multimodal vision model with reasoning)
   @vision_model System.get_env("OPENROUTER_VISION_MODEL", "nvidia/nemotron-nano-12b-v2-vl:free")
-  # Embedding model configuration
+  # Embedding model - local Ollama qwen3-embedding (1024 dims, fast, free)
   @default_embedding_model System.get_env("OLLAMA_EMBEDDING_MODEL", "qwen3-embedding:0.6b")
   @default_embedding_dim 1024
+
+  # Mimo's core identity steering prompt
+  @mimo_identity """
+  You are Mimo, an intelligent AI assistant with persistent memory.
+  
+  Core traits:
+  - Concise and direct - no fluff, get to the point
+  - Technically competent - you understand code, systems, and engineering
+  - Helpful but not sycophantic - honest feedback, no excessive praise
+  - Self-aware - you know you're an AI with memory that persists across sessions
+  - Pragmatic - focus on solutions that work, not perfect solutions
+  
+  Voice: Professional yet approachable. Use "I" not "we". Be specific.
+  """
 
   @doc """
   Simple completion API for prompts.
@@ -45,12 +65,19 @@ defmodule Mimo.Brain.LLM do
     max_tokens = Keyword.get(opts, :max_tokens, 200)
     temperature = Keyword.get(opts, :temperature, 0.1)
     format = Keyword.get(opts, :format, :text)
+    # Allow bypassing Mimo identity for internal tasks (like tagging)
+    raw_mode = Keyword.get(opts, :raw, false)
 
     system_prompt =
-      if format == :json do
-        "You are a helpful assistant. Respond only with valid JSON, no markdown or explanation."
-      else
-        "You are a helpful assistant. Be concise."
+      cond do
+        raw_mode and format == :json ->
+          "You are a helpful assistant. Respond only with valid JSON, no markdown or explanation."
+        raw_mode ->
+          "You are a helpful assistant. Be concise."
+        format == :json ->
+          @mimo_identity <> "\n\nRespond only with valid JSON, no markdown or explanation."
+        true ->
+          @mimo_identity
       end
 
     case api_key() do
@@ -59,14 +86,25 @@ defmodule Mimo.Brain.LLM do
         {:error, :no_api_key}
 
       key ->
-        do_complete_request(system_prompt, prompt, key, max_tokens, temperature)
+        # Try primary model first, fallback to secondary on failure
+        case do_complete_request(system_prompt, prompt, key, max_tokens, temperature, @default_model) do
+          {:ok, _} = success ->
+            success
+
+          {:error, reason} = error ->
+            Logger.warning("Primary model failed (#{inspect(reason)}), trying fallback: #{@fallback_model}")
+            case do_complete_request(system_prompt, prompt, key, max_tokens, temperature, @fallback_model) do
+              {:ok, _} = fallback_success -> fallback_success
+              {:error, _} -> error  # Return original error if fallback also fails
+            end
+        end
     end
   end
 
-  defp do_complete_request(system_prompt, user_prompt, api_key, max_tokens, temperature) do
+  defp do_complete_request(system_prompt, user_prompt, api_key, max_tokens, temperature, model) do
     payload =
       Jason.encode!(%{
-        "model" => @default_model,
+        "model" => model,
         "messages" => [
           %{"role" => "system", "content" => system_prompt},
           %{"role" => "user", "content" => user_prompt}
@@ -143,11 +181,12 @@ defmodule Mimo.Brain.LLM do
       end
 
     system_prompt = """
-    You are Mimo, a concise AI assistant. Be brief and direct.
+    #{@mimo_identity}
 
-    Context: #{memory_context}
+    You have access to your memories:
+    #{memory_context}
 
-    Respond in 2-3 sentences max.
+    Respond in 2-3 sentences max. Be direct.
     """
 
     case api_key() do
@@ -262,9 +301,24 @@ defmodule Mimo.Brain.LLM do
   end
 
   defp call_openrouter(system_prompt, query, api_key) do
+    # Try primary model first, fallback to Gemma on failure
+    case do_call_openrouter(system_prompt, query, api_key, @default_model) do
+      {:ok, _} = success ->
+        success
+
+      {:error, reason} = error ->
+        Logger.warning("Primary model failed (#{inspect(reason)}), trying fallback: #{@fallback_model}")
+        case do_call_openrouter(system_prompt, query, api_key, @fallback_model) do
+          {:ok, _} = fallback_success -> fallback_success
+          {:error, _} -> error
+        end
+    end
+  end
+
+  defp do_call_openrouter(system_prompt, query, api_key, model) do
     payload =
       Jason.encode!(%{
-        "model" => @default_model,
+        "model" => model,
         "messages" => [
           %{"role" => "system", "content" => system_prompt},
           %{"role" => "user", "content" => query}
@@ -316,15 +370,17 @@ defmodule Mimo.Brain.LLM do
 
   @doc """
   Generate embeddings using local Ollama instance.
-  Falls back to simple hash-based vectors if Ollama unavailable.
-
+  
+  IMPORTANT: This function will FAIL if Ollama is unavailable.
+  No fallback embedding is provided to prevent silent data corruption.
+  
   Wrapped with circuit breaker protection for Ollama service.
-  In test mode (skip_external_apis: true), returns fallback immediately.
+  In test mode (skip_external_apis: true), returns a test embedding.
   """
   def generate_embedding(text) when is_binary(text) do
     if Application.get_env(:mimo_mcp, :skip_external_apis, false) do
-      # Test mode - skip external API calls entirely
-      {:ok, fallback_embedding(text)}
+      # Test mode only - use deterministic test embedding
+      {:ok, test_embedding(text)}
     else
       CircuitBreaker.call(:ollama, fn ->
         do_generate_embedding(text)
@@ -334,7 +390,6 @@ defmodule Mimo.Brain.LLM do
 
   defp do_generate_embedding(text) do
     ollama_url = Application.get_env(:mimo_mcp, :ollama_url, "http://localhost:11434")
-    # Use shorter timeout in dev/test, longer in production
     timeout = Application.get_env(:mimo_mcp, :ollama_timeout, 10_000)
 
     payload =
@@ -357,30 +412,134 @@ defmodule Mimo.Brain.LLM do
             {:ok, embedding}
 
           _ ->
-            Logger.warning("Ollama embedding unexpected response")
-            {:ok, fallback_embedding(text)}
+            Logger.error("Ollama embedding unexpected response format")
+            {:error, :invalid_response}
         end
 
       {:ok, %Req.Response{status: status, body: body}} ->
-        Logger.warning("Ollama embedding failed (#{status}): #{inspect(body)}")
-        {:ok, fallback_embedding(text)}
+        Logger.error("Ollama embedding failed (#{status}): #{inspect(body)}")
+        {:error, {:ollama_error, status}}
 
       {:error, %Req.TransportError{reason: reason}} ->
-        Logger.warning("Ollama unavailable: #{inspect(reason)}, using fallback")
-        {:ok, fallback_embedding(text)}
+        Logger.error("Ollama unavailable: #{inspect(reason)}")
+        {:error, {:ollama_unavailable, reason}}
 
       {:error, reason} ->
-        Logger.warning("Ollama unavailable: #{inspect(reason)}, using fallback")
-        {:ok, fallback_embedding(text)}
+        Logger.error("Ollama request failed: #{inspect(reason)}")
+        {:error, {:request_failed, reason}}
     end
   end
 
-  # Simple fallback embedding using hash - not ideal but works without Ollama
-  defp fallback_embedding(text) do
+  # Test-only embedding - deterministic based on text hash
+  # Only used when skip_external_apis: true (test environment)
+  defp test_embedding(text) do
     dim = Application.get_env(:mimo_mcp, :embedding_dim, @default_embedding_dim)
     hash = :erlang.phash2(text, 1_000_000)
     :rand.seed(:exsss, {hash, hash * 2, hash * 3})
     for _ <- 1..dim, do: :rand.uniform() * 2 - 1
+  end
+
+  @doc """
+  Auto-generate tags for a memory content using LLM.
+
+  Returns a list of 3-5 relevant tags for categorization and search.
+  Falls back to empty list if LLM unavailable.
+
+  ## Examples
+
+      iex> LLM.auto_tag("AFARPG uses Qdrant for vector search")
+      {:ok, ["afarpg", "qdrant", "vector-search", "database", "game"]}
+  """
+  @spec auto_tag(String.t()) :: {:ok, list(String.t())} | {:error, term()}
+  def auto_tag(content) when is_binary(content) do
+    if Application.get_env(:mimo_mcp, :skip_external_apis, false) do
+      {:ok, []}
+    else
+      CircuitBreaker.call(:llm_service, fn ->
+        do_auto_tag(content)
+      end)
+    end
+  end
+
+  defp do_auto_tag(content) do
+    prompt = """
+    Extract 3-5 tags from this content. Tags should be:
+    - Lowercase, hyphenated (e.g., "vector-search")
+    - Specific project names, technologies, concepts
+    - Useful for filtering and search
+
+    Content: #{String.slice(content, 0, 500)}
+
+    Return ONLY a JSON array of tags, nothing else.
+    Example: ["elixir", "phoenix", "web-api", "authentication"]
+    """
+
+    case api_key() do
+      nil ->
+        {:ok, []}
+
+      key ->
+        case do_complete_request("Return only valid JSON array.", prompt, key, 100, 0.1, @default_model) do
+          {:ok, response} ->
+            parse_tags_response(response)
+
+          {:error, _} ->
+            {:ok, []}
+        end
+    end
+  end
+
+  defp parse_tags_response(response) do
+    # Clean up response - remove markdown code blocks if present
+    cleaned =
+      response
+      |> String.replace(~r/```json\s*/i, "")
+      |> String.replace(~r/```\s*/i, "")
+      |> String.trim()
+
+    case Jason.decode(cleaned) do
+      {:ok, tags} when is_list(tags) ->
+        # Validate and normalize tags
+        normalized =
+          tags
+          |> Enum.filter(&is_binary/1)
+          |> Enum.map(&String.downcase/1)
+          |> Enum.map(&String.replace(&1, ~r/[^a-z0-9-]/, "-"))
+          |> Enum.take(5)
+
+        {:ok, normalized}
+
+      _ ->
+        {:ok, []}
+    end
+  end
+
+  @doc """
+  Detect project from content using simple heuristics.
+
+  Returns project_id based on common patterns in the content.
+  Falls back to "global" if no specific project detected.
+  """
+  @spec detect_project(String.t()) :: String.t()
+  def detect_project(content) when is_binary(content) do
+    content_lower = String.downcase(content)
+
+    cond do
+      String.contains?(content_lower, "mimo") and String.contains?(content_lower, ["mcp", "tool", "brain"]) ->
+        "mimo-mcp"
+
+      String.contains?(content_lower, "afarpg") or String.contains?(content_lower, "rpg game") ->
+        "afarpg"
+
+      String.contains?(content_lower, ["phoenix", "elixir", "ecto"]) and not String.contains?(content_lower, "mimo") ->
+        "elixir-project"
+
+      String.contains?(content_lower, ["react", "next.js", "typescript"]) ->
+        "frontend-project"
+
+      true ->
+        "global"
+    end
   end
 
   defp api_key, do: Application.get_env(:mimo_mcp, :openrouter_api_key)

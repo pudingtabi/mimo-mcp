@@ -1,0 +1,18 @@
+{
+  "name": "mimo-mcp-browser",
+  "version": "1.0.0",
+  "description": "Browser automation dependencies for Mimo MCP",
+  "private": true,
+  "scripts": {
+    "test-browser": "node bin/browser-stealth.js fetch '{\"url\": \"https://example.com\"}'",
+    "test-screenshot": "node bin/browser-stealth.js screenshot '{\"url\": \"https://example.com\"}'"
+  },
+  "dependencies": {
+    "puppeteer": "^23.0.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

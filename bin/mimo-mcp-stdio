@@ -1,0 +1,22 @@
+#!/bin/bash
+# Mimo MCP Server - Direct stdio launcher for VS Code
+# This script is called by VS Code's MCP client
+
+set -e
+
+MIMO_DIR="/workspace/mrc-server/mimo-mcp"
+cd "$MIMO_DIR"
+
+# Load environment if present
+if [ -f .env ]; then
+  export $(grep -v '^#' .env | xargs 2>/dev/null) || true
+fi
+
+# Required environment for proper operation
+export MIX_ENV="${MIX_ENV:-dev}"
+export ELIXIR_ERL_OPTIONS="+fnu"
+export LOGGER_LEVEL=none
+export MIMO_DISABLE_HTTP=true
+
+# Run the MCP server in stdio mode
+exec mix run --no-halt -e "Mimo.McpServer.Stdio.start()"

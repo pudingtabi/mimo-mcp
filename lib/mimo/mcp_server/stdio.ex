@@ -85,6 +85,7 @@ defmodule Mimo.McpServer.Stdio do
   defp handle_request(%{"method" => "tools/call", "params" => params, "id" => id}) do
     tool_name = params["name"]
     args = params["arguments"] || %{}
+    start_time = System.monotonic_time(:millisecond)
 
     # Check ToolRegistry first for both internal and external tools
     case Mimo.ToolRegistry.get_tool_owner(tool_name) do
@@ -92,7 +93,13 @@ defmodule Mimo.McpServer.Stdio do
         # External skill - already running (with timeout)
         execute_with_timeout(
           fn ->
-            Mimo.Skills.Client.call_tool(skill_name, tool_name, args)
+            result = Mimo.Skills.Client.call_tool(skill_name, tool_name, args)
+            duration = System.monotonic_time(:millisecond) - start_time
+            # Auto-memory: record tool interactions
+            Mimo.AutoMemory.wrap_tool_call(tool_name, args, result)
+            # Passive memory: record interaction to thread (SPEC-012)
+            record_interaction(tool_name, args, result, duration)
+            result
           end,
           id
         )
@@ -101,7 +108,13 @@ defmodule Mimo.McpServer.Stdio do
         # External skill - lazy spawn (with timeout)
         execute_with_timeout(
           fn ->
-            Mimo.Skills.Client.call_tool_sync(skill_name, config, tool_name, args)
+            result = Mimo.Skills.Client.call_tool_sync(skill_name, config, tool_name, args)
+            duration = System.monotonic_time(:millisecond) - start_time
+            # Auto-memory: record tool interactions
+            Mimo.AutoMemory.wrap_tool_call(tool_name, args, result)
+            # Passive memory: record interaction to thread (SPEC-012)
+            record_interaction(tool_name, args, result, duration)
+            result
           end,
           id
         )
@@ -110,7 +123,13 @@ defmodule Mimo.McpServer.Stdio do
         # Internal tool - use ToolInterface for consistency (with timeout)
         execute_with_timeout(
           fn ->
-            Mimo.ToolInterface.execute(tool_name, args)
+            result = Mimo.ToolInterface.execute(tool_name, args)
+            duration = System.monotonic_time(:millisecond) - start_time
+            # Auto-memory: record tool interactions
+            Mimo.AutoMemory.wrap_tool_call(tool_name, args, result)
+            # Passive memory: record interaction to thread (SPEC-012)
+            record_interaction(tool_name, args, result, duration)
+            result
           end,
           id
         )
@@ -119,7 +138,13 @@ defmodule Mimo.McpServer.Stdio do
         # Mimo.Tools core capabilities - use ToolInterface for consistency (with timeout)
         execute_with_timeout(
           fn ->
-            Mimo.ToolInterface.execute(tool_name, args)
+            result = Mimo.ToolInterface.execute(tool_name, args)
+            duration = System.monotonic_time(:millisecond) - start_time
+            # Auto-memory: record tool interactions
+            Mimo.AutoMemory.wrap_tool_call(tool_name, args, result)
+            # Passive memory: record interaction to thread (SPEC-012)
+            record_interaction(tool_name, args, result, duration)
+            result
           end,
           id
         )
@@ -150,6 +175,49 @@ defmodule Mimo.McpServer.Stdio do
   end
 
   # --- Helpers ---
+
+  # Record interaction to ThreadManager for passive memory (SPEC-012)
+  defp record_interaction(tool_name, args, result, duration_ms) do
+    result_summary = summarize_result(result)
+    
+    Mimo.Brain.ThreadManager.record_interaction(tool_name,
+      arguments: args,
+      result_summary: result_summary,
+      duration_ms: duration_ms
+    )
+  rescue
+    _ -> :ok  # Don't let recording failures affect tool execution
+  end
+
+  # Create a brief summary of the result for storage
+  defp summarize_result({:ok, result}) when is_binary(result) do
+    truncate_string(result, 2000)
+  end
+  defp summarize_result({:ok, result}) when is_map(result) do
+    result
+    |> summarize_map()
+    |> Jason.encode!()
+    |> truncate_string(2000)
+  end
+  defp summarize_result({:error, reason}), do: "Error: #{inspect(reason)}"
+  defp summarize_result(other), do: truncate_string(inspect(other), 2000)
+
+  defp summarize_map(map) when is_map(map) do
+    map
+    |> Enum.take(10)  # Limit keys
+    |> Enum.map(fn {k, v} -> {k, summarize_value(v)} end)
+    |> Map.new()
+  end
+
+  defp summarize_value(v) when is_binary(v), do: truncate_string(v, 200)
+  defp summarize_value(v) when is_map(v), do: summarize_map(v)
+  defp summarize_value(v) when is_list(v) and length(v) > 5, do: Enum.take(v, 5) ++ ["..."]
+  defp summarize_value(v), do: v
+
+  defp truncate_string(s, max_len) when byte_size(s) > max_len do
+    String.slice(s, 0, max_len - 3) <> "..."
+  end
+  defp truncate_string(s, _), do: s
 
   # Execute a tool function with timeout protection
   defp execute_with_timeout(fun, id) do

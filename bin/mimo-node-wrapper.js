@@ -51,7 +51,7 @@ elixir = spawn('/bin/bash', ['-l', '-c', `
   export PROMETHEUS_DISABLED=true
   export MIMO_DISABLE_HTTP=true
   export LOGGER_LEVEL=none
-  exec mix run --no-halt --no-compile -e "Mimo.McpServer.Stdio.start()"
+  exec mix run --no-halt -e "Mimo.McpServer.Stdio.start()"
 `], {
   stdio: ['pipe', 'pipe', 'pipe'],
   cwd: MIMO_DIR,

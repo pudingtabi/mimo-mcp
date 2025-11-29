@@ -5,16 +5,20 @@ defmodule Mimo.Tools do
   Consolidated native Elixir tools - fewer tools, more power.
   Each tool handles multiple operations via the 'operation' parameter.
 
-  ## Core Tools (8 total)
+  ## Core Tools (12 total)
 
   1. `file` - All file operations (read, write, ls, search, info, etc.)
   2. `terminal` - All terminal/process operations
   3. `fetch` - All network operations (text, html, json, markdown)
   4. `think` - All cognitive operations (thought, plan, sequential)
   5. `web_parse` - Convert HTML to Markdown
-  6. `search` - Web search via Exa AI
-  7. `sonar` - UI accessibility scanner
-  8. `knowledge` - Knowledge graph operations
+  6. `search` - Web search via DuckDuckGo, Bing, or Brave (auto-fallback)
+  7. `web_extract` - Extract clean content from web pages
+  8. `sonar` - UI accessibility scanner
+  9. `vision` - Image analysis via vision-capable LLM
+  10. `knowledge` - Knowledge graph operations
+  11. `blink` - Enhanced web fetch with browser fingerprinting (HTTP-level)
+  12. `browser` - Full browser automation with Puppeteer stealth (handles JS challenges)
   """
 
   @tool_definitions [
@@ -274,12 +278,12 @@ defmodule Mimo.Tools do
       }
     },
     # ==========================================================================
-    # BLINK - Enhanced web retrieval with browser profiles
+    # BLINK - HTTP-level browser emulation (no JS execution)
     # ==========================================================================
     %{
       name: "blink",
       description:
-        "Enhanced web fetch with realistic browser profiles. Handles sites that require specific client configurations. Use when standard fetch returns unexpected responses. Operations: fetch (default), analyze, smart.",
+        "HTTP-level browser emulation with realistic headers and TLS fingerprinting. Bypasses basic bot detection (Cloudflare WAF, Akamai). Does NOT execute JavaScript. Use when fetch returns 403/503. For JS challenges (CAPTCHA, Turnstile), use 'browser' tool instead. Operations: fetch, analyze, smart.",
       input_schema: %{
         type: "object",
         properties: %{
@@ -289,29 +293,101 @@ defmodule Mimo.Tools do
             enum: ["fetch", "analyze", "smart"],
             default: "fetch",
             description:
-              "fetch: direct request, analyze: examine response characteristics, smart: adaptive approach"
+              "fetch: direct bypass, analyze: detect protection type, smart: auto-escalate"
           },
           browser: %{
             type: "string",
             enum: ["chrome", "firefox", "safari", "random"],
             default: "chrome",
-            description: "Browser profile to use"
+            description: "Browser to impersonate"
           },
           layer: %{
             type: "integer",
             default: 1,
-            description: "Configuration layer (0: basic, 1: enhanced, 2: advanced)"
+            description: "Bypass layer (0: basic headers, 1: fingerprinting, 2: TLS)"
           },
           max_retries: %{
             type: "integer",
             default: 3,
-            description: "Max retry attempts with progressive configuration"
+            description: "Max retry attempts with escalating layers"
           },
           format: %{
             type: "string",
             enum: ["raw", "text", "markdown"],
             default: "raw",
             description: "Output format"
+          }
+        },
+        required: ["url"]
+      }
+    },
+    # ==========================================================================
+    # BROWSER - Real browser with Puppeteer (executes JavaScript)
+    # ==========================================================================
+    %{
+      name: "browser",
+      description:
+        "Real browser automation using Puppeteer with stealth mode. Executes JavaScript and solves challenges (Cloudflare Turnstile, CAPTCHA). Slower than blink but handles JS-protected sites. Also useful for UI testing, screenshots, and form automation. Operations: fetch, screenshot, pdf, evaluate, interact, test.",
+      input_schema: %{
+        type: "object",
+        properties: %{
+          url: %{type: "string", description: "URL to load"},
+          operation: %{
+            type: "string",
+            enum: ["fetch", "screenshot", "pdf", "evaluate", "interact", "test"],
+            default: "fetch",
+            description:
+              "fetch: full page with JS, screenshot: capture image, pdf: generate PDF, evaluate: run JS, interact: UI actions, test: run test assertions"
+          },
+          profile: %{
+            type: "string",
+            enum: ["chrome", "firefox", "safari", "mobile"],
+            default: "chrome",
+            description: "Browser profile to emulate"
+          },
+          wait_for_selector: %{
+            type: "string",
+            description: "CSS selector to wait for before returning"
+          },
+          wait_for_challenge: %{
+            type: "boolean",
+            default: true,
+            description: "Wait for Cloudflare/challenge pages to resolve"
+          },
+          timeout: %{
+            type: "integer",
+            default: 60000,
+            description: "Timeout in milliseconds"
+          },
+          force_browser: %{
+            type: "boolean",
+            default: false,
+            description: "Force full browser (Puppeteer) even for simple sites. Skip Blink."
+          },
+          full_page: %{
+            type: "boolean",
+            default: true,
+            description: "For screenshot: capture full page"
+          },
+          format: %{
+            type: "string",
+            enum: ["A4", "Letter", "Legal", "Tabloid"],
+            default: "A4",
+            description: "For pdf: page format"
+          },
+          script: %{
+            type: "string",
+            description: "For evaluate: JavaScript code to execute"
+          },
+          actions: %{
+            type: "string",
+            description:
+              "For interact: JSON array of actions. Example: [{\"type\": \"click\", \"selector\": \"#btn\"}, {\"type\": \"type\", \"selector\": \"#input\", \"text\": \"hello\"}]. Action types: click, type, select, wait, scroll, hover, focus, press, screenshot, evaluate, waitForNavigation"
+          },
+          tests: %{
+            type: "string",
+            description:
+              "For test: JSON array of test cases. Example: [{\"name\": \"Login test\", \"actions\": [{\"type\": \"click\", \"selector\": \"#login\"}], \"assertions\": [{\"type\": \"url\", \"contains\": \"/dashboard\"}]}]"
           }
         },
         required: ["url"]
@@ -356,6 +432,9 @@ defmodule Mimo.Tools do
 
       "blink" ->
         dispatch_blink(arguments)
+
+      "browser" ->
+        dispatch_browser(arguments)
 
       # Legacy aliases for backward compatibility
       "http_request" ->
@@ -884,4 +963,136 @@ defmodule Mimo.Tools do
         body
     end
   end
+
+  # ==========================================================================
+  # BROWSER DISPATCHER - Full browser automation with Puppeteer
+  # ==========================================================================
+
+  defp dispatch_browser(args) do
+    url = args["url"]
+    op = args["operation"] || "fetch"
+    profile = args["profile"] || "chrome"
+    timeout = args["timeout"] || 60_000
+    force_browser = Map.get(args, "force_browser", false)
+
+    cond do
+      is_nil(url) or url == "" ->
+        {:error, "URL is required"}
+
+      true ->
+        # Build common options
+        opts = [
+          profile: profile,
+          timeout: timeout,
+          wait_for_selector: args["wait_for_selector"],
+          wait_for_challenge: Map.get(args, "wait_for_challenge", true),
+          force_browser: force_browser
+        ]
+
+        case op do
+          "fetch" ->
+            Mimo.Skills.Browser.fetch(url, opts)
+
+          "screenshot" ->
+            screenshot_opts =
+              opts ++
+                [
+                  full_page: Map.get(args, "full_page", true),
+                  type: args["type"] || "png",
+                  quality: args["quality"] || 80,
+                  selector: args["selector"]
+                ]
+
+            Mimo.Skills.Browser.screenshot(url, screenshot_opts)
+
+          "pdf" ->
+            pdf_opts =
+              opts ++
+                [
+                  format: args["format"] || "A4",
+                  print_background: Map.get(args, "print_background", true),
+                  margin: args["margin"]
+                ]
+
+            Mimo.Skills.Browser.pdf(url, pdf_opts)
+
+          "evaluate" ->
+            script = args["script"]
+
+            if is_nil(script) or script == "" do
+              {:error, "Script is required for evaluate operation"}
+            else
+              Mimo.Skills.Browser.evaluate(url, script, opts)
+            end
+
+          "interact" ->
+            actions = args["actions"] || ""
+
+            if actions == "" or actions == [] do
+              {:error, "Actions list is required for interact operation"}
+            else
+              # Convert string keys to atoms for actions
+              normalized_actions = normalize_browser_actions(actions)
+              Mimo.Skills.Browser.interact(url, normalized_actions, opts)
+            end
+
+          "test" ->
+            tests = args["tests"] || ""
+
+            if tests == "" or tests == [] do
+              {:error, "Tests list is required for test operation"}
+            else
+              # Normalize test format
+              normalized_tests = normalize_browser_tests(tests)
+              Mimo.Skills.Browser.test(url, normalized_tests, opts)
+            end
+
+          _ ->
+            {:error, "Unknown browser operation: #{op}"}
+        end
+    end
+  end
+
+  defp normalize_browser_actions(actions) when is_binary(actions) do
+    case Jason.decode(actions) do
+      {:ok, list} when is_list(list) -> normalize_browser_actions(list)
+      _ -> []
+    end
+  end
+
+  defp normalize_browser_actions(actions) when is_list(actions) do
+    Enum.map(actions, fn action ->
+      action
+      |> Map.new(fn {k, v} -> {to_string(k), v} end)
+      |> Map.new(fn {k, v} -> {String.to_atom(k), v} end)
+    end)
+  end
+
+  defp normalize_browser_actions(_), do: []
+
+  defp normalize_browser_tests(tests) when is_binary(tests) do
+    case Jason.decode(tests) do
+      {:ok, list} when is_list(list) -> normalize_browser_tests(list)
+      _ -> []
+    end
+  end
+
+  defp normalize_browser_tests(tests) when is_list(tests) do
+    Enum.map(tests, fn test ->
+      test = Map.new(test, fn {k, v} -> {to_string(k), v} end)
+
+      %{
+        name: test["name"] || "Unnamed test",
+        actions: normalize_browser_actions(test["actions"] || []),
+        assertions:
+          Enum.map(test["assertions"] || [], fn assertion ->
+            assertion
+            |> Map.new(fn {k, v} -> {to_string(k), v} end)
+            |> Map.new(fn {k, v} -> {String.to_atom(k), v} end)
+          end)
+      }
+    end)
+  end
+
+  defp normalize_browser_tests(_), do: []
 end
