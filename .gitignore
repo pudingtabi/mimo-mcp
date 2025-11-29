@@ -39,8 +39,13 @@ erl_crash.dump
 native/vector_math/target/
 /workspace/
 
-# Generated documentation (keep specs in /docs/specs/)
+# Generated documentation
 /doc/
+
+# Internal development docs (specs, prompts, ADRs, analysis)
+# These contain implementation details and development process
+/docs/
+.github/prompts/
 
 # Debug/temp scripts
 debug_*.py
@@ -48,3 +53,9 @@ extract_*.py
 
 # Skills manifest (user-specific)
 priv/skills_manifest.json
+
+# Secrets and credentials
+.env*
+*.pem
+*.key
+secrets/
