@@ -6,7 +6,15 @@ defmodule Mimo.Skills.Network do
   Provides multiple output formats: raw, text, JSON, HTML, Markdown.
   Web search via multi-backend scraping (DuckDuckGo, Bing, Brave) - no API key required.
   AI-powered content extraction for clean text from messy HTML.
+  
+  ## Blink Integration
+  
+  For protected sites (Cloudflare, Akamai, etc.), this module integrates with
+  `Mimo.Skills.Blink` to automatically handle browser fingerprinting and
+  challenge bypass. Enable with `use_blink: true` option.
   """
+
+  alias Mimo.Skills.Blink
 
   @default_timeout 10_000
   @search_timeout 15_000
@@ -27,7 +35,38 @@ defmodule Mimo.Skills.Network do
   # Core Fetch
   # ==========================================================================
 
+  @doc """
+  Fetch a URL with options.
+  
+  ## Options
+  
+  - `:timeout` - Request timeout in ms (default: 10000)
+  - `:method` - HTTP method (default: :get)
+  - `:headers` - Additional headers
+  - `:json` - JSON body for POST requests
+  - `:user_agent` - Custom User-Agent
+  - `:use_blink` - Use Blink for browser fingerprinting (default: false)
+  - `:auto_blink` - Auto-fallback to Blink on challenge detection (default: false)
+  """
   def fetch(url, opts \\ []) when is_binary(url) do
+    use_blink = Keyword.get(opts, :use_blink, false)
+    auto_blink = Keyword.get(opts, :auto_blink, false)
+    
+    if use_blink do
+      fetch_with_blink(url, opts)
+    else
+      result = fetch_standard(url, opts)
+      
+      # Auto-fallback to Blink if we detect a challenge
+      if auto_blink and is_challenge_response?(result) do
+        fetch_with_blink(url, opts)
+      else
+        result
+      end
+    end
+  end
+  
+  defp fetch_standard(url, opts) do
     merged_opts =
       Keyword.merge(
         [timeout: @default_timeout],
@@ -63,6 +102,48 @@ defmodule Mimo.Skills.Network do
       e -> {:error, "Network error: #{Exception.message(e)}"}
     end
   end
+
+  defp fetch_with_blink(url, opts) do
+    browser = Keyword.get(opts, :browser, :chrome_136)
+    
+    case Blink.fetch(url, browser: browser) do
+      {:ok, response} ->
+        {:ok, %{
+          status: response.status,
+          body: response.body,
+          headers: response.headers,
+          method: :blink,
+          layer: response.layer_used
+        }}
+      
+      {:challenge, info} ->
+        {:error, "Challenge detected: #{info.type} (layer #{info.layer})"}
+      
+      {:blocked, info} ->
+        {:error, "Blocked: #{info.reason}"}
+      
+      {:error, reason} ->
+        {:error, "Blink fetch failed: #{inspect(reason)}"}
+    end
+  end
+  
+  defp is_challenge_response?({:ok, %{body: body, status: status}}) when is_binary(body) do
+    challenge_patterns = [
+      "just a moment",
+      "checking your browser",
+      "cf-browser-verification",
+      "please wait",
+      "verify you are human"
+    ]
+    
+    cond do
+      status in [403, 429, 503, 520, 521, 522, 523, 524] -> true
+      Enum.any?(challenge_patterns, &String.contains?(String.downcase(body), &1)) -> true
+      true -> false
+    end
+  end
+  
+  defp is_challenge_response?(_), do: false
 
   # ==========================================================================
   # Fetch Formats
@@ -624,95 +705,6 @@ defmodule Mimo.Skills.Network do
       {:error, _} -> nil
     end
   end
-
-  # Fetch from DuckDuckGo Instant Answer API (for factual queries)
-  defp fetch_ddg_instant_answer(query, num_results) do
-    encoded_query = URI.encode(query)
-    url = "https://api.duckduckgo.com/?q=#{encoded_query}&format=json&no_html=1&skip_disambig=0"
-
-    req_opts = [
-      receive_timeout: @search_timeout,
-      redirect: true,
-      max_redirects: 3
-    ]
-
-    case Req.get(url, req_opts) do
-      {:ok, %{status: 200, body: body}} when is_binary(body) ->
-        case Jason.decode(body) do
-          {:ok, data} -> {:ok, parse_ddg_api_results(data, num_results)}
-          {:error, _} -> {:ok, []}
-        end
-
-      {:ok, %{status: 200, body: body}} when is_map(body) ->
-        {:ok, parse_ddg_api_results(body, num_results)}
-
-      _ ->
-        {:ok, []}
-    end
-  end
-
-  defp parse_ddg_api_results(data, max_results) do
-    results = []
-
-    # Abstract result (main answer)
-    results =
-      if data["AbstractURL"] && data["AbstractURL"] != "" do
-        [
-          %{
-            title: data["Heading"] || "DuckDuckGo Result",
-            url: data["AbstractURL"],
-            snippet: data["AbstractText"] || data["Abstract"] || ""
-          }
-          | results
-        ]
-      else
-        results
-      end
-
-    # Related topics
-    related =
-      (data["RelatedTopics"] || [])
-      |> Enum.flat_map(fn item ->
-        case item do
-          %{"Topics" => topics} when is_list(topics) ->
-            Enum.map(topics, &parse_ddg_topic/1)
-
-          topic when is_map(topic) ->
-            [parse_ddg_topic(topic)]
-
-          _ ->
-            []
-        end
-      end)
-      |> Enum.reject(&is_nil/1)
-
-    # Direct results (if any)
-    direct =
-      (data["Results"] || [])
-      |> Enum.map(fn r ->
-        %{
-          title: r["Text"] || "Result",
-          url: r["FirstURL"] || "",
-          snippet: ""
-        }
-      end)
-      |> Enum.reject(fn r -> r.url == "" end)
-
-    (results ++ direct ++ related)
-    |> Enum.take(max_results)
-  end
-
-  defp parse_ddg_topic(%{"FirstURL" => url, "Text" => text}) when is_binary(url) and url != "" do
-    {title, snippet} =
-      case String.split(text, " - ", parts: 2) do
-        [t, s] -> {String.trim(t), String.trim(s)}
-        [t] -> {String.trim(t), ""}
-      end
-
-    %{title: title, url: url, snippet: snippet}
-  end
-
-  defp parse_ddg_topic(_), do: nil
 
   @doc "Search for code-related content."
   def code_search(query, opts \\ []) when is_binary(query) do
