@@ -195,11 +195,62 @@ defmodule Mimo.McpServer.Stdio do
   end
 
   defp emit_json(map) do
-    json = Jason.encode!(map)
-    IO.write(:stdio, json <> "\n")
-    # Force flush to ensure immediate delivery
-    :io.put_chars(:standard_io, [])
+    # Use escape: :unicode_safe to ensure proper Unicode handling
+    case Jason.encode(map, escape: :unicode_safe) do
+      {:ok, json} ->
+        IO.write(:stdio, json <> "\n")
+        # Force flush to ensure immediate delivery
+        :io.put_chars(:standard_io, [])
+
+      {:error, _} ->
+        # Fallback: sanitize the map and try again
+        sanitized = sanitize_for_json(map)
+
+        case Jason.encode(sanitized) do
+          {:ok, json} ->
+            IO.write(:stdio, json <> "\n")
+            :io.put_chars(:standard_io, [])
+
+          {:error, reason} ->
+            # Last resort: send error
+            error_json =
+              Jason.encode!(%{
+                "jsonrpc" => "2.0",
+                "id" => map["id"],
+                "error" => %{
+                  "code" => -32603,
+                  "message" => "JSON encoding failed: #{inspect(reason)}"
+                }
+              })
+
+            IO.write(:stdio, error_json <> "\n")
+            :io.put_chars(:standard_io, [])
+        end
+    end
   end
+
+  # Sanitize data to be JSON-safe
+  defp sanitize_for_json(data) when is_map(data) do
+    Map.new(data, fn {k, v} -> {sanitize_for_json(k), sanitize_for_json(v)} end)
+  end
+
+  defp sanitize_for_json(data) when is_list(data) do
+    Enum.map(data, &sanitize_for_json/1)
+  end
+
+  defp sanitize_for_json(data) when is_binary(data) do
+    # Remove or replace invalid Unicode sequences
+    data
+    |> String.replace(~r/\\x\{[0-9a-fA-F]+\}/, "")
+    |> String.replace(<<0xFFFD::utf8>>, "")
+  end
+
+  defp sanitize_for_json(data) when is_tuple(data) do
+    # Convert tuples to lists for JSON
+    data |> Tuple.to_list() |> sanitize_for_json()
+  end
+
+  defp sanitize_for_json(data), do: data
 
   defp format_content(result) when is_binary(result) do
     [%{"type" => "text", "text" => result}]
@@ -213,7 +264,7 @@ defmodule Mimo.McpServer.Stdio do
         %{status: _, output: out} -> out
         # Fetch output
         %{body: body} -> body
-        _ -> Jason.encode!(result, pretty: true)
+        _ -> Jason.encode!(result, pretty: true, escape: :unicode_safe)
       end
 
     [%{"type" => "text", "text" => text}]
