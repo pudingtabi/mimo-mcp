@@ -10,8 +10,8 @@ defmodule Mimo.Brain.LLM do
   alias Mimo.ErrorHandling.CircuitBreaker
 
   @openrouter_url "https://openrouter.ai/api/v1/chat/completions"
-  # Use env var for model, default to fast kat-coder-pro (~2s response)
-  @default_model System.get_env("OPENROUTER_MODEL", "kwaipilot/kat-coder-pro:free")
+  # Use env var for model, default to Grok 4.1 Fast (76 TPS, vision-capable, free)
+  @default_model System.get_env("OPENROUTER_MODEL", "x-ai/grok-4.1-fast:free")
 
   @doc """
   Simple completion API for prompts.
@@ -153,6 +153,106 @@ defmodule Mimo.Brain.LLM do
 
       key ->
         call_openrouter(system_prompt, query, key)
+    end
+  end
+
+  @doc """
+  Analyze an image with vision-capable model (Grok 4.1 Fast).
+
+  ## Parameters
+    - `image_data` - Base64 encoded image or URL
+    - `prompt` - What to analyze in the image
+    - `opts` - Options:
+      - `:max_tokens` - Maximum tokens (default: 500)
+
+  ## Returns
+    - `{:ok, analysis}` - Image analysis text
+    - `{:error, reason}` - Error
+  """
+  @spec analyze_image(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def analyze_image(image_data, prompt, opts \\ []) do
+    CircuitBreaker.call(:llm_service, fn ->
+      do_analyze_image(image_data, prompt, opts)
+    end)
+  end
+
+  defp do_analyze_image(image_data, prompt, opts) do
+    max_tokens = Keyword.get(opts, :max_tokens, 500)
+
+    case api_key() do
+      nil ->
+        {:error, :no_api_key}
+
+      key ->
+        # Determine if it's a URL or base64 data
+        image_content =
+          if String.starts_with?(image_data, "http") do
+            %{"type" => "image_url", "image_url" => %{"url" => image_data}}
+          else
+            # Assume base64, detect format or default to png
+            mime_type = detect_image_mime(image_data)
+
+            %{
+              "type" => "image_url",
+              "image_url" => %{"url" => "data:#{mime_type};base64,#{image_data}"}
+            }
+          end
+
+        payload = %{
+          "model" => @default_model,
+          "messages" => [
+            %{
+              "role" => "user",
+              "content" => [
+                %{"type" => "text", "text" => prompt},
+                image_content
+              ]
+            }
+          ],
+          "max_tokens" => max_tokens
+        }
+
+        headers = [
+          {"Authorization", "Bearer #{key}"},
+          {"HTTP-Referer", "https://mimo.local"},
+          {"X-Title", "Mimo-MCP-Gateway"},
+          {"Content-Type", "application/json"}
+        ]
+
+        case Req.post(@openrouter_url,
+               json: payload,
+               headers: headers,
+               receive_timeout: 60_000
+             ) do
+          {:ok, %Req.Response{status: 200, body: body}} ->
+            case body do
+              %{"choices" => [%{"message" => %{"content" => content}} | _]} ->
+                {:ok, String.trim(content)}
+
+              _ ->
+                {:error, {:openrouter_error, "Unexpected response format"}}
+            end
+
+          {:ok, %Req.Response{status: status, body: body}} ->
+            Logger.error("OpenRouter vision error #{status}: #{inspect(body)}")
+            {:error, {:openrouter_error, status, body}}
+
+          {:error, reason} ->
+            Logger.error("OpenRouter vision request failed: #{inspect(reason)}")
+            {:error, {:request_failed, reason}}
+        end
+    end
+  end
+
+  defp detect_image_mime(base64_data) do
+    # Check first few bytes to detect image type
+    case Base.decode64(base64_data) do
+      {:ok, <<0x89, 0x50, 0x4E, 0x47, _::binary>>} -> "image/png"
+      {:ok, <<0xFF, 0xD8, 0xFF, _::binary>>} -> "image/jpeg"
+      {:ok, <<0x47, 0x49, 0x46, _::binary>>} -> "image/gif"
+      {:ok, <<0x52, 0x49, 0x46, 0x46, _::binary>>} -> "image/webp"
+      # Default
+      _ -> "image/png"
     end
   end
 
