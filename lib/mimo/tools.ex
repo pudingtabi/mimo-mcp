@@ -24,6 +24,16 @@ defmodule Mimo.Tools do
 
   require Logger
 
+  # Allowed values for safe atom conversion (prevents atom table exhaustion)
+  @allowed_search_backends ~w(auto duckduckgo bing brave)a
+  @allowed_browser_profiles ~w(chrome firefox safari random chrome_136 firefox_135 safari_18)a
+  @allowed_directions ~w(outgoing incoming both)a
+  @allowed_diagnostic_ops ~w(check lint typecheck all)a
+  @allowed_languages ~w(auto elixir typescript python rust go javascript)a
+  @allowed_severities ~w(error warning info all)a
+  @allowed_action_keys ~w(type selector text value delay screenshot evaluate waitForNavigation click hover focus press scroll select wait)a
+  @allowed_assertion_keys ~w(type contains equals matches url text selector visible hidden)a
+
   @tool_definitions [
     # ==========================================================================
     # FILE - All file operations in one tool
@@ -1231,9 +1241,14 @@ defmodule Mimo.Tools do
       if args["num_results"], do: Keyword.put(opts, :num_results, args["num_results"]), else: opts
 
     opts =
-      if args["backend"],
-        do: Keyword.put(opts, :backend, String.to_atom(args["backend"])),
-        else: opts
+      if args["backend"] do
+        case safe_to_atom(args["backend"], @allowed_search_backends) do
+          nil -> opts
+          backend -> Keyword.put(opts, :backend, backend)
+        end
+      else
+        opts
+      end
 
     case op do
       "web" ->
@@ -1671,15 +1686,19 @@ defmodule Mimo.Tools do
     url = args["url"]
     op = args["operation"] || "fetch"
     browser_input = args["browser"] || "chrome"
-    # Map user-friendly names to actual profile names
+    # Map user-friendly names to actual profile names (safe conversion)
     browser =
       case browser_input do
         "chrome" -> :chrome_136
         "firefox" -> :firefox_135
         "safari" -> :safari_18
         "random" -> Enum.random([:chrome_136, :firefox_135, :safari_18])
-        other when is_atom(other) -> other
-        other -> String.to_atom(other)
+        other when is_atom(other) -> 
+          if other in @allowed_browser_profiles, do: other, else: :chrome_136
+        other when is_binary(other) ->
+          # Try to match known profiles, default to chrome_136
+          safe_to_atom(other, @allowed_browser_profiles) || :chrome_136
+        _ -> :chrome_136
       end
 
     layer = args["layer"] || 1
@@ -1990,7 +2009,8 @@ defmodule Mimo.Tools do
     Enum.map(actions, fn action ->
       action
       |> Map.new(fn {k, v} -> {to_string(k), v} end)
-      |> Map.new(fn {k, v} -> {String.to_atom(k), v} end)
+      |> Map.new(fn {k, v} -> {safe_key_to_atom(k, @allowed_action_keys), v} end)
+      |> Map.reject(fn {k, _v} -> is_atom(k) and String.starts_with?(Atom.to_string(k), "_unknown_") end)
     end)
   end
 
@@ -2014,7 +2034,8 @@ defmodule Mimo.Tools do
           Enum.map(test["assertions"] || [], fn assertion ->
             assertion
             |> Map.new(fn {k, v} -> {to_string(k), v} end)
-            |> Map.new(fn {k, v} -> {String.to_atom(k), v} end)
+            |> Map.new(fn {k, v} -> {safe_key_to_atom(k, @allowed_assertion_keys), v} end)
+            |> Map.reject(fn {k, _v} -> is_atom(k) and String.starts_with?(Atom.to_string(k), "_unknown_") end)
           end)
       }
     end)
@@ -2028,7 +2049,6 @@ defmodule Mimo.Tools do
 
   defp dispatch_code_symbols(args) do
     op = args["operation"] || "symbols"
-
     case op do
       "parse" ->
         dispatch_code_parse(args)
@@ -2389,8 +2409,10 @@ defmodule Mimo.Tools do
 
         opts =
           if args["direction"] do
-            dir = String.to_atom(args["direction"])
-            Keyword.put(opts, :direction, dir)
+            case safe_to_atom(args["direction"], @allowed_directions) do
+              nil -> opts
+              dir -> Keyword.put(opts, :direction, dir)
+            end
           else
             opts
           end
@@ -2661,24 +2683,30 @@ defmodule Mimo.Tools do
 
     opts =
       if args["operation"] do
-        op = String.to_atom(args["operation"])
-        Keyword.put(opts, :operation, op)
+        case safe_to_atom(args["operation"], @allowed_diagnostic_ops) do
+          nil -> opts
+          op -> Keyword.put(opts, :operation, op)
+        end
       else
         opts
       end
 
     opts =
       if args["language"] do
-        lang = String.to_atom(args["language"])
-        Keyword.put(opts, :language, lang)
+        case safe_to_atom(args["language"], @allowed_languages) do
+          nil -> opts
+          lang -> Keyword.put(opts, :language, lang)
+        end
       else
         opts
       end
 
     opts =
       if args["severity"] do
-        sev = String.to_atom(args["severity"])
-        Keyword.put(opts, :severity, sev)
+        case safe_to_atom(args["severity"], @allowed_severities) do
+          nil -> opts
+          sev -> Keyword.put(opts, :severity, sev)
+        end
       else
         opts
       end
@@ -2865,4 +2893,35 @@ defmodule Mimo.Tools do
 
   defp enrich_terminal_response({:ok, data}, _command, true = _skip), do: {:ok, data}
   defp enrich_terminal_response(other, _command, _skip), do: other
+
+  # ==========================================================================
+  # SAFE ATOM CONVERSION - Prevents atom table exhaustion attacks
+  # ==========================================================================
+  
+  @doc false
+  # Safe atom conversion - only allows pre-defined values
+  # Returns nil if value is not in the allowed list
+  defp safe_to_atom(value, allowed) when is_binary(value) do
+    atom_value = String.to_existing_atom(value)
+    if atom_value in allowed, do: atom_value, else: nil
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp safe_to_atom(value, allowed) when is_atom(value) do
+    if value in allowed, do: value, else: nil
+  end
+
+  defp safe_to_atom(_, _), do: nil
+
+  # Safe conversion for map keys from JSON - uses whitelist
+  defp safe_key_to_atom(key, allowed) when is_binary(key) do
+    case safe_to_atom(key, allowed) do
+      nil -> String.to_atom("_unknown_" <> key)  # Prefix unknown keys to filter later
+      atom -> atom
+    end
+  end
+
+  defp safe_key_to_atom(key, _allowed) when is_atom(key), do: key
+  defp safe_key_to_atom(_, _), do: :_unknown
 end
