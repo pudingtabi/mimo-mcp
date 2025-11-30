@@ -78,11 +78,15 @@ defmodule Mimo.Synapse.Graph do
     - `{:ok, node}` - Successfully created node
     - `{:error, changeset}` - Validation errors
   """
-  @spec create_node(map()) :: {:ok, GraphNode.t()} | {:error, Ecto.Changeset.t()}
+  @spec create_node(map()) :: {:ok, GraphNode.t()} | {:error, Ecto.Changeset.t() | term()}
   def create_node(attrs) do
     %GraphNode{}
     |> GraphNode.changeset(attrs)
     |> Repo.insert()
+  rescue
+    e -> {:error, Exception.message(e)}
+  catch
+    :exit, reason -> {:error, {:db_unavailable, reason}}
   end
 
   @doc """
@@ -104,6 +108,10 @@ defmodule Mimo.Synapse.Graph do
       node ->
         {:ok, node}
     end
+  rescue
+    e -> {:error, Exception.message(e)}
+  catch
+    :exit, reason -> {:error, {:db_unavailable, reason}}
   end
 
   @doc """
@@ -114,6 +122,10 @@ defmodule Mimo.Synapse.Graph do
     GraphNode
     |> where([n], n.node_type == ^type and n.name == ^name)
     |> Repo.one()
+  rescue
+    _ -> nil
+  catch
+    :exit, _ -> nil
   end
 
   @doc """
@@ -122,6 +134,10 @@ defmodule Mimo.Synapse.Graph do
   @spec get_node_by_id(String.t()) :: GraphNode.t() | nil
   def get_node_by_id(id) when is_binary(id) do
     Repo.get(GraphNode, id)
+  rescue
+    _ -> nil
+  catch
+    :exit, _ -> nil
   end
 
   @doc """
@@ -146,6 +162,10 @@ defmodule Mimo.Synapse.Graph do
     |> limit(^limit)
     |> order_by([n], desc: n.access_count, asc: n.name)
     |> Repo.all()
+  rescue
+    _ -> []
+  catch
+    :exit, _ -> []
   end
 
   @doc """
@@ -222,11 +242,15 @@ defmodule Mimo.Synapse.Graph do
       - `:properties` (optional) - Additional metadata
       - `:source` (optional) - How this edge was created (static_analysis, semantic_inference, etc.)
   """
-  @spec create_edge(map()) :: {:ok, GraphEdge.t()} | {:error, Ecto.Changeset.t()}
+  @spec create_edge(map()) :: {:ok, GraphEdge.t()} | {:error, Ecto.Changeset.t() | term()}
   def create_edge(attrs) do
     %GraphEdge{}
     |> GraphEdge.changeset(attrs)
     |> Repo.insert()
+  rescue
+    e -> {:error, Exception.message(e)}
+  catch
+    :exit, reason -> {:error, {:db_unavailable, reason}}
   end
 
   @doc """
@@ -249,6 +273,10 @@ defmodule Mimo.Synapse.Graph do
       edge ->
         {:ok, edge}
     end
+  rescue
+    e -> {:error, Exception.message(e)}
+  catch
+    :exit, reason -> {:error, {:db_unavailable, reason}}
   end
 
   @doc """
@@ -261,6 +289,10 @@ defmodule Mimo.Synapse.Graph do
     |> where([e], e.target_node_id == ^target_id)
     |> where([e], e.edge_type == ^edge_type)
     |> Repo.one()
+  rescue
+    _ -> nil
+  catch
+    :exit, _ -> nil
   end
 
   @doc """

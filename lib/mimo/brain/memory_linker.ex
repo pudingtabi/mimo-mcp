@@ -423,6 +423,8 @@ defmodule Mimo.Brain.MemoryLinker do
     end
   rescue
     _ -> {:error, :db_error}
+  catch
+    :exit, _ -> {:error, :db_unavailable}
   end
 
   defp find_function_node(func_name) do
