@@ -142,7 +142,9 @@ defmodule Mimo.Cognitive.UncertaintyTest do
             %{type: :memory, id: "1", name: "m1", relevance: 0.8},
             %{type: :code, id: "2", name: "c1", relevance: 0.7},
             %{type: :graph, id: "3", name: "g1", relevance: 0.6}
-          ], gap_indicators: ["missing library docs"])
+          ],
+          gap_indicators: ["missing library docs"]
+        )
 
       assert Uncertainty.has_gap?(u) == true
     end
