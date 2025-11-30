@@ -1,11 +1,6 @@
 defmodule Mimo.SemanticStore.QueryTest do
-  use ExUnit.Case, async: true
+  use Mimo.DataCase, async: false
   alias Mimo.SemanticStore.{Query, Repository}
-  alias Mimo.Repo
-
-  setup do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
-  end
 
   describe "transitive_closure/4" do
     test "finds multi-hop relationships" do

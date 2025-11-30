@@ -1,12 +1,8 @@
 defmodule Mimo.ProceduralStore.ExecutionFSMTest do
-  use ExUnit.Case, async: false
+  use Mimo.DataCase, async: false
   alias Mimo.ProceduralStore.{ExecutionFSM, Loader}
-  alias Mimo.Repo
 
   setup do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
-    Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})
-
     # Initialize loader cache (ignore if already exists)
     try do
       Loader.init()

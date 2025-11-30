@@ -4,13 +4,8 @@ defmodule Mimo.SemanticStore.RepositoryTest do
 
   SPEC-006: Validates CRUD operations, batch ingestion, and edge cases.
   """
-  use ExUnit.Case, async: true
+  use Mimo.DataCase, async: false
   alias Mimo.SemanticStore.Repository
-  alias Mimo.Repo
-
-  setup do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
-  end
 
   describe "create/1" do
     test "creates a triple with valid attributes" do
@@ -536,14 +531,5 @@ defmodule Mimo.SemanticStore.RepositoryTest do
       assert {:ok, triple} = Repository.create(attrs)
       assert triple.subject_id == "пользователь:Иван"
     end
-  end
-
-  # Helper to extract validation errors
-  defp errors_on(changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {message, opts} ->
-      Regex.replace(~r"%{(\w+)}", message, fn _, key ->
-        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
-      end)
-    end)
   end
 end

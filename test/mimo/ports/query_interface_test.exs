@@ -3,7 +3,7 @@ defmodule Mimo.QueryInterfaceTest do
   Tests for Mimo.QueryInterface port.
   Tests natural language query processing through Meta-Cognitive Router.
   """
-  use ExUnit.Case, async: false
+  use Mimo.DataCase, async: false
 
   alias Mimo.QueryInterface
 

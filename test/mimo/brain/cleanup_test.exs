@@ -1,5 +1,5 @@
 defmodule Mimo.Brain.CleanupTest do
-  use ExUnit.Case, async: false
+  use Mimo.DataCase, async: false
 
   alias Mimo.Brain.Cleanup
   alias Mimo.Brain.Memory
@@ -11,14 +11,8 @@ defmodule Mimo.Brain.CleanupTest do
   @moduletag :cleanup
 
   setup do
-    # Set up sandbox mode for database access
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Mimo.Repo)
-    Ecto.Adapters.SQL.Sandbox.mode(Mimo.Repo, {:shared, self()})
-
     # Clean up any existing test data
     Repo.delete_all(from(e in Engram, where: like(e.content, "TEST_%")))
-
-    # No on_exit callback - sandbox handles cleanup automatically
     :ok
   end
 

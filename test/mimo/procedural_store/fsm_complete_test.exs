@@ -4,14 +4,10 @@ defmodule Mimo.ProceduralStore.ExecutionFSMCompleteTest do
 
   SPEC-007: Validates state transitions, error handling, and FSM patterns.
   """
-  use ExUnit.Case, async: false
+  use Mimo.DataCase, async: false
   alias Mimo.ProceduralStore.{ExecutionFSM, Loader}
-  alias Mimo.Repo
 
   setup do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
-    Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})
-
     # Initialize loader cache
     try do
       Loader.init()

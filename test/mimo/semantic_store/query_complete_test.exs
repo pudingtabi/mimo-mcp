@@ -5,13 +5,8 @@ defmodule Mimo.SemanticStore.QueryCompleteTest do
   SPEC-006: Tests transitive closure, pattern matching, path finding,
   cycle detection, and edge cases.
   """
-  use ExUnit.Case, async: true
+  use Mimo.DataCase, async: false
   alias Mimo.SemanticStore.{Query, Repository}
-  alias Mimo.Repo
-
-  setup do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
-  end
 
   describe "transitive_closure/4 - chain traversal" do
     test "finds all nodes in linear chain" do

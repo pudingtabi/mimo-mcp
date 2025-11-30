@@ -4,14 +4,10 @@ defmodule Mimo.ProceduralStore.LoaderTest do
 
   SPEC-007: Validates procedure registration, versioning, and caching.
   """
-  use ExUnit.Case, async: false
+  use Mimo.DataCase, async: false
   alias Mimo.ProceduralStore.Loader
-  alias Mimo.Repo
 
   setup do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
-    Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})
-
     # Initialize loader cache
     try do
       Loader.init()
@@ -227,13 +223,5 @@ defmodule Mimo.ProceduralStore.LoaderTest do
         }
       }
     }
-  end
-
-  defp errors_on(changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {message, opts} ->
-      Regex.replace(~r"%{(\w+)}", message, fn _, key ->
-        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
-      end)
-    end)
   end
 end
