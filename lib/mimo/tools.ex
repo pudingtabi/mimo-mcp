@@ -31,7 +31,7 @@ defmodule Mimo.Tools do
     %{
       name: "file",
       description:
-        "Sandboxed file operations. Operations: read, write, ls, read_lines, insert_after, insert_before, replace_lines, delete_lines, search, replace_string, edit, list_directory, get_info, move, create_directory, read_multiple, list_symbols, read_symbol, search_symbols, glob, multi_replace, diff",
+        "Sandboxed file operations with automatic memory context. Responses include related memories for accuracy. Operations: read, write, ls, read_lines, insert_after, insert_before, replace_lines, delete_lines, search, replace_string, edit, list_directory, get_info, move, create_directory, read_multiple, list_symbols, read_symbol, search_symbols, glob, multi_replace, diff. 💡 Memory context is auto-included. Store new insights with `memory operation=store` after learning.",
       input_schema: %{
         type: "object",
         properties: %{
@@ -119,7 +119,12 @@ defmodule Mimo.Tools do
           },
           path1: %{type: "string", description: "First file for diff operation"},
           path2: %{type: "string", description: "Second file for diff operation"},
-          proposed_content: %{type: "string", description: "Content to diff against file"}
+          proposed_content: %{type: "string", description: "Content to diff against file"},
+          skip_memory_context: %{
+            type: "boolean",
+            default: false,
+            description: "Skip auto-including memory context (for batch/performance-sensitive operations)"
+          }
         },
         required: ["operation"]
       }
@@ -130,7 +135,7 @@ defmodule Mimo.Tools do
     %{
       name: "terminal",
       description:
-        "Execute commands and manage processes. Operations: execute (default), start_process, read_output, interact, kill, force_kill, list_sessions, list_processes",
+        "Execute commands and manage processes with automatic memory context. Responses include related memories (past errors, patterns) for accuracy. Operations: execute (default), start_process, read_output, interact, kill, force_kill, list_sessions, list_processes. 💡 Memory context is auto-included. Store important results with `memory operation=store category=action`.",
       input_schema: %{
         type: "object",
         properties: %{
@@ -174,7 +179,12 @@ defmodule Mimo.Tools do
             type: "boolean",
             description: "YOLO mode: skip confirmation prompts (default false)"
           },
-          confirm: %{type: "boolean", description: "Confirm destructive commands (rm, kill, etc.)"}
+          confirm: %{type: "boolean", description: "Confirm destructive commands (rm, kill, etc.)"},
+          skip_memory_context: %{
+            type: "boolean",
+            default: false,
+            description: "Skip auto-including memory context (for batch/performance-sensitive operations)"
+          }
         },
         required: ["command"]
       }
@@ -859,13 +869,18 @@ defmodule Mimo.Tools do
   # ==========================================================================
   defp dispatch_file(%{"operation" => op} = args) do
     path = args["path"] || "."
+    # Check if memory context should be skipped (for batch/perf-sensitive ops)
+    skip_context = Map.get(args, "skip_memory_context", false)
 
     case op do
       "read" ->
         opts = []
         opts = if args["offset"], do: Keyword.put(opts, :offset, args["offset"]), else: opts
         opts = if args["limit"], do: Keyword.put(opts, :limit, args["limit"]), else: opts
-        Mimo.Skills.FileOps.read(path, opts)
+        
+        # Enrich with memory context for accuracy (Layer 2)
+        result = Mimo.Skills.FileOps.read(path, opts)
+        enrich_file_response(result, path, skip_context)
 
       "write" ->
         content = args["content"] || ""
@@ -917,7 +932,10 @@ defmodule Mimo.Tools do
             else: opts
 
         opts = if args["dry_run"], do: Keyword.put(opts, :dry_run, args["dry_run"]), else: opts
-        Mimo.Skills.FileOps.edit(path, args["old_str"] || "", args["new_str"] || "", opts)
+        
+        # Enrich with memory context for accuracy before editing
+        result = Mimo.Skills.FileOps.edit(path, args["old_str"] || "", args["new_str"] || "", opts)
+        enrich_file_response(result, path, skip_context)
 
       "list_directory" ->
         Mimo.Skills.FileOps.list_directory(path, depth: args["depth"] || 1)
@@ -1004,6 +1022,8 @@ defmodule Mimo.Tools do
   defp dispatch_terminal(args) do
     op = args["operation"] || "execute"
     command = args["command"] || ""
+    # Check if memory context should be skipped
+    skip_context = Map.get(args, "skip_memory_context", false)
 
     case op do
       "execute" ->
@@ -1027,7 +1047,9 @@ defmodule Mimo.Tools do
         opts = if shell, do: Keyword.put(opts, :shell, shell), else: opts
         opts = if name, do: Keyword.put(opts, :name, name), else: opts
 
-        {:ok, Mimo.Skills.Terminal.execute(command, opts)}
+        result = {:ok, Mimo.Skills.Terminal.execute(command, opts)}
+        # Enrich with memory context for accuracy (Layer 2)
+        enrich_terminal_response(result, command, skip_context)
 
       "start_process" ->
         name = args["name"]
@@ -2797,4 +2819,50 @@ defmodule Mimo.Tools do
       gap_indicators: uncertainty.gap_indicators
     }
   end
+
+  # ==========================================================================
+  # MEMORY CONTEXT ENRICHMENT (Layer 2 - Accuracy over Speed)
+  # Automatically brings relevant knowledge to the agent without behavior change
+  # ==========================================================================
+
+  defp enrich_file_response({:ok, data}, path, false = _skip) when is_map(data) do
+    # Async fetch memory context while processing
+    task = Task.async(fn -> 
+      Mimo.Skills.MemoryContext.get_file_context(path) 
+    end)
+    
+    # Wait for memory context (with timeout for safety)
+    case Task.yield(task, 2000) || Task.shutdown(task) do
+      {:ok, {:ok, context}} when not is_nil(context) ->
+        {:ok, Mimo.Skills.MemoryContext.enrich_response(data, context)}
+      
+      _ ->
+        # On timeout or error, return original response
+        {:ok, data}
+    end
+  end
+
+  defp enrich_file_response({:ok, data}, _path, true = _skip), do: {:ok, data}
+  defp enrich_file_response({:error, _} = error, _path, _skip), do: error
+  defp enrich_file_response(other, _path, _skip), do: other
+
+  defp enrich_terminal_response({:ok, data}, command, false = _skip) when is_map(data) do
+    # Async fetch memory context
+    task = Task.async(fn -> 
+      Mimo.Skills.MemoryContext.get_command_context(command) 
+    end)
+    
+    # Wait for memory context (with timeout for safety)
+    case Task.yield(task, 2000) || Task.shutdown(task) do
+      {:ok, {:ok, context}} when not is_nil(context) ->
+        {:ok, Mimo.Skills.MemoryContext.enrich_response(data, context)}
+      
+      _ ->
+        # On timeout or error, return original response
+        {:ok, data}
+    end
+  end
+
+  defp enrich_terminal_response({:ok, data}, _command, true = _skip), do: {:ok, data}
+  defp enrich_terminal_response(other, _command, _skip), do: other
 end
