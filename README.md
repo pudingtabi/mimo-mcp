@@ -1,11 +1,11 @@
-# Mimo-MCP Gateway v2.4.0
+# Mimo-MCP Gateway v2.5.0
 
 A universal MCP (Model Context Protocol) gateway with **multi-protocol access** - HTTP/REST, OpenAI-compatible API, WebSocket Synapse, and stdio MCP. Features vector memory storage with semantic search and a **Synthetic Cortex** for intelligent agent memory.
 
 [![Elixir](https://img.shields.io/badge/Elixir-1.12+-purple.svg)](https://elixir-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## ✅ What Works (v2.4.0)
+## ✅ What Works (v2.5.0)
 
 This section provides an honest assessment of current functionality:
 
@@ -13,24 +13,27 @@ This section provides an honest assessment of current functionality:
 
 | Feature | Status | Version | Notes |
 |---------|--------|---------|-------|
-| HTTP/REST Gateway | ✅ Production Ready | v2.4.0 | Fully operational on port 4000 |
-| MCP stdio Protocol | ✅ Production Ready | v2.4.0 | Compatible with Claude Desktop, VS Code |
-| Native Elixir Tools | ✅ Production Ready | v2.4.0 | 20 native tools (11 core + 9 internal), zero NPX deps |
-| Episodic Memory | ✅ Production Ready | v2.4.0 | SQLite + Ollama embeddings |
-| **Working Memory** | ✅ Production Ready | v2.4.0 | ETS-backed short-term buffer with TTL |
-| **Memory Consolidation** | ✅ Production Ready | v2.4.0 | Automatic working → long-term transfer |
-| **Forgetting & Decay** | ✅ Production Ready | v2.4.0 | Exponential decay with importance weighting |
-| **Hybrid Retrieval** | ✅ Production Ready | v2.4.0 | Multi-factor scoring (semantic + recency + importance) |
-| **Memory Router** | ✅ Production Ready | v2.4.0 | Unified interface to all memory stores |
-| Rate Limiting | ✅ Production Ready | v2.4.0 | Token bucket at 60 req/min |
-| API Key Auth | ✅ Production Ready | v2.4.0 | Constant-time comparison |
-| Tool Registry | ✅ Production Ready | v2.4.0 | Thread-safe GenServer |
-| Hot Reload | ✅ Production Ready | v2.4.0 | Distributed locking |
-| **Semantic Store v3.0** | ✅ Production Ready | v2.4.0 | Schema, Ingestion, Query, Inference - 74 tests |
-| **Procedural Store** | ✅ Production Ready | v2.4.0 | FSM, Execution, Validation - 55 tests |
-| **Rust NIFs** | ✅ Production Ready | v2.4.0 | SIMD vector math (3-7x speedup) - 52 tests |
-| **WebSocket Synapse** | ✅ Production Ready | v2.4.0 | Real-time channels - 72 tests |
-| Error Handling | ✅ Production Ready | v2.4.0 | Circuit breaker + retry |
+| HTTP/REST Gateway | ✅ Production Ready | v2.5.0 | Fully operational on port 4000 |
+| MCP stdio Protocol | ✅ Production Ready | v2.5.0 | Compatible with Claude Desktop, VS Code |
+| Native Elixir Tools | ✅ Production Ready | v2.5.0 | 24 native tools (15 core + 9 internal), zero NPX deps |
+| Episodic Memory | ✅ Production Ready | v2.5.0 | SQLite + Ollama embeddings |
+| **Working Memory** | ✅ Production Ready | v2.5.0 | ETS-backed short-term buffer with TTL |
+| **Memory Consolidation** | ✅ Production Ready | v2.5.0 | Automatic working → long-term transfer |
+| **Forgetting & Decay** | ✅ Production Ready | v2.5.0 | Exponential decay with importance weighting |
+| **Hybrid Retrieval** | ✅ Production Ready | v2.5.0 | Multi-factor scoring (semantic + recency + importance) |
+| **Memory Router** | ✅ Production Ready | v2.5.0 | Unified interface to all memory stores |
+| Rate Limiting | ✅ Production Ready | v2.5.0 | Token bucket at 60 req/min |
+| API Key Auth | ✅ Production Ready | v2.5.0 | Constant-time comparison |
+| Tool Registry | ✅ Production Ready | v2.5.0 | Thread-safe GenServer |
+| Hot Reload | ✅ Production Ready | v2.5.0 | Distributed locking |
+| **Semantic Store v3.0** | ✅ Production Ready | v2.5.0 | Schema, Ingestion, Query, Inference - 74 tests |
+| **Procedural Store** | ✅ Production Ready | v2.5.0 | FSM, Execution, Validation - 55 tests |
+| **Rust NIFs** | ✅ Production Ready | v2.5.0 | SIMD vector math (3-7x speedup) - 52 tests |
+| **WebSocket Synapse** | ✅ Production Ready | v2.5.0 | Real-time channels - 72 tests |
+| **Diagnostics Tool** | ✅ Production Ready | v2.5.0 | Multi-language compile/lint/typecheck |
+| **Code Symbols** | ✅ Production Ready | v2.5.0 | Tree-sitter powered code analysis |
+| **Library Discovery** | ✅ Production Ready | v2.5.0 | Auto-discover project dependencies |
+| Error Handling | ✅ Production Ready | v2.5.0 | Circuit breaker + retry |
 
 ### Production Ready
 - **HTTP/REST Gateway** - Fully operational on port 4000
@@ -50,7 +53,10 @@ This section provides an honest assessment of current functionality:
 - **Procedural Store** - FSM engine with Registration, Execution, Validation, and concurrent execution (55 tests passing)
 - **Rust NIFs** - SIMD-accelerated vector math providing 3-7x speedup over pure Elixir (52 tests passing)
 - **WebSocket Synapse** - Real-time bidirectional cognitive signaling via Phoenix Channels (72 tests passing)
-- **Test Suite** - 652 tests passing (including 100 integration tests)
+- **Diagnostics Tool** - Multi-language compile/lint/typecheck (Elixir, TypeScript, Python, Rust, Go)
+- **Code Symbols** - Tree-sitter powered code analysis with symbol extraction and call graphs
+- **Library Discovery** - Auto-discover and cache project dependencies (Hex, NPM, PyPI, Crates)
+- **Test Suite** - 700+ tests passing (including 100 integration tests)
 
 ### Security Hardened (v2.3.1)
 - **SecureExecutor** - Command whitelist (docker, node, python, etc.), argument sanitization
@@ -73,12 +79,14 @@ This section provides an honest assessment of current functionality:
 Mimo is an **intelligent Memory OS** that provides:
 - 🌐 **Multi-Protocol Access**: HTTP/REST, OpenAI-compatible, WebSocket, and MCP stdio
 - 🧠 **Meta-Cognitive Router**: Intelligent query classification to memory stores
-- 🔗 **20 Native Tools**: 11 core tools + 9 internal tools (zero NPX dependencies)
+- 🔗 **24 Native Tools**: 15 core tools + 9 internal tools (zero NPX dependencies)
 - 💾 **Vector Memory**: SQLite + Ollama embeddings for semantic search
 - 📊 **Semantic Store**: Triple-based knowledge graph for exact relationships
 - ⚙️ **Procedural Store**: Deterministic state machine execution
 - 🦀 **Rust NIFs**: SIMD-accelerated vector operations (3-7x speedup)
 - ⚡ **WebSocket Synapse**: Real-time bidirectional cognitive signaling
+- 🔬 **Diagnostics**: Multi-language compile/lint/typecheck support
+- 📦 **Library Discovery**: Auto-discover project dependencies
 - 🔄 **Hot-Reload**: Update skills without restart
 - 🛡️ **Rate Limiting**: Built-in DoS protection (60 req/min)
 - 🔐 **API Key Auth**: Secure your endpoints
@@ -361,16 +369,16 @@ Add to `~/.vscode/mcp.json`:
 
 ---
 
-## Available Tools (20 Native)
+## Available Tools (24 Native)
 
-Mimo provides **20 native Elixir tools** with zero external dependencies. Managed by the **Tool Registry** (`Mimo.ToolRegistry`).
+Mimo provides **24 native Elixir tools** with zero external dependencies. Managed by the **Tool Registry** (`Mimo.ToolRegistry`).
 
-### Tool Architecture (v2.4.0)
+### Tool Architecture (v2.5.0)
 
 | Category | Count | Description |
 |----------|-------|--------------|
 | **Internal** | 9 | Memory & procedure operations (ask_mimo, store_fact, search_vibes, memory, ingest, run_procedure, procedure_status, list_procedures, reload) |
-| **Mimo.Tools** | 11 | Consolidated native tools (file, terminal, fetch, think, search, vision, blink, etc.) |
+| **Mimo.Tools** | 15 | Consolidated native tools (file, terminal, fetch, think, search, vision, blink, browser, diagnostics, etc.) |
 
 ### Consolidated Core Tools (Mimo.Tools)
 
@@ -378,17 +386,23 @@ Each tool handles multiple operations via the `operation` parameter:
 
 | Tool | Operations | Description |
 |------|------------|-------------|
-| `file` | read, write, ls, read_lines, insert_after, insert_before, replace_lines, delete_lines, search, replace_string, list_directory, get_info, move, create_directory, read_multiple, list_symbols, read_symbol, search_symbols | All file system operations |
-| `terminal` | execute, start_process, read_output, interact, kill, force_kill, list_sessions, list_processes | Command execution and process management |
+| `file` | read, write, ls, read_lines, insert_after, insert_before, replace_lines, delete_lines, search, replace_string, edit, list_directory, get_info, move, create_directory, read_multiple, list_symbols, read_symbol, search_symbols, **glob**, **multi_replace**, **diff** | All file system operations |
+| `terminal` | execute, start_process, read_output, interact, kill, force_kill, list_sessions, list_processes | Command execution with **cwd**, **env**, **shell** options |
 | `fetch` | text, html, json, markdown, raw | HTTP requests with format conversion |
 | `think` | thought, plan, sequential | Cognitive operations and reasoning |
 | `web_parse` | (html→markdown) | Convert HTML to clean Markdown |
-| `search` | web, code | Web search via DuckDuckGo, Bing, or Brave (auto-fallback, no API key required) |
+| `search` | web, code, images | Web search via DuckDuckGo, Bing, or Brave (auto-fallback, no API key required) |
 | `web_extract` | (url→content) | Extract clean content from web pages (Readability-style) |
 | `sonar` | (auto-detect platform) | UI accessibility scanner (Linux/macOS) |
 | `vision` | (image→analysis) | Analyze images using vision-capable LLM (Mistral via OpenRouter) |
-| `knowledge` | query, teach | Knowledge graph operations |
-| `blink` | fetch, analyze, smart | Enhanced web fetch with browser fingerprinting to bypass protection |
+| `knowledge` | query, teach, traverse, explore, node, path, stats, link, link_memory, sync_dependencies, neighborhood | Unified knowledge graph (SemanticStore + Synapse) |
+| `blink` | fetch, analyze, smart | HTTP-level browser emulation to bypass bot detection |
+| `browser` | fetch, screenshot, pdf, evaluate, interact, test | Full Puppeteer browser automation with stealth mode |
+| `code_symbols` | parse, symbols, references, search, definition, call_graph, index | Tree-sitter powered code analysis |
+| `library` | get, search, ensure, **discover**, stats | Package documentation lookup with auto-discovery |
+| `diagnostics` | check, lint, typecheck, all | **Multi-language** compile/lint errors (Elixir, TypeScript, Python, Rust, Go) |
+| `cognitive` | assess, gaps, query, can_answer, suggest, stats | Epistemic uncertainty and meta-cognition |
+| `graph` | (deprecated) | Use `knowledge` tool instead |
 
 ### Internal Tools
 
@@ -412,10 +426,15 @@ curl -X POST http://localhost:4000/v1/mimo/tool \
   -H "Authorization: Bearer $API_KEY" \
   -d '{"tool": "file", "arguments": {"operation": "read", "path": "README.md"}}'
 
-# Terminal command
+# File glob (new)
 curl -X POST http://localhost:4000/v1/mimo/tool \
   -H "Authorization: Bearer $API_KEY" \
-  -d '{"tool": "terminal", "arguments": {"command": "ls -la"}}'
+  -d '{"tool": "file", "arguments": {"operation": "glob", "pattern": "**/*.ex", "base_path": "lib/"}}'
+
+# Terminal command with cwd and env (new)
+curl -X POST http://localhost:4000/v1/mimo/tool \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"tool": "terminal", "arguments": {"command": "npm test", "cwd": "/app/frontend", "env": {"NODE_ENV": "test"}}}'
 
 # Fetch with format
 curl -X POST http://localhost:4000/v1/mimo/tool \
@@ -426,6 +445,21 @@ curl -X POST http://localhost:4000/v1/mimo/tool \
 curl -X POST http://localhost:4000/v1/mimo/tool \
   -H "Authorization: Bearer $API_KEY" \
   -d '{"tool": "search", "arguments": {"query": "Elixir programming"}}'
+
+# Diagnostics - get compile/lint errors (new)
+curl -X POST http://localhost:4000/v1/mimo/tool \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"tool": "diagnostics", "arguments": {"operation": "all", "path": "lib/", "language": "elixir"}}'
+
+# Code symbols - list functions in file (new)
+curl -X POST http://localhost:4000/v1/mimo/tool \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"tool": "code_symbols", "arguments": {"operation": "symbols", "path": "lib/mimo/tools.ex", "kind": "function"}}'
+
+# Library discovery - auto-discover dependencies (new)
+curl -X POST http://localhost:4000/v1/mimo/tool \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"tool": "library", "arguments": {"operation": "discover", "path": "/app"}}'
 ```
 
 ### Tool Discovery
@@ -433,7 +467,7 @@ curl -X POST http://localhost:4000/v1/mimo/tool \
 ```elixir
 # List all registered tools (IEx)
 Mimo.ToolRegistry.list_all_tools() |> length()
-# => 20 (9 internal + 11 core)
+# => 24 (9 internal + 15 core)
 
 # Get tool owner
 Mimo.ToolRegistry.get_tool_owner("file")

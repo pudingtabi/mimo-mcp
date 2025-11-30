@@ -8,7 +8,7 @@ Mimo is a **Memory Operating System** for AI agents—not just another MCP serve
 
 - **Persistent Memory**: Remember across sessions via episodic, semantic, and procedural stores
 - **Cognitive Infrastructure**: Working memory, consolidation, forgetting, and hybrid retrieval
-- **20 Native Tools**: 9 internal memory tools + 15 core capability tools
+- **24 Native Tools**: 9 internal memory tools + 15 core capability tools
 - **Knowledge Graph**: Store and traverse relationships between entities
 - **Procedural Execution**: Deterministic state machine workflows
 

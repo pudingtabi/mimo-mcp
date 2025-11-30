@@ -14,7 +14,7 @@ Clients (Claude/VS Code/HTTP) → Protocol Adapters → MetaCognitiveRouter
 ```
 
 **Key components:**
-- `Mimo.Tools` - 12 consolidated native tools (file, terminal, fetch, etc.) with operation-based dispatch
+- `Mimo.Tools` - 15 consolidated native tools (file, terminal, fetch, diagnostics, code_symbols, etc.) with operation-based dispatch
 - `Mimo.Brain` - Cognitive memory: working memory (ETS), episodic (SQLite+vectors), consolidation, decay
 - `Mimo.SemanticStore` - Triple-based knowledge graph with inference engine
 - `Mimo.ProceduralStore` - FSM execution for deterministic workflows
