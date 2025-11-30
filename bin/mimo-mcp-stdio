@@ -12,6 +12,50 @@ if [ -f .env ]; then
   export $(grep -v '^#' .env | xargs 2>/dev/null) || true
 fi
 
+# ============================================================================
+# Ollama Dependency Check
+# Mimo requires Ollama for local embeddings (memory search, semantic features)
+# OpenRouter is used for LLM chat - they are separate services
+# ============================================================================
+OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
+
+check_ollama() {
+  # Try to connect to Ollama
+  if curl -s --connect-timeout 2 "${OLLAMA_URL}/api/tags" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
+start_ollama() {
+  # Check if ollama command exists
+  if ! command -v ollama >/dev/null 2>&1; then
+    echo '{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"Ollama not installed. Please install from https://ollama.ai"}}' >&2
+    exit 1
+  fi
+  
+  # Start ollama serve in background
+  nohup ollama serve >/dev/null 2>&1 &
+  
+  # Wait up to 10 seconds for Ollama to start
+  for i in {1..20}; do
+    if check_ollama; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  
+  return 1
+}
+
+# Check if Ollama is running, start if not
+if ! check_ollama; then
+  if ! start_ollama; then
+    echo '{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"Failed to start Ollama. Memory search will not work. Start manually with: ollama serve"}}' >&2
+    # Continue anyway - Mimo can run with degraded memory search
+  fi
+fi
+
 # Required environment for proper operation
 export MIX_ENV="${MIX_ENV:-dev}"
 export ELIXIR_ERL_OPTIONS="+fnu"

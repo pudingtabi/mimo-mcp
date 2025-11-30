@@ -362,7 +362,7 @@ defmodule Mimo.ToolRegistry do
   # SPEC-011.3: File Ingestion
   defp classify_tool("ingest"), do: {:internal, :ingest}
 
-  # Mimo.Tools core capabilities (consolidated 9 tools)
+  # Mimo.Tools core capabilities (16 tools)
   defp classify_tool("file"), do: {:mimo_core, :file}
   defp classify_tool("terminal"), do: {:mimo_core, :terminal}
   defp classify_tool("fetch"), do: {:mimo_core, :fetch}
@@ -375,6 +375,18 @@ defmodule Mimo.ToolRegistry do
   defp classify_tool("web_extract"), do: {:mimo_core, :web_extract}
   defp classify_tool("blink"), do: {:mimo_core, :blink}
   defp classify_tool("browser"), do: {:mimo_core, :browser}
+
+  # SPEC-021: Code structure analysis
+  defp classify_tool("code_symbols"), do: {:mimo_core, :code_symbols}
+
+  # SPEC-022: Package documentation
+  defp classify_tool("library"), do: {:mimo_core, :library}
+
+  # SPEC-023: Synapse graph operations
+  defp classify_tool("graph"), do: {:mimo_core, :graph}
+
+  # SPEC-024: Epistemic uncertainty & meta-cognition
+  defp classify_tool("cognitive"), do: {:mimo_core, :cognitive}
 
   # Legacy tool names (keep for backward compatibility)
   defp classify_tool("http_request"), do: {:mimo_core, :fetch}

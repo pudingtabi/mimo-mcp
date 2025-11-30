@@ -5,6 +5,51 @@ All notable changes to Mimo-MCP Gateway will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2025-11-30
+
+**Tool Enhancements** - Comprehensive improvements to terminal, file, library, and diagnostics tools based on SPEC-026 through SPEC-029.
+
+### Added
+- **Terminal Enhancements (SPEC-026)**
+  - `cwd` option - Execute commands in specified working directory
+  - `env` option - Set environment variables for command execution
+  - `shell` option - Shell selection (bash, sh, zsh, powershell, cmd)
+  - `name` option - Named terminal sessions for background processes
+  - Output truncation at 60KB (matches VS Code behavior)
+
+- **File Enhancements (SPEC-027)**
+  - `glob` operation - Pattern-based file discovery with gitignore respect
+  - `multi_replace` operation - Atomic multi-file replacements with validation-first approach
+  - `diff` operation - Show differences between files or proposed content
+  - `respect_gitignore` option for glob/search operations
+  - `exclude` patterns for glob operation
+
+- **Library Auto-Discovery (SPEC-028)**
+  - `Mimo.Library.AutoDiscovery` module for automatic dependency detection
+  - `discover_and_cache/1` - Scan project and pre-cache all dependency docs
+  - `detect_ecosystems/1` - Detect project type from manifest files
+  - `extract_dependencies/2` - Parse mix.exs, package.json, requirements.txt, Cargo.toml
+  - `Mimo.Library.ImportWatcher` for import-based library caching
+  - Added `discover` operation to library tool
+
+- **Diagnostics Tool (SPEC-029)**
+  - `Mimo.Skills.Diagnostics` module for compile/lint/typecheck diagnostics
+  - Multi-language support: Elixir, Python, JavaScript/TypeScript, Rust
+  - Operations: `check` (compiler), `lint` (linter), `typecheck` (type checker), `all`
+  - Parallel tool execution for faster results
+  - Smart output parsing for each language
+
+### Fixed
+- **Multi-Replace Same-File Bug** - Fixed issue where multiple replacements on the same file would overwrite each other; now groups by file and applies sequentially
+- **Shell Path Resolution** - Shell commands now use full paths (/usr/bin/bash) for reliability
+
+### Technical Details
+- 32 new tests (17 terminal + 15 file operations)
+- All tests passing
+- New modules: `diagnostics.ex`, `auto_discovery.ex`, `import_watcher.ex`
+
+---
+
 ## [2.4.0] - 2025-11-28
 
 **Cognitive Memory Systems** - Complete implementation of human-inspired memory architecture based on cognitive science research.

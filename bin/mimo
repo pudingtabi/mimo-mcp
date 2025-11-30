@@ -3,17 +3,58 @@
 # Usage: ./bin/mimo [command]
 
 COMMAND=${1:-stdio}
-shift
+shift 2>/dev/null || true
+
+# ============================================================================
+# Ollama Dependency Check
+# Mimo requires Ollama for local embeddings (memory search, semantic features)
+# OpenRouter is used for LLM chat - they are separate services
+# ============================================================================
+OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
+
+check_ollama() {
+  curl -s --connect-timeout 2 "${OLLAMA_URL}/api/tags" >/dev/null 2>&1
+}
+
+start_ollama() {
+  if ! command -v ollama >/dev/null 2>&1; then
+    echo "⚠️  Ollama not installed. Memory search will not work."
+    echo "   Install from: https://ollama.ai"
+    return 1
+  fi
+  
+  echo "Starting Ollama..."
+  nohup ollama serve >/dev/null 2>&1 &
+  
+  for i in {1..20}; do
+    if check_ollama; then
+      echo "✅ Ollama started"
+      return 0
+    fi
+    sleep 0.5
+  done
+  
+  echo "⚠️  Failed to start Ollama. Memory search may not work."
+  return 1
+}
+
+ensure_ollama() {
+  if ! check_ollama; then
+    start_ollama || true
+  fi
+}
 
 case "$COMMAND" in
   stdio)
     # Run in stdio mode for MCP clients (Claude, VS Code)
+    ensure_ollama
     export MIX_ENV=prod
     exec mix run --no-halt --no-compile -e "Mimo.McpServer.Stdio.start()"
     ;;
   
   server)
     # Run as a standard Phoenix server
+    ensure_ollama
     export MIX_ENV=prod
     exec mix phx.server
     ;;
@@ -26,14 +67,34 @@ case "$COMMAND" in
     mix release mimo
     echo "Build complete. Binaries are in burrito_out/"
     ;;
+  
+  ollama)
+    # Just start/check Ollama
+    if check_ollama; then
+      echo "✅ Ollama is running at ${OLLAMA_URL}"
+    else
+      start_ollama
+    fi
+    ;;
     
   help)
-    echo "Usage: ./bin/mimo [stdio|server|build]"
+    echo "Usage: ./bin/mimo [stdio|server|build|ollama|help]"
+    echo ""
+    echo "Commands:"
+    echo "  stdio   - Run in stdio mode for MCP clients (default)"
+    echo "  server  - Run as Phoenix HTTP server"
+    echo "  build   - Build single binary with Burrito"
+    echo "  ollama  - Start/check Ollama embedding service"
+    echo "  help    - Show this help"
+    echo ""
+    echo "Dependencies:"
+    echo "  - Ollama (embeddings): Auto-started if not running"
+    echo "  - OpenRouter API (LLM): Set OPENROUTER_API_KEY env var"
     ;;
     
   *)
     echo "Unknown command: $COMMAND"
-    echo "Usage: ./bin/mimo [stdio|server|build]"
+    echo "Usage: ./bin/mimo [stdio|server|build|ollama|help]"
     exit 1
     ;;
 esac

@@ -10,9 +10,16 @@ defmodule Mimo.Brain.DecayScorer do
       score = importance × recency_factor × access_factor
 
   Where:
-  - `recency_factor = e^(-λ × age_in_days)` - Decays over time
+  - `recency_factor = e^(-λ × active_days)` - Decays over ACTIVE time only
   - `access_factor = 1 + log(1 + access_count) × 0.1` - Boosts frequently accessed
   - `λ = decay_rate` (default 0.1)
+
+  ## Active Days vs Calendar Days
+
+  Decay is based on **active usage days**, not calendar days. This means:
+  - If user takes a month vacation, memories DON'T decay during that time
+  - Only days where Mimo was actually used count toward decay
+  - Protects memories during holidays, breaks, and periods of inactivity
 
   ## Score Interpretation
 
@@ -39,6 +46,9 @@ defmodule Mimo.Brain.DecayScorer do
   @doc """
   Calculate the effective score for a memory.
 
+  Uses ACTIVE days (days Mimo was used) instead of calendar days,
+  so memories don't decay during vacations or periods of inactivity.
+
   Returns a value between 0.0 and 1.0.
   """
   @spec calculate_score(map()) :: float()
@@ -51,9 +61,11 @@ defmodule Mimo.Brain.DecayScorer do
       Map.get(engram, :last_accessed_at) ||
         Map.get(engram, :inserted_at)
 
-    age_days = calculate_age_days(last_accessed)
+    # Use active days instead of calendar days
+    # This prevents decay during periods of inactivity
+    active_days = get_active_days_since(last_accessed)
 
-    recency_factor = :math.exp(-decay_rate * age_days)
+    recency_factor = :math.exp(-decay_rate * active_days)
     access_factor = 1 + :math.log(1 + access_count) * 0.1
 
     # Calculate and clamp to 0-1 range
@@ -165,6 +177,24 @@ defmodule Mimo.Brain.DecayScorer do
   # ==========================================================================
   # Private Helpers
   # ==========================================================================
+
+  # Get active days since a datetime, with fallback to calendar days
+  # if ActivityTracker is not available
+  defp get_active_days_since(nil), do: 0.0
+
+  defp get_active_days_since(datetime) do
+    try do
+      # Try to use ActivityTracker for active-days-based decay
+      if Process.whereis(Mimo.Brain.ActivityTracker) do
+        Mimo.Brain.ActivityTracker.active_days_since(datetime)
+      else
+        # Fallback to calendar days if tracker not running
+        calculate_age_days(datetime)
+      end
+    rescue
+      _ -> calculate_age_days(datetime)
+    end
+  end
 
   defp calculate_age_days(nil), do: 0.0
 

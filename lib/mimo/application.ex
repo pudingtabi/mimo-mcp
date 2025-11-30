@@ -67,13 +67,29 @@ defmodule Mimo.Application do
         {Mimo.Brain.WorkingMemoryCleaner, []},
         # Access Tracker: Async batched access tracking for decay scoring
         {Mimo.Brain.AccessTracker, []},
+        # Activity Tracker: Tracks active usage days for pause-aware decay
+        {Mimo.Brain.ActivityTracker, []},
         # Consolidator: Working memory → Long-term memory transfer
         {Mimo.Brain.Consolidator, []},
         # Forgetting: Scheduled decay-based memory cleanup
         {Mimo.Brain.Forgetting, []},
         # ===== Passive Memory System (SPEC-012) =====
         # Thread Manager: AI session tracking and interaction recording
-        {Mimo.Brain.ThreadManager, []}
+        {Mimo.Brain.ThreadManager, []},
+        # Interaction Consolidator: Periodic consolidation of interactions → engrams via LLM curation
+        {Mimo.Brain.InteractionConsolidator, []},
+        # ===== Living Codebase System (SPEC-021) =====
+        # File watcher for real-time code indexing
+        {Mimo.Code.FileWatcher, []},
+        # ===== Cognitive Codebase Integration (SPEC-025) =====
+        # Synapse Orchestrator - coordinates graph updates from code/memory changes
+        {Mimo.Synapse.Orchestrator, []},
+        # ===== Universal Library System (SPEC-022) =====
+        # Cache manager for package documentation
+        {Mimo.Library.CacheManager, []},
+        # ===== Cognitive Mechanisms System (SPEC-024) =====
+        # Uncertainty tracker for meta-learning
+        {Mimo.Cognitive.UncertaintyTracker, []}
       ] ++ synthetic_cortex_children()
 
     opts = [strategy: :one_for_one, name: Mimo.Supervisor]

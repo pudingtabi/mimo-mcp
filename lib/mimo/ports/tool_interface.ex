@@ -38,19 +38,40 @@ defmodule Mimo.ToolInterface do
   Execute a tool by name with given arguments.
   Routes to internal tools or external skills automatically.
 
+  Automatically registers activity for pause-aware memory decay.
+
   ## Returns
     - {:ok, result} on success
     - {:error, reason} on failure
   """
   @spec execute(String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def execute(tool_name, arguments \\ %{})
+  def execute(tool_name, arguments \\ %{}) do
+    # Register activity for pause-aware decay (non-blocking)
+    register_activity()
+
+    # Dispatch to specific tool handler
+    do_execute(tool_name, arguments)
+  end
+
+  # Register activity with the ActivityTracker (non-blocking)
+  defp register_activity do
+    if Process.whereis(Mimo.Brain.ActivityTracker) do
+      Mimo.Brain.ActivityTracker.register_activity()
+    end
+  end
+
+  # ============================================================================
+  # Tool Handlers
+  # ============================================================================
+
+  defp do_execute(tool_name, arguments)
 
   # ============================================================================
   # SPEC-011.1: Procedural Store Tools
   # ============================================================================
 
   # Execute a registered procedure as a state machine.
-  def execute("run_procedure", %{"name" => name} = args) do
+  defp do_execute("run_procedure", %{"name" => name} = args) do
     if Mimo.Application.feature_enabled?(:procedural_store) do
       version = Map.get(args, "version", "latest")
       context = Map.get(args, "context", %{})
@@ -135,12 +156,12 @@ defmodule Mimo.ToolInterface do
     end
   end
 
-  def execute("run_procedure", _args) do
+  defp do_execute("run_procedure", _args) do
     {:error, "Missing required argument: 'name'"}
   end
 
   # Check status of a procedure execution.
-  def execute("procedure_status", %{"execution_id" => execution_id}) do
+  defp do_execute("procedure_status", %{"execution_id" => execution_id}) do
     if Mimo.Application.feature_enabled?(:procedural_store) do
       case Repo.get(Execution, execution_id) do
         nil ->
@@ -175,12 +196,12 @@ defmodule Mimo.ToolInterface do
     end
   end
 
-  def execute("procedure_status", _args) do
+  defp do_execute("procedure_status", _args) do
     {:error, "Missing required argument: 'execution_id'"}
   end
 
   # List all registered procedures.
-  def execute("list_procedures", _args) do
+  defp do_execute("list_procedures", _args) do
     if Mimo.Application.feature_enabled?(:procedural_store) do
       procedures = Loader.list(active_only: true)
 
@@ -221,7 +242,7 @@ defmodule Mimo.ToolInterface do
   # ============================================================================
 
   # Unified memory operations: store, search, list, delete, stats, decay_check.
-  def execute("memory", %{"operation" => "store"} = args) do
+  defp do_execute("memory", %{"operation" => "store"} = args) do
     # Delegate to store_fact logic
     content = Map.get(args, "content")
     category = Map.get(args, "category", "fact")
@@ -234,7 +255,7 @@ defmodule Mimo.ToolInterface do
     end
   end
 
-  def execute("memory", %{"operation" => "search"} = args) do
+  defp do_execute("memory", %{"operation" => "search"} = args) do
     query = Map.get(args, "query")
 
     if is_nil(query) do
@@ -244,11 +265,11 @@ defmodule Mimo.ToolInterface do
     end
   end
 
-  def execute("memory", %{"operation" => "list"} = args) do
+  defp do_execute("memory", %{"operation" => "list"} = args) do
     execute_memory_list(args)
   end
 
-  def execute("memory", %{"operation" => "delete"} = args) do
+  defp do_execute("memory", %{"operation" => "delete"} = args) do
     id = Map.get(args, "id")
 
     if is_nil(id) do
@@ -258,22 +279,22 @@ defmodule Mimo.ToolInterface do
     end
   end
 
-  def execute("memory", %{"operation" => "stats"} = _args) do
+  defp do_execute("memory", %{"operation" => "stats"} = _args) do
     execute_memory_stats()
   end
 
-  def execute("memory", %{"operation" => "decay_check"} = args) do
+  defp do_execute("memory", %{"operation" => "decay_check"} = args) do
     threshold = Map.get(args, "threshold", 0.1)
     limit = Map.get(args, "limit", 50)
     execute_memory_decay_check(threshold, limit)
   end
 
-  def execute("memory", %{"operation" => op}) do
+  defp do_execute("memory", %{"operation" => op}) do
     {:error,
      "Unknown memory operation: #{op}. Valid: store, search, list, delete, stats, decay_check"}
   end
 
-  def execute("memory", _args) do
+  defp do_execute("memory", _args) do
     {:error, "Missing required argument: 'operation'"}
   end
 
@@ -282,7 +303,7 @@ defmodule Mimo.ToolInterface do
   # ============================================================================
 
   # Ingest file content into memory with automatic chunking.
-  def execute("ingest", %{"path" => path} = args) do
+  defp do_execute("ingest", %{"path" => path} = args) do
     strategy = args["strategy"] |> parse_strategy()
     category = Map.get(args, "category", "fact")
     importance = Map.get(args, "importance", 0.5)
@@ -323,7 +344,7 @@ defmodule Mimo.ToolInterface do
     end
   end
 
-  def execute("ingest", _args) do
+  defp do_execute("ingest", _args) do
     {:error, "Missing required argument: 'path'"}
   end
 
@@ -331,21 +352,21 @@ defmodule Mimo.ToolInterface do
   # Legacy Tools (kept for backward compatibility)
   # ============================================================================
 
-  def execute("search_vibes", %{"query" => _query} = args) do
+  defp do_execute("search_vibes", %{"query" => _query} = args) do
     Logger.warning("search_vibes is deprecated, use memory operation=search")
     execute("memory", Map.put(args, "operation", "search"))
   end
 
-  def execute("store_fact", %{"content" => _content, "category" => _category} = args) do
+  defp do_execute("store_fact", %{"content" => _content, "category" => _category} = args) do
     Logger.warning("store_fact is deprecated, use memory operation=store")
     execute("memory", Map.put(args, "operation", "store"))
   end
 
-  def execute("store_fact", _args) do
+  defp do_execute("store_fact", _args) do
     {:error, "Missing required arguments: 'content' and 'category' are required"}
   end
 
-  def execute("recall_procedure", %{"name" => name} = args) do
+  defp do_execute("recall_procedure", %{"name" => name} = args) do
     # Check if procedural store is enabled before attempting to use it
     if Mimo.Application.feature_enabled?(:procedural_store) do
       version = Map.get(args, "version", "latest")
@@ -376,7 +397,7 @@ defmodule Mimo.ToolInterface do
     end
   end
 
-  def execute("mimo_reload_skills", _args) do
+  defp do_execute("mimo_reload_skills", _args) do
     case Mimo.ToolRegistry.reload_skills() do
       {:ok, :reloaded} ->
         {:ok,
@@ -391,7 +412,7 @@ defmodule Mimo.ToolInterface do
     end
   end
 
-  def execute("ask_mimo", %{"query" => query}) do
+  defp do_execute("ask_mimo", %{"query" => query}) do
     case Mimo.QueryInterface.ask(query) do
       {:ok, result} ->
         {:ok,
@@ -407,7 +428,7 @@ defmodule Mimo.ToolInterface do
   end
 
   # Fallback: route unknown tools through Registry (external skills or Mimo.Tools)
-  def execute(tool_name, arguments) do
+  defp do_execute(tool_name, arguments) do
     case Mimo.ToolRegistry.get_tool_owner(tool_name) do
       {:ok, {:mimo_core, _tool_atom}} ->
         # Route to Mimo.Tools core capabilities
@@ -424,6 +445,26 @@ defmodule Mimo.ToolInterface do
 
           {:error, reason} ->
             {:error, "Core tool execution failed: #{inspect(reason)}"}
+
+          # Handle bare :ok (some operations don't return data)
+          :ok ->
+            {:ok,
+             %{
+               tool_call_id: UUID.uuid4(),
+               status: "success",
+               data: %{message: "Operation completed successfully"}
+             }}
+
+          # Catch-all for unexpected return types
+          other ->
+            Logger.warning("Unexpected return from #{tool_name}: #{inspect(other)}")
+
+            {:ok,
+             %{
+               tool_call_id: UUID.uuid4(),
+               status: "success",
+               data: other
+             }}
         end
 
       {:ok, {:skill, skill_name, _pid, _tool_def}} ->

@@ -5,7 +5,7 @@ defmodule Mimo.Tools do
   Consolidated native Elixir tools - fewer tools, more power.
   Each tool handles multiple operations via the 'operation' parameter.
 
-  ## Core Tools (12 total)
+  ## Core Tools (13 total)
 
   1. `file` - All file operations (read, write, ls, search, info, etc.)
   2. `terminal` - All terminal/process operations
@@ -19,7 +19,10 @@ defmodule Mimo.Tools do
   10. `knowledge` - Knowledge graph operations
   11. `blink` - Enhanced web fetch with browser fingerprinting (HTTP-level)
   12. `browser` - Full browser automation with Puppeteer stealth (handles JS challenges)
+  13. `cognitive` - Epistemic uncertainty & meta-cognition (SPEC-024)
   """
+
+  require Logger
 
   @tool_definitions [
     # ==========================================================================
@@ -28,7 +31,7 @@ defmodule Mimo.Tools do
     %{
       name: "file",
       description:
-        "Sandboxed file operations. Operations: read, write, ls, read_lines, insert_after, insert_before, replace_lines, delete_lines, search, replace_string, list_directory, get_info, move, create_directory, read_multiple, list_symbols, read_symbol, search_symbols",
+        "Sandboxed file operations. Operations: read, write, ls, read_lines, insert_after, insert_before, replace_lines, delete_lines, search, replace_string, edit, list_directory, get_info, move, create_directory, read_multiple, list_symbols, read_symbol, search_symbols, glob, multi_replace, diff",
       input_schema: %{
         type: "object",
         properties: %{
@@ -45,6 +48,7 @@ defmodule Mimo.Tools do
               "delete_lines",
               "search",
               "replace_string",
+              "edit",
               "list_directory",
               "get_info",
               "move",
@@ -52,7 +56,10 @@ defmodule Mimo.Tools do
               "read_multiple",
               "list_symbols",
               "read_symbol",
-              "search_symbols"
+              "search_symbols",
+              "glob",
+              "multi_replace",
+              "diff"
             ]
           },
           path: %{type: "string", description: "File or directory path"},
@@ -61,9 +68,9 @@ defmodule Mimo.Tools do
           start_line: %{type: "integer"},
           end_line: %{type: "integer"},
           line_number: %{type: "integer"},
-          pattern: %{type: "string", description: "For search operations"},
-          old_str: %{type: "string"},
-          new_str: %{type: "string"},
+          pattern: %{type: "string", description: "For search/glob operations"},
+          old_str: %{type: "string", description: "For replace_string/edit: text to find"},
+          new_str: %{type: "string", description: "For replace_string/edit: replacement text"},
           destination: %{type: "string", description: "For move operation"},
           depth: %{type: "integer", description: "For list_directory recursion"},
           mode: %{type: "string", enum: ["rewrite", "append"], description: "For write"},
@@ -72,7 +79,47 @@ defmodule Mimo.Tools do
           symbol_name: %{type: "string", description: "For read_symbol operation"},
           context_before: %{type: "integer", description: "Lines of context before symbol"},
           context_after: %{type: "integer", description: "Lines of context after symbol"},
-          max_results: %{type: "integer", description: "Max results for search operations"}
+          max_results: %{type: "integer", description: "Max results for search operations"},
+          global: %{
+            type: "boolean",
+            description: "For edit: replace all occurrences (default: false)"
+          },
+          expected_count: %{
+            type: "integer",
+            description: "For edit: validate number of replacements"
+          },
+          dry_run: %{
+            type: "boolean",
+            description: "For edit: preview without writing (default: false)"
+          },
+          # New SPEC-027 parameters
+          base_path: %{type: "string", description: "Base path for glob operation"},
+          exclude: %{
+            type: "array",
+            items: %{type: "string"},
+            description: "Patterns to exclude (for glob)"
+          },
+          respect_gitignore: %{
+            type: "boolean",
+            default: true,
+            description: "Respect .gitignore patterns (for glob/search)"
+          },
+          replacements: %{
+            type: "array",
+            items: %{
+              type: "object",
+              properties: %{
+                path: %{type: "string"},
+                old: %{type: "string"},
+                new: %{type: "string"}
+              },
+              required: ["path", "old", "new"]
+            },
+            description: "For multi_replace: list of replacements to perform atomically"
+          },
+          path1: %{type: "string", description: "First file for diff operation"},
+          path2: %{type: "string", description: "Second file for diff operation"},
+          proposed_content: %{type: "string", description: "Content to diff against file"}
         },
         required: ["operation"]
       }
@@ -105,6 +152,24 @@ defmodule Mimo.Tools do
           pid: %{type: "integer", description: "Process ID for process operations"},
           input: %{type: "string", description: "Input for interact operation"},
           timeout: %{type: "integer", description: "Timeout in ms"},
+          cwd: %{
+            type: "string",
+            description: "Working directory to execute command in (defaults to MIMO_ROOT)"
+          },
+          env: %{
+            type: "object",
+            additionalProperties: %{type: "string"},
+            description: "Environment variables to set for command execution"
+          },
+          shell: %{
+            type: "string",
+            enum: ["bash", "sh", "zsh", "powershell", "cmd"],
+            description: "Shell to use for command execution (default: direct execution)"
+          },
+          name: %{
+            type: "string",
+            description: "Name for persistent terminal session (for background processes)"
+          },
           yolo: %{
             type: "boolean",
             description: "YOLO mode: skip confirmation prompts (default false)"
@@ -296,25 +361,87 @@ defmodule Mimo.Tools do
       }
     },
     # ==========================================================================
-    # KNOWLEDGE - Knowledge graph operations
+    # KNOWLEDGE - Unified Knowledge Graph (SemanticStore + Synapse)
+    # Merged from separate knowledge and graph tools for better orchestration
     # ==========================================================================
     %{
       name: "knowledge",
-      description: "Knowledge graph. Operations: query (default), teach",
+      description:
+        "Unified knowledge graph operations. Combines SemanticStore (triples) and Synapse (graph). Operations: query (search both stores), teach (add facts), traverse (graph walk), explore (structured exploration), node (get node context), path (find path), stats (statistics), link (link code to graph), link_memory (link memory to code), sync_dependencies (sync project deps), neighborhood (get nearby nodes).",
       input_schema: %{
         type: "object",
         properties: %{
-          operation: %{type: "string", enum: ["query", "teach"], default: "query"},
-          query: %{type: "string", description: "Natural language query"},
-          entity: %{type: "string"},
-          predicate: %{type: "string"},
-          depth: %{type: "integer", default: 3},
-          text: %{type: "string", description: "For teach: natural language fact"},
-          subject: %{type: "string"},
-          object: %{type: "string"},
-          source: %{type: "string"}
+          operation: %{
+            type: "string",
+            enum: [
+              "query",
+              "teach",
+              "traverse",
+              "explore",
+              "node",
+              "path",
+              "stats",
+              "link",
+              "link_memory",
+              "sync_dependencies",
+              "neighborhood"
+            ],
+            default: "query",
+            description: "Operation to perform"
+          },
+          # Query/Search parameters
+          query: %{type: "string", description: "Natural language query for search"},
+          entity: %{type: "string", description: "Entity name for targeted lookup"},
+          predicate: %{type: "string", description: "Relationship type filter"},
+          depth: %{type: "integer", default: 3, description: "Max traversal depth"},
+          # Teach parameters
+          text: %{type: "string", description: "For teach: natural language fact to learn"},
+          subject: %{type: "string", description: "For teach: subject of triple"},
+          object: %{type: "string", description: "For teach: object of triple"},
+          source: %{type: "string", description: "Source attribution for facts"},
+          # Graph traversal parameters
+          node_id: %{type: "string", description: "Node ID for traverse/node operations"},
+          node_name: %{type: "string", description: "Node name to search for"},
+          node_type: %{
+            type: "string",
+            enum: ["concept", "file", "function", "module", "external_lib", "memory"],
+            description: "Filter by node type"
+          },
+          from_node: %{type: "string", description: "Source node ID for path operation"},
+          to_node: %{type: "string", description: "Target node ID for path operation"},
+          max_depth: %{type: "integer", default: 3, description: "Maximum traversal depth"},
+          direction: %{
+            type: "string",
+            enum: ["outgoing", "incoming", "both"],
+            default: "outgoing",
+            description: "Traversal direction"
+          },
+          limit: %{type: "integer", default: 20, description: "Maximum results to return"},
+          # Link parameters
+          path: %{
+            type: "string",
+            description: "File/directory path for link or sync_dependencies operation"
+          },
+          # Memory linking parameters (SPEC-025)
+          memory_id: %{type: "integer", description: "Memory/engram ID for link_memory operation"},
+          # Neighborhood parameters (SPEC-025)
+          hops: %{
+            type: "integer",
+            default: 2,
+            description: "Number of hops for neighborhood operation"
+          },
+          edge_types: %{
+            type: "array",
+            items: %{type: "string"},
+            description: "Filter by edge types"
+          },
+          node_types: %{
+            type: "array",
+            items: %{type: "string"},
+            description: "Filter by node types"
+          }
         },
-        required: ["query"]
+        required: ["operation"]
       }
     },
     # ==========================================================================
@@ -432,6 +559,210 @@ defmodule Mimo.Tools do
         },
         required: ["url"]
       }
+    },
+    # ==========================================================================
+    # CODE_SYMBOLS - Code structure analysis (SPEC-021 Living Codebase)
+    # ==========================================================================
+    %{
+      name: "code_symbols",
+      description:
+        "Analyze code structure using Tree-Sitter. Operations: parse (parse file/source), symbols (list symbols in file/directory), references (find all references), search (search symbols by pattern), definition (find symbol definition), call_graph (get callers and callees). Supports Elixir, Python, JavaScript, TypeScript.",
+      input_schema: %{
+        type: "object",
+        properties: %{
+          operation: %{
+            type: "string",
+            enum: ["parse", "symbols", "references", "search", "definition", "call_graph", "index"],
+            default: "symbols",
+            description: "Operation to perform"
+          },
+          path: %{
+            type: "string",
+            description: "File or directory path to analyze"
+          },
+          source: %{
+            type: "string",
+            description: "Source code string (for parse operation without file)"
+          },
+          language: %{
+            type: "string",
+            enum: ["elixir", "python", "javascript", "typescript", "tsx"],
+            description: "Language for source code parsing"
+          },
+          name: %{
+            type: "string",
+            description: "Symbol name to search for"
+          },
+          pattern: %{
+            type: "string",
+            description: "Search pattern for symbol search"
+          },
+          kind: %{
+            type: "string",
+            enum: ["function", "class", "module", "method", "variable", "constant", "import"],
+            description: "Filter by symbol kind"
+          },
+          limit: %{
+            type: "integer",
+            default: 50,
+            description: "Maximum results to return"
+          }
+        },
+        required: ["operation"]
+      }
+    },
+    # ==========================================================================
+    # LIBRARY - Package documentation lookup (SPEC-022 Universal Library)
+    # ==========================================================================
+    %{
+      name: "library",
+      description:
+        "Search and fetch documentation for external packages. Operations: get (fetch package info), search (search packages), ensure (ensure package is cached), discover (auto-discover and cache project dependencies), stats (cache statistics). Supports Hex.pm (Elixir), PyPI (Python), NPM (JavaScript), crates.io (Rust).",
+      input_schema: %{
+        type: "object",
+        properties: %{
+          operation: %{
+            type: "string",
+            enum: ["get", "search", "ensure", "discover", "stats"],
+            default: "get",
+            description: "Operation to perform"
+          },
+          name: %{
+            type: "string",
+            description: "Package name"
+          },
+          query: %{
+            type: "string",
+            description: "Search query for package search"
+          },
+          ecosystem: %{
+            type: "string",
+            enum: ["hex", "pypi", "npm", "crates"],
+            default: "hex",
+            description: "Package ecosystem"
+          },
+          version: %{
+            type: "string",
+            description: "Specific version to fetch (default: latest)"
+          },
+          path: %{
+            type: "string",
+            description: "Project path for discover operation (default: current workspace)"
+          },
+          limit: %{
+            type: "integer",
+            default: 10,
+            description: "Maximum results for search"
+          }
+        },
+        required: ["operation"]
+      }
+    },
+    # ==========================================================================
+    # GRAPH - [DEPRECATED] Alias for knowledge tool
+    # Kept for backward compatibility - redirects to unified knowledge tool
+    # ==========================================================================
+    %{
+      name: "graph",
+      description:
+        "[DEPRECATED: Use 'knowledge' tool instead] Synapse graph operations. All operations now available in unified 'knowledge' tool with additional SemanticStore capabilities.",
+      input_schema: %{
+        type: "object",
+        properties: %{
+          operation: %{
+            type: "string",
+            enum: ["query", "traverse", "explore", "node", "path", "stats", "link"],
+            default: "query",
+            description: "Operation to perform (redirects to knowledge tool)"
+          },
+          query: %{type: "string", description: "Search query"},
+          node_id: %{type: "string", description: "Node ID"},
+          node_name: %{type: "string", description: "Node name"},
+          node_type: %{
+            type: "string",
+            enum: ["concept", "file", "function", "module", "external_lib", "memory"]
+          },
+          from_node: %{type: "string"},
+          to_node: %{type: "string"},
+          max_depth: %{type: "integer", default: 3},
+          direction: %{type: "string", enum: ["outgoing", "incoming", "both"], default: "outgoing"},
+          limit: %{type: "integer", default: 20}
+        },
+        required: ["operation"]
+      }
+    },
+    # ==========================================================================
+    # COGNITIVE - Epistemic Uncertainty & Meta-Cognition (SPEC-024)
+    # ==========================================================================
+    %{
+      name: "cognitive",
+      description:
+        "Epistemic uncertainty and meta-cognitive operations. Assess confidence, detect knowledge gaps, and generate calibrated responses. Operations: assess (evaluate confidence), gaps (detect knowledge gaps), query (full epistemic query with calibrated response), can_answer (check if topic is answerable), suggest (get learning suggestions), stats (tracker statistics).",
+      input_schema: %{
+        type: "object",
+        properties: %{
+          operation: %{
+            type: "string",
+            enum: ["assess", "gaps", "query", "can_answer", "suggest", "stats"],
+            default: "assess",
+            description: "Operation to perform"
+          },
+          topic: %{
+            type: "string",
+            description: "Topic or query to assess/analyze"
+          },
+          content: %{
+            type: "string",
+            description: "Content to format with calibrated response"
+          },
+          min_confidence: %{
+            type: "number",
+            default: 0.4,
+            description: "Minimum confidence threshold for can_answer"
+          },
+          limit: %{
+            type: "integer",
+            default: 5,
+            description: "Maximum results for suggest operation"
+          }
+        },
+        required: ["operation"]
+      }
+    },
+    # ==========================================================================
+    # DIAGNOSTICS - Compile/lint errors and warnings (SPEC-029)
+    # ==========================================================================
+    %{
+      name: "diagnostics",
+      description:
+        "Get compile/lint errors and warnings for files. Supports Elixir (mix compile, credo), TypeScript (tsc, eslint), Python (ruff/pylint, mypy), Rust (cargo check, clippy), and Go (go build, golangci-lint). Operations: check (compiler), lint (linter), typecheck (type checker), all (run all diagnostics).",
+      input_schema: %{
+        type: "object",
+        properties: %{
+          operation: %{
+            type: "string",
+            enum: ["check", "lint", "typecheck", "all"],
+            default: "all",
+            description: "Type of diagnostics to run"
+          },
+          path: %{
+            type: "string",
+            description: "File or directory path. Omit for entire workspace."
+          },
+          language: %{
+            type: "string",
+            enum: ["auto", "elixir", "typescript", "python", "rust", "go"],
+            default: "auto",
+            description: "Language to check. Auto-detects from file extension or project files."
+          },
+          severity: %{
+            type: "string",
+            enum: ["error", "warning", "info", "all"],
+            default: "all",
+            description: "Filter results by severity level"
+          }
+        }
+      }
     }
   ]
 
@@ -476,6 +807,26 @@ defmodule Mimo.Tools do
       "browser" ->
         dispatch_browser(arguments)
 
+      "code_symbols" ->
+        dispatch_code_symbols(arguments)
+
+      "library" ->
+        dispatch_library(arguments)
+
+      "graph" ->
+        # DEPRECATED: Redirect to unified knowledge tool
+        Logger.warning(
+          "[DEPRECATED] 'graph' tool is deprecated. Use 'knowledge' tool instead with same operations."
+        )
+
+        dispatch_knowledge(arguments)
+
+      "cognitive" ->
+        dispatch_cognitive(arguments)
+
+      "diagnostics" ->
+        dispatch_diagnostics(arguments)
+
       # Legacy aliases for backward compatibility
       "http_request" ->
         dispatch_fetch(Map.put(arguments, "format", "raw"))
@@ -484,14 +835,22 @@ defmodule Mimo.Tools do
         dispatch_think(Map.merge(arguments, %{"operation" => "plan", "thought" => "plan"}))
 
       "consult_graph" ->
+        Logger.warning(
+          "[DEPRECATED] 'consult_graph' is deprecated. Use 'knowledge operation=query' instead."
+        )
+
         dispatch_knowledge(Map.put(arguments, "operation", "query"))
 
       "teach_mimo" ->
+        Logger.warning(
+          "[DEPRECATED] 'teach_mimo' is deprecated. Use 'knowledge operation=teach' instead."
+        )
+
         dispatch_knowledge(Map.put(arguments, "operation", "teach"))
 
       _ ->
         {:error,
-         "Unknown tool: #{tool_name}. Available: file, terminal, fetch, think, web_parse, search, web_extract, sonar, vision, knowledge"}
+         "Unknown tool: #{tool_name}. Available: file, terminal, fetch, think, web_parse, search, web_extract, sonar, vision, knowledge, code_symbols, library, graph, cognitive, diagnostics, blink, browser"}
     end
   end
 
@@ -548,6 +907,18 @@ defmodule Mimo.Tools do
       "replace_string" ->
         Mimo.Skills.FileOps.replace_string(path, args["old_str"] || "", args["new_str"] || "")
 
+      "edit" ->
+        opts = []
+        opts = if args["global"], do: Keyword.put(opts, :global, args["global"]), else: opts
+
+        opts =
+          if args["expected_count"],
+            do: Keyword.put(opts, :expected_count, args["expected_count"]),
+            else: opts
+
+        opts = if args["dry_run"], do: Keyword.put(opts, :dry_run, args["dry_run"]), else: opts
+        Mimo.Skills.FileOps.edit(path, args["old_str"] || "", args["new_str"] || "", opts)
+
       "list_directory" ->
         Mimo.Skills.FileOps.list_directory(path, depth: args["depth"] || 1)
 
@@ -585,6 +956,41 @@ defmodule Mimo.Tools do
         opts = [max_results: args["max_results"] || 50]
         Mimo.Skills.FileOps.search_symbols(path, args["pattern"] || "", opts)
 
+      "glob" ->
+        opts = []
+
+        opts =
+          if args["base_path"], do: Keyword.put(opts, :base_path, args["base_path"]), else: opts
+
+        opts = if args["exclude"], do: Keyword.put(opts, :exclude, args["exclude"]), else: opts
+        opts = if args["limit"], do: Keyword.put(opts, :limit, args["limit"]), else: opts
+
+        opts =
+          if Map.has_key?(args, "respect_gitignore"),
+            do: Keyword.put(opts, :respect_gitignore, args["respect_gitignore"]),
+            else: opts
+
+        Mimo.Skills.FileOps.glob(args["pattern"] || "**/*", opts)
+
+      "multi_replace" ->
+        replacements = args["replacements"] || []
+        opts = []
+        opts = if args["global"], do: Keyword.put(opts, :global, args["global"]), else: opts
+        Mimo.Skills.FileOps.multi_replace(replacements, opts)
+
+      "diff" ->
+        opts = []
+        opts = if args["path1"], do: Keyword.put(opts, :path1, args["path1"]), else: opts
+        opts = if args["path2"], do: Keyword.put(opts, :path2, args["path2"]), else: opts
+        opts = if args["path"], do: Keyword.put(opts, :path, args["path"]), else: opts
+
+        opts =
+          if args["proposed_content"],
+            do: Keyword.put(opts, :proposed_content, args["proposed_content"]),
+            else: opts
+
+        Mimo.Skills.FileOps.diff(opts)
+
       _ ->
         {:error, "Unknown file operation: #{op}"}
     end
@@ -604,16 +1010,30 @@ defmodule Mimo.Tools do
         timeout = args["timeout"] || 30_000
         yolo = Map.get(args, "yolo", false)
         confirm = Map.get(args, "confirm", false) || yolo
+        cwd = args["cwd"]
+        env = args["env"]
+        shell = args["shell"]
+        name = args["name"]
 
-        {:ok,
-         Mimo.Skills.Terminal.execute(command,
-           timeout: timeout,
-           yolo: yolo,
-           confirm: confirm
-         )}
+        opts = [
+          timeout: timeout,
+          yolo: yolo,
+          confirm: confirm
+        ]
+
+        # Add optional params if provided
+        opts = if cwd, do: Keyword.put(opts, :cwd, cwd), else: opts
+        opts = if env, do: Keyword.put(opts, :env, env), else: opts
+        opts = if shell, do: Keyword.put(opts, :shell, shell), else: opts
+        opts = if name, do: Keyword.put(opts, :name, name), else: opts
+
+        {:ok, Mimo.Skills.Terminal.execute(command, opts)}
 
       "start_process" ->
-        Mimo.Skills.Terminal.start_process(command, timeout_ms: args["timeout"] || 5000)
+        name = args["name"]
+        opts = [timeout_ms: args["timeout"] || 5000]
+        opts = if name, do: Keyword.put(opts, :name, name), else: opts
+        Mimo.Skills.Terminal.start_process(command, opts)
 
       "read_output" ->
         Mimo.Skills.Terminal.read_process_output(args["pid"], timeout_ms: args["timeout"] || 1000)
@@ -881,19 +1301,56 @@ defmodule Mimo.Tools do
   end
 
   # ==========================================================================
-  # KNOWLEDGE DISPATCHER
+  # KNOWLEDGE DISPATCHER - Unified Knowledge Graph (SemanticStore + Synapse)
   # ==========================================================================
   defp dispatch_knowledge(args) do
     op = args["operation"] || "query"
 
     case op do
-      "query" -> dispatch_consult_graph(args)
-      "teach" -> dispatch_teach_mimo(args)
-      _ -> {:error, "Unknown knowledge operation: #{op}"}
+      # SemanticStore operations
+      "query" ->
+        dispatch_knowledge_query(args)
+
+      "teach" ->
+        dispatch_knowledge_teach(args)
+
+      # Synapse graph operations (merged from graph tool)
+      "traverse" ->
+        dispatch_graph_traverse(args)
+
+      "explore" ->
+        dispatch_graph_explore(args)
+
+      "node" ->
+        dispatch_graph_node(args)
+
+      "path" ->
+        dispatch_graph_path(args)
+
+      "stats" ->
+        dispatch_knowledge_stats(args)
+
+      "link" ->
+        dispatch_graph_link(args)
+
+      # SPEC-025: Cognitive Codebase Integration operations
+      "link_memory" ->
+        dispatch_link_memory(args)
+
+      "sync_dependencies" ->
+        dispatch_sync_dependencies(args)
+
+      "neighborhood" ->
+        dispatch_neighborhood(args)
+
+      _ ->
+        {:error,
+         "Unknown knowledge operation: #{op}. Available: query, teach, traverse, explore, node, path, stats, link, link_memory, sync_dependencies, neighborhood"}
     end
   end
 
-  defp dispatch_consult_graph(args) do
+  # Unified query - searches both SemanticStore and Synapse with fallback
+  defp dispatch_knowledge_query(args) do
     alias Mimo.SemanticStore.{Query, Resolver}
     query = args["query"]
     entity = args["entity"]
@@ -902,32 +1359,96 @@ defmodule Mimo.Tools do
 
     cond do
       entity && predicate ->
+        # Structured query - use SemanticStore transitive closure
         case Query.transitive_closure(entity, "entity", predicate, max_depth: depth) do
-          results when is_list(results) ->
+          results when is_list(results) and length(results) > 0 ->
             formatted =
               Enum.map(results, &%{id: &1.id, type: &1.type, depth: &1.depth, path: &1.path})
 
-            {:ok, %{results: formatted, count: length(results)}}
+            {:ok, %{source: "semantic_store", results: formatted, count: length(results)}}
 
-          error ->
-            error
+          _ ->
+            # Fallback to Synapse graph search
+            fallback_to_synapse_query(entity, depth)
         end
 
-      query ->
-        case Resolver.resolve_entity(query, :auto) do
-          {:ok, entity_id} ->
-            {:ok, %{entity: entity_id, relationships: Query.get_relationships(entity_id, "entity")}}
+      query && query != "" ->
+        # Natural language query - try both stores
+        semantic_result = try_semantic_query(query)
+        synapse_result = try_synapse_query(query, args)
 
-          {:error, :ambiguous, candidates} ->
-            {:ok, %{ambiguous: true, candidates: candidates}}
-        end
+        # Merge results from both stores
+        {:ok,
+         %{
+           query: query,
+           semantic_store: semantic_result,
+           synapse_graph: synapse_result,
+           combined_count: count_results(semantic_result) + count_results(synapse_result)
+         }}
 
       true ->
-        {:error, "Query or entity+predicate required"}
+        {:error, "Query string or entity+predicate required for knowledge lookup"}
     end
   end
 
-  defp dispatch_teach_mimo(args) do
+  defp try_semantic_query(query) do
+    alias Mimo.SemanticStore.Resolver
+
+    case Resolver.resolve_entity(query, :auto) do
+      {:ok, entity_id} ->
+        rels = Mimo.SemanticStore.Query.get_relationships(entity_id, "entity")
+        %{found: true, entity: entity_id, relationships: rels}
+
+      {:error, :ambiguous, candidates} ->
+        %{found: false, ambiguous: true, candidates: candidates}
+
+      _ ->
+        %{found: false}
+    end
+  rescue
+    _ -> %{found: false, error: "semantic_store_unavailable"}
+  end
+
+  defp try_synapse_query(query, args) do
+    opts = []
+    opts = if args["limit"], do: Keyword.put(opts, :max_nodes, args["limit"]), else: opts
+
+    case Mimo.Synapse.QueryEngine.query(query, opts) do
+      {:ok, result} ->
+        %{
+          found: length(result.nodes) > 0,
+          nodes: format_graph_nodes(result.nodes),
+          count: length(result.nodes)
+        }
+
+      _ ->
+        %{found: false}
+    end
+  rescue
+    _ -> %{found: false, error: "synapse_unavailable"}
+  end
+
+  defp fallback_to_synapse_query(entity, depth) do
+    # Try to find node in Synapse by name
+    case Mimo.Synapse.Graph.search_nodes(entity, limit: 1) do
+      [node | _] ->
+        results = Mimo.Synapse.Traversal.bfs(node.id, max_depth: depth)
+
+        {:ok,
+         %{source: "synapse_fallback", node: format_graph_node(node), traversal: length(results)}}
+
+      [] ->
+        {:ok, %{source: "none", found: false, message: "No results in either knowledge store"}}
+    end
+  rescue
+    _ -> {:ok, %{source: "none", found: false}}
+  end
+
+  defp count_results(%{count: c}), do: c
+  defp count_results(%{found: true}), do: 1
+  defp count_results(_), do: 0
+
+  defp dispatch_knowledge_teach(args) do
     alias Mimo.SemanticStore.Ingestor
     text = args["text"]
     subject = args["subject"]
@@ -941,19 +1462,41 @@ defmodule Mimo.Tools do
                %{subject: subject, predicate: predicate, object: object},
                source
              ) do
-          {:ok, id} -> {:ok, %{status: "learned", triple_id: id}}
+          {:ok, id} -> {:ok, %{status: "learned", triple_id: id, store: "semantic"}}
           error -> error
         end
 
-      text ->
+      text && text != "" ->
         case Ingestor.ingest_text(text, source) do
-          {:ok, count} -> {:ok, %{status: "learned", triples_created: count}}
+          {:ok, count} -> {:ok, %{status: "learned", triples_created: count, store: "semantic"}}
           error -> error
         end
 
       true ->
-        {:error, "Text or subject+predicate+object required"}
+        {:error, "Text or subject+predicate+object required for teaching"}
     end
+  end
+
+  # Combined stats from both stores
+  defp dispatch_knowledge_stats(_args) do
+    import Ecto.Query, only: [from: 2]
+
+    synapse_stats = Mimo.Synapse.Graph.stats()
+
+    # Get SemanticStore stats
+    semantic_count =
+      try do
+        Mimo.Repo.one(from(t in Mimo.SemanticStore.Triple, select: count(t.id))) || 0
+      rescue
+        _ -> 0
+      end
+
+    {:ok,
+     %{
+       semantic_store: %{triples: semantic_count},
+       synapse_graph: synapse_stats,
+       total_knowledge_items: semantic_count + (synapse_stats[:total_nodes] || 0)
+     }}
   end
 
   # ==========================================================================
@@ -1130,20 +1673,62 @@ defmodule Mimo.Tools do
           "fetch" ->
             case Mimo.Skills.Blink.fetch(url, browser: browser, layer: layer) do
               {:ok, response} ->
-                body = format_blink_response(response.body, format)
+                try do
+                  # Check if body is valid UTF-8 before processing
+                  if String.valid?(response.body) do
+                    body = format_blink_response(response.body, format)
 
-                {:ok,
-                 %{
-                   status: response.status,
-                   body: body,
-                   body_size: byte_size(response.body),
-                   headers: Map.new(response.headers),
-                   browser: browser,
-                   layer: layer
-                 }}
+                    {:ok,
+                     %{
+                       status: response.status,
+                       body: body,
+                       body_size: byte_size(response.body),
+                       headers: Map.new(response.headers),
+                       browser: browser,
+                       layer: layer
+                     }}
+                  else
+                    # Binary response (zstd, etc.) - fallback to browser
+                    Logger.info("[Blink] Binary/non-UTF8 response, falling back to browser")
+                    blink_fallback_to_browser(url, format, browser_input)
+                  end
+                rescue
+                  e ->
+                    # Body encoding/format error - fallback to browser
+                    Logger.info(
+                      "[Blink] Body encoding error: #{inspect(e)}, falling back to browser"
+                    )
+
+                    blink_fallback_to_browser(url, format, browser_input)
+                catch
+                  kind, reason ->
+                    Logger.info(
+                      "[Blink] Caught #{kind}: #{inspect(reason)}, falling back to browser"
+                    )
+
+                    blink_fallback_to_browser(url, format, browser_input)
+                end
 
               {:error, reason} ->
-                {:error, "Blink fetch failed: #{inspect(reason)}"}
+                # Fallback to browser tool on failure
+                Logger.info("[Blink] Fetch failed, falling back to browser: #{inspect(reason)}")
+                blink_fallback_to_browser(url, format, browser_input)
+
+              {:challenge, challenge_info} ->
+                # Challenge detected - escalate to browser
+                Logger.info(
+                  "[Blink] Challenge detected (#{inspect(challenge_info.type)}), escalating to browser"
+                )
+
+                blink_fallback_to_browser(url, format, browser_input)
+
+              {:blocked, blocked_info} ->
+                # Blocked - escalate to browser
+                Logger.info(
+                  "[Blink] Blocked (#{inspect(blocked_info.reason)}), escalating to browser"
+                )
+
+                blink_fallback_to_browser(url, format, browser_input)
             end
 
           "analyze" ->
@@ -1158,25 +1743,104 @@ defmodule Mimo.Tools do
           "smart" ->
             case Mimo.Skills.Blink.smart_fetch(url, max_retries, browser: browser) do
               {:ok, response} ->
-                body = format_blink_response(response.body, format)
+                try do
+                  # Check if body is valid UTF-8 before processing
+                  if String.valid?(response.body) do
+                    body = format_blink_response(response.body, format)
 
-                {:ok,
-                 %{
-                   status: response.status,
-                   body: body,
-                   body_size: byte_size(response.body),
-                   headers: Map.new(response.headers),
-                   browser: browser,
-                   mode: "smart"
-                 }}
+                    {:ok,
+                     %{
+                       status: response.status,
+                       body: body,
+                       body_size: byte_size(response.body),
+                       headers: Map.new(response.headers),
+                       browser: browser,
+                       mode: "smart"
+                     }}
+                  else
+                    # Binary response (zstd, etc.) - fallback to browser
+                    Logger.info("[Blink] Binary/non-UTF8 response, falling back to browser")
+                    blink_fallback_to_browser(url, format, browser_input)
+                  end
+                rescue
+                  e ->
+                    # Body encoding/format error - fallback to browser
+                    Logger.info(
+                      "[Blink] Body encoding error in smart mode: #{inspect(e)}, falling back to browser"
+                    )
+
+                    blink_fallback_to_browser(url, format, browser_input)
+                catch
+                  kind, reason ->
+                    Logger.info(
+                      "[Blink] Caught #{kind}: #{inspect(reason)}, falling back to browser"
+                    )
+
+                    blink_fallback_to_browser(url, format, browser_input)
+                end
 
               {:error, reason} ->
-                {:error, "Smart fetch failed: #{inspect(reason)}"}
+                # Fallback to browser on smart fetch failure
+                Logger.info(
+                  "[Blink] Smart fetch failed, falling back to browser: #{inspect(reason)}"
+                )
+
+                blink_fallback_to_browser(url, format, browser_input)
+
+              {:challenge, challenge_info} ->
+                # Challenge after all layers - escalate to browser
+                Logger.info(
+                  "[Blink] Challenge persists after all layers (#{inspect(challenge_info.type)}), escalating to browser"
+                )
+
+                blink_fallback_to_browser(url, format, browser_input)
+
+              {:blocked, blocked_info} ->
+                # Still blocked after retries - escalate to browser
+                Logger.info(
+                  "[Blink] Still blocked after retries (#{inspect(blocked_info.reason)}), escalating to browser"
+                )
+
+                blink_fallback_to_browser(url, format, browser_input)
             end
 
           _ ->
             {:error, "Unknown blink operation: #{op}"}
         end
+    end
+  end
+
+  # Fallback to full browser when blink fails
+  defp blink_fallback_to_browser(url, format, browser_profile) do
+    Logger.info("[Blink->Browser] Escalating to Puppeteer for #{url}")
+
+    browser_args = %{
+      "url" => url,
+      "operation" => "fetch",
+      "profile" => browser_profile,
+      "timeout" => 60_000,
+      "wait_for_challenge" => true,
+      "force_browser" => true
+    }
+
+    case dispatch_browser(browser_args) do
+      {:ok, response} ->
+        body = format_blink_response(response.body || "", format)
+
+        {:ok,
+         %{
+           status: response.status,
+           body: body,
+           body_size: byte_size(body),
+           headers: response[:headers] || %{},
+           browser: browser_profile,
+           mode: "browser_fallback",
+           escalated_from: "blink",
+           note: "Blink failed, successfully fetched via full browser"
+         }}
+
+      {:error, reason} ->
+        {:error, "Both blink and browser failed: #{inspect(reason)}"}
     end
   end
 
@@ -1335,4 +1999,802 @@ defmodule Mimo.Tools do
   end
 
   defp normalize_browser_tests(_), do: []
+
+  # ==========================================================================
+  # CODE_SYMBOLS DISPATCHER - Code structure analysis (SPEC-021)
+  # ==========================================================================
+
+  defp dispatch_code_symbols(args) do
+    op = args["operation"] || "symbols"
+
+    case op do
+      "parse" ->
+        dispatch_code_parse(args)
+
+      "symbols" ->
+        dispatch_code_list_symbols(args)
+
+      "references" ->
+        dispatch_code_references(args)
+
+      "search" ->
+        dispatch_code_search(args)
+
+      "definition" ->
+        dispatch_code_definition(args)
+
+      "call_graph" ->
+        dispatch_code_call_graph(args)
+
+      "index" ->
+        dispatch_code_index(args)
+
+      _ ->
+        {:error, "Unknown code_symbols operation: #{op}"}
+    end
+  end
+
+  defp dispatch_code_parse(args) do
+    cond do
+      args["path"] ->
+        case Mimo.Code.TreeSitter.parse_file(args["path"]) do
+          {:ok, tree} ->
+            case Mimo.Code.TreeSitter.get_sexp(tree) do
+              {:ok, sexp} -> {:ok, %{parsed: true, sexp: String.slice(sexp, 0, 2000)}}
+              error -> error
+            end
+
+          error ->
+            error
+        end
+
+      args["source"] && args["language"] ->
+        case Mimo.Code.TreeSitter.parse(args["source"], args["language"]) do
+          {:ok, tree} ->
+            {:ok, symbols} = Mimo.Code.TreeSitter.get_symbols(tree)
+            {:ok, refs} = Mimo.Code.TreeSitter.get_references(tree)
+            {:ok, %{parsed: true, symbols: symbols, references: refs}}
+
+          error ->
+            error
+        end
+
+      true ->
+        {:error, "Either path or source+language is required"}
+    end
+  end
+
+  defp dispatch_code_list_symbols(args) do
+    cond do
+      args["path"] && File.dir?(args["path"]) ->
+        # List symbols in directory
+        case Mimo.Code.SymbolIndex.index_directory(args["path"]) do
+          {:ok, _} ->
+            stats = Mimo.Code.SymbolIndex.stats()
+            {:ok, stats}
+
+          error ->
+            error
+        end
+
+      args["path"] ->
+        # List symbols in file
+        symbols = Mimo.Code.SymbolIndex.symbols_in_file(args["path"])
+        {:ok, %{file: args["path"], symbols: symbols, count: length(symbols)}}
+
+      true ->
+        # Return index stats
+        {:ok, Mimo.Code.SymbolIndex.stats()}
+    end
+  end
+
+  defp dispatch_code_references(args) do
+    name = args["name"] || ""
+
+    if name == "" do
+      {:error, "Symbol name is required for references lookup"}
+    else
+      refs = Mimo.Code.SymbolIndex.find_references(name, limit: args["limit"] || 50)
+
+      {:ok,
+       %{
+         symbol: name,
+         references: Enum.map(refs, &format_reference/1),
+         count: length(refs)
+       }}
+    end
+  end
+
+  defp dispatch_code_search(args) do
+    pattern = args["pattern"] || args["name"] || ""
+
+    if pattern == "" do
+      {:error, "Search pattern is required"}
+    else
+      opts = []
+      opts = if args["kind"], do: Keyword.put(opts, :kind, args["kind"]), else: opts
+      opts = if args["limit"], do: Keyword.put(opts, :limit, args["limit"]), else: opts
+
+      symbols = Mimo.Code.SymbolIndex.search(pattern, opts)
+
+      {:ok,
+       %{
+         pattern: pattern,
+         symbols: Enum.map(symbols, &format_symbol/1),
+         count: length(symbols)
+       }}
+    end
+  end
+
+  defp dispatch_code_definition(args) do
+    name = args["name"] || ""
+
+    if name == "" do
+      {:error, "Symbol name is required"}
+    else
+      case Mimo.Code.SymbolIndex.find_definition(name) do
+        nil ->
+          {:ok, %{symbol: name, found: false}}
+
+        symbol ->
+          {:ok, %{symbol: name, found: true, definition: format_symbol(symbol)}}
+      end
+    end
+  end
+
+  defp dispatch_code_call_graph(args) do
+    name = args["name"] || ""
+
+    if name == "" do
+      {:error, "Symbol name is required"}
+    else
+      graph = Mimo.Code.SymbolIndex.call_graph(name)
+      {:ok, %{symbol: name, callers: graph.callers, callees: graph.callees}}
+    end
+  end
+
+  defp dispatch_code_index(args) do
+    path = args["path"] || "."
+
+    if File.dir?(path) do
+      case Mimo.Code.SymbolIndex.index_directory(path) do
+        {:ok, results} ->
+          stats =
+            results
+            |> Enum.filter(&match?({:ok, _}, &1))
+            |> Enum.map(fn {:ok, s} -> s end)
+
+          total_symbols = Enum.reduce(stats, 0, fn s, acc -> acc + s.symbols_added end)
+          total_refs = Enum.reduce(stats, 0, fn s, acc -> acc + s.references_added end)
+
+          {:ok,
+           %{
+             indexed_files: length(stats),
+             total_symbols: total_symbols,
+             total_references: total_refs
+           }}
+
+        error ->
+          error
+      end
+    else
+      Mimo.Code.SymbolIndex.index_file(path)
+    end
+  end
+
+  defp format_symbol(symbol) do
+    %{
+      name: symbol.name,
+      qualified_name: symbol.qualified_name,
+      kind: symbol.kind,
+      file_path: symbol.file_path,
+      start_line: symbol.start_line,
+      end_line: symbol.end_line
+    }
+  end
+
+  defp format_reference(ref) do
+    %{
+      name: ref.name,
+      kind: ref.kind,
+      file_path: ref.file_path,
+      line: ref.line,
+      col: ref.col
+    }
+  end
+
+  # ==========================================================================
+  # LIBRARY DISPATCHER - Package documentation (SPEC-022)
+  # ==========================================================================
+
+  defp dispatch_library(args) do
+    op = args["operation"] || "get"
+
+    case op do
+      "get" ->
+        dispatch_library_get(args)
+
+      "search" ->
+        dispatch_library_search(args)
+
+      "ensure" ->
+        dispatch_library_ensure(args)
+
+      "discover" ->
+        dispatch_library_discover(args)
+
+      "stats" ->
+        {:ok, Mimo.Library.CacheManager.stats()}
+
+      _ ->
+        {:error, "Unknown library operation: #{op}"}
+    end
+  end
+
+  defp dispatch_library_get(args) do
+    name = args["name"]
+    ecosystem = parse_ecosystem(args["ecosystem"] || "hex")
+
+    if is_nil(name) or name == "" do
+      {:error, "Package name is required"}
+    else
+      opts = if args["version"], do: [version: args["version"]], else: []
+
+      case Mimo.Library.Index.get_package(name, ecosystem, opts) do
+        {:ok, package} ->
+          {:ok, format_package(package)}
+
+        {:error, :not_found} ->
+          {:ok, %{name: name, ecosystem: ecosystem, found: false}}
+
+        error ->
+          error
+      end
+    end
+  end
+
+  defp dispatch_library_search(args) do
+    query = args["query"] || args["name"] || ""
+    ecosystem = parse_ecosystem(args["ecosystem"] || "hex")
+
+    if query == "" do
+      {:error, "Search query is required"}
+    else
+      results = Mimo.Library.Index.search(query, ecosystem: ecosystem, limit: args["limit"] || 10)
+      {:ok, %{query: query, ecosystem: ecosystem, results: results, count: length(results)}}
+    end
+  end
+
+  defp dispatch_library_ensure(args) do
+    name = args["name"]
+    ecosystem = parse_ecosystem(args["ecosystem"] || "hex")
+
+    if is_nil(name) or name == "" do
+      {:error, "Package name is required"}
+    else
+      opts = if args["version"], do: [version: args["version"]], else: []
+
+      case Mimo.Library.Index.ensure_cached(name, ecosystem, opts) do
+        :ok ->
+          {:ok, %{name: name, ecosystem: ecosystem, cached: true}}
+
+        {:error, reason} ->
+          {:ok, %{name: name, ecosystem: ecosystem, cached: false, error: inspect(reason)}}
+      end
+    end
+  end
+
+  defp dispatch_library_discover(args) do
+    path = args["path"] || File.cwd!()
+
+    case Mimo.Library.AutoDiscovery.discover_and_cache(path) do
+      {:ok, result} ->
+        {:ok,
+         %{
+           path: path,
+           ecosystems: result.ecosystems,
+           total_dependencies: result.total_dependencies,
+           cached_successfully: result.cached_successfully,
+           failed: result.failed
+         }}
+
+      {:error, reason} ->
+        {:error, "Discovery failed: #{reason}"}
+    end
+  end
+
+  defp parse_ecosystem(ecosystem) when is_binary(ecosystem) do
+    case String.downcase(ecosystem) do
+      "hex" -> :hex
+      "pypi" -> :pypi
+      "npm" -> :npm
+      "crates" -> :crates
+      _ -> :hex
+    end
+  end
+
+  defp parse_ecosystem(ecosystem) when is_atom(ecosystem), do: ecosystem
+  defp parse_ecosystem(_), do: :hex
+
+  defp format_package(package) do
+    %{
+      name: package[:name] || package["name"],
+      version: package[:version] || package["version"],
+      description: package[:description] || package["description"],
+      found: true,
+      docs_url: package[:docs_url] || package["docs_url"],
+      modules_count: length(package[:modules] || package["modules"] || []),
+      dependencies: package[:dependencies] || package["dependencies"] || []
+    }
+  end
+
+  # ==========================================================================
+  # GRAPH HELPERS - Used by unified knowledge dispatcher
+  # Note: dispatch_graph was removed - graph tool now redirects to knowledge
+  # ==========================================================================
+
+  defp dispatch_graph_traverse(args) do
+    node_id = args["node_id"] || args["node_name"]
+
+    if is_nil(node_id) or node_id == "" do
+      {:error, "node_id or node_name is required"}
+    else
+      # If node_name given, try to find node first
+      actual_node_id =
+        if args["node_name"] do
+          node_type = parse_node_type(args["node_type"])
+
+          case Mimo.Synapse.Graph.get_node(node_type, args["node_name"]) do
+            nil ->
+              # Try search
+              case Mimo.Synapse.Graph.search_nodes(args["node_name"], limit: 1) do
+                [node | _] -> node.id
+                [] -> nil
+              end
+
+            node ->
+              node.id
+          end
+        else
+          node_id
+        end
+
+      if actual_node_id do
+        opts = []
+
+        opts =
+          if args["max_depth"], do: Keyword.put(opts, :max_depth, args["max_depth"]), else: opts
+
+        opts =
+          if args["direction"] do
+            dir = String.to_atom(args["direction"])
+            Keyword.put(opts, :direction, dir)
+          else
+            opts
+          end
+
+        results = Mimo.Synapse.Traversal.bfs(actual_node_id, opts)
+
+        {:ok,
+         %{
+           start_node: actual_node_id,
+           results:
+             Enum.map(results, fn r ->
+               %{
+                 node: format_graph_node(r.node),
+                 depth: r.depth,
+                 path: r.path
+               }
+             end),
+           total: length(results)
+         }}
+      else
+        {:error, "Node not found"}
+      end
+    end
+  end
+
+  defp dispatch_graph_explore(args) do
+    query = args["query"] || ""
+
+    if query == "" do
+      {:error, "Query is required for explore"}
+    else
+      opts = if args["limit"], do: [limit: args["limit"]], else: []
+      Mimo.Synapse.QueryEngine.explore(query, opts)
+    end
+  end
+
+  defp dispatch_graph_node(args) do
+    node_id = args["node_id"] || args["node_name"]
+
+    if is_nil(node_id) or node_id == "" do
+      {:error, "node_id or node_name is required"}
+    else
+      # If node_name given, try to find node first
+      actual_node_id =
+        if args["node_name"] do
+          node_type = if args["node_type"], do: parse_node_type(args["node_type"]), else: :function
+
+          case Mimo.Synapse.Graph.get_node(node_type, args["node_name"]) do
+            nil ->
+              case Mimo.Synapse.Graph.search_nodes(args["node_name"], limit: 1) do
+                [node | _] -> node.id
+                [] -> nil
+              end
+
+            node ->
+              node.id
+          end
+        else
+          node_id
+        end
+
+      if actual_node_id do
+        hops = args["max_depth"] || 2
+
+        case Mimo.Synapse.QueryEngine.node_context(actual_node_id, hops: hops) do
+          {:ok, result} ->
+            {:ok,
+             %{
+               node: format_graph_node(result.node),
+               neighbors: format_graph_nodes(result.neighbors),
+               context: result.context,
+               edges: length(result.edges)
+             }}
+
+          {:error, reason} ->
+            {:error, "Node context failed: #{inspect(reason)}"}
+        end
+      else
+        {:error, "Node not found"}
+      end
+    end
+  end
+
+  defp dispatch_graph_path(args) do
+    from_node = args["from_node"]
+    to_node = args["to_node"]
+
+    if is_nil(from_node) or is_nil(to_node) do
+      {:error, "from_node and to_node are required"}
+    else
+      opts = if args["max_depth"], do: [max_depth: args["max_depth"]], else: []
+
+      case Mimo.Synapse.Traversal.shortest_path(from_node, to_node, opts) do
+        {:ok, path} ->
+          {:ok,
+           %{
+             from: from_node,
+             to: to_node,
+             path: path,
+             length: length(path) - 1
+           }}
+
+        {:error, :no_path} ->
+          {:ok,
+           %{
+             from: from_node,
+             to: to_node,
+             path: [],
+             error: "No path found"
+           }}
+      end
+    end
+  end
+
+  defp dispatch_graph_link(args) do
+    # Link a file or directory to the graph
+    path = args["path"]
+
+    if is_nil(path) or path == "" do
+      {:error, "Path is required for link operation"}
+    else
+      if File.dir?(path) do
+        Mimo.Synapse.Linker.link_directory(path)
+      else
+        Mimo.Synapse.Linker.link_code_file(path)
+      end
+    end
+  end
+
+  # ==========================================================================
+  # SPEC-025: Cognitive Codebase Integration Operations
+  # ==========================================================================
+
+  defp dispatch_link_memory(args) do
+    # Link a memory to code entities (files, functions, libraries)
+    memory_id = args["memory_id"]
+
+    if is_nil(memory_id) or memory_id == "" do
+      {:error, "memory_id is required for link_memory operation"}
+    else
+      case Mimo.Repo.get(Mimo.Brain.Engram, memory_id) do
+        nil ->
+          {:error, "Memory not found: #{memory_id}"}
+
+        memory ->
+          result = Mimo.Brain.MemoryLinker.link_memory(memory_id, memory.content)
+
+          {:ok,
+           %{
+             memory_id: memory_id,
+             linked_files: length(result[:linked_files] || []),
+             linked_functions: length(result[:linked_functions] || []),
+             linked_libraries: length(result[:linked_libraries] || []),
+             details: result
+           }}
+      end
+    end
+  end
+
+  defp dispatch_sync_dependencies(args) do
+    # Sync project dependencies from mix.exs, package.json, etc.
+    path = args["path"] || File.cwd!()
+
+    case Mimo.Synapse.DependencySync.sync_dependencies(path) do
+      {:ok, result} ->
+        {:ok,
+         %{
+           path: path,
+           synced_files: result[:synced_files] || [],
+           total_dependencies: result[:total_dependencies] || 0,
+           ecosystems: result[:ecosystems] || [],
+           details: result
+         }}
+
+      {:error, reason} ->
+        {:error, "Failed to sync dependencies: #{inspect(reason)}"}
+    end
+  end
+
+  defp dispatch_neighborhood(args) do
+    # Get the neighborhood (ego graph) around a node
+    node_id = args["node_id"]
+    node_name = args["node_name"]
+    node_type = args["node_type"]
+    depth = args["depth"] || 2
+    limit = args["limit"] || 50
+
+    # Find node by ID or by name/type
+    node =
+      cond do
+        not is_nil(node_id) ->
+          Mimo.Repo.get(Mimo.Synapse.GraphNode, node_id)
+
+        not is_nil(node_name) ->
+          type = parse_node_type(node_type)
+          Mimo.Synapse.Graph.get_node(type, node_name)
+
+        true ->
+          nil
+      end
+
+    if is_nil(node) do
+      {:error, "Node not found. Provide node_id or node_name (with optional node_type)"}
+    else
+      case Mimo.Synapse.PathFinder.neighborhood(node.id, depth: depth, limit: limit) do
+        {:ok, result} ->
+          {:ok,
+           %{
+             center_node: format_graph_node(node),
+             depth: depth,
+             nodes: format_graph_nodes(result[:nodes] || []),
+             edges: format_edges(result[:edges] || []),
+             node_count: length(result[:nodes] || []),
+             edge_count: length(result[:edges] || [])
+           }}
+
+        {:error, reason} ->
+          {:error, "Failed to get neighborhood: #{inspect(reason)}"}
+      end
+    end
+  end
+
+  defp format_edges(edges) do
+    Enum.map(edges, fn edge ->
+      %{
+        id: edge.id,
+        from_node_id: edge.from_node_id,
+        to_node_id: edge.to_node_id,
+        edge_type: edge.edge_type,
+        weight: edge.weight || 1.0,
+        properties: edge.properties || %{}
+      }
+    end)
+  end
+
+  defp parse_node_type(nil), do: :function
+  defp parse_node_type("concept"), do: :concept
+  defp parse_node_type("file"), do: :file
+  defp parse_node_type("function"), do: :function
+  defp parse_node_type("module"), do: :module
+  defp parse_node_type("external_lib"), do: :external_lib
+  defp parse_node_type("memory"), do: :memory
+  defp parse_node_type(type) when is_atom(type), do: type
+  defp parse_node_type(_), do: :function
+
+  defp format_graph_nodes(nodes) do
+    Enum.map(nodes, &format_graph_node/1)
+  end
+
+  defp format_graph_node(nil), do: nil
+
+  defp format_graph_node(node) do
+    %{
+      id: node.id,
+      type: node.node_type,
+      name: node.name,
+      properties: node.properties || %{},
+      access_count: node.access_count || 0
+    }
+  end
+
+  # ==========================================================================
+  # DIAGNOSTICS DISPATCHER - Compile/Lint Errors (SPEC-029)
+  # ==========================================================================
+  defp dispatch_diagnostics(args) do
+    path = args["path"]
+    opts = []
+
+    opts =
+      if args["operation"] do
+        op = String.to_atom(args["operation"])
+        Keyword.put(opts, :operation, op)
+      else
+        opts
+      end
+
+    opts =
+      if args["language"] do
+        lang = String.to_atom(args["language"])
+        Keyword.put(opts, :language, lang)
+      else
+        opts
+      end
+
+    opts =
+      if args["severity"] do
+        sev = String.to_atom(args["severity"])
+        Keyword.put(opts, :severity, sev)
+      else
+        opts
+      end
+
+    Mimo.Skills.Diagnostics.check(path, opts)
+  end
+
+  # ==========================================================================
+  # COGNITIVE DISPATCHER - Epistemic Uncertainty (SPEC-024)
+  # ==========================================================================
+  defp dispatch_cognitive(args) do
+    op = args["operation"] || "assess"
+
+    case op do
+      "assess" ->
+        topic = args["topic"] || ""
+
+        if topic == "" do
+          {:error, "Topic is required for assess operation"}
+        else
+          uncertainty = Mimo.Cognitive.ConfidenceAssessor.assess(topic)
+          {:ok, format_uncertainty(uncertainty)}
+        end
+
+      "gaps" ->
+        topic = args["topic"] || ""
+
+        if topic == "" do
+          {:error, "Topic is required for gaps operation"}
+        else
+          gap = Mimo.Cognitive.GapDetector.analyze(topic)
+
+          {:ok,
+           %{
+             topic: topic,
+             gap_type: gap.gap_type,
+             severity: gap.severity,
+             suggestion: gap.suggestion,
+             actions: gap.actions,
+             details: gap.details
+           }}
+        end
+
+      "query" ->
+        topic = args["topic"] || ""
+
+        if topic == "" do
+          {:error, "Topic is required for query operation"}
+        else
+          {:ok, result} = Mimo.Cognitive.EpistemicBrain.query(topic)
+
+          {:ok,
+           %{
+             response: result.response,
+             confidence: result.uncertainty.confidence,
+             score: Float.round(result.uncertainty.score, 3),
+             gap_type: result.gap_analysis.gap_type,
+             actions_taken: result.actions_taken,
+             can_answer: result.uncertainty.confidence in [:high, :medium]
+           }}
+        end
+
+      "can_answer" ->
+        topic = args["topic"] || ""
+        min_confidence_val = args["min_confidence"] || 0.4
+
+        if topic == "" do
+          {:error, "Topic is required for can_answer operation"}
+        else
+          # Convert numeric confidence to confidence level
+          min_level =
+            cond do
+              min_confidence_val >= 0.7 -> :high
+              min_confidence_val >= 0.4 -> :medium
+              min_confidence_val >= 0.2 -> :low
+              true -> :unknown
+            end
+
+          can_answer = Mimo.Cognitive.EpistemicBrain.can_answer?(topic, min_level)
+          uncertainty = Mimo.Cognitive.ConfidenceAssessor.assess(topic)
+
+          {:ok,
+           %{
+             topic: topic,
+             can_answer: can_answer,
+             confidence: uncertainty.confidence,
+             score: Float.round(uncertainty.score, 3),
+             recommendation: if(can_answer, do: "proceed", else: "research_needed")
+           }}
+        end
+
+      "suggest" ->
+        limit = args["limit"] || 5
+        targets = Mimo.Cognitive.UncertaintyTracker.suggest_learning_targets(limit: limit)
+
+        {:ok,
+         %{
+           learning_targets:
+             Enum.map(targets, fn t ->
+               %{
+                 topic: t.topic,
+                 priority: Float.round(t.priority, 3),
+                 reason: t.reason,
+                 suggested_action: t.suggested_action
+               }
+             end),
+           count: length(targets)
+         }}
+
+      "stats" ->
+        stats = Mimo.Cognitive.UncertaintyTracker.stats()
+        avg_conf = Map.get(stats, :avg_confidence) || Map.get(stats, :average_confidence) || 0.0
+
+        {:ok,
+         %{
+           total_queries: stats.total_queries,
+           unique_topics: stats.unique_topics,
+           gaps_detected: stats.gaps_detected,
+           confidence_distribution: Map.get(stats, :confidence_distribution, %{}),
+           average_confidence: Float.round(avg_conf * 1.0, 3)
+         }}
+
+      _ ->
+        {:error,
+         "Unknown cognitive operation: #{op}. Available: assess, gaps, query, can_answer, suggest, stats"}
+    end
+  end
+
+  defp format_uncertainty(uncertainty) do
+    %{
+      topic: uncertainty.topic,
+      confidence: uncertainty.confidence,
+      score: Float.round(uncertainty.score, 3),
+      evidence_count: uncertainty.evidence_count,
+      source_types: uncertainty.sources |> Enum.map(& &1.type) |> Enum.uniq(),
+      staleness: Float.round(uncertainty.staleness, 3),
+      has_gap: Mimo.Cognitive.Uncertainty.has_gap?(uncertainty),
+      gap_indicators: uncertainty.gap_indicators
+    }
+  end
 end

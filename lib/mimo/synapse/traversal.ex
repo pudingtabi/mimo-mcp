@@ -1,0 +1,510 @@
+defmodule Mimo.Synapse.Traversal do
+  @moduledoc """
+  Graph traversal algorithms for the Synapse Web.
+
+  Provides efficient graph traversal using SQLite recursive CTEs:
+  - BFS (Breadth-First Search)
+  - DFS (Depth-First Search)
+  - Shortest path finding
+  - Subgraph extraction (ego graph)
+  - Centrality computation
+
+  ## Performance
+
+  Uses SQLite's WITH RECURSIVE for efficient in-database traversal,
+  avoiding multiple round-trips for each hop.
+
+  ## Example
+
+      # BFS from a starting node
+      results = Traversal.bfs(node_id, max_depth: 3)
+
+      # Find shortest path
+      {:ok, path} = Traversal.shortest_path(from_id, to_id)
+
+      # Get ego graph (neighborhood)
+      subgraph = Traversal.ego_graph(center_id, hops: 2)
+  """
+
+  alias Mimo.Repo
+  alias Mimo.Synapse.{Graph, GraphNode, GraphEdge}
+
+  require Logger
+
+  @type traversal_result :: %{
+          node: GraphNode.t(),
+          depth: non_neg_integer(),
+          path: [String.t()]
+        }
+
+  # ============================================
+  # BFS Traversal
+  # ============================================
+
+  @doc """
+  Breadth-First Search traversal from a starting node.
+
+  Uses SQLite recursive CTE for efficient multi-hop traversal.
+
+  ## Options
+
+    - `:max_depth` - Maximum traversal depth (default: 3)
+    - `:edge_types` - Filter by edge types (default: all)
+    - `:direction` - `:outgoing`, `:incoming`, or `:both` (default: :outgoing)
+    - `:min_weight` - Minimum edge weight threshold (default: 0.0)
+
+  ## Returns
+
+  List of `%{node: GraphNode.t(), depth: integer, path: [String.t()]}`
+  """
+  @spec bfs(String.t(), keyword()) :: [traversal_result()]
+  def bfs(start_node_id, opts \\ []) do
+    max_depth = Keyword.get(opts, :max_depth, 3)
+    edge_types = Keyword.get(opts, :edge_types, Graph.edge_types())
+    direction = Keyword.get(opts, :direction, :outgoing)
+    min_weight = Keyword.get(opts, :min_weight, 0.0)
+
+    edge_types_str = Enum.map_join(edge_types, ",", &"'#{&1}'")
+
+    sql = build_traversal_sql(direction, edge_types_str, min_weight)
+
+    case Ecto.Adapters.SQL.query(Repo, sql, [start_node_id, max_depth]) do
+      {:ok, %{rows: rows}} ->
+        rows
+        |> Enum.map(fn [id, node_type, name, properties, depth, path] ->
+          %{
+            node: %GraphNode{
+              id: id,
+              node_type: safe_atom(node_type),
+              name: name,
+              properties: decode_json(properties)
+            },
+            depth: depth,
+            path: String.split(path, "->")
+          }
+        end)
+
+      {:error, error} ->
+        Logger.error("BFS traversal failed: #{inspect(error)}")
+        []
+    end
+  end
+
+  defp build_traversal_sql(:outgoing, edge_types_str, min_weight) do
+    """
+    WITH RECURSIVE graph_walk AS (
+      -- Base case: starting node
+      SELECT
+        n.id,
+        n.node_type,
+        n.name,
+        n.properties,
+        0 as depth,
+        n.id as path,
+        n.id as visited
+      FROM graph_nodes n
+      WHERE n.id = ?1
+
+      UNION ALL
+
+      -- Recursive case: follow outgoing edges
+      SELECT
+        tn.id,
+        tn.node_type,
+        tn.name,
+        tn.properties,
+        gw.depth + 1,
+        gw.path || '->' || tn.id,
+        gw.visited || ',' || tn.id
+      FROM graph_edges e
+      INNER JOIN graph_walk gw ON e.source_node_id = gw.id
+      INNER JOIN graph_nodes tn ON e.target_node_id = tn.id
+      WHERE gw.depth < ?2
+        AND e.edge_type IN (#{edge_types_str})
+        AND e.weight >= #{min_weight}
+        AND instr(gw.visited, tn.id) = 0
+    )
+    SELECT DISTINCT id, node_type, name, properties, depth, path
+    FROM graph_walk
+    WHERE depth > 0
+    ORDER BY depth ASC, name ASC
+    """
+  end
+
+  defp build_traversal_sql(:incoming, edge_types_str, min_weight) do
+    """
+    WITH RECURSIVE graph_walk AS (
+      -- Base case: starting node
+      SELECT
+        n.id,
+        n.node_type,
+        n.name,
+        n.properties,
+        0 as depth,
+        n.id as path,
+        n.id as visited
+      FROM graph_nodes n
+      WHERE n.id = ?1
+
+      UNION ALL
+
+      -- Recursive case: follow incoming edges
+      SELECT
+        sn.id,
+        sn.node_type,
+        sn.name,
+        sn.properties,
+        gw.depth + 1,
+        sn.id || '->' || gw.path,
+        gw.visited || ',' || sn.id
+      FROM graph_edges e
+      INNER JOIN graph_walk gw ON e.target_node_id = gw.id
+      INNER JOIN graph_nodes sn ON e.source_node_id = sn.id
+      WHERE gw.depth < ?2
+        AND e.edge_type IN (#{edge_types_str})
+        AND e.weight >= #{min_weight}
+        AND instr(gw.visited, sn.id) = 0
+    )
+    SELECT DISTINCT id, node_type, name, properties, depth, path
+    FROM graph_walk
+    WHERE depth > 0
+    ORDER BY depth ASC, name ASC
+    """
+  end
+
+  defp build_traversal_sql(:both, edge_types_str, min_weight) do
+    """
+    WITH RECURSIVE graph_walk AS (
+      -- Base case: starting node
+      SELECT
+        n.id,
+        n.node_type,
+        n.name,
+        n.properties,
+        0 as depth,
+        n.id as path,
+        n.id as visited
+      FROM graph_nodes n
+      WHERE n.id = ?1
+
+      UNION ALL
+
+      -- Recursive case: follow outgoing edges
+      SELECT
+        tn.id,
+        tn.node_type,
+        tn.name,
+        tn.properties,
+        gw.depth + 1,
+        gw.path || '->' || tn.id,
+        gw.visited || ',' || tn.id
+      FROM graph_edges e
+      INNER JOIN graph_walk gw ON e.source_node_id = gw.id
+      INNER JOIN graph_nodes tn ON e.target_node_id = tn.id
+      WHERE gw.depth < ?2
+        AND e.edge_type IN (#{edge_types_str})
+        AND e.weight >= #{min_weight}
+        AND instr(gw.visited, tn.id) = 0
+
+      UNION ALL
+
+      -- Recursive case: follow incoming edges
+      SELECT
+        sn.id,
+        sn.node_type,
+        sn.name,
+        sn.properties,
+        gw.depth + 1,
+        sn.id || '->' || gw.path,
+        gw.visited || ',' || sn.id
+      FROM graph_edges e
+      INNER JOIN graph_walk gw ON e.target_node_id = gw.id
+      INNER JOIN graph_nodes sn ON e.source_node_id = sn.id
+      WHERE gw.depth < ?2
+        AND e.edge_type IN (#{edge_types_str})
+        AND e.weight >= #{min_weight}
+        AND instr(gw.visited, sn.id) = 0
+    )
+    SELECT DISTINCT id, node_type, name, properties, depth, path
+    FROM graph_walk
+    WHERE depth > 0
+    ORDER BY depth ASC, name ASC
+    """
+  end
+
+  # ============================================
+  # DFS Traversal
+  # ============================================
+
+  @doc """
+  Depth-First Search traversal from a starting node.
+
+  Note: SQLite CTEs are naturally BFS-like. This function provides
+  DFS ordering by sorting results by path length first.
+
+  ## Options
+
+  Same as `bfs/2`.
+  """
+  @spec dfs(String.t(), keyword()) :: [traversal_result()]
+  def dfs(start_node_id, opts \\ []) do
+    # Use BFS but sort by path depth (DFS-like ordering)
+    bfs(start_node_id, opts)
+    |> Enum.sort_by(fn %{path: path} -> -length(path) end)
+  end
+
+  # ============================================
+  # Shortest Path
+  # ============================================
+
+  @doc """
+  Find the shortest path between two nodes.
+
+  Uses BFS to find the first path, which is guaranteed to be shortest
+  in an unweighted graph.
+
+  ## Options
+
+    - `:max_depth` - Maximum path length (default: 6)
+    - `:edge_types` - Filter by edge types (default: all)
+
+  ## Returns
+
+    - `{:ok, path}` - List of node IDs forming the path
+    - `{:error, :no_path}` - No path exists within max_depth
+  """
+  @spec shortest_path(String.t(), String.t(), keyword()) :: {:ok, [String.t()]} | {:error, :no_path}
+  def shortest_path(from_id, to_id, opts \\ []) do
+    max_depth = Keyword.get(opts, :max_depth, 6)
+    edge_types = Keyword.get(opts, :edge_types, Graph.edge_types())
+    edge_types_str = Enum.map_join(edge_types, ",", &"'#{&1}'")
+
+    sql = """
+    WITH RECURSIVE path_search AS (
+      -- Base case: start from source
+      SELECT
+        ?1 as current_id,
+        ?1 as path,
+        ?1 as visited,
+        0 as depth
+      
+      UNION ALL
+      
+      -- Follow edges
+      SELECT
+        e.target_node_id,
+        ps.path || '->' || e.target_node_id,
+        ps.visited || ',' || e.target_node_id,
+        ps.depth + 1
+      FROM graph_edges e
+      INNER JOIN path_search ps ON e.source_node_id = ps.current_id
+      WHERE ps.depth < ?3
+        AND e.edge_type IN (#{edge_types_str})
+        AND instr(ps.visited, e.target_node_id) = 0
+    )
+    SELECT path
+    FROM path_search
+    WHERE current_id = ?2
+    ORDER BY depth ASC
+    LIMIT 1
+    """
+
+    case Ecto.Adapters.SQL.query(Repo, sql, [from_id, to_id, max_depth]) do
+      {:ok, %{rows: [[path]]}} ->
+        {:ok, String.split(path, "->")}
+
+      {:ok, %{rows: []}} ->
+        {:error, :no_path}
+
+      {:error, error} ->
+        Logger.error("Shortest path query failed: #{inspect(error)}")
+        {:error, :no_path}
+    end
+  end
+
+  # ============================================
+  # All Paths
+  # ============================================
+
+  @doc """
+  Find all paths between two nodes up to a maximum length.
+
+  ## Options
+
+    - `:max_length` - Maximum path length (default: 5)
+    - `:limit` - Maximum number of paths to return (default: 10)
+  """
+  @spec all_paths(String.t(), String.t(), keyword()) :: [list(String.t())]
+  def all_paths(from_id, to_id, opts \\ []) do
+    max_length = Keyword.get(opts, :max_length, 5)
+    limit = Keyword.get(opts, :limit, 10)
+    edge_types = Keyword.get(opts, :edge_types, Graph.edge_types())
+    edge_types_str = Enum.map_join(edge_types, ",", &"'#{&1}'")
+
+    sql = """
+    WITH RECURSIVE path_search AS (
+      SELECT
+        ?1 as current_id,
+        ?1 as path,
+        ?1 as visited,
+        0 as depth
+      
+      UNION ALL
+      
+      SELECT
+        e.target_node_id,
+        ps.path || '->' || e.target_node_id,
+        ps.visited || ',' || e.target_node_id,
+        ps.depth + 1
+      FROM graph_edges e
+      INNER JOIN path_search ps ON e.source_node_id = ps.current_id
+      WHERE ps.depth < ?3
+        AND e.edge_type IN (#{edge_types_str})
+        AND instr(ps.visited, e.target_node_id) = 0
+    )
+    SELECT path
+    FROM path_search
+    WHERE current_id = ?2
+    ORDER BY depth ASC
+    LIMIT ?4
+    """
+
+    case Ecto.Adapters.SQL.query(Repo, sql, [from_id, to_id, max_length, limit]) do
+      {:ok, %{rows: rows}} ->
+        Enum.map(rows, fn [path] -> String.split(path, "->") end)
+
+      {:error, error} ->
+        Logger.error("All paths query failed: #{inspect(error)}")
+        []
+    end
+  end
+
+  # ============================================
+  # Ego Graph (Subgraph)
+  # ============================================
+
+  @doc """
+  Get the ego graph (neighborhood) around a center node.
+
+  Returns all nodes within `hops` distance and all edges between them.
+
+  ## Options
+
+    - `:hops` - Number of hops from center (default: 2)
+    - `:edge_types` - Filter by edge types (default: all)
+
+  ## Returns
+
+  Map with `:nodes` and `:edges` lists.
+  """
+  @spec ego_graph(String.t(), keyword()) :: %{nodes: [GraphNode.t()], edges: [GraphEdge.t()]}
+  def ego_graph(center_id, opts \\ []) do
+    hops = Keyword.get(opts, :hops, 2)
+
+    # Get all reachable nodes
+    traversal = bfs(center_id, max_depth: hops, direction: :both)
+    node_ids = [center_id | Enum.map(traversal, & &1.node.id)]
+
+    # Get center node
+    center_node = Graph.get_node_by_id(center_id)
+    traversal_nodes = Enum.map(traversal, & &1.node)
+
+    # Get all edges between these nodes
+    edges =
+      if length(node_ids) > 0 do
+        import Ecto.Query
+
+        GraphEdge
+        |> where([e], e.source_node_id in ^node_ids and e.target_node_id in ^node_ids)
+        |> preload([:source_node, :target_node])
+        |> Repo.all()
+      else
+        []
+      end
+
+    %{
+      nodes: [center_node | traversal_nodes] |> Enum.filter(& &1) |> Enum.uniq_by(& &1.id),
+      edges: edges
+    }
+  end
+
+  # ============================================
+  # Centrality (PageRank-style)
+  # ============================================
+
+  @doc """
+  Compute centrality scores for nodes in the graph.
+
+  Uses a simplified PageRank-style algorithm:
+  - Nodes with more incoming edges are more central
+  - Weighted by edge weights
+
+  ## Options
+
+    - `:limit` - Maximum number of results (default: 100)
+    - `:node_types` - Filter by node types (default: all)
+
+  ## Returns
+
+  List of `{node_id, centrality_score}` tuples, sorted by score descending.
+  """
+  @spec compute_centrality(keyword()) :: [{String.t(), float()}]
+  def compute_centrality(opts \\ []) do
+    limit = Keyword.get(opts, :limit, 100)
+    node_types = Keyword.get(opts, :node_types, Graph.node_types())
+    node_types_str = Enum.map_join(node_types, ",", &"'#{&1}'")
+
+    # Simple centrality: sum of incoming edge weights + access count bonus
+    sql = """
+    SELECT
+      n.id,
+      n.name,
+      n.node_type,
+      COALESCE(SUM(e.weight), 0) + (n.access_count * 0.1) as centrality
+    FROM graph_nodes n
+    LEFT JOIN graph_edges e ON e.target_node_id = n.id
+    WHERE n.node_type IN (#{node_types_str})
+    GROUP BY n.id
+    ORDER BY centrality DESC
+    LIMIT ?1
+    """
+
+    case Ecto.Adapters.SQL.query(Repo, sql, [limit]) do
+      {:ok, %{rows: rows}} ->
+        Enum.map(rows, fn [id, name, type, centrality] ->
+          {id, %{name: name, node_type: safe_atom(type), centrality: centrality || 0.0}}
+        end)
+
+      {:error, error} ->
+        Logger.error("Centrality computation failed: #{inspect(error)}")
+        []
+    end
+  end
+
+  # ============================================
+  # Helpers
+  # ============================================
+
+  defp safe_atom(nil), do: nil
+
+  defp safe_atom(str) when is_binary(str) do
+    try do
+      String.to_existing_atom(str)
+    rescue
+      _ -> String.to_atom(str)
+    end
+  end
+
+  defp safe_atom(atom) when is_atom(atom), do: atom
+
+  defp decode_json(nil), do: %{}
+
+  defp decode_json(str) when is_binary(str) do
+    case Jason.decode(str) do
+      {:ok, map} -> map
+      _ -> %{}
+    end
+  end
+
+  defp decode_json(map) when is_map(map), do: map
+end

@@ -85,7 +85,7 @@ defmodule Mimo.Brain.LLM do
 
     case api_key() do
       nil ->
-        Logger.warning("No OpenRouter API key, using fallback")
+        Logger.error("OpenRouter API key not configured - LLM completion unavailable")
         {:error, :no_api_key}
 
       key ->
@@ -212,9 +212,8 @@ defmodule Mimo.Brain.LLM do
 
     case api_key() do
       nil ->
-        # Fallback to local response if no API key
-        {:ok,
-         "No OpenRouter API key configured. Query: #{query}\n\nMemories consulted: #{length(memories)}"}
+        Logger.error("OpenRouter API key not configured - LLM synthesis unavailable")
+        {:error, :no_api_key}
 
       key ->
         call_openrouter(system_prompt, query, key)

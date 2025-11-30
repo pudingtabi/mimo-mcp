@@ -90,6 +90,9 @@ defmodule Mimo.MixProject do
       {:uuid, "~> 1.1"},
       {:cors_plug, "~> 3.0"},
 
+      # File system watching for Living Codebase
+      {:file_system, "~> 1.0"},
+
       # Rust NIF support
       {:rustler, "~> 0.31", optional: true},
 

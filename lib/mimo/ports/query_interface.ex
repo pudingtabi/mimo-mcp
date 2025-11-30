@@ -24,7 +24,7 @@ defmodule Mimo.QueryInterface do
   """
   @spec ask(String.t(), String.t() | nil, keyword()) :: {:ok, map()} | {:error, term()}
   def ask(query, context_id \\ nil, opts \\ []) do
-    timeout_ms = Keyword.get(opts, :timeout_ms, 5000)
+    timeout_ms = Keyword.get(opts, :timeout_ms, 30_000)
 
     task =
       Task.async(fn ->
@@ -34,30 +34,46 @@ defmodule Mimo.QueryInterface do
         # Search memories based on router decision
         memories = search_by_decision(query, router_decision)
 
-        # Consult LLM if needed for synthesis
-        synthesis =
-          case router_decision.requires_synthesis do
-            true ->
-              case Mimo.Brain.LLM.consult_chief_of_staff(query, memories.episodic) do
-                {:ok, response} -> response
-                {:error, _} -> nil
-              end
+        # Always synthesize with LLM - ask_mimo should provide intelligent answers
+        # not just raw memory dumps
+        synthesis_result = Mimo.Brain.LLM.consult_chief_of_staff(query, memories.episodic || [])
 
-            false ->
-              nil
-          end
+        case synthesis_result do
+          {:ok, response} ->
+            # Record the conversation in memory (async, don't block response)
+            record_conversation(query, response, context_id)
 
-        %{
-          query_id: UUID.uuid4(),
-          router_decision: router_decision,
-          results: memories,
-          synthesis: synthesis,
-          context_id: context_id
-        }
+            {:ok,
+             %{
+               query_id: UUID.uuid4(),
+               router_decision: router_decision,
+               results: memories,
+               synthesis: response,
+               context_id: context_id
+             }}
+
+          {:error, :no_api_key} ->
+            {:error,
+             "OpenRouter API key not configured. Set OPENROUTER_API_KEY environment variable."}
+
+          {:error, reason} ->
+            Logger.warning("LLM synthesis failed: #{inspect(reason)}, returning memories only")
+            # Return memories without synthesis if LLM fails (circuit breaker, timeout, etc.)
+            {:ok,
+             %{
+               query_id: UUID.uuid4(),
+               router_decision: router_decision,
+               results: memories,
+               synthesis: nil,
+               synthesis_error: inspect(reason),
+               context_id: context_id
+             }}
+        end
       end)
 
     case Task.yield(task, timeout_ms) || Task.shutdown(task) do
-      {:ok, result} -> {:ok, result}
+      {:ok, {:ok, result}} -> {:ok, result}
+      {:ok, {:error, reason}} -> {:error, reason}
       nil -> {:error, :timeout}
     end
   rescue
@@ -73,12 +89,13 @@ defmodule Mimo.QueryInterface do
   end
 
   defp search_episodic(query, %{primary_store: :episodic} = _decision) do
-    Mimo.Brain.Memory.search_memories(query, limit: 10)
+    # Use recency boost of 0.3 to prefer fresh memories while still respecting relevance
+    Mimo.Brain.Memory.search_memories(query, limit: 10, recency_boost: 0.3)
   end
 
   defp search_episodic(query, %{secondary_stores: stores}) when is_list(stores) do
     if :episodic in stores do
-      Mimo.Brain.Memory.search_memories(query, limit: 5)
+      Mimo.Brain.Memory.search_memories(query, limit: 5, recency_boost: 0.3)
     else
       []
     end
@@ -144,4 +161,60 @@ defmodule Mimo.QueryInterface do
   end
 
   defp search_procedural(_query, _decision), do: nil
+
+  # Record ask_mimo conversations in memory for future context
+  defp record_conversation(query, response, context_id) do
+    # Run async to not block the response
+    Task.start(fn ->
+      try do
+        # Truncate long responses to avoid bloating memory
+        truncated_response =
+          if String.length(response) > 500 do
+            String.slice(response, 0, 497) <> "..."
+          else
+            response
+          end
+
+        # Format as a conversation turn
+        content = """
+        [AI asked Mimo]: #{query}
+        [Mimo responded]: #{truncated_response}
+        """
+
+        # Determine importance based on query characteristics
+        importance = calculate_conversation_importance(query)
+
+        # Store with conversation category (category must be string, not atom)
+        Mimo.Brain.Memory.persist_memory(
+          String.trim(content),
+          "observation",
+          importance
+        )
+
+        Logger.info("Recorded ask_mimo conversation in memory (context: #{context_id || "none"})")
+      rescue
+        e ->
+          Logger.warning("Failed to record conversation: #{Exception.message(e)}")
+      end
+    end)
+  end
+
+  # Calculate importance based on query characteristics
+  defp calculate_conversation_importance(query) do
+    base = 0.5
+
+    # Boost for longer, more detailed queries
+    length_boost = if String.length(query) > 100, do: 0.1, else: 0.0
+
+    # Boost for questions about architecture, design, or important topics
+    topic_boost =
+      cond do
+        String.contains?(query, ["architecture", "design", "implement", "how to"]) -> 0.15
+        String.contains?(query, ["bug", "error", "fix", "problem"]) -> 0.1
+        String.contains?(query, ["remember", "recall", "what did"]) -> 0.1
+        true -> 0.0
+      end
+
+    min(base + length_boost + topic_boost, 0.85)
+  end
 end

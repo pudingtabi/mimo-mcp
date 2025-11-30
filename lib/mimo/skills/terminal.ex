@@ -3,10 +3,19 @@ defmodule Mimo.Skills.Terminal do
   Non-blocking, secure command executor using Exile.
 
   Native replacement for desktop_commander terminal/process operations.
+
+  ## Features
+  - Working directory (cwd) support
+  - Environment variables (env) support  
+  - Output truncation (60KB max like VS Code)
+  - Named process tracking
+  - Shell selection (bash, sh, zsh, powershell)
   """
   require Logger
 
   @default_timeout 30_000
+  # 60KB like VS Code
+  @max_output_size 60_000
 
   # Destructive commands that require confirmation (unless yolo: true)
   @destructive_commands MapSet.new(~w[
@@ -71,20 +80,38 @@ defmodule Mimo.Skills.Terminal do
   # Public API - Single Command Execution
   # ==========================================================================
 
+  @doc """
+  Execute a command with optional cwd, env, and shell options.
+
+  ## Options
+    - `:timeout` - Timeout in milliseconds (default: 30_000)
+    - `:yolo` - Skip confirmation prompts (default: false)
+    - `:confirm` - Confirm destructive commands (default: false)
+    - `:cwd` - Working directory for command (default: current directory)
+    - `:env` - Environment variables as map or keyword list
+    - `:shell` - Shell to use: "bash", "sh", "zsh", "powershell" (default: direct execution)
+
+  ## Examples
+      execute("npm test", cwd: "/app/frontend")
+      execute("echo $MY_VAR", env: %{"MY_VAR" => "hello"}, shell: "bash")
+  """
   def execute(cmd_str, opts \\ []) when is_binary(cmd_str) do
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     yolo = Keyword.get(opts, :yolo, false)
     confirmed = Keyword.get(opts, :confirm, false) || yolo
+    cwd = Keyword.get(opts, :cwd)
+    env = Keyword.get(opts, :env, %{})
+    shell = Keyword.get(opts, :shell)
 
     # YOLO mode: skip confirmation prompts for advanced users
     if yolo do
-      execute_safe(cmd_str, timeout)
+      execute_safe(cmd_str, timeout, cwd: cwd, env: env, shell: shell)
     else
       case validate_cmd(cmd_str, false) do
         :ok ->
           case check_destructive(cmd_str, confirmed) do
             :ok ->
-              execute_safe(cmd_str, timeout)
+              execute_safe(cmd_str, timeout, cwd: cwd, env: env, shell: shell)
 
             {:needs_confirmation, warning} ->
               %{status: 0, output: warning, needs_confirmation: true}
@@ -317,16 +344,26 @@ defmodule Mimo.Skills.Terminal do
     end
   end
 
-  defp execute_safe(cmd_str, timeout) do
+  defp execute_safe(cmd_str, timeout, opts) do
+    cwd = Keyword.get(opts, :cwd)
+    env = Keyword.get(opts, :env, %{})
+    shell = Keyword.get(opts, :shell)
+
     task =
       Task.async(fn ->
         try do
-          [cmd | args] = String.split(cmd_str)
+          # Build command and args based on shell option
+          {cmd, args} = build_command(cmd_str, shell)
 
-          # Use System.cmd for simpler commands - more reliable in stdio context
-          case System.cmd(cmd, args, stderr_to_stdout: true) do
-            {output, 0} -> %{status: 0, output: output}
-            {output, status} -> %{status: status, output: output}
+          # Build System.cmd options
+          cmd_opts = [stderr_to_stdout: true]
+          cmd_opts = if cwd && cwd != "", do: Keyword.put(cmd_opts, :cd, cwd), else: cmd_opts
+          cmd_opts = Keyword.put(cmd_opts, :env, normalize_env(env))
+
+          # Execute
+          case System.cmd(cmd, args, cmd_opts) do
+            {output, 0} -> %{status: 0, output: truncate_output(output)}
+            {output, status} -> %{status: status, output: truncate_output(output)}
           end
         rescue
           e -> %{status: 1, output: "Execution error: #{Exception.message(e)}"}
@@ -338,6 +375,44 @@ defmodule Mimo.Skills.Terminal do
       nil -> %{status: 1, output: "Command timed out after #{timeout}ms"}
     end
   end
+
+  # Build command based on shell selection
+  defp build_command(cmd_str, nil) do
+    # Direct execution - split command
+    [cmd | args] = String.split(cmd_str)
+    {cmd, args}
+  end
+
+  defp build_command(cmd_str, "bash"), do: {"/usr/bin/bash", ["-c", cmd_str]}
+  defp build_command(cmd_str, "sh"), do: {"/usr/bin/sh", ["-c", cmd_str]}
+  defp build_command(cmd_str, "zsh"), do: {"/usr/bin/zsh", ["-c", cmd_str]}
+  defp build_command(cmd_str, "powershell"), do: {"powershell", ["-Command", cmd_str]}
+  defp build_command(cmd_str, shell) when is_binary(shell), do: {shell, ["-c", cmd_str]}
+  defp build_command(cmd_str, _), do: build_command(cmd_str, nil)
+
+  # Normalize environment variables to list of tuples
+  defp normalize_env(env) when is_map(env) do
+    Enum.map(env, fn {k, v} -> {to_string(k), to_string(v)} end)
+  end
+
+  defp normalize_env(env) when is_list(env) do
+    Enum.map(env, fn
+      {k, v} -> {to_string(k), to_string(v)}
+      _ -> nil
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp normalize_env(_), do: []
+
+  # Truncate output to prevent context overflow
+  defp truncate_output(output) when byte_size(output) > @max_output_size do
+    truncated = binary_part(output, 0, @max_output_size)
+    omitted = byte_size(output) - @max_output_size
+    truncated <> "\n\n... [OUTPUT TRUNCATED - #{omitted} bytes omitted]"
+  end
+
+  defp truncate_output(output), do: output
 
   defp collect_output(process, timeout_ms) do
     deadline = System.monotonic_time(:millisecond) + timeout_ms

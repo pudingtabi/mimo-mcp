@@ -33,18 +33,41 @@ defmodule Mimo.Brain.Memory do
     * `:min_similarity` - Minimum similarity threshold 0-1 (default: 0.3)
     * `:batch_size` - Internal batch size for streaming (default: 1000)
     
+  ## Options
+
+    * `:limit` - Maximum results (default: 10)
+    * `:min_similarity` - Minimum similarity threshold (default: 0.3)
+    * `:recency_boost` - Weight for recency in scoring 0-1 (default: 0.0). 
+      When > 0, combines semantic similarity with recency: 
+      final_score = (1 - recency_boost) * similarity + recency_boost * recency_score
+    * `:batch_size` - Streaming batch size
+
   ## Examples
 
       search_memories("project architecture", limit: 5)
       search_memories("error handling", min_similarity: 0.5)
+      search_memories("SPEC-025 completion", recency_boost: 0.3)  # Prefer recent
   """
   def search_memories(query, opts \\ []) do
     limit = Keyword.get(opts, :limit, 10)
     min_similarity = Keyword.get(opts, :min_similarity, 0.3)
     batch_size = Keyword.get(opts, :batch_size, @max_memory_batch_size)
+    recency_boost = Keyword.get(opts, :recency_boost, 0.0)
 
     with {:ok, query_embedding} <- generate_embedding(query) do
-      results = stream_search(query_embedding, limit, min_similarity, batch_size)
+      results = stream_search(query_embedding, limit, min_similarity, batch_size, recency_boost)
+
+      # SPEC-012: Track memory access for adaptive decay reinforcement
+      # Accessed memories get their importance reinforced, slowing decay
+      if results != [] do
+        ids = Enum.map(results, & &1[:id]) |> Enum.reject(&is_nil/1)
+
+        if ids != [] do
+          Logger.info("AccessTracker: tracking #{length(ids)} memory accesses")
+          Mimo.Brain.AccessTracker.track_many(ids)
+        end
+      end
+
       results
     else
       {:error, reason} ->
@@ -104,6 +127,8 @@ defmodule Mimo.Brain.Memory do
         case Repo.insert(changeset) do
           {:ok, engram} ->
             log_memory_event(:stored, engram.id, category, project_id, tags)
+            # SPEC-025: Notify Orchestrator for Synapse graph linking
+            notify_memory_stored(engram)
             {:ok, engram.id}
 
           {:error, changeset} ->
@@ -361,6 +386,8 @@ defmodule Mimo.Brain.Memory do
         case Repo.insert(changeset) do
           {:ok, engram} ->
             log_memory_event(:stored, engram.id, category)
+            # SPEC-025: Notify Orchestrator for Synapse graph linking
+            notify_memory_stored(engram)
             {:ok, engram}
 
           {:error, changeset} ->
@@ -377,20 +404,24 @@ defmodule Mimo.Brain.Memory do
   # Private Functions - Streaming Search
   # ==========================================================================
 
-  # O(1) memory streaming implementation
-  defp stream_search(query_embedding, limit, min_similarity, batch_size) do
+  # O(1) memory streaming implementation with optional recency boost
+  defp stream_search(query_embedding, limit, min_similarity, batch_size, recency_boost) do
     # Use Ecto stream to avoid loading all records into memory
     base_query = from(e in Engram, select: e)
+
+    # Get current time for recency calculation
+    now = DateTime.utc_now()
 
     # Stream in batches and collect top results
     Repo.transaction(fn ->
       base_query
       |> Repo.stream(max_rows: batch_size)
-      |> Stream.map(&calculate_similarity_wrapper(&1, query_embedding))
+      |> Stream.map(&calculate_similarity_wrapper(&1, query_embedding, now, recency_boost))
       |> Stream.filter(&(&1.similarity >= min_similarity))
       # Materialize stream
       |> Enum.to_list()
-      |> Enum.sort_by(& &1.similarity, :desc)
+      # Sort by combined score (similarity + recency boost)
+      |> Enum.sort_by(& &1.score, :desc)
       |> Enum.take(limit)
     end)
     |> case do
@@ -400,8 +431,21 @@ defmodule Mimo.Brain.Memory do
   end
 
   # Wrapper ensures proper error handling per-record
-  defp calculate_similarity_wrapper(engram, query_embedding) do
+  # Now includes recency scoring for freshness boost
+  defp calculate_similarity_wrapper(engram, query_embedding, now, recency_boost) do
     similarity = calculate_similarity(query_embedding, engram.embedding)
+
+    # Calculate recency score (1.0 for now, decays over time)
+    # Half-life of 7 days - memories from 7 days ago get 0.5 recency score
+    recency_score = calculate_recency_score(engram.inserted_at, now)
+
+    # Combined score: blend similarity and recency based on boost weight
+    score =
+      if recency_boost > 0 do
+        (1.0 - recency_boost) * similarity + recency_boost * recency_score
+      else
+        similarity
+      end
 
     %{
       id: engram.id,
@@ -409,8 +453,34 @@ defmodule Mimo.Brain.Memory do
       category: engram.category,
       importance: engram.importance,
       metadata: engram.metadata || %{},
-      similarity: similarity
+      similarity: similarity,
+      recency_score: recency_score,
+      score: score
     }
+  end
+
+  # Calculate recency score using exponential decay
+  # Half-life of 7 days: memories from 7 days ago get score 0.5
+  defp calculate_recency_score(nil, _now), do: 0.5
+
+  defp calculate_recency_score(inserted_at, now) do
+    # Convert to DateTime if NaiveDateTime
+    inserted_dt =
+      case inserted_at do
+        %NaiveDateTime{} -> DateTime.from_naive!(inserted_at, "Etc/UTC")
+        %DateTime{} -> inserted_at
+        # fallback to now (score 1.0)
+        _ -> now
+      end
+
+    # Days since creation
+    seconds_diff = DateTime.diff(now, inserted_dt, :second)
+    days_diff = seconds_diff / 86400.0
+
+    # Exponential decay with 7-day half-life
+    # score = 0.5^(days/7) = e^(-ln(2) * days / 7)
+    half_life_days = 7.0
+    :math.pow(0.5, days_diff / half_life_days)
   end
 
   # Simple cosine similarity - for production use Nx or Rust NIF
@@ -539,5 +609,19 @@ defmodule Mimo.Brain.Memory do
       {:ok, tags} -> tags
       {:error, _} -> []
     end
+  end
+
+  # ==========================================================================
+  # SPEC-025: Cognitive Codebase Integration
+  # Notify Orchestrator when memories are stored for Synapse linking
+  # ==========================================================================
+
+  defp notify_memory_stored(engram) do
+    if Process.whereis(Mimo.Synapse.Orchestrator) do
+      Mimo.Synapse.Orchestrator.on_memory_stored(engram)
+    end
+  rescue
+    e ->
+      Logger.warning("Failed to notify orchestrator of memory storage: #{Exception.message(e)}")
   end
 end
