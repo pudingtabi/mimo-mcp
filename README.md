@@ -4,7 +4,7 @@
 
 Mimo is a Memory Operating System for AI agents. It provides persistent memory, knowledge graphs, and 24 native tools — so your AI actually learns from conversations and remembers context across sessions.
 
-[![Elixir](https://img.shields.io/badge/Elixir-1.17+-purple.svg)](https://elixir-lang.org/)
+[![Elixir](https://img.shields.io/badge/Elixir-1.19+-purple.svg)](https://elixir-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://img.shields.io/badge/Tests-700+-green.svg)]()
 
@@ -94,6 +94,9 @@ Add to `~/.vscode/mcp.json`:
 | **Knowledge Graph** | Store relationships between entities (A depends on B) |
 | **24 Native Tools** | File ops, terminal, web search, code analysis, and more |
 | **Memory Decay** | Old, unimportant memories fade naturally |
+| **HNSW Index** | O(log n) search for large memory stores (v2.6) |
+| **Binary Quantization** | 32x memory reduction with fast Hamming search (v2.6) |
+| **Temporal Memory Chains** | Version history and memory evolution tracking (v2.6) |
 | **Multi-Protocol** | HTTP API, MCP stdio, WebSocket — your choice |
 
 ---
@@ -110,6 +113,8 @@ Mimo provides 24 tools out of the box. Here are the most used:
 | `search` | `search query="React hooks best practices"` | Web search |
 | `knowledge` | `knowledge operation=teach text="Auth depends on DB"` | Build knowledge graph |
 | `code_symbols` | `code_symbols operation=symbols path="src/"` | Analyze code structure |
+
+| `onboard` | `onboard path="."` | Index project at session start (v2.6) |
 
 See [full tool reference →](docs/API_REFERENCE.md)
 
@@ -183,7 +188,7 @@ mix test             # 700+ tests
 ## Known Limitations
 
 - Ollama required for embeddings (falls back to hashing if unavailable)
-- Semantic search is O(n) — optimized for ~50K entities
+- HNSW index uses ~1GB RAM for 1M vectors (auto-disabled in CI)
 - Vision tool requires `OPENROUTER_API_KEY`
 - Single-node tested; distributed mode is experimental
 

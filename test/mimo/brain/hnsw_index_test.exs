@@ -296,7 +296,9 @@ defmodule Mimo.Brain.HnswIndexTest do
 
   defp skip_unless_hnsw_available do
     unless VectorMath.hnsw_available?() do
-      raise "HNSW NIFs not available - skipping test"
+      # Tests are tagged with :hnsw_nif and excluded in CI
+      # For local runs without NIF, just skip gracefully
+      flunk("HNSW NIFs not available - run with: mix test --exclude hnsw_nif")
     end
   end
 end

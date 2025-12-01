@@ -170,11 +170,11 @@ defmodule Mimo.Brain.Memory.SearchStrategyTest do
 
       # Each should only return its category
       Enum.each(fact_results, fn r ->
-        assert r.category == :fact
+        assert r.category == "fact"
       end)
 
       Enum.each(obs_results, fn r ->
-        assert r.category == :observation
+        assert r.category == "observation"
       end)
 
       Enum.each(fact_engrams ++ observation_engrams, &Repo.delete/1)
@@ -184,7 +184,12 @@ defmodule Mimo.Brain.Memory.SearchStrategyTest do
   # Helper functions
 
   defp create_test_engrams(count, opts \\ []) do
-    category = Keyword.get(opts, :category, :fact)
+    # Convert atom categories to strings (Engram schema expects strings)
+    category =
+      case Keyword.get(opts, :category, "fact") do
+        cat when is_atom(cat) -> Atom.to_string(cat)
+        cat when is_binary(cat) -> cat
+      end
 
     for i <- 1..count do
       embedding = generate_random_float_vector(@dimensions)

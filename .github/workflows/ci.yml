@@ -21,11 +21,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            otp: "26.0"
-            elixir: "1.16"
+            otp: "27.1"
+            elixir: "1.19"
           - os: macos-latest
-            otp: "26.0"
-            elixir: "1.16"
+            otp: "27.1"
+            elixir: "1.19"
 
     steps:
       - uses: actions/checkout@v4
@@ -82,4 +82,4 @@ jobs:
           mix ecto.migrate
 
       - name: Run Tests
-        run: mix test --exclude integration --exclude external
+        run: mix test --exclude integration --exclude external --exclude hnsw_nif

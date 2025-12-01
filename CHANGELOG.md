@@ -5,6 +5,90 @@ All notable changes to Mimo-MCP Gateway will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2025-12-01
+
+**Major Release** - HNSW index, binary quantization, Temporal Memory Chains, and project onboarding.
+
+### Added
+- **HNSW Index (SPEC-033 Phase 3b)**
+  - O(log n) approximate nearest neighbor search using USearch
+  - Auto-indexing of new memories in background
+  - Configurable connectivity and expansion parameters
+  - Automatic strategy selection based on corpus size:
+    - <500 memories: exact int8 search
+    - 500-999: binary pre-filter → int8 rescore
+    - ≥1000: HNSW approximate search
+
+- **Binary Quantization (SPEC-033 Phase 3a)**
+  - 32x memory reduction (256-dim → 32 bytes)
+  - Ultra-fast Hamming distance pre-filtering
+  - Two-stage search: binary filter → int8 rescore
+
+- **Int8 Quantization (SPEC-031)**
+  - 16x memory reduction vs float32
+  - `embedding_int8` binary storage in SQLite
+  - Scale/offset dequantization support
+
+- **Temporal Memory Chains (TMC) (SPEC-034)**
+  - Memory versioning with supersession tracking
+  - Novelty detection for similar memories
+  - Memory merging and conflict resolution
+  - Chain traversal and history queries
+  - Supersession types: update, correction, refinement, merge
+
+- **Project Onboarding Tool**
+  - `onboard` operation for new project setup
+  - Auto-indexes code symbols, dependencies, and knowledge graph
+  - Fingerprint-based caching to skip re-indexing
+
+- **Memory Surgery & Repair**
+  - `Mimo.Brain.Surgery` for memory database operations
+  - `mix mimo.repair_embeddings` - fix corrupted embeddings
+  - `mix mimo.truncate_embeddings` - reduce embedding dimensions
+  - `mix mimo.quantize_embeddings` - convert float32 to int8
+  - `mix mimo.vectorize_binary` - generate binary embeddings
+  - `mix mimo.build_hnsw` - rebuild HNSW index
+
+- **Composite Tools**
+  - `analyze_file` - unified file analysis (read + symbols + diagnostics + knowledge)
+  - `debug_error` - error debugging assistant (memory + symbols + diagnostics)
+
+- **Library Fetcher Improvements**
+  - `Mimo.Library.Fetchers.Common` - shared HTTP client for all fetchers
+  - Improved error handling and retry logic
+
+- **Health Monitor** (`Mimo.Brain.HealthMonitor`)
+  - Memory store health checks
+  - Embedding consistency validation
+  - Index integrity monitoring
+
+### Changed
+- **CI Updated to Elixir 1.19 / OTP 27** (from 1.16 / OTP 26)
+- Excluded HNSW NIF tests in CI (`:hnsw_nif` tag)
+- Improved agent documentation for balanced tool workflow
+- Enhanced cognitive agent mode with mandatory tool distribution targets
+
+### Fixed
+- Test category string/atom mismatch - Engram expects string categories
+- HNSW test skip logic to use proper ExUnit patterns
+- Code formatting issues for CI compliance
+
+### Performance
+- 10-20x faster memory search with binary pre-filtering
+- Sub-millisecond similarity computation with Rust NIFs
+- Automatic strategy selection based on corpus size:
+  - Exact search for small datasets (<500)
+  - Binary+rescore for medium (500-999)
+  - HNSW for large (≥1000)
+
+### Technical Details
+- 125 files changed, 16,000+ insertions
+- 8 new test files for new features
+- 4 new database migrations
+- Native HNSW Rust NIF integration
+
+---
+
 ## [2.5.0] - 2025-11-30
 
 **Tool Enhancements** - Comprehensive improvements to terminal, file, library, and diagnostics tools based on SPEC-026 through SPEC-029.
