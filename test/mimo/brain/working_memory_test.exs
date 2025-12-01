@@ -130,7 +130,7 @@ defmodule Mimo.Brain.WorkingMemoryTest do
 
       # Session A items should be gone
       results = WorkingMemory.search("Session A")
-      assert length(results) == 0
+      assert results == []
 
       # Session B items should remain
       results = WorkingMemory.search("Session B")

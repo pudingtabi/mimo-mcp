@@ -107,14 +107,20 @@ defmodule Mimo.Library.ImportWatcher do
 
           # Cache in background tasks
           Enum.each(external, fn pkg ->
-            Task.start(fn ->
+            Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
               case Index.ensure_cached(pkg, ecosystem) do
                 :ok ->
                   Logger.debug("[ImportWatcher] Cached #{ecosystem}/#{pkg}")
 
-                {:error, _} ->
-                  # Silently ignore cache failures
-                  :ok
+                {:error, reason} ->
+                  Logger.warning(
+                    "[ImportWatcher] Failed to cache #{ecosystem}/#{pkg}: #{inspect(reason)}"
+                  )
+
+                  :telemetry.execute([:mimo, :import_watcher, :cache_error], %{count: 1}, %{
+                    package: pkg,
+                    ecosystem: ecosystem
+                  })
               end
             end)
           end)
@@ -196,11 +202,9 @@ defmodule Mimo.Library.ImportWatcher do
     stdlib = Map.get(@stdlib_modules, language, MapSet.new())
 
     imports
-    |> Enum.reject(&is_nil/1)
-    |> Enum.reject(fn pkg -> MapSet.member?(stdlib, pkg) end)
     |> Enum.reject(fn pkg ->
-      # Filter out common non-packages
-      pkg == "" or
+      is_nil(pkg) or MapSet.member?(stdlib, pkg) or
+        pkg == "" or
         String.length(pkg) < 2 or
         String.starts_with?(pkg, "_") or
         String.starts_with?(pkg, ".")

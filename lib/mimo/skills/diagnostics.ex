@@ -19,7 +19,8 @@ defmodule Mimo.Skills.Diagnostics do
   require Logger
 
   @timeout 60_000
-  @max_output_size 100_000
+  # Increase to 1MB to handle large credo/lint outputs - JSON truncation breaks parsing
+  @max_output_size 1_000_000
 
   @doc """
   Run diagnostics on a file or directory.

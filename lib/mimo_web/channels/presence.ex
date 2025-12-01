@@ -94,7 +94,7 @@ defmodule MimoWeb.CortexSocket do
 
   defp validate_token(token) do
     # Simple token validation - expand as needed
-    case Phoenix.Token.verify(MimoWeb.Endpoint, "agent_socket", token, max_age: 86400) do
+    case Phoenix.Token.verify(MimoWeb.Endpoint, "agent_socket", token, max_age: 86_400) do
       {:ok, agent_id} -> {:ok, %{agent_id: agent_id}}
       {:error, reason} -> {:error, reason}
     end

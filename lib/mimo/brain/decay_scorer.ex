@@ -201,13 +201,13 @@ defmodule Mimo.Brain.DecayScorer do
   defp calculate_age_days(%NaiveDateTime{} = datetime) do
     now = NaiveDateTime.utc_now()
     diff_seconds = NaiveDateTime.diff(now, datetime, :second)
-    max(0, diff_seconds / 86400.0)
+    max(0, diff_seconds / 86_400.0)
   end
 
   defp calculate_age_days(%DateTime{} = datetime) do
     now = DateTime.utc_now()
     diff_seconds = DateTime.diff(now, datetime, :second)
-    max(0, diff_seconds / 86400.0)
+    max(0, diff_seconds / 86_400.0)
   end
 
   defp calculate_age_days(_), do: 0.0

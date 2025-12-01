@@ -274,17 +274,79 @@ defmodule Mimo.Synapse.QueryEngine do
   # ============================================
 
   defp find_seed_nodes(query_text, node_types, limit) do
-    # Use text search to find seed nodes
-    # TODO: Replace with vector similarity when embeddings are available
-    Graph.search_nodes(query_text, types: node_types, limit: limit)
-    |> Enum.map(fn node ->
-      %{
-        node: node,
-        score: text_match_score(node.name, query_text),
-        depth: 0,
-        source: :seed
-      }
-    end)
+    # Try vector similarity first if we can generate an embedding
+    vector_results = find_seed_nodes_by_embedding(query_text, node_types, limit)
+
+    if Enum.any?(vector_results) do
+      vector_results
+    else
+      # Fall back to text search
+      Graph.search_nodes(query_text, types: node_types, limit: limit)
+      |> Enum.map(fn node ->
+        %{
+          node: node,
+          score: text_match_score(node.name, query_text),
+          depth: 0,
+          source: :seed
+        }
+      end)
+    end
+  end
+
+  # Vector-based seed node discovery
+  defp find_seed_nodes_by_embedding(query_text, node_types, limit) do
+    import Ecto.Query
+    alias Mimo.Repo
+    alias Mimo.Synapse.GraphNode
+
+    # Generate embedding for the query
+    case Mimo.Brain.LLM.generate_embedding(query_text) do
+      {:ok, query_embedding} when is_list(query_embedding) and length(query_embedding) > 0 ->
+        try do
+          # Get candidate nodes with embeddings
+          candidates =
+            GraphNode
+            |> where([n], n.node_type in ^node_types)
+            |> where([n], fragment("length(?) > 2", n.embedding))
+            |> limit(^(limit * 10))
+            |> Repo.all()
+            |> Enum.filter(fn node ->
+              is_list(node.embedding) and length(node.embedding) > 0
+            end)
+
+          if Enum.empty?(candidates) do
+            []
+          else
+            corpus = Enum.map(candidates, & &1.embedding)
+
+            case Mimo.Vector.Math.batch_similarity(query_embedding, corpus) do
+              {:ok, similarities} ->
+                candidates
+                |> Enum.zip(similarities)
+                |> Enum.filter(fn {_node, score} -> score >= 0.3 end)
+                |> Enum.sort_by(fn {_node, score} -> score end, :desc)
+                |> Enum.take(limit)
+                |> Enum.map(fn {node, score} ->
+                  %{
+                    node: node,
+                    score: score,
+                    depth: 0,
+                    source: :seed
+                  }
+                end)
+
+              {:error, _} ->
+                []
+            end
+          end
+        rescue
+          _ -> []
+        end
+
+      _ ->
+        # Embedding generation failed, will fall back to text search
+        []
+    end
   end
 
   defp expand_graph_context(seed_nodes, hops) do
@@ -346,8 +408,7 @@ defmodule Mimo.Synapse.QueryEngine do
   defp assemble_context(ranked_nodes, max_nodes) do
     ranked_nodes
     |> Enum.take(max_nodes)
-    |> Enum.map(&format_node_for_context/1)
-    |> Enum.join("\n\n---\n\n")
+    |> Enum.map_join("\n\n---\n\n", &format_node_for_context/1)
   end
 
   defp format_node_for_context(%{node: node, score: score, depth: depth}) do
@@ -411,18 +472,16 @@ defmodule Mimo.Synapse.QueryEngine do
       subgraph.nodes
       |> Enum.reject(&(&1.id == center_node.id))
       |> Enum.take(10)
-      |> Enum.map(fn node ->
+      |> Enum.map_join("\n", fn node ->
         "- #{node.node_type}: #{node.name}"
       end)
-      |> Enum.join("\n")
 
     edge_info =
       subgraph.edges
       |> Enum.take(10)
-      |> Enum.map(fn edge ->
+      |> Enum.map_join("\n", fn edge ->
         "- #{edge.source_node.name} --[#{edge.edge_type}]--> #{edge.target_node.name}"
       end)
-      |> Enum.join("\n")
 
     """
     #{center_info}

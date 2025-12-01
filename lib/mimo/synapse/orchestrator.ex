@@ -177,8 +177,21 @@ defmodule Mimo.Synapse.Orchestrator do
 
   def handle_cast({:dependency_detected, dep_name, dep_version, ecosystem}, state) do
     # Process dependency immediately (they're less frequent)
-    Task.start(fn ->
-      sync_dependency(dep_name, dep_version, ecosystem)
+    Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
+      try do
+        sync_dependency(dep_name, dep_version, ecosystem)
+      rescue
+        e ->
+          Logger.error(
+            "[Orchestrator] Failed to sync dependency #{dep_name}: #{Exception.message(e)}"
+          )
+
+          :telemetry.execute([:mimo, :orchestrator, :sync_dependency_error], %{count: 1}, %{
+            dependency: dep_name,
+            ecosystem: ecosystem,
+            error: Exception.message(e)
+          })
+      end
     end)
 
     {:noreply, state}

@@ -13,7 +13,7 @@ defmodule Mimo.Tools.Dispatchers.File do
   All operations map to Mimo.Skills.FileOps.* functions.
   """
 
-  alias Mimo.Tools.Helpers
+  alias Mimo.Tools.{Helpers, Suggestions}
 
   @doc """
   Dispatch file operation based on args.
@@ -22,90 +22,98 @@ defmodule Mimo.Tools.Dispatchers.File do
     path = args["path"] || "."
     skip_context = Map.get(args, "skip_memory_context", false)
 
-    case op do
-      "read" ->
-        dispatch_read(path, args, skip_context)
+    result =
+      case op do
+        "read" ->
+          dispatch_read(path, args, skip_context)
 
-      "write" ->
-        content = args["content"] || ""
-        mode = if args["mode"] == "append", do: :append, else: :rewrite
-        Mimo.Skills.FileOps.write(path, content, mode: mode)
+        "write" ->
+          content = args["content"] || ""
+          mode = if args["mode"] == "append", do: :append, else: :rewrite
+          Mimo.Skills.FileOps.write(path, content, mode: mode)
 
-      "ls" ->
-        Mimo.Skills.FileOps.ls(path)
+        "ls" ->
+          Mimo.Skills.FileOps.ls(path)
 
-      "read_lines" ->
-        start_line = args["start_line"] || 1
-        end_line = args["end_line"] || -1
-        Mimo.Skills.FileOps.read_lines(path, start_line, end_line)
+        "read_lines" ->
+          start_line = args["start_line"] || 1
+          end_line = args["end_line"] || -1
+          Mimo.Skills.FileOps.read_lines(path, start_line, end_line)
 
-      "insert_after" ->
-        Mimo.Skills.FileOps.insert_after_line(path, args["line_number"] || 0, args["content"] || "")
+        "insert_after" ->
+          Mimo.Skills.FileOps.insert_after_line(
+            path,
+            args["line_number"] || 0,
+            args["content"] || ""
+          )
 
-      "insert_before" ->
-        Mimo.Skills.FileOps.insert_before_line(
-          path,
-          args["line_number"] || 1,
-          args["content"] || ""
-        )
+        "insert_before" ->
+          Mimo.Skills.FileOps.insert_before_line(
+            path,
+            args["line_number"] || 1,
+            args["content"] || ""
+          )
 
-      "replace_lines" ->
-        start_line = args["start_line"] || 1
-        end_line = args["end_line"] || start_line
-        Mimo.Skills.FileOps.replace_lines(path, start_line, end_line, args["content"] || "")
+        "replace_lines" ->
+          start_line = args["start_line"] || 1
+          end_line = args["end_line"] || start_line
+          Mimo.Skills.FileOps.replace_lines(path, start_line, end_line, args["content"] || "")
 
-      "delete_lines" ->
-        start_line = args["start_line"] || 1
-        end_line = args["end_line"] || start_line
-        Mimo.Skills.FileOps.delete_lines(path, start_line, end_line)
+        "delete_lines" ->
+          start_line = args["start_line"] || 1
+          end_line = args["end_line"] || start_line
+          Mimo.Skills.FileOps.delete_lines(path, start_line, end_line)
 
-      "search" ->
-        opts = [max_results: args["max_results"] || 50]
-        Mimo.Skills.FileOps.search(path, args["pattern"] || "", opts)
+        "search" ->
+          opts = [max_results: args["max_results"] || 50]
+          Mimo.Skills.FileOps.search(path, args["pattern"] || "", opts)
 
-      "replace_string" ->
-        Mimo.Skills.FileOps.replace_string(path, args["old_str"] || "", args["new_str"] || "")
+        "replace_string" ->
+          Mimo.Skills.FileOps.replace_string(path, args["old_str"] || "", args["new_str"] || "")
 
-      "edit" ->
-        dispatch_edit(path, args, skip_context)
+        "edit" ->
+          dispatch_edit(path, args, skip_context)
 
-      "list_directory" ->
-        Mimo.Skills.FileOps.list_directory(path, depth: args["depth"] || 1)
+        "list_directory" ->
+          Mimo.Skills.FileOps.list_directory(path, depth: args["depth"] || 1)
 
-      "get_info" ->
-        Mimo.Skills.FileOps.get_info(path)
+        "get_info" ->
+          Mimo.Skills.FileOps.get_info(path)
 
-      "move" ->
-        Mimo.Skills.FileOps.move(path, args["destination"] || "")
+        "move" ->
+          Mimo.Skills.FileOps.move(path, args["destination"] || "")
 
-      "create_directory" ->
-        Mimo.Skills.FileOps.create_directory(path)
+        "create_directory" ->
+          Mimo.Skills.FileOps.create_directory(path)
 
-      "read_multiple" ->
-        Mimo.Skills.FileOps.read_multiple(args["paths"] || [])
+        "read_multiple" ->
+          Mimo.Skills.FileOps.read_multiple(args["paths"] || [])
 
-      "list_symbols" ->
-        Mimo.Skills.FileOps.list_symbols(path)
+        "list_symbols" ->
+          Mimo.Skills.FileOps.list_symbols(path)
 
-      "read_symbol" ->
-        dispatch_read_symbol(path, args)
+        "read_symbol" ->
+          dispatch_read_symbol(path, args)
 
-      "search_symbols" ->
-        opts = [max_results: args["max_results"] || 50]
-        Mimo.Skills.FileOps.search_symbols(path, args["pattern"] || "", opts)
+        "search_symbols" ->
+          opts = [max_results: args["max_results"] || 50]
+          Mimo.Skills.FileOps.search_symbols(path, args["pattern"] || "", opts)
 
-      "glob" ->
-        dispatch_glob(args)
+        "glob" ->
+          dispatch_glob(args)
 
-      "multi_replace" ->
-        dispatch_multi_replace(args)
+        "multi_replace" ->
+          dispatch_multi_replace(args)
 
-      "diff" ->
-        dispatch_diff(args)
+        "diff" ->
+          dispatch_diff(args)
 
-      _ ->
-        {:error, "Unknown file operation: #{op}"}
-    end
+        _ ->
+          {:error, "Unknown file operation: #{op}"}
+      end
+
+    # Add cross-tool suggestions (SPEC-031 Phase 2)
+    Suggestions.maybe_add_suggestion(result, "file", args)
   end
 
   def dispatch(_), do: {:error, "Operation required"}

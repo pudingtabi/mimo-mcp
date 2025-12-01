@@ -197,7 +197,7 @@ defmodule Mimo.Skills.Blink do
   @doc """
   Check if a response indicates a challenge or block.
   """
-  def is_challenged?(%{status: status, body: body}) do
+  def challenged?(%{status: status, body: body}) do
     cond do
       status == 403 -> {:blocked, :forbidden}
       status == 429 -> {:blocked, :rate_limited}
@@ -207,7 +207,7 @@ defmodule Mimo.Skills.Blink do
     end
   end
 
-  def is_challenged?(_), do: false
+  def challenged?(_), do: false
 
   @doc """
   Get available browser profiles.
@@ -228,7 +228,7 @@ defmodule Mimo.Skills.Blink do
 
     case result do
       {:ok, response} ->
-        case is_challenged?(response) do
+        case challenged?(response) do
           false ->
             {:ok, Map.put(response, :layer_used, current_layer)}
 

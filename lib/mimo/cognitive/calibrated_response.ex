@@ -208,11 +208,10 @@ defmodule Mimo.Cognitive.CalibratedResponse do
     alternatives
     |> Enum.sort_by(fn {_, u} -> -u.score end)
     |> Enum.with_index(1)
-    |> Enum.map(fn {{content, uncertainty}, index} ->
+    |> Enum.map_join("\n\n---\n\n", fn {{content, uncertainty}, index} ->
       indicator = confidence_indicator(uncertainty, include_emoji: true)
       "**Option #{index}** (#{indicator})\n#{content}"
     end)
-    |> Enum.join("\n\n---\n\n")
   end
 
   # Private functions

@@ -90,7 +90,7 @@ defmodule Mimo.Telemetry.Metrics do
         unit: {:native, :millisecond},
         tags: [:graph_id],
         reporter_options: [
-          buckets: [100, 500, 1000, 5000, 10000, 30000]
+          buckets: [100, 500, 1000, 5000, 10_000, 30_000]
         ]
       ),
 
@@ -142,7 +142,7 @@ defmodule Mimo.Telemetry.Metrics do
         unit: {:native, :millisecond},
         tags: [:tool],
         reporter_options: [
-          buckets: [10, 50, 100, 500, 1000, 5000, 30000]
+          buckets: [10, 50, 100, 500, 1000, 5000, 30_000]
         ]
       ),
 

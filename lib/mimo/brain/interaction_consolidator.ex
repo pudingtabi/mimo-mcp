@@ -245,58 +245,95 @@ defmodule Mimo.Brain.InteractionConsolidator do
 
   defp create_engram_from_candidate(candidate, thread_id, all_interactions) do
     # Generate embedding for the curated content
-    embedding =
-      case Brain.LLM.generate_embedding(candidate.content) do
-        {:ok, emb} -> emb
-        _ -> []
-      end
+    case Brain.LLM.generate_embedding(candidate.content) do
+      {:ok, embedding} when is_list(embedding) and length(embedding) > 0 ->
+        # SPEC-031 + SPEC-033: Quantize to int8 and binary for searchability
+        {embedding_to_store, quantized_attrs} =
+          case Mimo.Vector.Math.quantize_int8(embedding) do
+            {:ok, {int8_binary, scale, offset}} ->
+              binary_attrs =
+                case Mimo.Vector.Math.int8_to_binary(int8_binary) do
+                  {:ok, binary} -> %{embedding_binary: binary}
+                  {:error, _} -> %{}
+                end
 
-    # Build metadata
-    metadata = %{
-      "source" => "interaction_consolidation",
-      "reasoning" => candidate.reasoning,
-      "curated_at" => DateTime.to_iso8601(DateTime.utc_now()),
-      "source_interaction_count" => length(candidate.source_interaction_ids)
-    }
+              {[],
+               Map.merge(
+                 %{
+                   embedding_int8: int8_binary,
+                   embedding_scale: scale,
+                   embedding_offset: offset
+                 },
+                 binary_attrs
+               )}
 
-    # Detect project from content
-    project_id = Brain.LLM.detect_project(candidate.content)
+            {:error, reason} ->
+              Logger.warning("Int8 quantization failed: #{inspect(reason)}, storing float32")
+              {embedding, %{}}
+          end
 
-    # Auto-generate tags
-    tags =
-      case Brain.LLM.auto_tag(candidate.content) do
-        {:ok, t} -> t
-        _ -> []
-      end
+        # Build metadata
+        metadata = %{
+          "source" => "interaction_consolidation",
+          "reasoning" => candidate.reasoning,
+          "curated_at" => DateTime.to_iso8601(DateTime.utc_now()),
+          "source_interaction_count" => length(candidate.source_interaction_ids)
+        }
 
-    # Create engram
-    attrs = %{
-      content: candidate.content,
-      category: candidate.category,
-      importance: candidate.importance,
-      original_importance: candidate.importance,
-      decay_rate: candidate.decay_rate,
-      embedding: embedding,
-      metadata: metadata,
-      thread_id: thread_id,
-      project_id: project_id,
-      tags: tags
-    }
+        # Detect project from content
+        project_id = Brain.LLM.detect_project(candidate.content)
 
-    case Repo.insert(Engram.changeset(%Engram{}, attrs)) do
-      {:ok, engram} ->
-        # Link to source interactions
-        link_to_interactions(engram.id, candidate.source_interaction_ids, all_interactions)
+        # Auto-generate tags
+        tags =
+          case Brain.LLM.auto_tag(candidate.content) do
+            {:ok, t} -> t
+            _ -> []
+          end
 
-        Logger.debug(
-          "Created engram #{engram.id} (importance: #{candidate.importance}, category: #{candidate.category})"
+        # Create engram with quantized embedding
+        attrs =
+          Map.merge(
+            %{
+              content: candidate.content,
+              category: candidate.category,
+              importance: candidate.importance,
+              original_importance: candidate.importance,
+              decay_rate: candidate.decay_rate,
+              embedding: embedding_to_store,
+              metadata: metadata,
+              thread_id: thread_id,
+              project_id: project_id,
+              tags: tags
+            },
+            quantized_attrs
+          )
+
+        case Repo.insert(Engram.changeset(%Engram{}, attrs)) do
+          {:ok, engram} ->
+            # Link to source interactions
+            link_to_interactions(engram.id, candidate.source_interaction_ids, all_interactions)
+
+            Logger.debug(
+              "Created engram #{engram.id} (importance: #{candidate.importance}, category: #{candidate.category})"
+            )
+
+            {:ok, engram}
+
+          {:error, changeset} ->
+            Logger.error("Failed to create engram: #{inspect(changeset.errors)}")
+            {:error, changeset}
+        end
+
+      {:ok, []} ->
+        Logger.warning("Embedding generation returned empty list for interaction consolidation")
+        {:error, :empty_embedding}
+
+      {:error, reason} ->
+        Logger.error(
+          "Embedding generation failed for interaction consolidation: #{inspect(reason)}"
         )
 
-        {:ok, engram}
-
-      {:error, changeset} ->
-        Logger.error("Failed to create engram: #{inspect(changeset.errors)}")
-        {:error, changeset}
+        {:error, {:embedding_failed, reason}}
     end
   end
 

@@ -267,7 +267,7 @@ defmodule Mimo.Brain.MemoryRouter do
   # ==========================================================================
 
   defp search_working_memory(query, limit) do
-    case WorkingMemory.search(query, limit) do
+    case WorkingMemory.search(query, limit: limit) do
       results when is_list(results) ->
         # Convert to scored tuples with working memory boost
         Enum.map(results, fn item ->

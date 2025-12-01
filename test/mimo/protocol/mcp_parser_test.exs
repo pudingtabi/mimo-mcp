@@ -44,12 +44,12 @@ defmodule Mimo.Protocol.McpParserTest do
 
     test "returns parse error for invalid JSON" do
       assert {:error, response} = McpParser.parse_line("not valid json")
-      assert response["error"]["code"] == -32700
+      assert response["error"]["code"] == -32_700
     end
 
     test "returns error for non-object JSON" do
       assert {:error, response} = McpParser.parse_line("[1,2,3]")
-      assert response["error"]["code"] == -32600
+      assert response["error"]["code"] == -32_600
     end
   end
 
@@ -62,13 +62,13 @@ defmodule Mimo.Protocol.McpParserTest do
     test "rejects message with wrong jsonrpc version" do
       msg = %{"jsonrpc" => "1.0", "method" => "test", "id" => 1}
       assert {:error, response} = McpParser.validate_message(msg)
-      assert response["error"]["code"] == -32600
+      assert response["error"]["code"] == -32_600
     end
 
     test "rejects message without method" do
       msg = %{"jsonrpc" => "2.0", "id" => 1}
       assert {:error, response} = McpParser.validate_message(msg)
-      assert response["error"]["code"] == -32600
+      assert response["error"]["code"] == -32_600
     end
   end
 
@@ -107,16 +107,16 @@ defmodule Mimo.Protocol.McpParserTest do
 
   describe "error_response/3" do
     test "creates valid error response" do
-      response = McpParser.error_response(1, -32600, "Invalid Request")
+      response = McpParser.error_response(1, -32_600, "Invalid Request")
 
       assert response["jsonrpc"] == "2.0"
       assert response["id"] == 1
-      assert response["error"]["code"] == -32600
+      assert response["error"]["code"] == -32_600
       assert response["error"]["message"] == "Invalid Request"
     end
 
     test "includes data when provided" do
-      response = McpParser.error_response(1, -32000, "Error", %{details: "extra"})
+      response = McpParser.error_response(1, -32_000, "Error", %{details: "extra"})
 
       assert response["error"]["data"]["details"] == "extra"
     end
@@ -175,23 +175,23 @@ defmodule Mimo.Protocol.McpParserTest do
 
   describe "error codes" do
     test "parse_error_code returns -32700" do
-      assert McpParser.parse_error_code() == -32700
+      assert McpParser.parse_error_code() == -32_700
     end
 
     test "invalid_request_code returns -32600" do
-      assert McpParser.invalid_request_code() == -32600
+      assert McpParser.invalid_request_code() == -32_600
     end
 
     test "method_not_found_code returns -32601" do
-      assert McpParser.method_not_found_code() == -32601
+      assert McpParser.method_not_found_code() == -32_601
     end
 
     test "internal_error_code returns -32603" do
-      assert McpParser.internal_error_code() == -32603
+      assert McpParser.internal_error_code() == -32_603
     end
 
     test "tool_not_found_code returns -32000" do
-      assert McpParser.tool_not_found_code() == -32000
+      assert McpParser.tool_not_found_code() == -32_000
     end
   end
 
@@ -199,14 +199,14 @@ defmodule Mimo.Protocol.McpParserTest do
     test "creates tool_not_found error" do
       error = McpParser.error_for(:tool_not_found, 1, "test_tool")
 
-      assert error["error"]["code"] == -32000
+      assert error["error"]["code"] == -32_000
       assert String.contains?(error["error"]["message"], "test_tool")
     end
 
     test "creates method_not_found error" do
       error = McpParser.error_for(:method_not_found, 1, "unknown/method")
 
-      assert error["error"]["code"] == -32601
+      assert error["error"]["code"] == -32_601
       assert String.contains?(error["error"]["message"], "unknown/method")
     end
   end

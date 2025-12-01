@@ -318,9 +318,76 @@ defmodule Mimo.Ingest do
       ids = Enum.map(results, fn {:ok, id} -> id end)
       {:ok, ids}
     else
-      # Rollback: we should ideally delete any stored chunks, but for simplicity
-      # we just report the first error
+      # Rollback: delete any successfully stored chunks to maintain atomicity
+      successful_ids =
+        results
+        |> Enum.filter(&match?({:ok, _}, &1))
+        |> Enum.map(fn {:ok, id} -> id end)
+
+      rollback_partial_ingest(successful_ids, source)
+
+      # Report the first error
       {:error, elem(hd(errors), 1)}
     end
+  end
+
+  # Rollback partially ingested chunks on failure
+  # Ensures atomicity: all chunks stored or none
+  defp rollback_partial_ingest([], _source), do: :ok
+
+  defp rollback_partial_ingest(ids, source) do
+    Logger.warning("Rolling back #{length(ids)} partially ingested chunks from #{source}")
+
+    deleted_count =
+      ids
+      |> Enum.map(fn id ->
+        case delete_memory(id) do
+          :ok ->
+            1
+
+          {:error, reason} ->
+            Logger.error("Failed to rollback chunk #{id}: #{inspect(reason)}")
+            0
+        end
+      end)
+      |> Enum.sum()
+
+    :telemetry.execute(
+      [:mimo, :ingest, :rollback],
+      %{chunks_rolled_back: deleted_count, chunks_attempted: length(ids)},
+      %{source: source}
+    )
+
+    if deleted_count == length(ids) do
+      Logger.info("Successfully rolled back #{deleted_count} chunks")
+      :ok
+    else
+      Logger.error(
+        "Partial rollback: #{deleted_count}/#{length(ids)} chunks deleted. Orphaned data may exist."
+      )
+
+      {:error, :partial_rollback}
+    end
+  end
+
+  # Delete a memory by ID - used for rollback
+  defp delete_memory(id) do
+    alias Mimo.Repo
+    alias Mimo.Brain.Engram
+
+    case Repo.get(Engram, id) do
+      nil ->
+        # Already deleted or never existed
+        :ok
+
+      engram ->
+        case Repo.delete(engram) do
+          {:ok, _} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  rescue
+    e ->
+      {:error, Exception.message(e)}
   end
 end

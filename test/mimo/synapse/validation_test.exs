@@ -263,10 +263,10 @@ defmodule Mimo.Synapse.ValidationTest do
     test "all messages can be JSON encoded" do
       messages = [
         %{type: "query", q: "test", ref: "1"},
-        %{type: "thought", content: "test", ref: "1", timestamp: 12345},
+        %{type: "thought", content: "test", ref: "1", timestamp: 12_345},
         %{ref: "1", status: "success", data: %{answer: "test"}, latency_ms: 100},
         %{type: "interrupt", ref: "1", reason: "cancelled"},
-        %{ref: "1", error: "timeout", timestamp: 12345}
+        %{ref: "1", error: "timeout", timestamp: 12_345}
       ]
 
       for msg <- messages do

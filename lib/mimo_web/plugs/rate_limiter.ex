@@ -8,6 +8,7 @@ defmodule MimoWeb.Plugs.RateLimiter do
   Configure via:
     config :mimo_mcp, :rate_limit_requests, 60
     config :mimo_mcp, :rate_limit_window_ms, 60_000
+    config :mimo_mcp, :trust_proxy_headers, false  # SECURITY: Only enable behind trusted reverse proxy
   """
   import Plug.Conn
   require Logger
@@ -119,20 +120,46 @@ defmodule MimoWeb.Plugs.RateLimiter do
     _ -> :ok
   end
 
+  # SECURITY: Only trust X-Forwarded-For if explicitly configured
+  # Attacker can spoof this header to bypass rate limiting
   defp get_client_ip(conn) do
-    # Check X-Forwarded-For header first (for reverse proxy setups)
+    trust_proxy = Application.get_env(:mimo_mcp, :trust_proxy_headers, false)
+
+    if trust_proxy do
+      get_forwarded_ip(conn) || get_direct_ip(conn)
+    else
+      get_direct_ip(conn)
+    end
+  end
+
+  defp get_forwarded_ip(conn) do
     case get_req_header(conn, "x-forwarded-for") do
       [forwarded | _] ->
+        # Take first IP (original client) from comma-separated list
         forwarded
         |> String.split(",")
         |> List.first()
         |> String.trim()
+        |> validate_ip_format()
 
       [] ->
-        # Fall back to direct connection IP
-        conn.remote_ip
-        |> :inet.ntoa()
-        |> to_string()
+        nil
+    end
+  end
+
+  defp get_direct_ip(conn) do
+    conn.remote_ip
+    |> :inet.ntoa()
+    |> to_string()
+  end
+
+  # Basic IP format validation to prevent header injection
+  defp validate_ip_format(ip_str) do
+    # Only accept valid-looking IPv4 or IPv6 addresses
+    cond do
+      Regex.match?(~r/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/, ip_str) -> ip_str
+      Regex.match?(~r/^[a-fA-F0-9:]+$/, ip_str) -> ip_str
+      true -> nil
     end
   end
 

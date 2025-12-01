@@ -144,7 +144,7 @@ defmodule Mimo.Cognitive.Uncertainty do
       all_sources = Enum.flat_map(assessments, & &1.sources)
       all_gaps = Enum.flat_map(assessments, & &1.gap_indicators) |> Enum.uniq()
 
-      topics = Enum.map(assessments, & &1.topic) |> Enum.join(", ")
+      topics = Enum.map_join(assessments, ", ", & &1.topic)
 
       %__MODULE__{
         topic: topics,
@@ -187,11 +187,10 @@ defmodule Mimo.Cognitive.Uncertainty do
       u.sources
       |> Enum.map(& &1.type)
       |> Enum.uniq()
-      |> Enum.map(&to_string/1)
-      |> Enum.join(", ")
+      |> Enum.map_join(", ", &to_string/1)
 
     gap_text =
-      if length(u.gap_indicators) > 0 do
+      if u.gap_indicators != [] do
         "\nGaps: #{Enum.join(u.gap_indicators, ", ")}"
       else
         ""

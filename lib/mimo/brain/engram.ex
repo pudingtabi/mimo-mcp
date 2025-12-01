@@ -23,6 +23,40 @@ defmodule Mimo.Brain.Engram do
   - `project_id` - Workspace/project identifier for memory isolation (default: "global")
   - `tags` - LLM auto-generated tags for categorization and filtering
 
+  ## Embedding Storage Optimization (SPEC-031 & SPEC-033)
+
+  The engram supports three embedding formats:
+
+  ### Float32 (Legacy)
+  - `embedding` - JSON-encoded list of floats (4KB for 1024-dim)
+  - `embedding_dim` - Dimension of the embedding
+
+  ### Int8 Quantized (Optimized - SPEC-031)
+  - `embedding_int8` - Binary blob with quantized values (256 bytes for 256-dim)
+  - `embedding_scale` - Scale factor for dequantization
+  - `embedding_offset` - Offset for dequantization
+
+  ### Binary Quantized (Ultra-fast pre-filtering - SPEC-033)
+  - `embedding_binary` - Binary blob with sign bits (32 bytes for 256-dim)
+
+  Int8 storage provides 16x reduction compared to legacy float32:
+  - 1024-dim float32 JSON: ~20KB
+  - 256-dim int8 binary: ~272 bytes (256 + scale/offset)
+
+  Binary storage enables ultra-fast Hamming distance pre-filtering:
+  - 256-dim binary: 32 bytes
+  - Hamming distance: ~10x faster than int8 cosine similarity
+
+  ## Temporal Memory Chains (SPEC-034)
+
+  TMC provides brain-inspired memory reconsolidation:
+  - `supersedes_id` - Points to the memory this one supersedes (if any)
+  - `superseded_at` - Timestamp when this memory was superseded (NULL = current/active)
+  - `supersession_type` - Type: "update", "correction", "refinement", "merge"
+
+  When a memory is superseded, it remains in the database but is excluded from
+  default searches. This allows full version history via supersession chains.
+
   ## Importance-Decay Mapping (SPEC-012)
 
   | Importance | Decay Rate | Half-Life |
@@ -36,6 +70,8 @@ defmodule Mimo.Brain.Engram do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Mimo.Vector.Math
+
   # Engrams use integer IDs (existing database)
   # Threads/Interactions use binary_id (new tables)
 
@@ -44,6 +80,7 @@ defmodule Mimo.Brain.Engram do
     field(:category, :string)
     field(:importance, :float, default: 0.5)
 
+    # Float32 embedding storage (legacy, kept for backward compatibility)
     # These use custom Ecto type that serializes to JSON
     field(:embedding, Mimo.Brain.EctoJsonList, default: [])
     field(:metadata, Mimo.Brain.EctoJsonMap, default: %{})
@@ -61,6 +98,31 @@ defmodule Mimo.Brain.Engram do
     # Project scoping & auto-tagging
     field(:project_id, :string, default: "global")
     field(:tags, Mimo.Brain.EctoJsonList, default: [])
+
+    # Embedding dimension tracking (SPEC-031)
+    # Default 256 for MRL-truncated embeddings, 1024 for legacy full embeddings
+    field(:embedding_dim, :integer, default: 256)
+
+    # Int8 quantized embedding storage (SPEC-031 Phase 2)
+    # Binary blob for quantized embedding values
+    field(:embedding_int8, :binary)
+    # Scale factor for dequantization: float = (int8 + 128) * scale + offset
+    field(:embedding_scale, :float)
+    # Offset for dequantization
+    field(:embedding_offset, :float)
+
+    # Binary quantized embedding storage (SPEC-033 Phase 3a)
+    # Binary blob with sign bits for ultra-fast Hamming distance pre-filtering
+    # 256-dim embedding = 32 bytes (1 bit per dimension)
+    field(:embedding_binary, :binary)
+
+    # Temporal Memory Chains fields (SPEC-034)
+    # Points to the memory this one supersedes (if any)
+    field(:supersedes_id, :integer)
+    # Timestamp when this memory was superseded (NULL = current/active)
+    field(:superseded_at, :utc_datetime)
+    # Type of supersession: "update", "correction", "refinement", "merge"
+    field(:supersession_type, :string)
 
     # Link to source interactions (join table with binary_id)
     # many_to_many :interactions, Mimo.Brain.Interaction, join_through: "interaction_engrams"
@@ -93,15 +155,152 @@ defmodule Mimo.Brain.Engram do
       :original_importance,
       :thread_id,
       :project_id,
-      :tags
+      :tags,
+      :embedding_dim,
+      :embedding_int8,
+      :embedding_scale,
+      :embedding_offset,
+      :embedding_binary,
+      # SPEC-034: Temporal Memory Chains
+      :supersedes_id,
+      :superseded_at,
+      :supersession_type
     ])
     |> validate_required([:content, :category])
     |> validate_inclusion(:category, @valid_categories)
     |> validate_number(:importance, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
     |> validate_number(:decay_rate, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
+    |> validate_inclusion(:supersession_type, ["update", "correction", "refinement", "merge", nil])
+    |> validate_no_self_supersession()
     |> set_original_importance()
     |> set_decay_rate_from_importance()
   end
+
+  # SPEC-034: Prevent self-supersession (engram cannot supersede itself)
+  defp validate_no_self_supersession(changeset) do
+    case {get_field(changeset, :id), get_change(changeset, :supersedes_id)} do
+      {id, supersedes_id} when is_integer(id) and id == supersedes_id ->
+        add_error(changeset, :supersedes_id, "cannot supersede itself")
+
+      _ ->
+        changeset
+    end
+  end
+
+  @doc """
+  Converts float32 embedding to int8 quantized format.
+
+  Returns {:ok, %{embedding_int8: binary, embedding_scale: float, embedding_offset: float}}
+  or {:error, reason}
+  """
+  @spec quantize_embedding(list(float())) ::
+          {:ok, %{embedding_int8: binary(), embedding_scale: float(), embedding_offset: float()}}
+          | {:error, atom()}
+  def quantize_embedding([]), do: {:error, :empty_embedding}
+
+  def quantize_embedding(embedding) when is_list(embedding) do
+    case Math.quantize_int8(embedding) do
+      {:ok, {binary, scale, offset}} ->
+        {:ok,
+         %{
+           embedding_int8: binary,
+           embedding_scale: scale,
+           embedding_offset: offset
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Dequantizes int8 embedding back to float32 format.
+
+  Returns {:ok, list(float())} or {:error, reason}
+  """
+  @spec dequantize_embedding(binary(), float(), float()) ::
+          {:ok, list(float())} | {:error, atom()}
+  def dequantize_embedding(nil, _, _), do: {:error, :nil_embedding}
+  def dequantize_embedding(_binary, nil, _), do: {:error, :nil_scale}
+  def dequantize_embedding(_binary, _, nil), do: {:error, :nil_offset}
+
+  def dequantize_embedding(binary, scale, offset)
+      when is_binary(binary) and is_number(scale) and is_number(offset) do
+    Math.dequantize_int8(binary, scale, offset)
+  end
+
+  @doc """
+  Gets the embedding from an engram, preferring int8 if available.
+
+  Automatically dequantizes int8 to float32 if needed.
+  """
+  @spec get_embedding(%__MODULE__{}) :: {:ok, list(float())} | {:error, atom()}
+  def get_embedding(%__MODULE__{embedding_int8: nil, embedding: embedding})
+      when is_list(embedding) and length(embedding) > 0 do
+    {:ok, embedding}
+  end
+
+  def get_embedding(%__MODULE__{
+        embedding_int8: int8,
+        embedding_scale: scale,
+        embedding_offset: offset
+      })
+      when is_binary(int8) and byte_size(int8) > 0 do
+    dequantize_embedding(int8, scale, offset)
+  end
+
+  def get_embedding(%__MODULE__{embedding: embedding})
+      when is_list(embedding) and length(embedding) > 0 do
+    {:ok, embedding}
+  end
+
+  def get_embedding(_), do: {:error, :no_embedding}
+
+  @doc """
+  Gets the raw int8 binary embedding (for int8 similarity calculations).
+
+  Returns {:ok, binary} or {:error, reason}
+  """
+  @spec get_embedding_int8(%__MODULE__{}) :: {:ok, binary()} | {:error, atom()}
+  def get_embedding_int8(%__MODULE__{embedding_int8: int8})
+      when is_binary(int8) and byte_size(int8) > 0 do
+    {:ok, int8}
+  end
+
+  def get_embedding_int8(_), do: {:error, :no_int8_embedding}
+
+  @doc """
+  Gets the binary embedding for ultra-fast Hamming distance pre-filtering.
+
+  Returns {:ok, binary} or {:error, reason}
+  """
+  @spec get_embedding_binary(%__MODULE__{}) :: {:ok, binary()} | {:error, atom()}
+  def get_embedding_binary(%__MODULE__{embedding_binary: binary})
+      when is_binary(binary) and byte_size(binary) > 0 do
+    {:ok, binary}
+  end
+
+  def get_embedding_binary(_), do: {:error, :no_binary_embedding}
+
+  @doc """
+  Checks if the engram has an int8 quantized embedding.
+  """
+  @spec has_int8_embedding?(%__MODULE__{}) :: boolean()
+  def has_int8_embedding?(%__MODULE__{embedding_int8: int8})
+      when is_binary(int8) and byte_size(int8) > 0,
+      do: true
+
+  def has_int8_embedding?(_), do: false
+
+  @doc """
+  Checks if the engram has a binary embedding for Hamming pre-filtering.
+  """
+  @spec has_binary_embedding?(%__MODULE__{}) :: boolean()
+  def has_binary_embedding?(%__MODULE__{embedding_binary: binary})
+      when is_binary(binary) and byte_size(binary) > 0,
+      do: true
+
+  def has_binary_embedding?(_), do: false
 
   # When creating, preserve original importance for decay tracking
   defp set_original_importance(changeset) do
@@ -160,9 +359,52 @@ defmodule Mimo.Brain.Engram do
           0
 
         inserted_at ->
-          NaiveDateTime.diff(NaiveDateTime.utc_now(), inserted_at, :second) / 86400.0
+          NaiveDateTime.diff(NaiveDateTime.utc_now(), inserted_at, :second) / 86_400.0
       end
 
     original * :math.exp(-decay_rate * days_since_creation)
+  end
+
+  # =============================================================================
+  # SPEC-034: Temporal Memory Chain Helpers
+  # =============================================================================
+
+  @doc """
+  Checks if this engram is currently active (not superseded).
+  """
+  @spec active?(%__MODULE__{}) :: boolean()
+  def active?(%__MODULE__{superseded_at: nil}), do: true
+  def active?(%__MODULE__{superseded_at: _}), do: false
+
+  @doc """
+  Checks if this engram has been superseded.
+  """
+  @spec superseded?(%__MODULE__{}) :: boolean()
+  def superseded?(%__MODULE__{superseded_at: nil}), do: false
+  def superseded?(%__MODULE__{superseded_at: _}), do: true
+
+  @doc """
+  Checks if this engram is part of a supersession chain (has superseded another).
+  """
+  @spec has_predecessor?(%__MODULE__{}) :: boolean()
+  def has_predecessor?(%__MODULE__{supersedes_id: nil}), do: false
+  def has_predecessor?(%__MODULE__{supersedes_id: _}), do: true
+
+  @doc """
+  Returns a summary map for chain display.
+  """
+  @spec chain_summary(%__MODULE__{}) :: map()
+  def chain_summary(%__MODULE__{} = engram) do
+    %{
+      id: engram.id,
+      content: String.slice(engram.content || "", 0, 100),
+      category: engram.category,
+      importance: engram.importance,
+      created_at: engram.inserted_at,
+      supersedes_id: engram.supersedes_id,
+      superseded_at: engram.superseded_at,
+      supersession_type: engram.supersession_type,
+      active: active?(engram)
+    }
   end
 end

@@ -288,20 +288,37 @@ defmodule Mimo.Code.TreeSitter do
 
   # Private helpers
 
+  # Known keys from NIF output - whitelist for safe atom conversion
+  # SECURITY: Prevents atom table exhaustion if NIF returns unexpected keys
+  @symbol_keys ~w(name kind start_line start_col end_line end_col parent visibility)a
+               |> MapSet.new(&Atom.to_string/1)
+  @reference_keys ~w(name kind line col)a |> MapSet.new(&Atom.to_string/1)
+  @query_keys ~w(capture text kind start_line start_col end_line end_col)a
+              |> MapSet.new(&Atom.to_string/1)
+
+  defp safe_key_to_atom(key, known_keys) when is_binary(key) do
+    if MapSet.member?(known_keys, key) do
+      String.to_existing_atom(key)
+    else
+      # Keep unknown keys as strings - defensive against NIF changes
+      key
+    end
+  end
+
   defp parse_symbol_tuple(tuple_list) when is_list(tuple_list) do
     tuple_list
     |> Enum.into(%{}, fn {key, value} ->
-      parsed_key = String.to_atom(key)
+      parsed_key = safe_key_to_atom(key, @symbol_keys)
 
       parsed_value =
-        case parsed_key do
-          k when k in [:start_line, :start_col, :end_line, :end_col] ->
+        cond do
+          parsed_key in [:start_line, :start_col, :end_line, :end_col] ->
             String.to_integer(value)
 
-          :parent when value == "" ->
+          parsed_key == :parent and value == "" ->
             nil
 
-          _ ->
+          true ->
             value
         end
 
@@ -312,14 +329,14 @@ defmodule Mimo.Code.TreeSitter do
   defp parse_reference_tuple(tuple_list) when is_list(tuple_list) do
     tuple_list
     |> Enum.into(%{}, fn {key, value} ->
-      parsed_key = String.to_atom(key)
+      parsed_key = safe_key_to_atom(key, @reference_keys)
 
       parsed_value =
-        case parsed_key do
-          k when k in [:line, :col] ->
+        cond do
+          parsed_key in [:line, :col] ->
             String.to_integer(value)
 
-          _ ->
+          true ->
             value
         end
 
@@ -330,14 +347,14 @@ defmodule Mimo.Code.TreeSitter do
   defp parse_query_result(tuple_list) when is_list(tuple_list) do
     tuple_list
     |> Enum.into(%{}, fn {key, value} ->
-      parsed_key = String.to_atom(key)
+      parsed_key = safe_key_to_atom(key, @query_keys)
 
       parsed_value =
-        case parsed_key do
-          k when k in [:start_line, :start_col, :end_line, :end_col] ->
+        cond do
+          parsed_key in [:start_line, :start_col, :end_line, :end_col] ->
             String.to_integer(value)
 
-          _ ->
+          true ->
             value
         end
 

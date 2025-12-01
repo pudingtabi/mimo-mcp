@@ -73,6 +73,8 @@ defmodule Mimo.Application do
         {Mimo.Brain.Consolidator, []},
         # Forgetting: Scheduled decay-based memory cleanup
         {Mimo.Brain.Forgetting, []},
+        # HealthMonitor: Periodic brain system health checks
+        {Mimo.Brain.HealthMonitor, []},
         # ===== Passive Memory System (SPEC-012) =====
         # Thread Manager: AI session tracking and interaction recording
         {Mimo.Brain.ThreadManager, []},
@@ -94,6 +96,13 @@ defmodule Mimo.Application do
 
     opts = [strategy: :one_for_one, name: Mimo.Supervisor]
     {:ok, sup} = Supervisor.start_link(children, opts)
+
+    # Start the graceful degradation retry processor (after TaskSupervisor is available)
+    spawn(fn ->
+      # Wait for TaskSupervisor to be ready
+      Process.sleep(1000)
+      Mimo.Fallback.GracefulDegradation.start_retry_processor()
+    end)
 
     # Ensure catalog is fully loaded before servers start
     case wait_for_catalog_ready() do
@@ -194,12 +203,14 @@ defmodule Mimo.Application do
   # - :rust_nifs - SIMD-accelerated vector operations
   # - :websocket_synapse - Real-time cognitive signaling
   # - :procedural_store - Deterministic state machine execution
+  # - :hnsw_index - SPEC-033 HNSW vector index for O(log n) search
   defp synthetic_cortex_children do
     []
     |> maybe_add_child(:rust_nifs, {Mimo.Vector.Supervisor, []})
     |> maybe_add_child(:websocket_synapse, {Mimo.Synapse.ConnectionManager, []})
     |> maybe_add_child(:websocket_synapse, {Mimo.Synapse.InterruptManager, []})
     |> maybe_add_child(:procedural_store, {Mimo.ProceduralStore.Registry, []})
+    |> maybe_add_child(:hnsw_index, {Mimo.Brain.HnswIndex, []})
   end
 
   defp maybe_add_child(children, feature, child_spec) do
@@ -260,6 +271,10 @@ defmodule Mimo.Application do
       websocket_synapse: %{
         enabled: feature_enabled?(:websocket_synapse),
         connections: websocket_connection_count()
+      },
+      hnsw_index: %{
+        enabled: feature_enabled?(:hnsw_index),
+        status: hnsw_index_status()
       }
     }
   end
@@ -299,6 +314,18 @@ defmodule Mimo.Application do
       end
     else
       0
+    end
+  end
+
+  defp hnsw_index_status do
+    if feature_enabled?(:hnsw_index) do
+      try do
+        Mimo.Brain.HnswIndex.stats()
+      rescue
+        _ -> %{available: false, error: "not_running"}
+      end
+    else
+      %{available: false, reason: :disabled}
     end
   end
 end

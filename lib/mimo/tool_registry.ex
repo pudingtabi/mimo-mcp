@@ -362,7 +362,7 @@ defmodule Mimo.ToolRegistry do
   # SPEC-011.3: File Ingestion
   defp classify_tool("ingest"), do: {:internal, :ingest}
 
-  # Mimo.Tools core capabilities (16 tools)
+  # Mimo.Tools core capabilities (17 tools)
   defp classify_tool("file"), do: {:mimo_core, :file}
   defp classify_tool("terminal"), do: {:mimo_core, :terminal}
   defp classify_tool("fetch"), do: {:mimo_core, :fetch}
@@ -387,6 +387,9 @@ defmodule Mimo.ToolRegistry do
 
   # SPEC-024: Epistemic uncertainty & meta-cognition
   defp classify_tool("cognitive"), do: {:mimo_core, :cognitive}
+
+  # SPEC-029: Multi-language diagnostics
+  defp classify_tool("diagnostics"), do: {:mimo_core, :diagnostics}
 
   # Legacy tool names (keep for backward compatibility)
   defp classify_tool("http_request"), do: {:mimo_core, :fetch}
@@ -545,7 +548,7 @@ defmodule Mimo.ToolRegistry do
             },
             "timeout" => %{
               "type" => "integer",
-              "default" => 60000,
+              "default" => 60_000,
               "description" => "Timeout in milliseconds (sync mode only)"
             }
           },
@@ -645,6 +648,46 @@ defmodule Mimo.ToolRegistry do
             }
           },
           "required" => ["operation"]
+        }
+      },
+      # ========================================================================
+      # Tool Usage Analytics
+      # ========================================================================
+      %{
+        "name" => "tool_usage",
+        "description" =>
+          "Get comprehensive tool usage statistics and analytics. Analyze which tools are popular, performance metrics, and trends over time. Useful for understanding AI agent behavior and optimizing tool design.",
+        "inputSchema" => %{
+          "type" => "object",
+          "properties" => %{
+            "operation" => %{
+              "type" => "string",
+              "enum" => ["stats", "detail"],
+              "default" => "stats",
+              "description" =>
+                "Operation: 'stats' for overview/rankings, 'detail' for specific tool analysis"
+            },
+            "tool_name" => %{
+              "type" => "string",
+              "description" => "For detail: specific tool to analyze"
+            },
+            "days" => %{
+              "type" => "integer",
+              "default" => 30,
+              "description" => "Number of days to analyze (default: 30)"
+            },
+            "limit" => %{
+              "type" => "integer",
+              "default" => 50,
+              "description" => "Max tools to return in rankings (default: 50)"
+            },
+            "include_daily" => %{
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Include daily breakdown in stats (default: false)"
+            }
+          },
+          "required" => []
         }
       },
       # ========================================================================

@@ -38,9 +38,7 @@ defmodule Mimo.ErrorHandling.RetryStrategies do
         delay = calculate_delay(attempt, base_delay)
 
         Logger.warning(
-          "Operation failed (attempt #{attempt + 1}/#{max_retries}), retrying in #{delay}ms",
-          error: inspect(reason),
-          attempt: attempt + 1
+          "Operation failed (attempt #{attempt + 1}/#{max_retries}), retrying in #{delay}ms - error: #{inspect(reason)}"
         )
 
         if on_retry, do: on_retry.(attempt, reason)
@@ -49,9 +47,7 @@ defmodule Mimo.ErrorHandling.RetryStrategies do
         do_retry(operation, attempt + 1, max_retries, base_delay, on_retry)
 
       {:error, reason} = error ->
-        Logger.error("Operation failed after #{max_retries} retries",
-          error: inspect(reason)
-        )
+        Logger.error("Operation failed after #{max_retries} retries - error: #{inspect(reason)}")
 
         error
     end

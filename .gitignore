@@ -60,6 +60,10 @@ native/vector_math/target/
 # Debug/temp scripts
 debug_*.py
 extract_*.py
+scripts/
+
+# Database backups
+*.db.backup-*
 
 # Skills manifest (user-specific, generated at runtime)
 priv/skills_manifest.json

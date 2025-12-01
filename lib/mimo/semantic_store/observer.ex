@@ -169,11 +169,10 @@ defmodule Mimo.SemanticStore.Observer do
     # Extract all text from conversation with input validation
     conversation_text =
       conversation_history
-      |> Enum.map(fn
+      |> Enum.map_join(" ", fn
         msg when is_map(msg) -> msg["content"] || msg[:content] || ""
         _ -> ""
       end)
-      |> Enum.join(" ")
       |> String.downcase()
 
     Enum.filter(suggestions, fn s ->

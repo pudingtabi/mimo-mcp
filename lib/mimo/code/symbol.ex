@@ -36,6 +36,25 @@ defmodule Mimo.Code.Symbol do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @derive {Jason.Encoder,
+           only: [
+             :id,
+             :file_path,
+             :name,
+             :qualified_name,
+             :kind,
+             :language,
+             :visibility,
+             :start_line,
+             :start_col,
+             :end_line,
+             :end_col,
+             :signature,
+             :doc,
+             :metadata,
+             :parent_id
+           ]}
+
   @type t :: %__MODULE__{}
 
   @primary_key {:id, :binary_id, autogenerate: true}

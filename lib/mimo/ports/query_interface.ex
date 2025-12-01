@@ -34,6 +34,11 @@ defmodule Mimo.QueryInterface do
         # Search memories based on router decision
         memories = search_by_decision(query, router_decision)
 
+        # Get proactive suggestions from Observer (semantic graph insights)
+        # Extract entity-like patterns from query for Observer
+        entities = extract_entities_from_query(query)
+        proactive_suggestions = get_observer_suggestions(entities, [])
+
         # Always synthesize with LLM - ask_mimo should provide intelligent answers
         # not just raw memory dumps
         synthesis_result = Mimo.Brain.LLM.consult_chief_of_staff(query, memories.episodic || [])
@@ -49,6 +54,7 @@ defmodule Mimo.QueryInterface do
                router_decision: router_decision,
                results: memories,
                synthesis: response,
+               proactive_suggestions: proactive_suggestions,
                context_id: context_id
              }}
 
@@ -66,6 +72,7 @@ defmodule Mimo.QueryInterface do
                results: memories,
                synthesis: nil,
                synthesis_error: inspect(reason),
+               proactive_suggestions: proactive_suggestions,
                context_id: context_id
              }}
         end
@@ -81,27 +88,45 @@ defmodule Mimo.QueryInterface do
   end
 
   defp search_by_decision(query, decision) do
+    # ALWAYS search episodic memory - it contains the richest context
+    # The router decision only affects HOW MUCH we search, not WHETHER we search
+    episodic = search_episodic_always(query, decision)
+    semantic = search_semantic(query, decision)
+    procedural = search_procedural(query, decision)
+
     %{
-      episodic: search_episodic(query, decision),
-      semantic: search_semantic(query, decision),
-      procedural: search_procedural(query, decision)
+      episodic: episodic,
+      semantic: semantic,
+      procedural: procedural
     }
   end
 
-  defp search_episodic(query, %{primary_store: :episodic} = _decision) do
-    # Use recency boost of 0.3 to prefer fresh memories while still respecting relevance
-    Mimo.Brain.Memory.search_memories(query, limit: 10, recency_boost: 0.3)
-  end
+  # Always search episodic memory, but adjust limit based on router decision
+  defp search_episodic_always(query, decision) do
+    limit =
+      case decision do
+        # Primary: more results
+        %{primary_store: :episodic} ->
+          15
 
-  defp search_episodic(query, %{secondary_stores: stores}) when is_list(stores) do
-    if :episodic in stores do
-      Mimo.Brain.Memory.search_memories(query, limit: 5, recency_boost: 0.3)
-    else
-      []
+        %{secondary_stores: stores} when is_list(stores) ->
+          # Secondary or tertiary: still search
+          if :episodic in stores, do: 10, else: 8
+
+        # Always search at least some memories
+        _ ->
+          8
+      end
+
+    results = Mimo.Brain.Memory.search_memories(query, limit: limit, recency_boost: 0.3)
+
+    # Log if we found memories that would have been missed by old logic
+    if not Enum.empty?(results) and decision.primary_store != :episodic do
+      Logger.debug("Found #{length(results)} episodic memories for non-episodic query")
     end
-  end
 
-  defp search_episodic(_query, _decision), do: []
+    results
+  end
 
   defp search_semantic(query, %{primary_store: :semantic} = _decision) do
     alias Mimo.SemanticStore.Query
@@ -165,7 +190,7 @@ defmodule Mimo.QueryInterface do
   # Record ask_mimo conversations in memory for future context
   defp record_conversation(query, response, context_id) do
     # Run async to not block the response
-    Task.start(fn ->
+    Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
       try do
         # Truncate long responses to avoid bloating memory
         truncated_response =
@@ -184,17 +209,29 @@ defmodule Mimo.QueryInterface do
         # Determine importance based on query characteristics
         importance = calculate_conversation_importance(query)
 
-        # Store with conversation category (category must be string, not atom)
-        Mimo.Brain.Memory.persist_memory(
-          String.trim(content),
-          "observation",
-          importance
-        )
+        # Route through WorkingMemory for consolidation pipeline
+        case Mimo.Brain.WorkingMemory.store(
+               String.trim(content),
+               category: "observation",
+               importance: importance,
+               source: "ask_mimo"
+             ) do
+          {:ok, id} ->
+            # Mark for consolidation since conversations are valuable
+            Mimo.Brain.WorkingMemory.mark_for_consolidation(id)
+
+          {:error, reason} ->
+            Logger.warning("Failed to store conversation: #{inspect(reason)}")
+        end
 
         Logger.info("Recorded ask_mimo conversation in memory (context: #{context_id || "none"})")
       rescue
         e ->
           Logger.warning("Failed to record conversation: #{Exception.message(e)}")
+
+          :telemetry.execute([:mimo, :query_interface, :record_error], %{count: 1}, %{
+            error: Exception.message(e)
+          })
       end
     end)
   end
@@ -216,5 +253,61 @@ defmodule Mimo.QueryInterface do
       end
 
     min(base + length_boost + topic_boost, 0.85)
+  end
+
+  # Extract entity-like patterns from query for Observer
+  defp extract_entities_from_query(query) do
+    # Extract potential entity patterns:
+    # - CamelCase words (likely module/class names)
+    # - snake_case words (likely function names)
+    # - word:word patterns (explicit entity references)
+
+    camel_case =
+      Regex.scan(~r/\b([A-Z][a-z]+(?:[A-Z][a-z]+)+)\b/, query)
+      |> Enum.map(fn [_, match] -> String.downcase(match) end)
+
+    snake_case =
+      Regex.scan(~r/\b([a-z]+_[a-z_]+)\b/, query)
+      |> Enum.map(fn [_, match] -> match end)
+
+    explicit =
+      Regex.scan(~r/\b([a-z]+:[a-z_]+)\b/i, query)
+      |> Enum.map(fn [_, match] -> String.downcase(match) end)
+
+    (camel_case ++ snake_case ++ explicit)
+    |> Enum.uniq()
+    # Limit to 5 entities for performance
+    |> Enum.take(5)
+  end
+
+  # Get proactive suggestions from SemanticStore Observer
+  defp get_observer_suggestions(entities, conversation_history) do
+    if Enum.empty?(entities) do
+      []
+    else
+      try do
+        case Mimo.SemanticStore.Observer.observe(entities, conversation_history) do
+          {:ok, suggestions} ->
+            # Format suggestions for JSON serialization
+            Enum.map(suggestions, fn s ->
+              %{
+                type: s.type,
+                entity: s.entity,
+                predicate: s.predicate,
+                related: s[:target] || s[:source],
+                confidence: s.confidence,
+                text: s.text
+              }
+            end)
+
+          _ ->
+            []
+        end
+      rescue
+        _ -> []
+      catch
+        :exit, _ -> []
+      end
+    end
   end
 end

@@ -195,7 +195,7 @@ defmodule Mimo.Brain.ThreadManager do
     case ensure_thread(state) do
       {:ok, thread_id, new_state} ->
         # Record the interaction asynchronously
-        Task.start(fn ->
+        Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
           opts_with_thread = Keyword.put(opts, :thread_id, thread_id)
 
           case Interaction.record(tool_name, opts_with_thread) do
@@ -204,11 +204,18 @@ defmodule Mimo.Brain.ThreadManager do
 
             {:error, reason} ->
               Logger.warning("[ThreadManager] Failed to record interaction: #{inspect(reason)}")
+
+              :telemetry.execute([:mimo, :thread_manager, :record_error], %{count: 1}, %{
+                tool: tool_name,
+                reason: inspect(reason)
+              })
           end
         end)
 
         # Touch the thread to update last_active_at
-        Task.start(fn -> Thread.touch(thread_id) end)
+        Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
+          Thread.touch(thread_id)
+        end)
 
         {:noreply, new_state}
 
@@ -224,7 +231,10 @@ defmodule Mimo.Brain.ThreadManager do
         {:noreply, state}
 
       thread_id ->
-        Task.start(fn -> Thread.touch(thread_id) end)
+        Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
+          Thread.touch(thread_id)
+        end)
+
         {:noreply, state}
     end
   end
@@ -234,10 +244,19 @@ defmodule Mimo.Brain.ThreadManager do
     Logger.debug("[ThreadManager] Running periodic cleanup")
 
     # Clean up idle threads
-    Task.start(fn ->
-      Thread.cleanup_idle()
-      Thread.archive_old(7)
-      Interaction.cleanup_old(30)
+    Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
+      try do
+        Thread.cleanup_idle()
+        Thread.archive_old(7)
+        Interaction.cleanup_old(30)
+      rescue
+        e ->
+          Logger.error("[ThreadManager] Cleanup failed: #{Exception.message(e)}")
+
+          :telemetry.execute([:mimo, :thread_manager, :cleanup_error], %{count: 1}, %{
+            error: Exception.message(e)
+          })
+      end
     end)
 
     # Refresh thread cache - remove stale entries

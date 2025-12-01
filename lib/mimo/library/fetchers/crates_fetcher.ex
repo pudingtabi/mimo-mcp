@@ -10,6 +10,8 @@ defmodule Mimo.Library.Fetchers.CratesFetcher do
 
   require Logger
 
+  alias Mimo.Library.Fetchers.Common
+
   @crates_api "https://crates.io/api/v1"
   @docs_rs_base "https://docs.rs"
 
@@ -301,55 +303,8 @@ defmodule Mimo.Library.Fetchers.CratesFetcher do
     end
   end
 
-  # HTTP helpers
+  # HTTP helpers - delegate to Common with retry logic
 
-  defp http_get_json(url) do
-    headers = [
-      {"Accept", "application/json"},
-      {"User-Agent", "Mimo/1.0 (https://github.com/mimo)"}
-    ]
-
-    case Req.get(url, headers: headers) do
-      {:ok, %{status: 200, body: body}} when is_map(body) ->
-        {:ok, body}
-
-      {:ok, %{status: 200, body: body}} when is_binary(body) ->
-        case Jason.decode(body) do
-          {:ok, decoded} -> {:ok, decoded}
-          _ -> {:error, :json_parse_error}
-        end
-
-      {:ok, %{status: 404}} ->
-        {:error, :not_found}
-
-      {:ok, %{status: status}} ->
-        {:error, {:http_error, status}}
-
-      {:error, reason} ->
-        Logger.warning("HTTP GET JSON failed for #{url}: #{inspect(reason)}")
-        {:error, reason}
-    end
-  end
-
-  defp http_get_html(url) do
-    headers = [
-      {"Accept", "text/html"},
-      {"User-Agent", "Mimo/1.0 (https://github.com/mimo)"}
-    ]
-
-    case Req.get(url, headers: headers) do
-      {:ok, %{status: 200, body: body}} when is_binary(body) ->
-        {:ok, body}
-
-      {:ok, %{status: 404}} ->
-        {:error, :not_found}
-
-      {:ok, %{status: status}} ->
-        {:error, {:http_error, status}}
-
-      {:error, reason} ->
-        Logger.warning("HTTP GET HTML failed for #{url}: #{inspect(reason)}")
-        {:error, reason}
-    end
-  end
+  defp http_get_json(url), do: Common.http_get_json(url)
+  defp http_get_html(url), do: Common.http_get_html(url)
 end

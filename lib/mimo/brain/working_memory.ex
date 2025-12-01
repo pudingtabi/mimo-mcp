@@ -50,6 +50,7 @@ defmodule Mimo.Brain.WorkingMemory do
   ## Options
 
     * `:importance` - Importance score 0-1 (default: 0.5)
+    * `:category` - Memory category: "fact", "action", "observation", "plan" (default: "fact")
     * `:session_id` - Session identifier
     * `:source` - Source of the memory (e.g., "tool_call", "user")
     * `:tool_name` - Name of tool if from tool call
@@ -189,6 +190,7 @@ defmodule Mimo.Brain.WorkingMemory do
     # Build item attributes
     attrs = %{
       content: content,
+      category: Keyword.get(opts, :category, "fact"),
       importance: Keyword.get(opts, :importance, 0.5),
       session_id: Keyword.get(opts, :session_id),
       source: Keyword.get(opts, :source, "unknown"),

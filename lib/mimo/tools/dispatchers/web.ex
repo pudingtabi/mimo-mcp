@@ -29,7 +29,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
     format = args["format"] || "text"
     analyze_image = args["analyze_image"] || false
 
-    is_image_url = Helpers.is_image_url?(url)
+    is_image_url = Helpers.image_url?(url)
 
     if analyze_image or (is_image_url and analyze_image != false) do
       analyze_image_url(url, args)

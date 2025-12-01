@@ -86,6 +86,10 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
       {:error, "Topic is required for assess operation"}
     else
       uncertainty = Mimo.Cognitive.ConfidenceAssessor.assess(topic)
+
+      # Track the assessment for stats (fixes missing instrumentation)
+      Mimo.Cognitive.UncertaintyTracker.record(topic, uncertainty)
+
       {:ok, Helpers.format_uncertainty(uncertainty)}
     end
   end

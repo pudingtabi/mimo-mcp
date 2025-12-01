@@ -11,6 +11,8 @@ defmodule Mimo.Library.Fetchers.PyPIFetcher do
 
   require Logger
 
+  alias Mimo.Library.Fetchers.Common
+
   @pypi_api_base "https://pypi.org/pypi"
   @readthedocs_base "https://readthedocs.org/api/v3"
 
@@ -238,12 +240,10 @@ defmodule Mimo.Library.Fetchers.PyPIFetcher do
   end
 
   defp decompress_inventory(compressed) do
-    try do
-      decompressed = :zlib.uncompress(compressed)
-      {:ok, decompressed}
-    rescue
-      _ -> {:error, :decompression_failed}
-    end
+    :zlib.uncompress(compressed)
+    |> then(&{:ok, &1})
+  rescue
+    _ -> {:error, :decompression_failed}
   end
 
   defp parse_inventory_text(text) do
@@ -315,76 +315,9 @@ defmodule Mimo.Library.Fetchers.PyPIFetcher do
     |> Enum.uniq()
   end
 
-  # HTTP helpers
+  # HTTP helpers - delegate to Common with retry logic
 
-  defp http_get_json(url) do
-    headers = [
-      {"Accept", "application/json"},
-      {"User-Agent", "Mimo/1.0"}
-    ]
-
-    case Req.get(url, headers: headers) do
-      {:ok, %{status: 200, body: body}} when is_map(body) ->
-        {:ok, body}
-
-      {:ok, %{status: 200, body: body}} when is_binary(body) ->
-        case Jason.decode(body) do
-          {:ok, decoded} -> {:ok, decoded}
-          _ -> {:error, :json_parse_error}
-        end
-
-      {:ok, %{status: 404}} ->
-        {:error, :not_found}
-
-      {:ok, %{status: status}} ->
-        {:error, {:http_error, status}}
-
-      {:error, reason} ->
-        Logger.warning("HTTP GET JSON failed for #{url}: #{inspect(reason)}")
-        {:error, reason}
-    end
-  end
-
-  defp http_get_html(url) do
-    headers = [
-      {"Accept", "text/html"},
-      {"User-Agent", "Mimo/1.0"}
-    ]
-
-    case Req.get(url, headers: headers) do
-      {:ok, %{status: 200, body: body}} when is_binary(body) ->
-        {:ok, body}
-
-      {:ok, %{status: 404}} ->
-        {:error, :not_found}
-
-      {:ok, %{status: status}} ->
-        {:error, {:http_error, status}}
-
-      {:error, reason} ->
-        Logger.warning("HTTP GET HTML failed for #{url}: #{inspect(reason)}")
-        {:error, reason}
-    end
-  end
-
-  defp http_get_binary(url) do
-    headers = [
-      {"Accept", "*/*"},
-      {"User-Agent", "Mimo/1.0"}
-    ]
-
-    case Req.get(url, headers: headers, decode_body: false) do
-      {:ok, %{status: 200, body: body}} when is_binary(body) ->
-        {:ok, body}
-
-      {:ok, %{status: 404}} ->
-        {:error, :not_found}
-
-      {:ok, %{status: status}} ->
-        {:error, {:http_error, status}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
+  defp http_get_json(url), do: Common.http_get_json(url)
+  defp http_get_html(url), do: Common.http_get_html(url)
+  defp http_get_binary(url), do: Common.http_get_binary(url)
 end

@@ -105,7 +105,7 @@ defmodule Mimo.Skills.FileOps do
 
       total_lines = count_lines_fast(safe_path)
       lines_read = length(lines)
-      content = lines |> Enum.map(fn {line, _idx} -> line end) |> Enum.join()
+      content = Enum.map_join(lines, fn {line, _idx} -> line end)
 
       # Remove trailing newline if present for cleaner output
       content = String.trim_trailing(content, "\n")
@@ -1103,7 +1103,7 @@ defmodule Mimo.Skills.FileOps do
              Enum.map(errors, fn {:error, e} ->
                case e do
                  {:patterns_not_found, path, patterns} ->
-                   "Patterns not found in #{path}: #{Enum.map(patterns, &String.slice(&1, 0, 30)) |> Enum.join(", ")}"
+                   "Patterns not found in #{path}: #{Enum.map_join(patterns, ", ", &String.slice(&1, 0, 30))}"
 
                  {reason, path} ->
                    "#{reason}: #{path}"

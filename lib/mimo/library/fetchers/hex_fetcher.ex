@@ -155,18 +155,18 @@ defmodule Mimo.Library.Fetchers.HexFetcher do
   end
 
   defp fetch_docs(package_name, version, opts) do
-    # Try to fetch the docs tarball
-    docs_url = "#{@hexdocs_base}/#{package_name}/#{version}/api-reference.html"
+    # Try to fetch from search.html first (contains searchData JSON)
+    search_url = "#{@hexdocs_base}/#{package_name}/#{version}/search.html"
 
-    case fetch_api_reference(docs_url) do
-      {:ok, modules} ->
+    case fetch_search_data(search_url) do
+      {:ok, modules} when modules != [] ->
         filter_modules(modules, opts)
 
-      {:error, _} ->
-        # Fallback: try to parse from search.html
-        search_url = "#{@hexdocs_base}/#{package_name}/#{version}/search.html"
+      _ ->
+        # Fallback: parse api-reference.html
+        docs_url = "#{@hexdocs_base}/#{package_name}/#{version}/api-reference.html"
 
-        case fetch_search_data(search_url) do
+        case fetch_api_reference(docs_url) do
           {:ok, modules} -> filter_modules(modules, opts)
           error -> error
         end
@@ -176,50 +176,112 @@ defmodule Mimo.Library.Fetchers.HexFetcher do
   defp fetch_api_reference(url) do
     case http_get_html(url) do
       {:ok, html} ->
-        parse_api_reference(html)
+        parse_api_reference_with_floki(html)
 
       error ->
         error
     end
   end
 
-  defp parse_api_reference(html) do
-    # Parse the API reference HTML to extract module information
-    # This is a simplified parser - in production, use a proper HTML parser
-    modules =
-      Regex.scan(
-        ~r/<li[^>]*class="[^"]*module[^"]*"[^>]*>.*?<a[^>]*href="([^"]+)"[^>]*>([^<]+)<\/a>/s,
-        html
-      )
-      |> Enum.map(fn [_, href, name] ->
-        %{
-          name: String.trim(name),
-          doc: nil,
-          functions: [],
-          types: [],
-          url: href
-        }
-      end)
+  defp parse_api_reference_with_floki(html) do
+    # Use Floki to parse the HTML properly
+    case Floki.parse_document(html) do
+      {:ok, document} ->
+        # Find all module entries in the summary rows
+        # New HexDocs structure: <div class="summary-row">...<a href="Module.html">Module</a>...</div>
+        modules =
+          document
+          |> Floki.find("div.summary-row")
+          |> Enum.map(fn row ->
+            # Get the module name from the link
+            link = Floki.find(row, "div.summary-signature a")
+            synopsis = Floki.find(row, "div.summary-synopsis")
 
-    {:ok, modules}
+            case link do
+              [{_, _, [name | _]} | _] ->
+                name_text = extract_text(name)
+                doc_text = extract_text(synopsis)
+
+                %{
+                  "name" => String.trim(name_text),
+                  "doc" => if(doc_text != "", do: String.trim(doc_text), else: nil),
+                  "functions" => [],
+                  "types" => []
+                }
+
+              _ ->
+                nil
+            end
+          end)
+          |> Enum.reject(&is_nil/1)
+          # Filter out Mix Tasks section - we only want modules
+          |> Enum.filter(fn mod ->
+            name = mod["name"]
+            # Keep if it looks like a module name (starts with capital letter)
+            String.match?(name, ~r/^[A-Z]/)
+          end)
+
+        {:ok, modules}
+
+      {:error, reason} ->
+        Logger.warning("Failed to parse API reference HTML: #{inspect(reason)}")
+        {:error, :parse_error}
+    end
   rescue
-    _ -> {:error, :parse_error}
+    e ->
+      Logger.warning("Exception parsing API reference: #{inspect(e)}")
+      {:error, :parse_error}
   end
+
+  defp extract_text(elements) when is_list(elements) do
+    elements
+    |> Floki.text()
+    |> String.trim()
+  end
+
+  defp extract_text(element) when is_tuple(element) do
+    element
+    |> Floki.text()
+    |> String.trim()
+  end
+
+  defp extract_text(text) when is_binary(text), do: String.trim(text)
+  defp extract_text(_), do: ""
 
   defp fetch_search_data(url) do
     case http_get_html(url) do
       {:ok, html} ->
-        # Extract search data JSON from the page
-        case Regex.run(~r/searchData\s*=\s*(\[.*?\]);/s, html) do
-          [_, json] ->
-            case Jason.decode(json) do
-              {:ok, data} -> parse_search_data(data)
-              _ -> {:error, :json_parse_error}
-            end
+        # Try to extract searchNodes or searchData from the script
+        # ExDoc uses different variable names in different versions
+        patterns = [
+          ~r/searchNodes\s*=\s*(\[[\s\S]*?\]);?\s*(?:var|const|let|<\/script>)/,
+          ~r/searchData\s*=\s*(\[[\s\S]*?\]);?\s*(?:var|const|let|<\/script>)/,
+          ~r/"items"\s*:\s*(\[[\s\S]*?\])\s*\}/
+        ]
 
-          _ ->
-            # No search data found
-            {:ok, []}
+        result =
+          Enum.find_value(patterns, fn pattern ->
+            case Regex.run(pattern, html) do
+              [_, json] ->
+                # Clean up the JSON - remove trailing semicolons and whitespace
+                clean_json =
+                  json
+                  |> String.trim()
+                  |> String.trim_trailing(";")
+
+                case Jason.decode(clean_json) do
+                  {:ok, data} when is_list(data) -> {:ok, data}
+                  _ -> nil
+                end
+
+              _ ->
+                nil
+            end
+          end)
+
+        case result do
+          {:ok, data} -> parse_search_data(data)
+          nil -> {:ok, []}
         end
 
       error ->
@@ -230,15 +292,20 @@ defmodule Mimo.Library.Fetchers.HexFetcher do
   defp parse_search_data(data) when is_list(data) do
     modules =
       data
-      |> Enum.filter(fn item -> item["type"] == "module" end)
+      |> Enum.filter(fn item ->
+        # ExDoc marks modules with type "module" or just uppercase names
+        item["type"] == "module" ||
+          (is_nil(item["type"]) && String.match?(item["title"] || "", ~r/^[A-Z]/))
+      end)
       |> Enum.map(fn item ->
         %{
-          name: item["title"],
-          doc: item["doc"],
-          functions: [],
-          types: []
+          "name" => item["title"] || item["ref"],
+          "doc" => item["doc"],
+          "functions" => [],
+          "types" => []
         }
       end)
+      |> Enum.uniq_by(& &1["name"])
 
     {:ok, modules}
   end
@@ -247,7 +314,7 @@ defmodule Mimo.Library.Fetchers.HexFetcher do
 
   defp fetch_module_docs(package_name, version, module_name) do
     # Convert module name to URL path (e.g., "Ecto.Query" -> "Ecto.Query.html")
-    module_path = String.replace(module_name, ".", "/") <> ".html"
+    module_path = "#{module_name}.html"
     url = "#{@hexdocs_base}/#{package_name}/#{version}/#{module_path}"
 
     case http_get_html(url) do
@@ -263,55 +330,85 @@ defmodule Mimo.Library.Fetchers.HexFetcher do
   end
 
   defp parse_module_page(html, module_name) do
-    # Extract module documentation
-    module_doc = extract_module_doc(html)
-    functions = extract_functions(html)
-    types = extract_types(html)
+    case Floki.parse_document(html) do
+      {:ok, document} ->
+        # Extract module documentation
+        module_doc = extract_module_doc_floki(document)
+        functions = extract_functions_floki(document)
+        types = extract_types_floki(document)
 
-    {:ok,
-     %{
-       name: module_name,
-       doc: module_doc,
-       functions: functions,
-       types: types
-     }}
-  end
+        {:ok,
+         %{
+           name: module_name,
+           doc: module_doc,
+           functions: functions,
+           types: types
+         }}
 
-  defp extract_module_doc(html) do
-    case Regex.run(~r/<section[^>]*class="[^"]*moduledoc[^"]*"[^>]*>(.*?)<\/section>/s, html) do
-      [_, doc] -> strip_html_tags(doc) |> String.trim()
-      _ -> nil
+      {:error, _} ->
+        {:error, :parse_error}
     end
   end
 
-  defp extract_functions(html) do
-    # Extract function signatures and docs
-    Regex.scan(
-      ~r/<section[^>]*class="[^"]*detail[^"]*"[^>]*id="([^"]+)"[^>]*>.*?<h1[^>]*>(.*?)<\/h1>.*?<section[^>]*class="[^"]*docstring[^"]*"[^>]*>(.*?)<\/section>/s,
-      html
-    )
-    |> Enum.map(fn [_, id, signature, doc] ->
-      {name, arity} = parse_function_id(id)
+  defp extract_module_doc_floki(document) do
+    document
+    |> Floki.find("section.moduledoc")
+    |> Floki.text()
+    |> String.trim()
+    |> case do
+      "" -> nil
+      doc -> doc
+    end
+  end
+
+  defp extract_functions_floki(document) do
+    document
+    |> Floki.find("section.detail[id]")
+    |> Enum.filter(fn section ->
+      {_, attrs, _} = section
+      id = Enum.find_value(attrs, fn {k, v} -> if k == "id", do: v end)
+      # Functions have ids like "function_name/2", not "t:type_name/0"
+      id && !String.starts_with?(id, "t:")
+    end)
+    |> Enum.map(fn section ->
+      {_, attrs, _} = section
+      id = Enum.find_value(attrs, fn {k, v} -> if k == "id", do: v end)
+      {name, arity} = parse_function_id(id || "unknown/0")
+
+      doc =
+        section
+        |> Floki.find("section.docstring")
+        |> Floki.text()
+        |> String.trim()
 
       %{
         name: name,
         arity: arity,
-        doc: strip_html_tags(doc) |> String.trim(),
-        spec: extract_spec(signature)
+        doc: if(doc == "", do: nil, else: doc),
+        spec: nil
       }
     end)
   end
 
-  defp extract_types(html) do
-    Regex.scan(
-      ~r/<section[^>]*class="[^"]*detail[^"]*"[^>]*id="t:([^"]+)"[^>]*>.*?<h1[^>]*>(.*?)<\/h1>/s,
-      html
-    )
-    |> Enum.map(fn [_, id, definition] ->
+  defp extract_types_floki(document) do
+    document
+    |> Floki.find("section.detail[id^=\"t:\"]")
+    |> Enum.map(fn section ->
+      {_, attrs, _} = section
+      id = Enum.find_value(attrs, fn {k, v} -> if k == "id", do: v end)
+      # Remove "t:" prefix
+      type_id = String.replace(id || "unknown", "t:", "")
+
+      definition =
+        section
+        |> Floki.find("h1")
+        |> Floki.text()
+        |> String.trim()
+
       %{
-        name: id,
+        name: type_id,
         doc: nil,
-        definition: strip_html_tags(definition) |> String.trim()
+        definition: definition
       }
     end)
   end
@@ -323,27 +420,13 @@ defmodule Mimo.Library.Fetchers.HexFetcher do
     end
   end
 
-  defp extract_spec(signature) do
-    # Try to extract @spec from the signature
-    case Regex.run(~r/@spec\s+(.+)/, signature) do
-      [_, spec] -> String.trim(spec)
-      _ -> nil
-    end
-  end
-
-  defp strip_html_tags(html) do
-    html
-    |> String.replace(~r/<[^>]+>/, " ")
-    |> String.replace(~r/\s+/, " ")
-  end
-
   defp filter_modules(modules, opts) do
     case Keyword.get(opts, :modules) do
       nil ->
         {:ok, modules}
 
       filter_list ->
-        filtered = Enum.filter(modules, fn m -> m.name in filter_list end)
+        filtered = Enum.filter(modules, fn m -> m["name"] in filter_list end)
         {:ok, filtered}
     end
   end
@@ -360,49 +443,18 @@ defmodule Mimo.Library.Fetchers.HexFetcher do
     end
   end
 
-  # HTTP helpers
+  # HTTP helpers - delegate to Common module with retry logic
+
+  alias Mimo.Library.Fetchers.Common
 
   defp http_get(url) do
-    headers = [
-      {"Accept", "application/json"},
-      {"User-Agent", "Mimo/1.0"}
-    ]
-
-    case Req.get(url, headers: headers) do
-      {:ok, %{status: 200, body: body}} ->
-        {:ok, body}
-
-      {:ok, %{status: 404}} ->
-        {:error, :not_found}
-
-      {:ok, %{status: status}} ->
-        {:error, {:http_error, status}}
-
-      {:error, reason} ->
-        Logger.warning("HTTP GET failed for #{url}: #{inspect(reason)}")
-        {:error, reason}
+    case Common.http_get_json(url) do
+      {:ok, body} -> {:ok, body}
+      {:error, _} = error -> error
     end
   end
 
   defp http_get_html(url) do
-    headers = [
-      {"Accept", "text/html"},
-      {"User-Agent", "Mimo/1.0"}
-    ]
-
-    case Req.get(url, headers: headers) do
-      {:ok, %{status: 200, body: body}} when is_binary(body) ->
-        {:ok, body}
-
-      {:ok, %{status: 404}} ->
-        {:error, :not_found}
-
-      {:ok, %{status: status}} ->
-        {:error, {:http_error, status}}
-
-      {:error, reason} ->
-        Logger.warning("HTTP GET HTML failed for #{url}: #{inspect(reason)}")
-        {:error, reason}
-    end
+    Common.http_get_html(url)
   end
 end

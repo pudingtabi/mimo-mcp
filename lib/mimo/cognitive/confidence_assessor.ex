@@ -476,7 +476,7 @@ defmodule Mimo.Cognitive.ConfidenceAssessor do
     is_code_query = String.match?(query, ~r/function|module|class|method|def|implement/i)
 
     gaps =
-      if is_code_query and length(evidence[:code] || []) == 0 do
+      if is_code_query and (evidence[:code] || []) == [] do
         ["No code symbols found for code-related query" | gaps]
       else
         gaps

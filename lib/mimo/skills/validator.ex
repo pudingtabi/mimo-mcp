@@ -114,7 +114,7 @@ defmodule Mimo.Skills.Validator do
 
     errors = Enum.filter(results, fn {status, _, _} -> status == :error end)
 
-    if length(errors) == 0 do
+    if errors == [] do
       {:ok, Enum.map(results, fn {:ok, _, config} -> config end)}
     else
       {:error, Enum.map(errors, fn {:error, idx, reason} -> {idx, reason} end)}

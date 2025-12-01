@@ -152,11 +152,20 @@ defmodule Mimo.Code.FileWatcher do
   end
 
   def handle_info(:process_pending, state) do
-    # Process all pending changes
+    # Process all pending changes with supervised tasks
+    # RELIABILITY FIX: Use Task.Supervisor instead of raw spawn for visibility
     state.pending_changes
     |> Map.keys()
     |> Enum.each(fn path ->
-      spawn(fn -> do_reindex(path) end)
+      Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
+        try do
+          do_reindex(path)
+        rescue
+          e ->
+            Logger.error("FileWatcher: Reindex failed for #{path}: #{Exception.message(e)}")
+            :telemetry.execute([:mimo, :file_watcher, :reindex_error], %{count: 1}, %{path: path})
+        end
+      end)
     end)
 
     {:noreply, %{state | pending_changes: %{}, debounce_ref: nil}}

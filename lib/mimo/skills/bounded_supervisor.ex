@@ -98,17 +98,22 @@ defmodule Mimo.Skills.Supervisor do
   def list_skills do
     DynamicSupervisor.which_children(__MODULE__)
     |> Enum.map(fn {_id, pid, _type, _modules} ->
+      # SECURITY FIX: Avoid TOCTOU race by not checking alive? before Process.info
+      # Process.info returns nil if process is dead, so check that instead
       info =
         try do
-          if Process.alive?(pid) do
-            %{
-              pid: pid,
-              alive: true,
-              memory: Process.info(pid, :memory) |> elem(1),
-              message_queue_len: Process.info(pid, :message_queue_len) |> elem(1)
-            }
-          else
-            %{pid: pid, alive: false}
+          case Process.info(pid, [:memory, :message_queue_len]) do
+            nil ->
+              # Process died
+              %{pid: pid, alive: false}
+
+            info_list ->
+              %{
+                pid: pid,
+                alive: true,
+                memory: Keyword.get(info_list, :memory, 0),
+                message_queue_len: Keyword.get(info_list, :message_queue_len, 0)
+              }
           end
         catch
           _, _ -> %{pid: pid, alive: false, error: :info_failed}

@@ -58,17 +58,22 @@ defmodule Mimo.Tools.Helpers do
 
   @doc """
   Safe conversion for map keys from JSON - uses whitelist.
-  Unknown keys are prefixed with `_unknown_` to filter later.
+  SECURITY FIX: Unknown keys are kept as strings instead of creating atoms.
+  This prevents atom table exhaustion from attacker-controlled JSON keys.
   """
   def safe_key_to_atom(key, allowed) when is_binary(key) do
     case safe_to_atom(key, allowed) do
-      nil -> String.to_atom("_unknown_" <> key)
+      # Keep as string - don't create atoms for unknown keys
+      nil -> key
       atom -> atom
     end
   end
 
   def safe_key_to_atom(key, _allowed) when is_atom(key), do: key
-  def safe_key_to_atom(_, _), do: :_unknown
+  # Keep unknown as string
+  def safe_key_to_atom(key, _allowed) when is_binary(key), do: key
+  # String, not atom
+  def safe_key_to_atom(_, _), do: "_unknown"
 
   # ==========================================================================
   # NODE TYPE PARSING
@@ -112,7 +117,7 @@ defmodule Mimo.Tools.Helpers do
   @doc """
   Check if a URL looks like an image.
   """
-  def is_image_url?(url) when is_binary(url) do
+  def image_url?(url) when is_binary(url) do
     lower_url = String.downcase(url)
 
     String.ends_with?(lower_url, [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"]) or
@@ -120,7 +125,7 @@ defmodule Mimo.Tools.Helpers do
       String.contains?(lower_url, ["imgur.com", "i.redd.it", "pbs.twimg.com"])
   end
 
-  def is_image_url?(_), do: false
+  def image_url?(_), do: false
 
   # ==========================================================================
   # GRAPH NODE/EDGE FORMATTING
@@ -271,13 +276,35 @@ defmodule Mimo.Tools.Helpers do
   Format package info for output.
   """
   def format_package(package) do
+    # Count modules from different sources depending on ecosystem
+    modules = package[:modules] || package["modules"] || []
+    types = package[:types] || package["types"]
+
+    # For NPM packages, count types.modules if modules is empty
+    modules_count =
+      cond do
+        length(modules) > 0 ->
+          length(modules)
+
+        is_map(types) ->
+          type_modules = types[:modules] || types["modules"] || []
+          # Count total exports across all type modules
+          Enum.reduce(type_modules, 0, fn mod, acc ->
+            exports = mod[:exports] || mod["exports"] || []
+            acc + length(exports)
+          end)
+
+        true ->
+          0
+      end
+
     %{
       name: package[:name] || package["name"],
       version: package[:version] || package["version"],
       description: package[:description] || package["description"],
       found: true,
       docs_url: package[:docs_url] || package["docs_url"],
-      modules_count: length(package[:modules] || package["modules"] || []),
+      modules_count: modules_count,
       dependencies: package[:dependencies] || package["dependencies"] || []
     }
   end

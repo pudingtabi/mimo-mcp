@@ -24,16 +24,16 @@ defmodule Mimo.Protocol.McpParser do
   require Logger
 
   # JSON-RPC Error Codes
-  @parse_error -32700
-  @invalid_request -32600
-  @method_not_found -32601
-  @invalid_params -32602
-  @internal_error -32603
+  @parse_error -32_700
+  @invalid_request -32_600
+  @method_not_found -32_601
+  @invalid_params -32_602
+  @internal_error -32_603
 
   # MCP-specific error codes
-  @tool_not_found -32000
-  @tool_execution_failed -32001
-  @skill_unavailable -32002
+  @tool_not_found -32_000
+  @tool_execution_failed -32_001
+  @skill_unavailable -32_002
 
   # ==========================================================================
   # Parsing

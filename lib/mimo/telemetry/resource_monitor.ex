@@ -184,8 +184,8 @@ defmodule Mimo.Telemetry.ResourceMonitor do
     large_tables = Enum.filter(stats.ets, fn t -> t.size > thresholds.ets_entries end)
 
     alerts =
-      if length(large_tables) > 0 do
-        table_names = Enum.map(large_tables, & &1.name) |> Enum.join(", ")
+      if large_tables != [] do
+        table_names = Enum.map_join(large_tables, ", ", & &1.name)
         ["Large ETS tables: #{table_names}" | alerts]
       else
         alerts

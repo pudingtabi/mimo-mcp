@@ -330,9 +330,8 @@ defmodule Mimo.Skills.SecurityPolicy do
   @spec validate_config(map()) :: :ok | {:error, term()}
   def validate_config(config) when is_map(config) do
     with :ok <- validate_command(config),
-         :ok <- validate_args(config),
-         :ok <- validate_env(config) do
-      :ok
+         :ok <- validate_args(config) do
+      validate_env(config)
     end
   end
 

@@ -230,25 +230,207 @@ defmodule Mimo.Cognitive.EpistemicBrain do
   end
 
   defp attempt_gap_research(question, gap_analysis) do
-    # This is a placeholder for future research capabilities
-    # In Phase 2, this would actually fetch documentation, search web, etc.
+    Logger.info("[EpistemicBrain] Researching gaps: #{inspect(gap_analysis.actions)}")
 
-    Logger.info("[EpistemicBrain] Would research gaps: #{inspect(gap_analysis.actions)}")
+    # Execute research actions based on gap analysis
+    research_results =
+      gap_analysis.actions
+      |> Enum.map(&execute_research_action(&1, question))
+      |> Enum.reject(&is_nil/1)
 
     actions =
       gap_analysis.actions
       |> Enum.map(fn action ->
         case action do
-          :search_external -> :would_search_web
-          :research_library -> :would_fetch_docs
-          :search_codebase -> :would_index_code
+          :search_external -> :searched_web
+          :research_library -> :fetched_docs
+          :search_codebase -> :searched_code
           _ -> action
         end
       end)
 
-    # For now, just proceed with normal query
-    raw_content = do_brain_query(question)
-    {raw_content, raw_content, actions}
+    # Combine research with existing knowledge
+    if research_results != [] do
+      # Store valuable research findings in memory for future use
+      store_research_findings(question, research_results)
+
+      combined_content = build_research_response(question, research_results)
+      {combined_content, combined_content, actions}
+    else
+      # Fall back to normal query if research yielded nothing
+      raw_content = do_brain_query(question)
+      {raw_content, raw_content, [:research_empty | actions]}
+    end
+  end
+
+  defp execute_research_action(:search_external, question) do
+    # Use web search to find external information
+    case Mimo.Skills.Network.web_search(question, num_results: 3) do
+      {:ok, results} when is_list(results) and results != [] ->
+        %{type: :web_search, content: format_search_results(results)}
+
+      {:ok, %{results: results}} when is_list(results) and results != [] ->
+        %{type: :web_search, content: format_search_results(results)}
+
+      _ ->
+        nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp execute_research_action(:research_library, question) do
+    # Extract potential library names from question
+    # Simple heuristic: look for package/library mentions
+    potential_libs = extract_library_names(question)
+
+    if potential_libs != [] do
+      # Try to get info for the first detected library
+      lib_name = hd(potential_libs)
+      ecosystem = detect_ecosystem(question)
+
+      case Mimo.Library.get_package(lib_name, ecosystem) do
+        {:ok, package} ->
+          %{type: :library_docs, content: format_library_info(package)}
+
+        _ ->
+          nil
+      end
+    else
+      nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp execute_research_action(:search_codebase, question) do
+    # Use file search to find relevant code
+    root = System.get_env("MIMO_ROOT") || File.cwd!()
+
+    case Mimo.Skills.FileOps.search(root, extract_search_pattern(question)) do
+      {:ok, results} when results != [] ->
+        %{type: :code_search, content: format_code_results(results)}
+
+      _ ->
+        nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp execute_research_action(_, _), do: nil
+
+  defp format_search_results(results) do
+    results
+    |> Enum.take(3)
+    |> Enum.map_join("\n", fn result ->
+      title = result["title"] || result[:title] || "Result"
+      snippet = result["snippet"] || result[:snippet] || result["description"] || ""
+      "- **#{title}**: #{String.slice(snippet, 0..150)}"
+    end)
+  end
+
+  defp format_library_info(package) do
+    name = package[:name] || package["name"] || "Unknown"
+    desc = package[:description] || package["description"] || "No description"
+    version = package[:version] || package["version"] || "unknown"
+    "**#{name}** (v#{version}): #{desc}"
+  end
+
+  defp format_code_results(results) do
+    results
+    |> Enum.take(3)
+    |> Enum.map_join("\n", fn result ->
+      file = result[:file] || result["file"] || "unknown"
+      line = result[:line] || result["line"] || 0
+      content = result[:content] || result["content"] || ""
+      "- `#{file}:#{line}`: #{String.slice(content, 0..100)}"
+    end)
+  end
+
+  defp extract_library_names(question) do
+    # Simple extraction: look for common package name patterns
+    question
+    |> String.downcase()
+    |> then(fn q ->
+      # Match common patterns like "phoenix", "ecto", "jason", etc.
+      Regex.scan(
+        ~r/\b(phoenix|ecto|plug|jason|tesla|req|finch|broadway|oban|absinthe|nx|axon|bumblebee)\b/i,
+        q
+      )
+      |> Enum.map(fn [_, name] -> name end)
+    end)
+  end
+
+  defp detect_ecosystem(question) do
+    q = String.downcase(question)
+
+    cond do
+      String.contains?(q, ["elixir", "phoenix", "ecto", "mix"]) -> :hex
+      String.contains?(q, ["python", "pip", "django", "flask"]) -> :pypi
+      String.contains?(q, ["javascript", "node", "npm", "react", "vue"]) -> :npm
+      String.contains?(q, ["rust", "cargo", "crate"]) -> :crates
+      # Default to Hex for this Elixir project
+      true -> :hex
+    end
+  end
+
+  defp extract_search_pattern(question) do
+    # Extract meaningful terms for code search
+    question
+    |> String.replace(~r/[^\w\s]/, "")
+    |> String.split()
+    |> Enum.reject(&(String.length(&1) < 4))
+    |> Enum.take(2)
+    |> Enum.join("|")
+    |> then(fn pattern -> if pattern == "", do: question, else: pattern end)
+  end
+
+  defp store_research_findings(question, results) do
+    # Store valuable research in working memory for consolidation
+    content =
+      Enum.map_join(results, "\n\n", fn %{type: type, content: content} ->
+        "[#{type}] #{content}"
+      end)
+
+    if String.length(content) > 50 do
+      summary = "Research on '#{String.slice(question, 0..50)}': #{String.slice(content, 0..300)}"
+
+      Mimo.Brain.WorkingMemory.store(summary,
+        category: "fact",
+        importance: 0.6,
+        source: "gap_research",
+        context: %{original_question: question}
+      )
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp build_research_response(question, results) do
+    research_content =
+      Enum.map_join(results, "\n\n", fn %{type: type, content: content} ->
+        type_label =
+          case type do
+            :web_search -> "Web Research"
+            :library_docs -> "Library Documentation"
+            :code_search -> "Codebase Search"
+            _ -> "Research"
+          end
+
+        "### #{type_label}\n#{content}"
+      end)
+
+    # Also get existing memory context
+    memory_context = do_brain_query(question)
+
+    """
+    Based on research for your question:
+
+    #{research_content}
+
+    #{if memory_context != "I don't have specific memories about this topic.", do: "---\n\n**From Memory:**\n#{memory_context}", else: ""}
+    """
   end
 
   defp do_brain_query(question) do
@@ -262,10 +444,9 @@ defmodule Mimo.Cognitive.EpistemicBrain do
       context =
         memories
         |> Enum.take(3)
-        |> Enum.map(fn m ->
+        |> Enum.map_join("\n", fn m ->
           "- #{String.slice(m.content, 0..200)}"
         end)
-        |> Enum.join("\n")
 
       """
       Based on my memory:

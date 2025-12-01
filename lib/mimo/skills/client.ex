@@ -14,7 +14,7 @@ defmodule Mimo.Skills.Client do
   alias Mimo.Skills.ProcessManager
   alias Mimo.Skills.Validator
 
-  defstruct [:skill_name, :port, :tool_prefix, :status, :tools, :port_monitor_ref]
+  defstruct [:skill_name, :port, :tool_prefix, :status, :tools, :port_monitor_ref, :timeout_ref]
 
   def start_link(skill_name, config) do
     GenServer.start_link(__MODULE__, {skill_name, config}, name: via_tuple(skill_name))
@@ -84,7 +84,7 @@ defmodule Mimo.Skills.Client do
 
   defp spawn_with_validated_config(skill_name, config) do
     case spawn_subprocess_secure(config) do
-      {:ok, port} ->
+      {:ok, port, timeout_ref} ->
         # Monitor the port for cleanup
         port_monitor_ref = Port.monitor(port)
 
@@ -102,7 +102,8 @@ defmodule Mimo.Skills.Client do
               tool_prefix: skill_name,
               status: :active,
               tools: tools,
-              port_monitor_ref: port_monitor_ref
+              port_monitor_ref: port_monitor_ref,
+              timeout_ref: timeout_ref
             }
 
             Logger.info("✓ Skill '#{skill_name}' loaded #{length(tools)} tools")
@@ -110,6 +111,8 @@ defmodule Mimo.Skills.Client do
 
           {:error, reason} ->
             Logger.error("✗ Skill '#{skill_name}' discovery failed: #{inspect(reason)}")
+            # Cancel the timeout before closing port
+            Mimo.Skills.SecureExecutor.cancel_timeout(timeout_ref)
             # Ensure port is closed on discovery failure
             Port.close(port)
             {:stop, {:discovery_failed, reason}}
@@ -271,6 +274,11 @@ defmodule Mimo.Skills.Client do
 
   @impl true
   def terminate(_reason, state) do
+    # Cancel the timeout monitor first to prevent it from trying to kill the port
+    if state.timeout_ref do
+      Mimo.Skills.SecureExecutor.cancel_timeout(state.timeout_ref)
+    end
+
     # Robust port cleanup
     if state.port do
       try do

@@ -11,6 +11,8 @@ defmodule Mimo.Library.Fetchers.NPMFetcher do
 
   require Logger
 
+  alias Mimo.Library.Fetchers.Common
+
   @npm_registry "https://registry.npmjs.org"
   @unpkg_base "https://unpkg.com"
   @jsdelivr_base "https://cdn.jsdelivr.net/npm"
@@ -277,12 +279,20 @@ defmodule Mimo.Library.Fetchers.NPMFetcher do
 
   defp parse_type_definitions(content) when is_binary(content) do
     # Parse TypeScript declaration file to extract exports
-    modules = []
+
+    # Check for triple-slash reference directives (common in @types packages)
+    reference_modules = extract_reference_modules(content)
+
+    # Extract declared modules (e.g., declare module "fs" { ... })
+    declared_modules = extract_declared_modules(content)
+
+    # Extract declared namespaces
+    declared_namespaces = extract_declared_namespaces(content)
 
     # Extract exported interfaces
     interfaces =
-      Regex.scan(~r/export\s+interface\s+(\w+)\s*(?:<[^>]+>)?\s*\{([^}]*)\}/s, content)
-      |> Enum.map(fn [_, name, _body] ->
+      Regex.scan(~r/export\s+interface\s+(\w+)\s*(?:<[^>]+>)?\s*(?:extends[^{]+)?\s*\{/s, content)
+      |> Enum.map(fn [_, name | _] ->
         %{
           name: name,
           kind: :interface,
@@ -293,44 +303,35 @@ defmodule Mimo.Library.Fetchers.NPMFetcher do
 
     # Extract exported types
     types =
-      Regex.scan(~r/export\s+type\s+(\w+)\s*(?:<[^>]+>)?\s*=\s*([^;]+);/s, content)
-      |> Enum.map(fn [_, name, definition] ->
+      Regex.scan(~r/export\s+type\s+(\w+)\s*(?:<[^>]+>)?\s*=/s, content)
+      |> Enum.map(fn [_, name | _] ->
         %{
           name: name,
           kind: :type,
-          signature: String.trim(definition),
+          signature: nil,
           doc: extract_jsdoc_before(content, "type #{name}")
         }
       end)
 
-    # Extract exported functions
+    # Extract exported functions (including declare function)
     functions =
       Regex.scan(
-        ~r/export\s+(?:declare\s+)?function\s+(\w+)\s*(<[^>]*>)?\s*\(([^)]*)\)\s*:\s*([^;{]+)/s,
+        ~r/export\s+(?:declare\s+)?function\s+(\w+)\s*(?:<[^>]*>)?\s*\(/s,
         content
       )
-      |> Enum.map(fn
-        [_, name, _generics, params, return_type] ->
-          %{
-            name: name,
-            kind: :function,
-            signature: "(#{String.trim(params)}) => #{String.trim(return_type)}",
-            doc: extract_jsdoc_before(content, "function #{name}")
-          }
-
-        [_, name, params, return_type] ->
-          %{
-            name: name,
-            kind: :function,
-            signature: "(#{String.trim(params)}) => #{String.trim(return_type)}",
-            doc: extract_jsdoc_before(content, "function #{name}")
-          }
+      |> Enum.map(fn [_, name | _] ->
+        %{
+          name: name,
+          kind: :function,
+          signature: nil,
+          doc: extract_jsdoc_before(content, "function #{name}")
+        }
       end)
 
     # Extract exported classes
     classes =
       Regex.scan(
-        ~r/export\s+(?:declare\s+)?class\s+(\w+)\s*(?:<[^>]+>)?\s*(?:extends\s+\w+)?\s*(?:implements\s+[^{]+)?\s*\{/s,
+        ~r/export\s+(?:declare\s+)?class\s+(\w+)\s*(?:<[^>]+>)?/s,
         content
       )
       |> Enum.map(fn [_, name | _] ->
@@ -344,23 +345,139 @@ defmodule Mimo.Library.Fetchers.NPMFetcher do
 
     # Extract exported constants
     constants =
-      Regex.scan(~r/export\s+(?:declare\s+)?const\s+(\w+)\s*:\s*([^;=]+)/s, content)
-      |> Enum.map(fn [_, name, type_def] ->
+      Regex.scan(~r/export\s+(?:declare\s+)?const\s+(\w+)\s*:/s, content)
+      |> Enum.map(fn [_, name | _] ->
         %{
           name: name,
           kind: :const,
-          signature: String.trim(type_def),
+          signature: nil,
           doc: extract_jsdoc_before(content, "const #{name}")
         }
       end)
 
-    all_exports = interfaces ++ types ++ functions ++ classes ++ constants
+    # Extract export default
+    default_exports =
+      Regex.scan(~r/export\s+default\s+(?:class|function|interface)?\s*(\w+)/s, content)
+      |> Enum.map(fn [_, name | _] ->
+        %{
+          name: "default (#{name})",
+          kind: :default,
+          signature: nil,
+          doc: nil
+        }
+      end)
 
+    all_exports = interfaces ++ types ++ functions ++ classes ++ constants ++ default_exports
+
+    # Build modules list
+    modules = []
+
+    # Add reference modules
+    modules =
+      if reference_modules != [] do
+        [
+          %{
+            name: "references",
+            exports:
+              Enum.map(reference_modules, fn mod ->
+                %{name: mod, kind: :reference, signature: nil, doc: nil}
+              end)
+          }
+          | modules
+        ]
+      else
+        modules
+      end
+
+    # Add declared modules
+    modules =
+      modules ++
+        Enum.map(declared_modules, fn {name, exports} ->
+          %{name: name, exports: exports}
+        end)
+
+    # Add declared namespaces
+    modules =
+      modules ++
+        Enum.map(declared_namespaces, fn {name, exports} ->
+          %{name: "namespace:#{name}", exports: exports}
+        end)
+
+    # Add main exports if any
     if Enum.empty?(all_exports) do
       modules
     else
-      [%{name: "default", exports: all_exports}]
+      [%{name: "default", exports: all_exports} | modules]
     end
+  end
+
+  defp extract_reference_modules(content) do
+    # Extract /// <reference path="..." /> directives
+    Regex.scan(~r/\/\/\/\s*<reference\s+path="([^"]+)"/, content)
+    |> Enum.map(fn [_, path] ->
+      # Extract module name from path like "fs.d.ts" -> "fs"
+      path
+      |> Path.basename()
+      |> String.replace(~r/\.d\.ts$/, "")
+    end)
+    |> Enum.reject(&(&1 == "" or &1 == "index"))
+    |> Enum.uniq()
+  end
+
+  defp extract_declared_modules(content) do
+    # Extract declare module "name" { ... } blocks
+    Regex.scan(~r/declare\s+module\s+["']([^"']+)["']\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/s, content)
+    |> Enum.map(fn [_, name, body] ->
+      exports = parse_module_body_exports(body)
+      {name, exports}
+    end)
+    |> Enum.filter(fn {_, exports} -> exports != [] end)
+  end
+
+  defp extract_declared_namespaces(content) do
+    # Extract declare namespace Name { ... } blocks
+    Regex.scan(~r/declare\s+namespace\s+(\w+)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/s, content)
+    |> Enum.map(fn [_, name, body] ->
+      exports = parse_module_body_exports(body)
+      {name, exports}
+    end)
+    |> Enum.filter(fn {_, exports} -> exports != [] end)
+  end
+
+  defp parse_module_body_exports(body) do
+    # Parse exports from inside a module/namespace body
+    interfaces =
+      Regex.scan(~r/(?:export\s+)?interface\s+(\w+)/s, body)
+      |> Enum.map(fn [_, name] ->
+        %{name: name, kind: :interface, signature: nil, doc: nil}
+      end)
+
+    types =
+      Regex.scan(~r/(?:export\s+)?type\s+(\w+)/s, body)
+      |> Enum.map(fn [_, name] ->
+        %{name: name, kind: :type, signature: nil, doc: nil}
+      end)
+
+    functions =
+      Regex.scan(~r/(?:export\s+)?function\s+(\w+)/s, body)
+      |> Enum.map(fn [_, name] ->
+        %{name: name, kind: :function, signature: nil, doc: nil}
+      end)
+
+    classes =
+      Regex.scan(~r/(?:export\s+)?class\s+(\w+)/s, body)
+      |> Enum.map(fn [_, name] ->
+        %{name: name, kind: :class, signature: nil, doc: nil}
+      end)
+
+    constants =
+      Regex.scan(~r/(?:export\s+)?(?:const|var|let)\s+(\w+)\s*:/s, body)
+      |> Enum.map(fn [_, name] ->
+        %{name: name, kind: :const, signature: nil, doc: nil}
+      end)
+
+    (interfaces ++ types ++ functions ++ classes ++ constants)
+    |> Enum.uniq_by(& &1.name)
   end
 
   defp extract_jsdoc_before(content, pattern) do
@@ -454,55 +571,8 @@ defmodule Mimo.Library.Fetchers.NPMFetcher do
     Map.keys(deps)
   end
 
-  # HTTP helpers
+  # HTTP helpers - delegate to Common with retry logic
 
-  defp http_get_json(url) do
-    headers = [
-      {"Accept", "application/json"},
-      {"User-Agent", "Mimo/1.0"}
-    ]
-
-    case Req.get(url, headers: headers) do
-      {:ok, %{status: 200, body: body}} when is_map(body) ->
-        {:ok, body}
-
-      {:ok, %{status: 200, body: body}} when is_binary(body) ->
-        case Jason.decode(body) do
-          {:ok, decoded} -> {:ok, decoded}
-          _ -> {:error, :json_parse_error}
-        end
-
-      {:ok, %{status: 404}} ->
-        {:error, :not_found}
-
-      {:ok, %{status: status}} ->
-        {:error, {:http_error, status}}
-
-      {:error, reason} ->
-        Logger.warning("HTTP GET JSON failed for #{url}: #{inspect(reason)}")
-        {:error, reason}
-    end
-  end
-
-  defp http_get_text(url) do
-    headers = [
-      {"Accept", "text/plain, application/javascript, application/typescript"},
-      {"User-Agent", "Mimo/1.0"}
-    ]
-
-    case Req.get(url, headers: headers) do
-      {:ok, %{status: 200, body: body}} when is_binary(body) ->
-        {:ok, body}
-
-      {:ok, %{status: 404}} ->
-        {:error, :not_found}
-
-      {:ok, %{status: status}} ->
-        {:error, {:http_error, status}}
-
-      {:error, reason} ->
-        Logger.warning("HTTP GET text failed for #{url}: #{inspect(reason)}")
-        {:error, reason}
-    end
-  end
+  defp http_get_json(url), do: Common.http_get_json(url)
+  defp http_get_text(url), do: Common.http_get_text(url)
 end

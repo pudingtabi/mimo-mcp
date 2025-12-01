@@ -134,7 +134,7 @@ defmodule Mimo.Telemetry do
         unit: {:native, :microsecond},
         tags: [:primary_store],
         description: "Router classification latency",
-        reporter_options: [buckets: [100, 500, 1000, 5000, 10000, 50000]]
+        reporter_options: [buckets: [100, 500, 1000, 5000, 10_000, 50_000]]
       ),
       summary("mimo.router.classify.confidence",
         event_name: [:mimo, :router, :classify],

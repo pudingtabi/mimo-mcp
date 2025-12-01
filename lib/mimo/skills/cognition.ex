@@ -47,8 +47,7 @@ defmodule Mimo.Skills.Cognition do
     formatted_steps =
       steps
       |> Enum.with_index(1)
-      |> Enum.map(fn {step, idx} -> "#{idx}. #{step}" end)
-      |> Enum.join("\n")
+      |> Enum.map_join("\n", fn {step, idx} -> "#{idx}. #{step}" end)
 
     {:ok, %{status: "recorded", steps: steps, formatted: formatted_steps}}
   end

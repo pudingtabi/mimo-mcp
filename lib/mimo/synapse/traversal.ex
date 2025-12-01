@@ -57,6 +57,12 @@ defmodule Mimo.Synapse.Traversal do
 
   List of `%{node: GraphNode.t(), depth: integer, path: [String.t()]}`
   """
+  # Allowed edge types for safe SQL generation (whitelist)
+  @allowed_edge_types ~w(defines calls imports uses mentions relates_to implements documented_by)
+
+  # Allowed node types for safe SQL generation (whitelist)
+  @allowed_node_types ~w(concept file function module external_lib memory)
+
   @spec bfs(String.t(), keyword()) :: [traversal_result()]
   def bfs(start_node_id, opts \\ []) do
     max_depth = Keyword.get(opts, :max_depth, 3)
@@ -64,31 +70,65 @@ defmodule Mimo.Synapse.Traversal do
     direction = Keyword.get(opts, :direction, :outgoing)
     min_weight = Keyword.get(opts, :min_weight, 0.0)
 
-    edge_types_str = Enum.map_join(edge_types, ",", &"'#{&1}'")
+    # SECURITY: Validate and sanitize edge_types against whitelist to prevent SQL injection
+    safe_edge_types = sanitize_edge_types(edge_types)
 
-    sql = build_traversal_sql(direction, edge_types_str, min_weight)
+    if Enum.empty?(safe_edge_types) do
+      Logger.warning("BFS: No valid edge types provided, returning empty")
+      []
+    else
+      edge_types_str = Enum.map_join(safe_edge_types, ",", &"'#{&1}'")
+      # min_weight is validated as float
+      safe_min_weight = validate_min_weight(min_weight)
 
-    case Ecto.Adapters.SQL.query(Repo, sql, [start_node_id, max_depth]) do
-      {:ok, %{rows: rows}} ->
-        rows
-        |> Enum.map(fn [id, node_type, name, properties, depth, path] ->
-          %{
-            node: %GraphNode{
-              id: id,
-              node_type: safe_atom(node_type),
-              name: name,
-              properties: decode_json(properties)
-            },
-            depth: depth,
-            path: String.split(path, "->")
-          }
-        end)
+      sql = build_traversal_sql(direction, edge_types_str, safe_min_weight)
 
-      {:error, error} ->
-        Logger.error("BFS traversal failed: #{inspect(error)}")
-        []
+      case Ecto.Adapters.SQL.query(Repo, sql, [start_node_id, max_depth]) do
+        {:ok, %{rows: rows}} ->
+          rows
+          |> Enum.map(fn [id, node_type, name, properties, depth, path] ->
+            %{
+              node: %GraphNode{
+                id: id,
+                node_type: safe_atom(node_type),
+                name: name,
+                properties: decode_json(properties)
+              },
+              depth: depth,
+              path: String.split(path, "->")
+            }
+          end)
+
+        {:error, error} ->
+          Logger.error("BFS traversal failed: #{inspect(error)}")
+          []
+      end
     end
   end
+
+  # Sanitize edge types against whitelist - prevents SQL injection
+  defp sanitize_edge_types(edge_types) when is_list(edge_types) do
+    edge_types
+    |> Enum.map(&to_string/1)
+    |> Enum.filter(&(&1 in @allowed_edge_types))
+  end
+
+  defp sanitize_edge_types(_), do: @allowed_edge_types
+
+  # Sanitize node types against whitelist - prevents SQL injection
+  defp sanitize_node_types(node_types) when is_list(node_types) do
+    node_types
+    |> Enum.map(&to_string/1)
+    |> Enum.filter(&(&1 in @allowed_node_types))
+  end
+
+  defp sanitize_node_types(_), do: @allowed_node_types
+
+  # Validate min_weight is a safe float value
+  defp validate_min_weight(weight) when is_number(weight) and weight >= 0.0 and weight <= 1.0,
+    do: weight
+
+  defp validate_min_weight(_), do: 0.0
 
   defp build_traversal_sql(:outgoing, edge_types_str, min_weight) do
     """
@@ -277,48 +317,57 @@ defmodule Mimo.Synapse.Traversal do
   def shortest_path(from_id, to_id, opts \\ []) do
     max_depth = Keyword.get(opts, :max_depth, 6)
     edge_types = Keyword.get(opts, :edge_types, Graph.edge_types())
-    edge_types_str = Enum.map_join(edge_types, ",", &"'#{&1}'")
 
-    sql = """
-    WITH RECURSIVE path_search AS (
-      -- Base case: start from source
-      SELECT
-        ?1 as current_id,
-        ?1 as path,
-        ?1 as visited,
-        0 as depth
-      
-      UNION ALL
-      
-      -- Follow edges
-      SELECT
-        e.target_node_id,
-        ps.path || '->' || e.target_node_id,
-        ps.visited || ',' || e.target_node_id,
-        ps.depth + 1
-      FROM graph_edges e
-      INNER JOIN path_search ps ON e.source_node_id = ps.current_id
-      WHERE ps.depth < ?3
-        AND e.edge_type IN (#{edge_types_str})
-        AND instr(ps.visited, e.target_node_id) = 0
-    )
-    SELECT path
-    FROM path_search
-    WHERE current_id = ?2
-    ORDER BY depth ASC
-    LIMIT 1
-    """
+    # SECURITY: Sanitize edge_types against whitelist to prevent SQL injection
+    safe_edge_types = sanitize_edge_types(edge_types)
 
-    case Ecto.Adapters.SQL.query(Repo, sql, [from_id, to_id, max_depth]) do
-      {:ok, %{rows: [[path]]}} ->
-        {:ok, String.split(path, "->")}
+    if Enum.empty?(safe_edge_types) do
+      Logger.warning("shortest_path: No valid edge types provided")
+      {:error, :no_path}
+    else
+      edge_types_str = Enum.map_join(safe_edge_types, ",", &"'#{&1}'")
 
-      {:ok, %{rows: []}} ->
-        {:error, :no_path}
+      sql = """
+      WITH RECURSIVE path_search AS (
+        -- Base case: start from source
+        SELECT
+          ?1 as current_id,
+          ?1 as path,
+          ?1 as visited,
+          0 as depth
+        
+        UNION ALL
+        
+        -- Follow edges
+        SELECT
+          e.target_node_id,
+          ps.path || '->' || e.target_node_id,
+          ps.visited || ',' || e.target_node_id,
+          ps.depth + 1
+        FROM graph_edges e
+        INNER JOIN path_search ps ON e.source_node_id = ps.current_id
+        WHERE ps.depth < ?3
+          AND e.edge_type IN (#{edge_types_str})
+          AND instr(ps.visited, e.target_node_id) = 0
+      )
+      SELECT path
+      FROM path_search
+      WHERE current_id = ?2
+      ORDER BY depth ASC
+      LIMIT 1
+      """
 
-      {:error, error} ->
-        Logger.error("Shortest path query failed: #{inspect(error)}")
-        {:error, :no_path}
+      case Ecto.Adapters.SQL.query(Repo, sql, [from_id, to_id, max_depth]) do
+        {:ok, %{rows: [[path]]}} ->
+          {:ok, String.split(path, "->")}
+
+        {:ok, %{rows: []}} ->
+          {:error, :no_path}
+
+        {:error, error} ->
+          Logger.error("Shortest path query failed: #{inspect(error)}")
+          {:error, :no_path}
+      end
     end
   end
 
@@ -339,43 +388,52 @@ defmodule Mimo.Synapse.Traversal do
     max_length = Keyword.get(opts, :max_length, 5)
     limit = Keyword.get(opts, :limit, 10)
     edge_types = Keyword.get(opts, :edge_types, Graph.edge_types())
-    edge_types_str = Enum.map_join(edge_types, ",", &"'#{&1}'")
 
-    sql = """
-    WITH RECURSIVE path_search AS (
-      SELECT
-        ?1 as current_id,
-        ?1 as path,
-        ?1 as visited,
-        0 as depth
-      
-      UNION ALL
-      
-      SELECT
-        e.target_node_id,
-        ps.path || '->' || e.target_node_id,
-        ps.visited || ',' || e.target_node_id,
-        ps.depth + 1
-      FROM graph_edges e
-      INNER JOIN path_search ps ON e.source_node_id = ps.current_id
-      WHERE ps.depth < ?3
-        AND e.edge_type IN (#{edge_types_str})
-        AND instr(ps.visited, e.target_node_id) = 0
-    )
-    SELECT path
-    FROM path_search
-    WHERE current_id = ?2
-    ORDER BY depth ASC
-    LIMIT ?4
-    """
+    # SECURITY: Sanitize edge_types against whitelist to prevent SQL injection
+    safe_edge_types = sanitize_edge_types(edge_types)
 
-    case Ecto.Adapters.SQL.query(Repo, sql, [from_id, to_id, max_length, limit]) do
-      {:ok, %{rows: rows}} ->
-        Enum.map(rows, fn [path] -> String.split(path, "->") end)
+    if Enum.empty?(safe_edge_types) do
+      Logger.warning("all_paths: No valid edge types provided")
+      []
+    else
+      edge_types_str = Enum.map_join(safe_edge_types, ",", &"'#{&1}'")
 
-      {:error, error} ->
-        Logger.error("All paths query failed: #{inspect(error)}")
-        []
+      sql = """
+      WITH RECURSIVE path_search AS (
+        SELECT
+          ?1 as current_id,
+          ?1 as path,
+          ?1 as visited,
+          0 as depth
+        
+        UNION ALL
+        
+        SELECT
+          e.target_node_id,
+          ps.path || '->' || e.target_node_id,
+          ps.visited || ',' || e.target_node_id,
+          ps.depth + 1
+        FROM graph_edges e
+        INNER JOIN path_search ps ON e.source_node_id = ps.current_id
+        WHERE ps.depth < ?3
+          AND e.edge_type IN (#{edge_types_str})
+          AND instr(ps.visited, e.target_node_id) = 0
+      )
+      SELECT path
+      FROM path_search
+      WHERE current_id = ?2
+      ORDER BY depth ASC
+      LIMIT ?4
+      """
+
+      case Ecto.Adapters.SQL.query(Repo, sql, [from_id, to_id, max_length, limit]) do
+        {:ok, %{rows: rows}} ->
+          Enum.map(rows, fn [path] -> String.split(path, "->") end)
+
+        {:error, error} ->
+          Logger.error("All paths query failed: #{inspect(error)}")
+          []
+      end
     end
   end
 
@@ -452,32 +510,41 @@ defmodule Mimo.Synapse.Traversal do
   def compute_centrality(opts \\ []) do
     limit = Keyword.get(opts, :limit, 100)
     node_types = Keyword.get(opts, :node_types, Graph.node_types())
-    node_types_str = Enum.map_join(node_types, ",", &"'#{&1}'")
 
-    # Simple centrality: sum of incoming edge weights + access count bonus
-    sql = """
-    SELECT
-      n.id,
-      n.name,
-      n.node_type,
-      COALESCE(SUM(e.weight), 0) + (n.access_count * 0.1) as centrality
-    FROM graph_nodes n
-    LEFT JOIN graph_edges e ON e.target_node_id = n.id
-    WHERE n.node_type IN (#{node_types_str})
-    GROUP BY n.id
-    ORDER BY centrality DESC
-    LIMIT ?1
-    """
+    # SECURITY: Sanitize node_types against whitelist to prevent SQL injection
+    safe_node_types = sanitize_node_types(node_types)
 
-    case Ecto.Adapters.SQL.query(Repo, sql, [limit]) do
-      {:ok, %{rows: rows}} ->
-        Enum.map(rows, fn [id, name, type, centrality] ->
-          {id, %{name: name, node_type: safe_atom(type), centrality: centrality || 0.0}}
-        end)
+    if Enum.empty?(safe_node_types) do
+      Logger.warning("compute_centrality: No valid node types provided")
+      []
+    else
+      node_types_str = Enum.map_join(safe_node_types, ",", &"'#{&1}'")
 
-      {:error, error} ->
-        Logger.error("Centrality computation failed: #{inspect(error)}")
-        []
+      # Simple centrality: sum of incoming edge weights + access count bonus
+      sql = """
+      SELECT
+        n.id,
+        n.name,
+        n.node_type,
+        COALESCE(SUM(e.weight), 0) + (n.access_count * 0.1) as centrality
+      FROM graph_nodes n
+      LEFT JOIN graph_edges e ON e.target_node_id = n.id
+      WHERE n.node_type IN (#{node_types_str})
+      GROUP BY n.id
+      ORDER BY centrality DESC
+      LIMIT ?1
+      """
+
+      case Ecto.Adapters.SQL.query(Repo, sql, [limit]) do
+        {:ok, %{rows: rows}} ->
+          Enum.map(rows, fn [id, name, type, centrality] ->
+            {id, %{name: name, node_type: safe_atom(type), centrality: centrality || 0.0}}
+          end)
+
+        {:error, error} ->
+          Logger.error("Centrality computation failed: #{inspect(error)}")
+          []
+      end
     end
   end
 
@@ -487,12 +554,19 @@ defmodule Mimo.Synapse.Traversal do
 
   defp safe_atom(nil), do: nil
 
+  # SECURITY FIX: Only convert to atom if in whitelist, otherwise keep as string
+  # This prevents atom table exhaustion from attacker-controlled data
   defp safe_atom(str) when is_binary(str) do
-    try do
+    if str in @allowed_node_types do
       String.to_existing_atom(str)
-    rescue
-      _ -> String.to_atom(str)
+    else
+      # Return as string instead of creating potentially dangerous atom
+      Logger.debug("safe_atom: Unknown node type '#{str}', keeping as string")
+      str
     end
+  rescue
+    # Even whitelisted atoms might not exist yet in a fresh BEAM
+    ArgumentError -> str
   end
 
   defp safe_atom(atom) when is_atom(atom), do: atom

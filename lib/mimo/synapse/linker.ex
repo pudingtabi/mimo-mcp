@@ -47,10 +47,10 @@ defmodule Mimo.Synapse.Linker do
   @spec link_code_file(String.t()) :: {:ok, map()} | {:error, term()}
   def link_code_file(file_path) do
     # Check if file exists
-    if not File.exists?(file_path) do
-      {:error, :file_not_found}
-    else
+    if File.exists?(file_path) do
       do_link_code_file(file_path)
+    else
+      {:error, :file_not_found}
     end
   end
 
@@ -398,10 +398,10 @@ defmodule Mimo.Synapse.Linker do
   @spec link_directory(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def link_directory(dir_path, opts \\ []) do
     # Check if directory exists
-    if not File.dir?(dir_path) do
-      {:error, :directory_not_found}
-    else
+    if File.dir?(dir_path) do
       do_link_directory(dir_path, opts)
+    else
+      {:error, :directory_not_found}
     end
   end
 
@@ -473,10 +473,53 @@ defmodule Mimo.Synapse.Linker do
     end
   end
 
-  defp find_similar_nodes(embedding, threshold, limit) do
-    # TODO: Implement vector similarity search when embeddings are available
-    # For now, return empty list
-    _ = {embedding, threshold, limit}
+  defp find_similar_nodes(embedding, threshold, limit)
+       when is_list(embedding) and length(embedding) > 0 do
+    # Query all nodes that have embeddings
+    import Ecto.Query
+    alias Mimo.Repo
+    alias Mimo.Synapse.GraphNode
+
+    try do
+      # Get nodes with non-empty embeddings
+      nodes_with_embeddings =
+        GraphNode
+        |> where([n], fragment("length(?) > 2", n.embedding))
+        |> limit(^(limit * 10))
+        |> Repo.all()
+        |> Enum.filter(fn node ->
+          is_list(node.embedding) and length(node.embedding) > 0
+        end)
+
+      if Enum.empty?(nodes_with_embeddings) do
+        []
+      else
+        # Extract embeddings for batch similarity
+        corpus = Enum.map(nodes_with_embeddings, & &1.embedding)
+
+        # Use Vector.Math for efficient similarity computation
+        case Mimo.Vector.Math.batch_similarity(embedding, corpus) do
+          {:ok, similarities} ->
+            nodes_with_embeddings
+            |> Enum.zip(similarities)
+            |> Enum.filter(fn {_node, score} -> score >= threshold end)
+            |> Enum.sort_by(fn {_node, score} -> score end, :desc)
+            |> Enum.take(limit)
+            |> Enum.map(fn {node, score} -> %{node: node, similarity: score} end)
+
+          {:error, _reason} ->
+            []
+        end
+      end
+    rescue
+      e ->
+        Logger.warning("find_similar_nodes failed: #{Exception.message(e)}")
+        []
+    end
+  end
+
+  defp find_similar_nodes(_embedding, _threshold, _limit) do
+    # Empty or invalid embedding - return empty
     []
   end
 

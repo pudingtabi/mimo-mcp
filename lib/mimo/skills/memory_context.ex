@@ -195,8 +195,8 @@ defmodule Mimo.Skills.MemoryContext do
 
     cond do
       diff_seconds < 3600 -> "#{div(diff_seconds, 60)} minutes ago"
-      diff_seconds < 86400 -> "#{div(diff_seconds, 3600)} hours ago"
-      diff_seconds < 604_800 -> "#{div(diff_seconds, 86400)} days ago"
+      diff_seconds < 86_400 -> "#{div(diff_seconds, 3600)} hours ago"
+      diff_seconds < 604_800 -> "#{div(diff_seconds, 86_400)} days ago"
       diff_seconds < 2_592_000 -> "#{div(diff_seconds, 604_800)} weeks ago"
       true -> "#{div(diff_seconds, 2_592_000)} months ago"
     end
@@ -419,8 +419,7 @@ defmodule Mimo.Skills.MemoryContext do
       memories
       |> Enum.take(2)
       |> Enum.map(& &1.content)
-      |> Enum.map(&truncate_content(&1, 50))
-      |> Enum.join("; ")
+      |> Enum.map_join("; ", &truncate_content(&1, 50))
 
     if count > 0 do
       "#{count} related memories found (max relevance: #{top_relevance}). Key: #{key_insights}"

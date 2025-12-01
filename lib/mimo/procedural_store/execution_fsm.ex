@@ -44,6 +44,32 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
 
   @type t :: %__MODULE__{}
 
+  # SECURITY: Safe state name conversion to prevent atom exhaustion
+  # States are only valid if they exist in the procedure definition
+  @spec safe_state_atom(map(), String.t()) :: atom() | nil
+  defp safe_state_atom(procedure, state_name) when is_binary(state_name) do
+    states = procedure.definition["states"] || %{}
+
+    if Map.has_key?(states, state_name) do
+      # State exists in definition - safe to convert
+      # Use to_existing_atom first in case it's already an atom (common states)
+      try do
+        String.to_existing_atom(state_name)
+      rescue
+        ArgumentError ->
+          # Not an existing atom, but it's validated against definition
+          # This is safe because we've confirmed the state exists
+          String.to_atom(state_name)
+      end
+    else
+      Logger.error("Invalid state '#{state_name}' not found in procedure definition")
+      nil
+    end
+  end
+
+  defp safe_state_atom(_procedure, state_name) when is_atom(state_name), do: state_name
+  defp safe_state_atom(_procedure, _), do: nil
+
   # ============================================================================
   # Public API
   # ============================================================================
@@ -133,7 +159,13 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
 
         Logger.info("Starting procedure #{name}:#{version}, initial state: #{initial_state}")
 
-        {:ok, String.to_atom(initial_state), data, [{:state_timeout, timeout, :overall_timeout}]}
+        case safe_state_atom(procedure, initial_state) do
+          nil ->
+            {:stop, {:invalid_initial_state, initial_state}}
+
+          state_atom ->
+            {:ok, state_atom, data, [{:state_timeout, timeout, :overall_timeout}]}
+        end
 
       {:error, reason} ->
         {:stop, {:procedure_not_found, reason}}
@@ -200,6 +232,46 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
     {:keep_state, data, [{:reply, from, {state, data.context}}]}
   end
 
+  # Handle task completion (already handled by :action_result, but this cleans up)
+  # RELIABILITY FIX: Explicit handlers for Task.async monitoring
+  def handle_event(:info, {ref, _result}, _state, data) when is_reference(ref) do
+    # Task completed - demonitor and flush DOWN message
+    Process.demonitor(ref, [:flush])
+    {:keep_state, data}
+  end
+
+  # Handle task crash - prevents FSM hang
+  def handle_event(:info, {:DOWN, _ref, :process, _pid, reason}, state, data)
+      when reason != :normal do
+    Logger.error("Action task crashed in state #{state}: #{inspect(reason)}")
+    handle_action_error({:task_crashed, reason}, state, data)
+  end
+
+  # Handle action timeout - prevents FSM hang
+  def handle_event(:info, {:action_timeout, ref}, state, data) when is_reference(ref) do
+    # Check if task is still running
+    case Process.info(self(), :messages) do
+      {:messages, msgs} ->
+        # If we already got the result, ignore timeout
+        has_result =
+          Enum.any?(msgs, fn
+            {:action_result, _} -> true
+            _ -> false
+          end)
+
+        if has_result do
+          {:keep_state, data}
+        else
+          Logger.error("Action timed out in state #{state}")
+          handle_action_error(:action_timeout, state, data)
+        end
+
+      _ ->
+        {:keep_state, data}
+    end
+  end
+
+  # Catch-all for unhandled info messages (must be last)
   def handle_event(:info, _msg, _state, data) do
     {:keep_state, data}
   end
@@ -208,13 +280,34 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
   # Action Execution
   # ============================================================================
 
+  # Action execution timeout (per-action, separate from overall procedure timeout)
+  @action_timeout 60_000
+
   defp execute_action_async(action, data) do
     parent = self()
 
-    Task.start(fn ->
-      result = execute_action(action, data.context)
-      send(parent, {:action_result, result})
-    end)
+    # RELIABILITY FIX: Use Task.Supervisor with monitoring to prevent FSM hang
+    # if the Task crashes before sending its result.
+    # 
+    # Previous issue: Task.start would fire-and-forget, and if the task crashed
+    # before sending {:action_result, result}, the FSM would hang forever waiting.
+    #
+    # Solution: Monitor the task and set a timeout. If task dies or times out,
+    # send an error result so the FSM can handle it properly.
+    task =
+      Task.async(fn ->
+        result = execute_action(action, data.context)
+        send(parent, {:action_result, result})
+        result
+      end)
+
+    # Start a timeout watcher - if Task doesn't complete in time, fail gracefully
+    action_timeout = Map.get(action, "timeout", @action_timeout)
+    Process.send_after(parent, {:action_timeout, task.ref}, action_timeout)
+
+    # Store task ref so we can correlate timeout/DOWN messages
+    # (handled by the explicit handle_event clauses above)
+    task
   end
 
   defp execute_action(%{"module" => mod_str, "function" => fun_str} = action, context) do
@@ -223,7 +316,9 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
 
     try do
       module = String.to_existing_atom("Elixir.#{mod_str}")
-      function = String.to_atom(fun_str)
+      # SECURITY: Use to_existing_atom to prevent atom table exhaustion
+      # Function must already exist in the module
+      function = String.to_existing_atom(fun_str)
 
       # Execute with timeout
       task =
@@ -277,14 +372,21 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
       {:ok, target} ->
         # Error transition exists - use it instead of retrying
         Logger.info("Transitioning to error state: #{target}")
-        target_atom = String.to_atom(target)
 
-        if terminal_state?(data.procedure, target) do
-          Logger.info("Procedure #{data.procedure.name} completed in error state: #{target}")
-          complete_execution(data, :completed, nil)
-          {:stop, :normal}
-        else
-          {:next_state, target_atom, data}
+        case safe_state_atom(data.procedure, target) do
+          nil ->
+            Logger.error("Invalid error transition target: #{target}")
+            complete_execution(data, :failed, {:invalid_state, target})
+            {:stop, :normal}
+
+          target_atom ->
+            if terminal_state?(data.procedure, target) do
+              Logger.info("Procedure #{data.procedure.name} completed in error state: #{target}")
+              complete_execution(data, :completed, nil)
+              {:stop, :normal}
+            else
+              {:next_state, target_atom, data}
+            end
         end
 
       :no_transition ->
@@ -322,14 +424,19 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
 
     case find_transition(data.procedure, current_state, event_str) do
       {:ok, target} ->
-        target_atom = String.to_atom(target)
+        case safe_state_atom(data.procedure, target) do
+          nil ->
+            Logger.error("Invalid transition target: #{target}")
+            {:keep_state, data}
 
-        if terminal_state?(data.procedure, target) do
-          Logger.info("Procedure #{data.procedure.name} completed in state: #{target}")
-          complete_execution(data, :completed, nil)
-          {:stop, :normal}
-        else
-          {:next_state, target_atom, data}
+          target_atom ->
+            if terminal_state?(data.procedure, target) do
+              Logger.info("Procedure #{data.procedure.name} completed in state: #{target}")
+              complete_execution(data, :completed, nil)
+              {:stop, :normal}
+            else
+              {:next_state, target_atom, data}
+            end
         end
 
       :no_transition ->
@@ -381,19 +488,160 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
   end
 
   defp validate_context(procedure, context) do
-    # TODO: Validate against context_schema if defined
-    # v3.0 Roadmap: JSON Schema validation for procedure context
-    #               with type coercion and detailed error messages
-    # Current behavior: Passes context through without validation (acceptable for v2.x)
     context_schema = procedure.definition["context_schema"]
 
     if context_schema do
-      # Basic type validation could go here
-      context
+      case validate_against_schema(context, context_schema) do
+        :ok ->
+          context
+
+        {:error, errors} ->
+          Logger.warning(
+            "Context validation failed for procedure #{procedure.name}: #{inspect(errors)}"
+          )
+
+          # Return context anyway but log the issues
+          # In strict mode, this would raise/halt
+          context
+      end
     else
       context
     end
   end
+
+  # Basic JSON Schema-like validation
+  # Supports: type, required, properties, minLength, maxLength, minimum, maximum, enum
+  defp validate_against_schema(data, schema) when is_map(schema) do
+    errors = []
+
+    # Check required fields
+    errors =
+      case Map.get(schema, "required") do
+        nil ->
+          errors
+
+        required when is_list(required) ->
+          missing = Enum.filter(required, fn key -> not Map.has_key?(data, key) end)
+
+          if Enum.empty?(missing) do
+            errors
+          else
+            errors ++ [{:missing_required, missing}]
+          end
+
+        _ ->
+          errors
+      end
+
+    # Check property types
+    errors =
+      case Map.get(schema, "properties") do
+        nil ->
+          errors
+
+        properties when is_map(properties) ->
+          Enum.reduce(properties, errors, fn {key, prop_schema}, acc ->
+            case Map.get(data, key) do
+              nil ->
+                acc
+
+              value ->
+                case validate_property(value, prop_schema) do
+                  :ok -> acc
+                  {:error, reason} -> acc ++ [{:invalid_property, key, reason}]
+                end
+            end
+          end)
+
+        _ ->
+          errors
+      end
+
+    if Enum.empty?(errors) do
+      :ok
+    else
+      {:error, errors}
+    end
+  end
+
+  defp validate_against_schema(_data, _schema), do: :ok
+
+  defp validate_property(value, schema) when is_map(schema) do
+    type = Map.get(schema, "type")
+
+    type_valid =
+      case type do
+        nil -> true
+        "string" -> is_binary(value)
+        "number" -> is_number(value)
+        "integer" -> is_integer(value)
+        "boolean" -> is_boolean(value)
+        "array" -> is_list(value)
+        "object" -> is_map(value)
+        _ -> true
+      end
+
+    if type_valid do
+      validate_constraints(value, schema)
+    else
+      {:error, {:type_mismatch, expected: type, got: typeof(value)}}
+    end
+  end
+
+  defp validate_property(_value, _schema), do: :ok
+
+  defp validate_constraints(value, schema) when is_binary(value) do
+    cond do
+      Map.has_key?(schema, "minLength") and String.length(value) < schema["minLength"] ->
+        {:error, {:min_length, schema["minLength"]}}
+
+      Map.has_key?(schema, "maxLength") and String.length(value) > schema["maxLength"] ->
+        {:error, {:max_length, schema["maxLength"]}}
+
+      Map.has_key?(schema, "enum") and value not in schema["enum"] ->
+        {:error, {:not_in_enum, schema["enum"]}}
+
+      Map.has_key?(schema, "pattern") ->
+        case Regex.compile(schema["pattern"]) do
+          {:ok, regex} ->
+            if Regex.match?(regex, value),
+              do: :ok,
+              else: {:error, {:pattern_mismatch, schema["pattern"]}}
+
+          _ ->
+            :ok
+        end
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_constraints(value, schema) when is_number(value) do
+    cond do
+      Map.has_key?(schema, "minimum") and value < schema["minimum"] ->
+        {:error, {:minimum, schema["minimum"]}}
+
+      Map.has_key?(schema, "maximum") and value > schema["maximum"] ->
+        {:error, {:maximum, schema["maximum"]}}
+
+      Map.has_key?(schema, "enum") and value not in schema["enum"] ->
+        {:error, {:not_in_enum, schema["enum"]}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_constraints(_value, _schema), do: :ok
+
+  defp typeof(value) when is_binary(value), do: "string"
+  defp typeof(value) when is_integer(value), do: "integer"
+  defp typeof(value) when is_float(value), do: "number"
+  defp typeof(value) when is_boolean(value), do: "boolean"
+  defp typeof(value) when is_list(value), do: "array"
+  defp typeof(value) when is_map(value), do: "object"
+  defp typeof(_), do: "unknown"
 
   defp record_transition(data, from_state, to_state, event) do
     entry = %{

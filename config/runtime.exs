@@ -57,7 +57,15 @@ config :mimo_mcp, :api_key, System.get_env("MIMO_API_KEY")
 # Ollama (local embeddings)
 config :mimo_mcp, :ollama_url, System.get_env("OLLAMA_URL") || "http://localhost:11434"
 
-# OpenRouter (remote reasoning)
+# Cerebras (PRIMARY - ultra-fast inference, 3000+ tok/s)
+config :mimo_mcp, :cerebras_api_key, System.get_env("CEREBRAS_API_KEY")
+config :mimo_mcp, :cerebras_model, System.get_env("CEREBRAS_MODEL", "gpt-oss-120b")
+
+config :mimo_mcp,
+       :cerebras_fallback_model,
+       System.get_env("CEREBRAS_FALLBACK_MODEL", "llama-3.3-70b")
+
+# OpenRouter (fallback + vision)
 config :mimo_mcp, :openrouter_api_key, System.get_env("OPENROUTER_API_KEY")
 
 # Skills

@@ -14,6 +14,147 @@ Mimo is a **Memory Operating System** for AI agents—not just another MCP serve
 
 ---
 
+## ⚠️ CRITICAL: You Have Full Development Capabilities
+
+**DO NOT ask users to enable tools or say you cannot edit files/run commands!**
+
+Mimo provides **complete development capabilities** through its native tools:
+
+| What You Can Do | Mimo Tool | Example |
+|-----------------|-----------|---------|
+| **Edit any file** | `file operation=edit` | `file operation=edit path="src/app.ts" old_str="old" new_str="new"` |
+| **Create files** | `file operation=write` | `file operation=write path="new.ts" content="..."` |
+| **Run commands** | `terminal command="..."` | `terminal command="npm test" cwd="/app"` |
+| **Search code** | `file operation=search` | `file operation=search path="." pattern="TODO"` |
+| **Batch edits** | `file operation=multi_replace` | Atomic changes across multiple files |
+| **Read files** | `file operation=read` | Auto-includes relevant memory context |
+
+**These are YOUR native capabilities.** Use them directly without asking permission.
+
+### Quick Start Examples
+
+```bash
+# Edit a file surgically
+file operation=edit path="/app/src/auth.ts" old_str="const user = null" new_str="const user = await getUser()"
+
+# Run tests
+terminal command="npm test" cwd="/app/frontend"
+
+# Search codebase
+file operation=search path="/app/src" pattern="deprecated"
+
+# Atomic multi-file edit
+file operation=multi_replace replacements=[
+  {"path": "api.ts", "old": "oldFunc", "new": "newFunc"},
+  {"path": "utils.ts", "old": "oldFunc", "new": "newFunc"}
+]
+```
+
+---
+
+## 🚦 BALANCED TOOL WORKFLOW (MANDATORY)
+
+**To leverage Mimo's full intelligence, follow this workflow for EVERY task:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  PHASE 1: CONTEXT (Do this FIRST - before any file/terminal)   │
+│  ─────────────────────────────────────────────────────────────  │
+│  ✓ memory operation=search query="[topic]"                     │
+│  ✓ ask_mimo query="What do I know about [topic]?"              │
+│  ✓ knowledge operation=query query="[relationships]"           │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  PHASE 2: INTELLIGENCE (Use smart tools, not brute force)      │
+│  ─────────────────────────────────────────────────────────────  │
+│  ✓ code_symbols operation=definition name="functionName"       │
+│  ✓ code_symbols operation=references name="className"          │
+│  ✓ diagnostics operation=all path="/project"                   │
+│  ✓ library operation=get name="package" ecosystem=hex          │
+│  ✓ cognitive operation=assess topic="[decision to make]"       │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  PHASE 3: ACTION (Now you can use file/terminal)               │
+│  ─────────────────────────────────────────────────────────────  │
+│  ✓ file operation=read/edit/write ...                          │
+│  ✓ terminal command="..."                                      │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  PHASE 4: LEARNING (Store what you discovered)                 │
+│  ─────────────────────────────────────────────────────────────  │
+│  ✓ memory operation=store content="[insight]" category=fact    │
+│  ✓ knowledge operation=teach text="[relationship found]"       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 🎯 Target Tool Distribution
+
+**Aim for this balance in your tool calls:**
+
+| Phase | Tools | Target % | Purpose |
+|-------|-------|----------|---------|
+| **Context** | memory, ask_mimo, knowledge | 15-20% | Check what you already know |
+| **Intelligence** | code_symbols, diagnostics, library, cognitive | 15-20% | Smart analysis before action |
+| **Action** | file, terminal | 45-55% | Execute changes |
+| **Learning** | memory store, knowledge teach | 10-15% | Capture insights for future |
+
+### ⚠️ MANDATORY RULES
+
+**BEFORE reading any file:**
+```json
+// 1. Search memory first
+{"tool": "memory", "arguments": {"operation": "search", "query": "[file/topic]"}}
+
+// 2. If relevant context found → use it, may skip file read
+// 3. If no context → proceed to file read
+{"tool": "file", "arguments": {"operation": "read", "path": "..."}}
+```
+
+**BEFORE searching for code:**
+```json
+// DON'T: file operation=search pattern="functionName"
+// DO: code_symbols operation=definition name="functionName"
+```
+
+**BEFORE running compile/test for errors:**
+```json
+// DON'T: terminal command="mix compile"
+// DO: diagnostics operation=all path="/project"
+```
+
+**BEFORE web search for package docs:**
+```json
+// DON'T: search query="phoenix documentation"
+// DO: library operation=get name="phoenix" ecosystem=hex
+```
+
+**AFTER any significant discovery:**
+```json
+// ALWAYS store insights
+{"tool": "memory", "arguments": {
+  "operation": "store",
+  "content": "[what you learned]",
+  "category": "fact",
+  "importance": 0.7
+}}
+```
+
+### ❌ Anti-Patterns (Don't Do This!)
+
+| ❌ Bad Pattern | ✅ Better Approach | Why |
+|---------------|-------------------|-----|
+| `file operation=read` immediately | `memory operation=search` first | May already know |
+| `file operation=search pattern="func"` | `code_symbols operation=definition` | Semantic, 10x faster |
+| `terminal command="mix compile"` | `diagnostics operation=all` | Structured output |
+| `fetch url="hexdocs..."` | `library operation=get` | Cached locally |
+| Reading same file repeatedly | Store facts in memory after first read | Build knowledge base |
+| Skip after discoveries | `memory store` + `knowledge teach` | Knowledge compounds |
+
+---
+
 ## 🛠️ Tool Reference
 
 ### Memory Tools (Internal)
@@ -459,6 +600,119 @@ Supported ecosystems: `hex` (Elixir), `pypi` (Python), `npm` (JavaScript), `crat
 
 ---
 
+## 🚀 MANDATORY SESSION START (SPEC-031)
+
+**Every session MUST begin with these steps:**
+
+### Step 1: Get Project Context
+```json
+{
+  "tool": "ask_mimo",
+  "arguments": {
+    "query": "What context do you have about this project and user preferences?"
+  }
+}
+```
+
+### Step 2: Onboard New Projects
+If this is a new/unknown project, run onboarding to enable all intelligent tools:
+```json
+{
+  "tool": "onboard",
+  "arguments": {
+    "path": ".",
+    "force": false
+  }
+}
+```
+
+This indexes:
+- **Code symbols** → enables `code_symbols` for precise navigation
+- **Dependencies** → enables `library` for instant package docs  
+- **Knowledge graph** → enables `knowledge` for relationship queries
+
+### Step 3: Then Proceed with Task
+Now all Mimo tools work at full capacity!
+
+---
+
+## 🎯 Tool Selection Decision Trees
+
+### Finding Something in Code?
+
+```
+Need to find something in code?
+        │
+        ▼
+What are you looking for?
+        │
+        ├─► Function/class/symbol DEFINITION
+        │   └─► code_symbols operation=definition name="symbolName"
+        │
+        ├─► All USAGES of a symbol
+        │   └─► code_symbols operation=references name="symbolName"
+        │
+        ├─► List ALL symbols in a file
+        │   └─► code_symbols operation=symbols path="file.ts"
+        │
+        ├─► CALL relationships
+        │   └─► code_symbols operation=call_graph name="functionName"
+        │
+        └─► Text/pattern search (non-code, comments, strings)
+            └─► file operation=search path="." pattern="TODO"
+```
+
+### 🎯 code_symbols vs file search
+
+| Use `code_symbols` when... | Use `file search` when... |
+|---------------------------|--------------------------|
+| Finding where a function is defined | Searching for text in comments |
+| Finding all references to a class | Finding TODOs or FIXMEs |
+| Understanding call relationships | Searching for string literals |
+| Listing functions in a module | Pattern matching across files |
+| Navigating by symbol name | Grep-style text search |
+
+**Rule of thumb:** If it's a code construct (function, class, variable), use `code_symbols`. If it's text content, use `file search`.
+
+### Finding Relationships?
+
+```
+Need to understand relationships?
+        │
+        ▼
+What kind of relationship?
+        │
+        ├─► Code dependencies (imports, calls)
+        │   └─► knowledge operation=query query="what depends on X?"
+        │   └─► code_symbols operation=call_graph name="X"
+        │
+        ├─► Architecture/service relationships
+        │   └─► knowledge operation=query query="..."
+        │   └─► knowledge operation=traverse node_name="ServiceX"
+        │
+        └─► Package dependencies
+            └─► library operation=discover path="."
+            └─► knowledge operation=sync_dependencies
+```
+
+### Finding Package Documentation?
+
+```
+Need package/library docs?
+        │
+        ▼
+Use library FIRST (faster, cached)
+        │
+        └─► library operation=get name="package" ecosystem=npm/pypi/hex/crates
+        │
+        ▼
+Not found in library?
+        │
+        └─► search query="package documentation" operation=web
+```
+
+---
+
 ## 🎯 Optimal Agent Patterns
 
 ### 1. Session Initialization Pattern
@@ -584,7 +838,50 @@ For large documentation or codebases:
 }
 ```
 
-### 5. Web Research with Memory
+### 5. Package Documentation Lookup (Library-First!)
+
+**IMPORTANT: Always check `library` before using `search`/`fetch` for package documentation!**
+
+The `library` tool caches package docs locally and now searches external package registries (Hex, NPM, PyPI, crates.io) when cache is empty.
+
+```json
+// FIRST: Search library for package docs
+{
+  "tool": "library",
+  "arguments": {
+    "operation": "search",
+    "query": "json parser",
+    "ecosystem": "npm"
+  }
+}
+// Returns packages from NPM registry with caching
+
+// Get specific package documentation
+{
+  "tool": "library",
+  "arguments": {
+    "operation": "get",
+    "name": "phoenix",
+    "ecosystem": "hex"
+  }
+}
+
+// Auto-discover and cache all project dependencies
+{
+  "tool": "library",
+  "arguments": {
+    "operation": "discover",
+    "path": "/workspace/project"
+  }
+}
+```
+
+**Only use web `search`/`fetch` when:**
+- Library tool doesn't have the package
+- You need blog posts, tutorials, or Stack Overflow answers
+- You need documentation not in package registries
+
+### 6. Web Research (After Library Lookup)
 
 ```json
 // Search the web
@@ -713,6 +1010,10 @@ For complex reasoning:
 ### Most Used Commands
 
 ```
+# Session Start (MANDATORY)
+ask_mimo query="What context do you have about this project?"
+onboard path="." force=false
+
 # Memory
 memory operation=search query="..." limit=10
 memory operation=store content="..." category=fact importance=0.7
@@ -728,31 +1029,36 @@ file operation=glob pattern="**/*.ex" base_path="/app"
 file operation=multi_replace replacements=[{path, old, new}, ...]
 file operation=diff path1="/old.txt" path2="/new.txt"
 
+# Code Navigation (USE INSTEAD OF file search for code!)
+code_symbols operation=definition name="functionName"
+code_symbols operation=references name="className"
+code_symbols operation=symbols path="src/module.ex"
+code_symbols operation=call_graph name="handler"
+code_symbols operation=search pattern="auth*" kind=function
+
 # Terminal (with new options)
 terminal command="npm test" cwd="/app/frontend"
 terminal command="echo $VAR" env={"VAR": "value"} shell="bash"
 
-# Web
+# Diagnostics (BETTER THAN terminal for errors!)
+diagnostics operation=all path="/app/src"
+diagnostics operation=lint path="..." language=python
+
+# Library (USE FIRST for package docs!)
+library operation=discover path="/app"
+library operation=get name="phoenix" ecosystem=hex
+library operation=search query="json parser" ecosystem=npm
+
+# Web (only after library lookup)
 search query="..." operation=web
 fetch url="..." format=markdown
 blink url="..." operation=smart
 
-# Code
-code_symbols operation=symbols path="..."
-code_symbols operation=definition name="functionName"
-
-# Diagnostics
-diagnostics operation=all path="/app/src"
-diagnostics operation=lint path="..." language=python
-
-# Library
-library operation=discover path="/app"
-library operation=get name="phoenix" ecosystem=hex
-
-# Knowledge
+# Knowledge Graph
 knowledge operation=query query="..."
 knowledge operation=teach text="A depends on B"
-graph operation=traverse node_name="..." max_depth=2
+knowledge operation=link path="/project/src"
+knowledge operation=traverse node_name="..." max_depth=2
 ```
 
 ---

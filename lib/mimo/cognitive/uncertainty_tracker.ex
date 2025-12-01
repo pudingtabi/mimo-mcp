@@ -222,6 +222,9 @@ defmodule Mimo.Cognitive.UncertaintyTracker do
 
     total = stats.total_queries
 
+    # Calculate average confidence score from ETS records
+    average_confidence = calculate_average_confidence()
+
     result = %{
       total_queries: total,
       confidence_distribution: %{
@@ -232,6 +235,7 @@ defmodule Mimo.Cognitive.UncertaintyTracker do
       },
       gaps_detected: stats.gaps_detected,
       unique_topics: count_unique_topics(),
+      average_confidence: average_confidence,
       tracking_since: state.started_at
     }
 
@@ -313,6 +317,19 @@ defmodule Mimo.Cognitive.UncertaintyTracker do
     :ets.insert(@stats_table, {:global_stats, new_stats})
   end
 
+  defp calculate_average_confidence do
+    records = :ets.tab2list(@table)
+
+    case records do
+      [] ->
+        0.0
+
+      _ ->
+        scores = Enum.map(records, fn {_topic, record} -> record.score end)
+        Enum.sum(scores) / length(scores)
+    end
+  end
+
   defp get_common_gaps(records) do
     records
     |> Enum.flat_map(& &1.gap_indicators)
@@ -379,8 +396,8 @@ defmodule Mimo.Cognitive.UncertaintyTracker do
       gap.total_queries >= 5 ->
         "Frequently asked topic (#{gap.total_queries} queries)"
 
-      length(gap.common_gaps) > 0 ->
-        "Specific gaps identified: #{Enum.map(gap.common_gaps, & &1.gap) |> Enum.join(", ")}"
+      gap.common_gaps != [] ->
+        "Specific gaps identified: #{Enum.map_join(gap.common_gaps, ", ", & &1.gap)}"
 
       true ->
         "Could benefit from additional knowledge"

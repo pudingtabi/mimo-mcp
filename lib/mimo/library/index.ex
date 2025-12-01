@@ -3,6 +3,7 @@ defmodule Mimo.Library.Index do
   Index for searching package documentation.
 
   Provides search capabilities across cached package documentation.
+  Handles different data structures from Hex, NPM, PyPI, and Crates ecosystems.
   """
 
   alias Mimo.Library.CacheManager
@@ -37,12 +38,12 @@ defmodule Mimo.Library.Index do
     limit = opts[:limit] || 20
 
     # Search through cached packages
-    # This is a simplified implementation - would be more sophisticated with full-text search
     results =
       :ets.tab2list(:library_cache_hot)
       |> Enum.flat_map(fn {key, data, _expires} ->
         if ecosystem_matches?(key, ecosystem) and package_matches?(key, package) do
-          search_in_package(data, query, key)
+          detected_ecosystem = detect_ecosystem(key)
+          search_in_package(data, query, key, detected_ecosystem)
         else
           []
         end
@@ -100,6 +101,16 @@ defmodule Mimo.Library.Index do
   defp get_fetcher(:npm), do: Mimo.Library.Fetchers.NPMFetcher
   defp get_fetcher(:crates), do: Mimo.Library.Fetchers.CratesFetcher
 
+  defp detect_ecosystem(key) do
+    cond do
+      String.starts_with?(key, "hex/") -> :hex
+      String.starts_with?(key, "pypi/") -> :pypi
+      String.starts_with?(key, "npm/") -> :npm
+      String.starts_with?(key, "crates/") -> :crates
+      true -> :unknown
+    end
+  end
+
   defp ecosystem_matches?(_key, nil), do: true
   defp ecosystem_matches?(key, ecosystem), do: String.starts_with?(key, "#{ecosystem}/")
 
@@ -118,59 +129,214 @@ defmodule Mimo.Library.Index do
     end
   end
 
-  defp search_in_package(data, query, package_key) do
+  defp search_in_package(data, query, package_key, ecosystem) do
     query_lower = String.downcase(query)
     query_words = String.split(query_lower)
 
-    # Search in modules
-    module_results =
-      (data["modules"] || [])
-      |> Enum.map(fn mod ->
-        name = mod["name"] || ""
-        doc = mod["doc"] || ""
-        score = calculate_score(name, doc, query_lower, query_words)
+    # Get searchable items based on ecosystem
+    items = extract_searchable_items(data, ecosystem, package_key)
 
-        if score > 0 do
-          %{
-            type: :module,
-            name: name,
-            doc: String.slice(doc, 0, 200),
-            package: package_key,
-            score: score
-          }
-        else
-          nil
-        end
+    # Score and filter items
+    items
+    |> Enum.map(fn item ->
+      name = item[:name] || ""
+      doc = item[:doc] || ""
+      score = calculate_score(name, doc, query_lower, query_words)
+
+      if score > 0 do
+        Map.put(item, :score, score)
+      else
+        nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  # Extract searchable items based on ecosystem-specific data structures
+  defp extract_searchable_items(data, :hex, package_key) do
+    # Hex: modules with optional functions
+    modules = get_value(data, "modules", [])
+
+    module_items =
+      Enum.map(modules, fn mod ->
+        %{
+          type: :module,
+          name: get_value(mod, "name", ""),
+          doc: get_value(mod, "doc", "") |> truncate_doc(),
+          package: package_key
+        }
       end)
-      |> Enum.reject(&is_nil/1)
 
-    # Search in functions
-    function_results =
-      (data["functions"] || [])
-      |> Enum.map(fn func ->
-        name = func["name"] || ""
-        doc = func["doc"] || ""
-        module = func["module"] || ""
-        score = calculate_score(name, doc, query_lower, query_words)
+    # Also extract functions if present
+    function_items =
+      modules
+      |> Enum.flat_map(fn mod ->
+        module_name = get_value(mod, "name", "")
+        functions = get_value(mod, "functions", [])
 
-        if score > 0 do
+        Enum.map(functions, fn func ->
           %{
             type: :function,
-            name: name,
-            module: module,
-            signature: func["signature"],
-            doc: String.slice(doc, 0, 200),
-            package: package_key,
-            score: score
+            name: get_value(func, "name", ""),
+            module: module_name,
+            signature: get_value(func, "spec"),
+            doc: get_value(func, "doc", "") |> truncate_doc(),
+            package: package_key
           }
-        else
-          nil
-        end
+        end)
       end)
-      |> Enum.reject(&is_nil/1)
 
-    module_results ++ function_results
+    module_items ++ function_items
   end
+
+  defp extract_searchable_items(data, :pypi, package_key) do
+    # PyPI: modules with optional classes
+    modules = get_value(data, "modules", [])
+
+    Enum.map(modules, fn mod ->
+      %{
+        type: :module,
+        name: get_value(mod, "name", ""),
+        doc: get_value(mod, "doc", "") |> truncate_doc(),
+        package: package_key
+      }
+    end)
+  end
+
+  defp extract_searchable_items(data, :npm, package_key) do
+    items = []
+
+    # NPM: exports, types definitions
+    # Search in exports
+    exports = get_value(data, "exports", [])
+
+    export_items =
+      Enum.map(exports, fn exp ->
+        %{
+          type: :export,
+          name: get_value(exp, "name", ""),
+          doc: get_value(exp, "doc", "") |> truncate_doc(),
+          package: package_key
+        }
+      end)
+
+    # Search in TypeScript type definitions
+    types = get_value(data, "types")
+    type_items = extract_npm_type_items(types, package_key)
+
+    # Also search in package description and name for basic matching
+    pkg_name = get_value(data, "name", "")
+    pkg_desc = get_value(data, "description", "")
+
+    pkg_item =
+      if pkg_name != "" do
+        [
+          %{
+            type: :package,
+            name: pkg_name,
+            doc: pkg_desc |> truncate_doc(),
+            package: package_key
+          }
+        ]
+      else
+        []
+      end
+
+    items ++ export_items ++ type_items ++ pkg_item
+  end
+
+  defp extract_searchable_items(data, :crates, package_key) do
+    # Crates: modules (if present)
+    modules = get_value(data, "modules", [])
+
+    module_items =
+      Enum.map(modules, fn mod ->
+        %{
+          type: :module,
+          name: get_value(mod, "name", ""),
+          doc: get_value(mod, "doc", "") |> truncate_doc(),
+          package: package_key
+        }
+      end)
+
+    # Also include package itself for basic matching
+    pkg_name = get_value(data, "name", "")
+    pkg_desc = get_value(data, "description", "")
+
+    pkg_item =
+      if pkg_name != "" do
+        [
+          %{
+            type: :package,
+            name: pkg_name,
+            doc: pkg_desc |> truncate_doc(),
+            package: package_key
+          }
+        ]
+      else
+        []
+      end
+
+    module_items ++ pkg_item
+  end
+
+  defp extract_searchable_items(data, _unknown, package_key) do
+    # Fallback: try to extract any modules or functions
+    modules = get_value(data, "modules", [])
+
+    Enum.map(modules, fn mod ->
+      %{
+        type: :module,
+        name: get_value(mod, "name", ""),
+        doc: get_value(mod, "doc", "") |> truncate_doc(),
+        package: package_key
+      }
+    end)
+  end
+
+  defp extract_npm_type_items(nil, _package_key), do: []
+
+  defp extract_npm_type_items(types, package_key) when is_map(types) do
+    # Extract from TypeScript modules
+    modules = get_value(types, "modules", []) ++ get_value(types, :modules, [])
+
+    Enum.flat_map(modules, fn type_module ->
+      module_name = get_value(type_module, "name", get_value(type_module, :name, "default"))
+      exports = get_value(type_module, "exports", get_value(type_module, :exports, []))
+
+      Enum.map(exports, fn exp ->
+        %{
+          type: :type_export,
+          name: get_value(exp, "name", get_value(exp, :name, "")),
+          kind: get_value(exp, "kind", get_value(exp, :kind)),
+          signature: get_value(exp, "signature", get_value(exp, :signature)),
+          doc: (get_value(exp, "doc", get_value(exp, :doc, "")) || "") |> truncate_doc(),
+          module: module_name,
+          package: package_key
+        }
+      end)
+    end)
+  end
+
+  defp extract_npm_type_items(_, _package_key), do: []
+
+  # Helper to get value from map with either string or atom keys
+  defp get_value(map, key, default \\ nil)
+  defp get_value(nil, _key, default), do: default
+
+  defp get_value(map, key, default) when is_map(map) and is_binary(key) do
+    Map.get(map, key) || Map.get(map, String.to_atom(key)) || default
+  end
+
+  defp get_value(map, key, default) when is_map(map) and is_atom(key) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key)) || default
+  end
+
+  defp get_value(_, _, default), do: default
+
+  defp truncate_doc(nil), do: ""
+  defp truncate_doc(doc) when is_binary(doc), do: String.slice(doc, 0, 200)
+  defp truncate_doc(_), do: ""
 
   defp calculate_score(name, doc, query_lower, query_words) do
     name_lower = String.downcase(name)

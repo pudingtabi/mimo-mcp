@@ -85,7 +85,39 @@ config :mimo_mcp, :feature_flags,
   # Procedural Store for deterministic state machine execution
   procedural_store: {:system, "PROCEDURAL_STORE_ENABLED", false},
   # WebSocket Synapse for real-time cognitive signaling
-  websocket_synapse: {:system, "WEBSOCKET_ENABLED", false}
+  websocket_synapse: {:system, "WEBSOCKET_ENABLED", false},
+  # HNSW Index for O(log n) vector search (SPEC-033)
+  hnsw_index: {:system, "HNSW_INDEX_ENABLED", false},
+  # Temporal Memory Chains for brain-inspired memory reconsolidation (SPEC-034)
+  temporal_memory_chains: {:system, "TMC_ENABLED", true}
+
+# =============================================================================
+# Vector Search V3.0 Configuration (SPEC-033)
+# =============================================================================
+# Strategy selection for memory search based on corpus size
+
+config :mimo_mcp, :vector_search,
+  # Default strategy: :auto | :hnsw | :binary_rescore | :exact
+  default_strategy: :auto,
+
+  # Binary pre-filter settings (Phase 3a)
+  # Fetch N * limit candidates for rescore
+  binary_candidates_multiplier: 10,
+
+  # HNSW settings (Phase 3b)
+  hnsw_index_path: "priv/hnsw_index.usearch",
+  # M parameter (edges per node)
+  hnsw_connectivity: 16,
+  # Build quality (higher = better but slower)
+  hnsw_ef_construction: 128,
+  # Search quality (higher = better but slower)
+  hnsw_ef_search: 64,
+
+  # Auto-strategy thresholds (Phase 3c)
+  # Use HNSW above this memory count
+  hnsw_threshold: 1000,
+  # Use binary pre-filter above this memory count (when HNSW unavailable)
+  binary_threshold: 500
 
 # Import environment specific config
 import_config "#{config_env()}.exs"

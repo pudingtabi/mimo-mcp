@@ -360,8 +360,26 @@ defmodule Mimo.Tools.Definitions do
     # ==========================================================================
     %{
       name: "knowledge",
-      description:
-        "Unified knowledge graph operations. Combines SemanticStore (triples) and Synapse (graph). Operations: query (search both stores), teach (add facts), traverse (graph walk), explore (structured exploration), node (get node context), path (find path), stats (statistics), link (link code to graph), link_memory (link memory to code), sync_dependencies (sync project deps), neighborhood (get nearby nodes).",
+      description: """
+      🧠 KNOWLEDGE GRAPH - Store and query RELATIONSHIPS between concepts, code, and entities.
+
+      WHEN TO USE THIS vs file/memory search:
+      • Store architecture facts → operation=teach text='AuthService depends on UserService'
+      • Query relationships → operation=query query='what depends on the database?'
+      • Explore code structure → operation=traverse node_name='AuthModule' direction=both
+      • Find path between entities → operation=path from_node='login' to_node='database'
+      • Get neighborhood context → operation=neighborhood node_name='UserService' hops=2
+
+      WHY use this vs file search:
+      - Understands RELATIONSHIPS not just text matches
+      - Remembers context ACROSS SESSIONS
+      - Can infer transitive dependencies (A→B→C means A→C)
+
+      🚀 BOOTSTRAP: Run `operation=link path='/project/src'` at session start to index code into the graph!
+      Also run `operation=sync_dependencies` to import package relationships.
+
+      💡 TIP: Use operation=stats to see what's in the knowledge graph.
+      """,
       input_schema: %{
         type: "object",
         properties: %{
@@ -517,7 +535,7 @@ defmodule Mimo.Tools.Definitions do
           },
           timeout: %{
             type: "integer",
-            default: 60000,
+            default: 60_000,
             description: "Timeout in milliseconds"
           },
           force_browser: %{
@@ -559,8 +577,20 @@ defmodule Mimo.Tools.Definitions do
     # ==========================================================================
     %{
       name: "code_symbols",
-      description:
-        "Analyze code structure using Tree-Sitter. Operations: parse (parse file/source), symbols (list symbols in file/directory), references (find all references), search (search symbols by pattern), definition (find symbol definition), call_graph (get callers and callees). Supports Elixir, Python, JavaScript, TypeScript.",
+      description: """
+      🎯 SEMANTIC CODE INTELLIGENCE - Use INSTEAD OF file search for code navigation!
+
+      WHEN TO USE THIS vs file search:
+      • Find WHERE something is DEFINED → operation=definition name='functionName'
+      • Find ALL USAGES of a symbol → operation=references name='className'
+      • List ALL functions/classes in file → operation=symbols path='src/module.ex'
+      • Understand CALL RELATIONSHIPS → operation=call_graph name='handler'
+      • Search symbols by PATTERN → operation=search pattern='auth*' kind=function
+
+      10x faster and more accurate than grep/file search. Works for Elixir, Python, JS/TS.
+
+      💡 TIP: Run `operation=index path='/project/src'` first to build the symbol database for large projects.
+      """,
       input_schema: %{
         type: "object",
         properties: %{
@@ -610,8 +640,24 @@ defmodule Mimo.Tools.Definitions do
     # ==========================================================================
     %{
       name: "library",
-      description:
-        "Search and fetch documentation for external packages. Operations: get (fetch package info), search (search packages), ensure (ensure package is cached), discover (auto-discover and cache project dependencies), stats (cache statistics). Supports Hex.pm (Elixir), PyPI (Python), NPM (JavaScript), crates.io (Rust).",
+      description: """
+      📚 PACKAGE DOCUMENTATION - Get docs for npm/pypi/hex/crates packages INSTANTLY.
+
+      ⚡ FASTER THAN WEB SEARCH - cached locally, no rate limits, no ads!
+
+      WHEN TO USE THIS vs web search:
+      • Need API docs for a package → operation=get name='phoenix' ecosystem=hex
+      • Search for packages by feature → operation=search query='json parser' ecosystem=npm
+      • Ensure docs are cached → operation=ensure name='requests' ecosystem=pypi
+      • Check cache stats → operation=stats
+
+      Supports: npm (JavaScript), pypi (Python), hex (Elixir), crates (Rust)
+
+      🚀 SESSION START: Run `operation=discover path='/project'` to auto-cache ALL project dependencies!
+      Then all package doc lookups are instant.
+
+      💡 TIP: Use this BEFORE web search - it's faster and returns structured data.
+      """,
       input_schema: %{
         type: "object",
         properties: %{
@@ -658,8 +704,21 @@ defmodule Mimo.Tools.Definitions do
     # ==========================================================================
     %{
       name: "graph",
-      description:
-        "[DEPRECATED: Use 'knowledge' tool instead] Synapse graph operations. All operations now available in unified 'knowledge' tool with additional SemanticStore capabilities.",
+      description: """
+      ⚠️ DEPRECATED: Use 'knowledge' tool instead - it has all graph operations plus more!
+
+      This tool redirects to the unified 'knowledge' tool.
+
+      Quick migration guide:
+      • graph operation=query → knowledge operation=query
+      • graph operation=link → knowledge operation=link (IMPORTANT: indexes code!)
+      • graph operation=traverse → knowledge operation=traverse
+
+      🚀 CRITICAL: Run `knowledge operation=link path='/project/src'` FIRST to enable graph queries!
+      Without indexing, the knowledge graph is empty.
+
+      💡 TIP: Switch to 'knowledge' tool for access to teach, sync_dependencies, and neighborhood operations.
+      """,
       input_schema: %{
         type: "object",
         properties: %{
@@ -728,8 +787,31 @@ defmodule Mimo.Tools.Definitions do
     # ==========================================================================
     %{
       name: "diagnostics",
-      description:
-        "Get compile/lint errors and warnings for files. Supports Elixir (mix compile, credo), TypeScript (tsc, eslint), Python (ruff/pylint, mypy), Rust (cargo check, clippy), and Go (go build, golangci-lint). Operations: check (compiler), lint (linter), typecheck (type checker), all (run all diagnostics).",
+      description: """
+      🔍 CODE DIAGNOSTICS - Better than terminal for finding errors!
+
+      WHEN TO USE THIS vs terminal:
+      • Get ALL errors at once → operation=all path='/project/src'
+      • Compiler errors only → operation=check
+      • Linter warnings only → operation=lint
+      • Type errors only → operation=typecheck
+      • Filter by severity → severity=error (skip warnings)
+
+      WHY use this vs terminal commands:
+      - Runs compiler + linter + type checker in ONE call
+      - Structured output (not raw terminal text)
+      - Auto-detects language from file/project
+      - Consistent format across Elixir, TypeScript, Python, Rust, Go
+
+      Supports:
+      • Elixir: mix compile, credo
+      • TypeScript: tsc, eslint
+      • Python: ruff/pylint, mypy
+      • Rust: cargo check, clippy
+      • Go: go build, golangci-lint
+
+      💡 TIP: Run after making changes to catch issues before committing.
+      """,
       input_schema: %{
         type: "object",
         properties: %{
@@ -756,6 +838,145 @@ defmodule Mimo.Tools.Definitions do
             description: "Filter results by severity level"
           }
         }
+      }
+    },
+    # ==========================================================================
+    # ONBOARD - Project initialization meta-tool (SPEC-031 Phase 3)
+    # ==========================================================================
+    %{
+      name: "onboard",
+      description: """
+      🚀 PROJECT INITIALIZATION - Run this at the start of each new project session!
+
+      Auto-discovers and indexes:
+      • Code symbols (functions, classes, modules) via code_symbols
+      • Package dependencies (npm/pypi/hex/crates) via library
+      • Knowledge graph nodes via knowledge
+
+      After onboarding, ALL Mimo intelligent tools work at full capacity:
+      • code_symbols → precise symbol lookup & navigation
+      • knowledge → relationship queries & graph traversal
+      • library → instant package documentation
+
+      WHEN TO USE:
+      • First time in a new project → onboard path='/project'
+      • Project structure changed significantly → onboard force=true
+      • Starting a new session in known project → usually auto-cached!
+
+      The tool checks for existing project fingerprint. If already indexed,
+      returns cached profile instantly. Use force=true to re-index.
+
+      💡 TIP: This is the FIRST thing to run in any new codebase!
+      """,
+      input_schema: %{
+        type: "object",
+        properties: %{
+          path: %{
+            type: "string",
+            default: ".",
+            description: "Project root path to index"
+          },
+          force: %{
+            type: "boolean",
+            default: false,
+            description: "Re-index even if already done"
+          }
+        }
+      }
+    },
+    # ==========================================================================
+    # ANALYZE_FILE - Compound domain action (SPEC-031 Phase 5)
+    # ==========================================================================
+    %{
+      name: "analyze_file",
+      description: """
+      📊 UNIFIED FILE ANALYSIS - Get complete understanding of any file in one call!
+
+      Chains multiple tools for comprehensive analysis:
+      1. file read → Get file content & metadata
+      2. code_symbols symbols → Get code structure (functions, classes)
+      3. diagnostics all → Get compile/lint errors
+      4. knowledge node → Get related knowledge graph context
+
+      Returns unified result with:
+      • File info (size, type, modified time)
+      • Symbol summary (functions, classes by kind)
+      • Diagnostic health (errors, warnings)
+      • Knowledge connections
+
+      WHEN TO USE:
+      • Opening a new file for the first time → analyze_file path="src/app.ts"
+      • Before making changes to understand structure → analyze_file path="lib/module.ex"
+      • Investigating unfamiliar code → analyze_file path="..." include_content=true
+
+      💡 This replaces the need to manually call 4 separate tools!
+      """,
+      input_schema: %{
+        type: "object",
+        properties: %{
+          path: %{
+            type: "string",
+            description: "File path to analyze (required)"
+          },
+          include_content: %{
+            type: "boolean",
+            default: false,
+            description: "Include file content in response"
+          },
+          max_content_lines: %{
+            type: "integer",
+            default: 100,
+            description: "Max lines of content to include"
+          }
+        },
+        required: ["path"]
+      }
+    },
+    # ==========================================================================
+    # DEBUG_ERROR - Compound domain action (SPEC-031 Phase 5)
+    # ==========================================================================
+    %{
+      name: "debug_error",
+      description: """
+      🔧 ERROR DEBUGGING ASSISTANT - Find solutions to errors fast!
+
+      Chains multiple tools for comprehensive error analysis:
+      1. memory search → Find past similar errors & solutions
+      2. code_symbols definition → Find where error originates
+      3. diagnostics check → Get current compiler errors
+
+      Returns:
+      • Past solutions from memory (with similarity scores)
+      • Symbol definitions for referenced code
+      • Current active errors in codebase
+
+      WHEN TO USE:
+      • Got an error message → debug_error message="undefined function foo/2"
+      • Build failing → debug_error message="CompileError: ..." path="lib/"
+      • Finding why something broke → debug_error message="..." symbol="ModuleName"
+
+      AFTER FIXING, store the solution:
+      memory operation=store content="Fixed [error]: [solution]" category=fact importance=0.8
+
+      💡 Learns from past errors! The more you use it, the smarter it gets.
+      """,
+      input_schema: %{
+        type: "object",
+        properties: %{
+          message: %{
+            type: "string",
+            description: "Error message to debug (required)"
+          },
+          path: %{
+            type: "string",
+            description: "Optional path to narrow diagnostics scope"
+          },
+          symbol: %{
+            type: "string",
+            description: "Optional symbol name to look up definition"
+          }
+        },
+        required: ["message"]
       }
     }
   ]

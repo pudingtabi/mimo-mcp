@@ -9,10 +9,182 @@ defmodule Mimo.Fallback.GracefulDegradation do
   - Embedding generation failures → hash-based vectors
 
   All fallback events are logged for monitoring.
+
+  ## Retry Queue
+
+  Failed operations can be queued for retry using `queue_for_retry/2`.
+  The queue uses ETS for persistence within the current process lifecycle
+  and implements exponential backoff with configurable max retries.
+
+  Start the retry processor with `start_retry_processor/0` (called automatically
+  by the application supervisor).
   """
   require Logger
 
   alias Mimo.ErrorHandling.CircuitBreaker
+
+  # Retry configuration
+  @retry_table :mimo_retry_queue
+  @max_retries 3
+  @base_delay_ms 1_000
+  @max_delay_ms 30_000
+
+  # ==========================================================================
+  # Retry Queue Management
+  # ==========================================================================
+
+  @doc """
+  Initialize the retry queue ETS table.
+  Called during application startup.
+  """
+  def init_retry_queue do
+    case :ets.whereis(@retry_table) do
+      :undefined ->
+        :ets.new(@retry_table, [:named_table, :public, :ordered_set])
+        Logger.debug("Retry queue initialized")
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  @doc """
+  Start the retry processor that periodically checks and retries failed operations.
+  Uses Task.Supervisor for proper supervision - crash recovery and visibility.
+  """
+  def start_retry_processor do
+    init_retry_queue()
+
+    Task.Supervisor.start_child(
+      Mimo.TaskSupervisor,
+      fn -> retry_loop() end,
+      restart: :permanent
+    )
+  end
+
+  defp retry_loop do
+    Process.sleep(5_000)
+
+    try do
+      process_retry_queue()
+    rescue
+      e ->
+        Logger.error("Retry processor error: #{Exception.message(e)}")
+    end
+
+    retry_loop()
+  end
+
+  @doc """
+  Process all pending retries that are due.
+  """
+  def process_retry_queue do
+    now = System.monotonic_time(:millisecond)
+
+    pending =
+      try do
+        :ets.select(@retry_table, [
+          {{:"$1", :"$2"}, [{:"=<", :"$1", now}], [:"$2"]}
+        ])
+      rescue
+        ArgumentError -> []
+      end
+
+    Enum.each(pending, fn entry ->
+      execute_retry(entry, now)
+    end)
+  end
+
+  defp execute_retry(%{id: id, db_fn: db_fn, attempt: attempt, opts: _opts} = entry, now) do
+    Logger.info("Retry attempt #{attempt + 1}/#{@max_retries} for operation #{id}")
+
+    try do
+      case db_fn.() do
+        {:ok, result} ->
+          # Success - remove from queue
+          delete_retry(entry.scheduled_at)
+          Logger.info("Retry succeeded for #{id}")
+
+          :telemetry.execute(
+            [:mimo, :retry, :success],
+            %{count: 1, attempts: attempt + 1},
+            %{operation_id: id}
+          )
+
+          {:ok, result}
+
+        {:error, reason} ->
+          handle_retry_failure(entry, reason, now)
+      end
+    rescue
+      e ->
+        handle_retry_failure(entry, Exception.message(e), now)
+    end
+  end
+
+  defp handle_retry_failure(%{id: id, attempt: attempt} = entry, reason, now) do
+    delete_retry(entry.scheduled_at)
+
+    if attempt + 1 < @max_retries do
+      # Schedule next retry with exponential backoff
+      delay = min((@base_delay_ms * :math.pow(2, attempt + 1)) |> round(), @max_delay_ms)
+      new_entry = %{entry | attempt: attempt + 1, scheduled_at: now + delay}
+      schedule_retry(new_entry)
+
+      Logger.warning(
+        "Retry #{attempt + 1} failed for #{id}, scheduling retry in #{delay}ms: #{inspect(reason)}"
+      )
+    else
+      # Max retries exceeded - log to dead letter
+      Logger.error("Operation #{id} failed after #{@max_retries} retries: #{inspect(reason)}")
+
+      :telemetry.execute(
+        [:mimo, :retry, :exhausted],
+        %{count: 1, attempts: @max_retries},
+        %{operation_id: id, reason: reason}
+      )
+    end
+  end
+
+  defp schedule_retry(%{scheduled_at: scheduled_at} = entry) do
+    try do
+      :ets.insert(@retry_table, {scheduled_at, entry})
+    rescue
+      ArgumentError ->
+        init_retry_queue()
+        :ets.insert(@retry_table, {scheduled_at, entry})
+    end
+  end
+
+  defp delete_retry(scheduled_at) do
+    try do
+      :ets.delete(@retry_table, scheduled_at)
+    rescue
+      ArgumentError -> :ok
+    end
+  end
+
+  @doc """
+  Get retry queue statistics.
+  """
+  def retry_stats do
+    try do
+      size = :ets.info(@retry_table, :size) || 0
+
+      entries =
+        :ets.tab2list(@retry_table)
+        |> Enum.map(fn {_, entry} -> entry end)
+
+      %{
+        pending: size,
+        by_attempt: Enum.frequencies_by(entries, & &1.attempt),
+        oldest: entries |> Enum.min_by(& &1.scheduled_at, fn -> nil end)
+      }
+    rescue
+      _ -> %{pending: 0, by_attempt: %{}, oldest: nil}
+    end
+  end
 
   # ==========================================================================
   # LLM Fallback
@@ -132,42 +304,9 @@ defmodule Mimo.Fallback.GracefulDegradation do
     end
   end
 
-  # ==========================================================================
-  # Embedding Fallback
-  # ==========================================================================
-
-  @doc """
-  Generate embedding with multiple fallback strategies.
-
-  ## Fallback chain:
-  1. Try Ollama local embeddings
-  2. Try cached embedding if same text seen before
-  3. Generate deterministic hash-based vector
-  """
-  @spec with_embedding_fallback(String.t()) :: {:ok, list(float())}
-  def with_embedding_fallback(text) when is_binary(text) do
-    cache_key = "embedding:#{:erlang.phash2(text)}"
-
-    case Mimo.Brain.LLM.generate_embedding(text) do
-      {:ok, embedding} = success when is_list(embedding) ->
-        cache_response(cache_key, embedding)
-        success
-
-      {:error, reason} ->
-        Logger.warning("Embedding generation failed: #{inspect(reason)}")
-        log_fallback_event(:embedding, reason)
-
-        case get_cached(cache_key) do
-          {:ok, cached} ->
-            Logger.debug("Using cached embedding")
-            {:ok, cached}
-
-          :miss ->
-            Logger.debug("Generating hash-based fallback embedding")
-            {:ok, hash_based_embedding(text)}
-        end
-    end
-  end
+  # NOTE: Embedding fallback removed - hash-based vectors are useless for semantic search
+  # and corrupt the memory store. Better to fail than silently degrade quality.
+  # If Ollama is down, memory storage should fail explicitly.
 
   # ==========================================================================
   # Circuit Breaker Status
@@ -257,14 +396,31 @@ defmodule Mimo.Fallback.GracefulDegradation do
     end
   end
 
-  defp queue_for_retry(_db_fn, opts) do
-    # In production, this would queue to a persistent retry queue
-    # For now, log the intent
-    Logger.info("Queued database operation for retry: #{inspect(opts)}")
-    # TODO: Implement persistent retry queue with Oban or similar
-    # v3.0 Roadmap: Oban-based persistent retry queue with exponential backoff,
-    #               dead letter queue, and operation deduplication
-    # Current behavior: Logs retry intent only (acceptable for v2.x with graceful degradation)
+  defp queue_for_retry(db_fn, opts) do
+    init_retry_queue()
+
+    id = Keyword.get(opts, :id, "op_#{System.unique_integer([:positive])}")
+    now = System.monotonic_time(:millisecond)
+
+    entry = %{
+      id: id,
+      db_fn: db_fn,
+      opts: opts,
+      attempt: 0,
+      scheduled_at: now + @base_delay_ms,
+      created_at: now
+    }
+
+    schedule_retry(entry)
+
+    Logger.info("Queued database operation for retry: #{id}")
+
+    :telemetry.execute(
+      [:mimo, :retry, :queued],
+      %{count: 1},
+      %{operation_id: id}
+    )
+
     :ok
   end
 
@@ -274,12 +430,5 @@ defmodule Mimo.Fallback.GracefulDegradation do
       %{count: 1},
       %{service: service, reason: reason, timestamp: DateTime.utc_now()}
     )
-  end
-
-  defp hash_based_embedding(text) do
-    dim = Application.get_env(:mimo_mcp, :embedding_dim, 1024)
-    hash = :erlang.phash2(text, 1_000_000)
-    :rand.seed(:exsss, {hash, hash * 2, hash * 3})
-    for _ <- 1..dim, do: :rand.uniform() * 2 - 1
   end
 end

@@ -9,9 +9,19 @@ name = "vector_math"
 path = "src/lib.rs"
 crate-type = ["cdylib"]
 
+[features]
+default = []
+# HNSW support requires rustc 1.82+ due to usearch/cxx dependencies
+hnsw = ["usearch"]
+
 [dependencies]
 rustler = "0.31"
 rayon = "1.8"
 
 # SIMD abstraction - works on all platforms
 wide = "0.7"
+
+# SPEC-033 Phase 3b: HNSW approximate nearest neighbor search
+# USearch provides fast, memory-efficient ANN search with int8 support
+# Optional: requires rustc 1.82+ due to cxx dependency
+usearch = { version = "2.13", optional = true }

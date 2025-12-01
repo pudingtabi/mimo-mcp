@@ -17,7 +17,8 @@ defmodule Mimo.Skills.ProcessManager do
   alias Mimo.Skills.{SecureExecutor, Validator}
 
   @type port_ref :: port()
-  @type spawn_result :: {:ok, port_ref()} | {:error, term()}
+  @type timeout_ref :: {:timeout_monitor, pid()} | nil
+  @type spawn_result :: {:ok, port_ref(), timeout_ref()} | {:error, term()}
 
   # ==========================================================================
   # Port Spawning
@@ -38,7 +39,7 @@ defmodule Mimo.Skills.ProcessManager do
 
   ## Returns
 
-  - `{:ok, port}` on success
+  - `{:ok, port, timeout_ref}` on success (use SecureExecutor.cancel_timeout when done)
   - `{:error, reason}` on failure
   """
   @spec spawn_subprocess(map()) :: spawn_result()
@@ -173,7 +174,7 @@ defmodule Mimo.Skills.ProcessManager do
   def port_info(port) when is_port(port) do
     Port.info(port)
   rescue
-    _ -> nil
+    ArgumentError -> nil
   end
 
   # ==========================================================================

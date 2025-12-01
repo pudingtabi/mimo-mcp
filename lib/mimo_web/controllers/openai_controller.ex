@@ -264,12 +264,11 @@ defmodule MimoWeb.OpenAIController do
     else
       memories
       |> Enum.take(5)
-      |> Enum.map(fn m ->
+      |> Enum.map_join("\n", fn m ->
         content = m[:content] || Map.get(m, "content", "")
         category = m[:category] || Map.get(m, "category", "memory")
         "• [#{category}] #{content}"
       end)
-      |> Enum.join("\n")
     end
   end
 end

@@ -15,6 +15,7 @@ defmodule Mimo.Brain.WorkingMemoryItem do
   @primary_key {:id, :binary_id, autogenerate: true}
   embedded_schema do
     field(:content, :string)
+    field(:category, :string, default: "fact")
     field(:context, :map, default: %{})
     field(:embedding, {:array, :float}, default: [])
     field(:importance, :float, default: 0.5)
@@ -35,6 +36,7 @@ defmodule Mimo.Brain.WorkingMemoryItem do
     item
     |> cast(attrs, [
       :content,
+      :category,
       :context,
       :embedding,
       :importance,

@@ -137,10 +137,16 @@ defmodule Mimo.Skills.Terminal do
     case validate_cmd(cmd_str, false) do
       :ok ->
         try do
-          [cmd | args] = String.split(cmd_str)
+          # Use proper shell argument parsing to handle quoted strings
+          cmd_args =
+            case parse_shell_args(cmd_str) do
+              {:ok, args} -> args
+              # Fallback
+              {:error, _} -> String.split(cmd_str)
+            end
 
           # Start process with Exile
-          {:ok, process} = Exile.Process.start_link([cmd | args])
+          {:ok, process} = Exile.Process.start_link(cmd_args)
           pid = Exile.Process.os_pid(process)
 
           # Register for tracking
@@ -276,13 +282,21 @@ defmodule Mimo.Skills.Terminal do
 
       case parts do
         [user, pid, cpu, mem, _vsz, _rss, _tty, _stat, _start, _time | cmd_parts] ->
-          %{
-            user: user,
-            pid: String.to_integer(pid),
-            cpu: cpu,
-            mem: mem,
-            command: Enum.join(cmd_parts, " ")
-          }
+          # Safely parse PID - malformed ps output shouldn't crash
+          case Integer.parse(pid) do
+            {pid_int, ""} ->
+              %{
+                user: user,
+                pid: pid_int,
+                cpu: cpu,
+                mem: mem,
+                command: Enum.join(cmd_parts, " ")
+              }
+
+            _ ->
+              # Invalid PID format - skip this line
+              nil
+          end
 
         _ ->
           nil
@@ -378,9 +392,19 @@ defmodule Mimo.Skills.Terminal do
 
   # Build command based on shell selection
   defp build_command(cmd_str, nil) do
-    # Direct execution - split command
-    [cmd | args] = String.split(cmd_str)
-    {cmd, args}
+    # Direct execution - use proper shell argument parsing
+    case parse_shell_args(cmd_str) do
+      {:ok, [cmd | args]} ->
+        {cmd, args}
+
+      {:ok, []} ->
+        {"", []}
+
+      {:error, _reason} ->
+        # Fallback to simple split if parsing fails
+        [cmd | args] = String.split(cmd_str)
+        {cmd, args}
+    end
   end
 
   defp build_command(cmd_str, "bash"), do: {"/usr/bin/bash", ["-c", cmd_str]}
@@ -389,6 +413,85 @@ defmodule Mimo.Skills.Terminal do
   defp build_command(cmd_str, "powershell"), do: {"powershell", ["-Command", cmd_str]}
   defp build_command(cmd_str, shell) when is_binary(shell), do: {shell, ["-c", cmd_str]}
   defp build_command(cmd_str, _), do: build_command(cmd_str, nil)
+
+  @doc """
+  Parse a shell command string into a list of arguments, respecting quotes.
+
+  Handles:
+  - Double quotes: "hello world" -> single arg
+  - Single quotes: 'hello world' -> single arg  
+  - Escaped quotes: "say \\"hello\\"" -> preserves inner quotes
+  - Mixed: echo "hello" 'world' -> ["echo", "hello", "world"]
+
+  ## Examples
+
+      iex> parse_shell_args(~s(echo "hello world"))
+      {:ok, ["echo", "hello world"]}
+      
+      iex> parse_shell_args(~s(git commit -m "fix: bug"))
+      {:ok, ["git", "commit", "-m", "fix: bug"]}
+  """
+  def parse_shell_args(cmd_str) when is_binary(cmd_str) do
+    cmd_str
+    |> String.trim()
+    |> do_parse_args([], "", nil)
+  end
+
+  # Finished parsing
+  defp do_parse_args("", acc, "", _quote) do
+    {:ok, Enum.reverse(acc)}
+  end
+
+  defp do_parse_args("", acc, current, nil) do
+    {:ok, Enum.reverse([current | acc])}
+  end
+
+  defp do_parse_args("", _acc, _current, quote) do
+    {:error, "Unclosed #{if quote == ?", do: "double", else: "single"} quote"}
+  end
+
+  # Handle escape sequences inside quotes
+  defp do_parse_args(<<?\\, char, rest::binary>>, acc, current, quote) when quote != nil do
+    do_parse_args(rest, acc, current <> <<char>>, quote)
+  end
+
+  # Handle opening/closing double quotes
+  defp do_parse_args(<<?", rest::binary>>, acc, current, nil) do
+    do_parse_args(rest, acc, current, ?")
+  end
+
+  defp do_parse_args(<<?", rest::binary>>, acc, current, ?") do
+    do_parse_args(rest, acc, current, nil)
+  end
+
+  # Handle opening/closing single quotes
+  defp do_parse_args(<<?', rest::binary>>, acc, current, nil) do
+    do_parse_args(rest, acc, current, ?')
+  end
+
+  defp do_parse_args(<<?', rest::binary>>, acc, current, ?') do
+    do_parse_args(rest, acc, current, nil)
+  end
+
+  # Space outside quotes = end of argument
+  defp do_parse_args(<<" ", rest::binary>>, acc, "", nil) do
+    # Skip consecutive spaces
+    do_parse_args(rest, acc, "", nil)
+  end
+
+  defp do_parse_args(<<" ", rest::binary>>, acc, current, nil) do
+    do_parse_args(rest, [current | acc], "", nil)
+  end
+
+  # Space inside quotes = part of argument
+  defp do_parse_args(<<" ", rest::binary>>, acc, current, quote) when quote != nil do
+    do_parse_args(rest, acc, current <> " ", quote)
+  end
+
+  # Regular character
+  defp do_parse_args(<<char, rest::binary>>, acc, current, quote) do
+    do_parse_args(rest, acc, current <> <<char>>, quote)
+  end
 
   # Normalize environment variables to list of tuples
   defp normalize_env(env) when is_map(env) do

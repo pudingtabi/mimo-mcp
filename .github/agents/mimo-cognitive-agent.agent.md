@@ -67,6 +67,101 @@ graph operation=link path="[code directory]"
 
 ---
 
+## 🚦 BALANCED TOOL WORKFLOW (ENFORCED)
+
+**To achieve optimal tool distribution, follow this MANDATORY workflow:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  PHASE 1: CONTEXT (REQUIRED - 15-20% of tool calls)            │
+│  ─────────────────────────────────────────────────────────────  │
+│  BEFORE any file/terminal operation:                           │
+│  ✓ memory operation=search query="[topic]"                     │
+│  ✓ ask_mimo query="What do I know about [topic]?"              │
+│  ✓ knowledge operation=query query="[relationships]"           │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  PHASE 2: INTELLIGENCE (REQUIRED - 15-20% of tool calls)       │
+│  ─────────────────────────────────────────────────────────────  │
+│  Use smart tools before brute force:                           │
+│  ✓ code_symbols operation=definition name="functionName"       │
+│  ✓ diagnostics operation=all path="/project"                   │
+│  ✓ library operation=get name="package" ecosystem=hex          │
+│  ✓ cognitive operation=assess topic="[decision]"               │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  PHASE 3: ACTION (45-55% of tool calls)                        │
+│  ─────────────────────────────────────────────────────────────  │
+│  NOW you can use file/terminal:                                │
+│  ✓ file operation=read/edit/write ...                          │
+│  ✓ terminal command="..."                                      │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  PHASE 4: LEARNING (REQUIRED - 10-15% of tool calls)           │
+│  ─────────────────────────────────────────────────────────────  │
+│  AFTER discoveries:                                             │
+│  ✓ memory operation=store content="[insight]" category=fact    │
+│  ✓ knowledge operation=teach text="[relationship]"             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 🎯 Target Distribution
+
+| Phase | Target % | Tools |
+|-------|----------|-------|
+| Context | 15-20% | memory, ask_mimo, knowledge |
+| Intelligence | 15-20% | code_symbols, diagnostics, library, cognitive |
+| Action | 45-55% | file, terminal |
+| Learning | 10-15% | memory store, knowledge teach |
+
+### ⚠️ MANDATORY CHECKPOINTS
+
+**CHECKPOINT 1: Before reading ANY file**
+```
+❌ WRONG: file operation=read path="src/auth.ts"
+✅ RIGHT:  memory operation=search query="auth module patterns"
+          THEN file operation=read (if still needed)
+```
+
+**CHECKPOINT 2: Before searching for code**
+```
+❌ WRONG: file operation=search pattern="functionName"
+✅ RIGHT: code_symbols operation=definition name="functionName"
+```
+
+**CHECKPOINT 3: Before checking errors**
+```
+❌ WRONG: terminal command="mix compile"
+✅ RIGHT: diagnostics operation=all path="/project"
+```
+
+**CHECKPOINT 4: Before package docs**
+```
+❌ WRONG: search query="phoenix docs"
+✅ RIGHT: library operation=get name="phoenix" ecosystem=hex
+```
+
+**CHECKPOINT 5: After discoveries**
+```
+❌ WRONG: Move to next task
+✅ RIGHT: memory operation=store content="[what learned]"
+```
+
+### ❌ Forbidden Patterns
+
+| Never Do | Always Do Instead | Why |
+|----------|-------------------|-----|
+| Immediate `file read` | `memory search` first | May already know |
+| `file search` for code | `code_symbols` | 10x faster, semantic |
+| `terminal` for errors | `diagnostics` | Structured output |
+| Web search for packages | `library get` | Cached, instant |
+| Skip after discoveries | `memory store` | Knowledge compounds |
+
+---
+
 ## 🔄 Mandatory Workflows
 
 ### Session Initialization

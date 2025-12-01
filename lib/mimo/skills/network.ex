@@ -84,7 +84,7 @@ defmodule Mimo.Skills.Network do
       use_blink ->
         result = fetch_with_blink(url, opts)
 
-        if auto_browser and is_challenge_result?(result) do
+        if auto_browser and challenge_result?(result) do
           fetch_with_browser(url, opts)
         else
           result
@@ -96,17 +96,17 @@ defmodule Mimo.Skills.Network do
 
         cond do
           # Auto-escalate to browser on challenge
-          auto_browser and is_challenge_response?(result) ->
+          auto_browser and challenge_response?(result) ->
             blink_result = fetch_with_blink(url, opts)
 
-            if is_challenge_result?(blink_result) do
+            if challenge_result?(blink_result) do
               fetch_with_browser(url, opts)
             else
               blink_result
             end
 
           # Auto-escalate to Blink on challenge
-          auto_blink and is_challenge_response?(result) ->
+          auto_blink and challenge_response?(result) ->
             fetch_with_blink(url, opts)
 
           true ->
@@ -197,7 +197,7 @@ defmodule Mimo.Skills.Network do
     end
   end
 
-  defp is_challenge_response?({:ok, %{body: body, status: status}}) when is_binary(body) do
+  defp challenge_response?({:ok, %{body: body, status: status}}) when is_binary(body) do
     challenge_patterns = [
       "just a moment",
       "checking your browser",
@@ -213,16 +213,16 @@ defmodule Mimo.Skills.Network do
     end
   end
 
-  defp is_challenge_response?(_), do: false
+  defp challenge_response?(_), do: false
 
   # Check if a Blink result indicates a challenge that needs browser escalation
-  defp is_challenge_result?({:error, msg}) when is_binary(msg) do
+  defp challenge_result?({:error, msg}) when is_binary(msg) do
     String.contains?(msg, "Challenge detected") or String.contains?(msg, "Blocked")
   end
 
   # Future patterns that may be returned by Blink/Browser modules
-  defp is_challenge_result?({tag, _}) when tag in [:challenge, :blocked], do: true
-  defp is_challenge_result?(_), do: false
+  defp challenge_result?({tag, _}) when tag in [:challenge, :blocked], do: true
+  defp challenge_result?(_), do: false
 
   # ==========================================================================
   # Fetch Formats

@@ -31,7 +31,8 @@ defmodule Mimo.AutoMemory do
   """
   def wrap_tool_call(tool_name, arguments, result) do
     if enabled?() do
-      Task.start(fn ->
+      # RELIABILITY FIX: Use Task.Supervisor instead of Task.start for visibility
+      Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
         try do
           maybe_store_memory(tool_name, arguments, result)
         rescue
@@ -188,6 +189,7 @@ defmodule Mimo.AutoMemory do
 
   # Store memory for browser actions
   # Category: "action" - recording what was done in browser
+  # Note: Lower importance (0.35) for browser actions - ephemeral navigation
   defp store_browser_memory(action, arguments, {:ok, result}) do
     Logger.debug("AutoMemory browser: action=#{action}, url=#{inspect(arguments["url"])}")
     url = arguments["url"] || ""
@@ -222,7 +224,7 @@ defmodule Mimo.AutoMemory do
 
     if content do
       Logger.debug("AutoMemory browser: Storing content=#{content}")
-      store_memory(content, "action", 0.5)
+      store_memory(content, "action", 0.35)
     end
   end
 
@@ -232,14 +234,26 @@ defmodule Mimo.AutoMemory do
   end
 
   # Helper to safely get nested values from result maps (handles both atom and string keys)
+  # SECURITY FIX: Use String.to_existing_atom instead of String.to_atom to prevent atom exhaustion
   defp get_in_result(result, keys) when is_map(result) and is_list(keys) do
     Enum.reduce_while(keys, result, fn key, acc ->
       cond do
         is_map(acc) and Map.has_key?(acc, key) ->
           {:cont, Map.get(acc, key)}
 
-        is_map(acc) and is_binary(key) and Map.has_key?(acc, String.to_atom(key)) ->
-          {:cont, Map.get(acc, String.to_atom(key))}
+        is_map(acc) and is_binary(key) ->
+          # Try existing atom, don't create new ones
+          try do
+            atom_key = String.to_existing_atom(key)
+
+            if Map.has_key?(acc, atom_key) do
+              {:cont, Map.get(acc, atom_key)}
+            else
+              {:halt, nil}
+            end
+          rescue
+            ArgumentError -> {:halt, nil}
+          end
 
         is_map(acc) and is_atom(key) and Map.has_key?(acc, Atom.to_string(key)) ->
           {:cont, Map.get(acc, Atom.to_string(key))}
@@ -254,6 +268,7 @@ defmodule Mimo.AutoMemory do
 
   # Store memory for process/command execution
   # Category: "action" - recording commands executed
+  # Note: Lower importance (0.3) for terminal outputs - they're ephemeral
   defp store_process_memory(_, arguments, {:ok, output}) do
     command = arguments["command"] || "unknown"
     output_str = extract_content_string(output)
@@ -263,22 +278,25 @@ defmodule Mimo.AutoMemory do
       store_memory(
         "Executed: #{command}\nOutput: #{summarize_content(output_str, 200)}",
         "action",
-        0.5
+        0.3
       )
     end
   end
 
   defp store_process_memory(_, _, _), do: :ok
-
-  # Actually store the memory
+  # Actually store the memory via WorkingMemory for proper consolidation
   defp store_memory(content, category, importance) do
     min_importance = Application.get_env(:mimo_mcp, :auto_memory_min_importance, 0.3)
 
     if importance >= min_importance do
       Logger.debug("AutoMemory storing: #{category} (importance: #{importance})")
 
-      # Use persist_memory/3 - the actual API
-      Mimo.Brain.Memory.persist_memory(content, category, importance)
+      # Route through WorkingMemory for consolidation pipeline
+      Mimo.Brain.WorkingMemory.store(content,
+        category: category,
+        importance: importance,
+        source: "auto_memory"
+      )
     end
   end
 
@@ -290,7 +308,7 @@ defmodule Mimo.AutoMemory do
   end
 
   defp extract_content_string(content) when is_list(content) do
-    content |> Enum.take(5) |> Enum.map(&extract_content_string/1) |> Enum.join("\n")
+    content |> Enum.take(5) |> Enum.map_join("\n", &extract_content_string/1)
   end
 
   defp extract_content_string(content), do: inspect(content)

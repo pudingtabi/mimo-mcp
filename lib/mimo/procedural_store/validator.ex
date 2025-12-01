@@ -85,13 +85,13 @@ defmodule Mimo.ProceduralStore.Validator do
   defp validate_states(errors, definition) do
     states = Map.get(definition, "states", %{})
 
-    if not is_map(states) do
-      ["states must be a map" | errors]
-    else
+    if is_map(states) do
       states
       |> Enum.reduce(errors, fn {name, state}, acc ->
         validate_state(acc, name, state)
       end)
+    else
+      ["states must be a map" | errors]
     end
   end
 
@@ -177,24 +177,18 @@ defmodule Mimo.ProceduralStore.Validator do
     states = Map.get(definition, "states", %{})
 
     # Skip if states is not a map
-    if not is_map(states) do
-      errors
-    else
+    if is_map(states) do
       state_names = Map.keys(states) |> MapSet.new()
 
       # Check all transition targets exist
       states
       |> Enum.reduce(errors, fn {name, state}, acc ->
         # Skip if state is not a map
-        if not is_map(state) do
-          acc
-        else
+        if is_map(state) do
           transitions = Map.get(state, "transitions", [])
 
           # Skip if transitions is not a list
-          if not is_list(transitions) do
-            acc
-          else
+          if is_list(transitions) do
             invalid_targets =
               transitions
               |> Enum.filter(&is_map/1)
@@ -212,9 +206,15 @@ defmodule Mimo.ProceduralStore.Validator do
                   | acc
                 ]
             end
+          else
+            acc
           end
+        else
+          acc
         end
       end)
+    else
+      errors
     end
   end
 
@@ -222,9 +222,7 @@ defmodule Mimo.ProceduralStore.Validator do
     states = Map.get(definition, "states", %{})
 
     # Skip if states is not a map
-    if not is_map(states) do
-      errors
-    else
+    if is_map(states) do
       initial = Map.get(definition, "initial_state")
 
       # Find all reachable states from initial
@@ -241,6 +239,8 @@ defmodule Mimo.ProceduralStore.Validator do
         orphan_list ->
           ["unreachable states from initial: #{Enum.join(orphan_list, ", ")}" | errors]
       end
+    else
+      errors
     end
   end
 
@@ -248,15 +248,11 @@ defmodule Mimo.ProceduralStore.Validator do
     state = Map.get(states, current, %{})
 
     # If state is not a map, return visited as-is
-    if not is_map(state) do
-      visited
-    else
+    if is_map(state) do
       transitions = Map.get(state, "transitions", [])
 
       # If transitions is not a list, return visited as-is
-      if not is_list(transitions) do
-        visited
-      else
+      if is_list(transitions) do
         targets =
           transitions
           |> Enum.filter(&is_map/1)
@@ -269,7 +265,11 @@ defmodule Mimo.ProceduralStore.Validator do
         Enum.reduce(targets, new_visited, fn target, acc ->
           find_reachable_states(states, target, acc)
         end)
+      else
+        visited
       end
+    else
+      visited
     end
   end
 end

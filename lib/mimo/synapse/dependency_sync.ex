@@ -494,7 +494,7 @@ defmodule Mimo.Synapse.DependencySync do
 
   defp fetch_library_docs(name, ecosystem, version) do
     # Use the Library module to ensure docs are cached
-    Task.start(fn ->
+    Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
       try do
         opts = if version && version != "latest", do: [version: version], else: []
         Library.Index.ensure_cached(name, ecosystem, opts)
@@ -502,6 +502,11 @@ defmodule Mimo.Synapse.DependencySync do
       rescue
         e ->
           Logger.debug("[DependencySync] Could not fetch docs for #{name}: #{Exception.message(e)}")
+
+          :telemetry.execute([:mimo, :dependency_sync, :fetch_docs_error], %{count: 1}, %{
+            name: name,
+            ecosystem: ecosystem
+          })
       end
     end)
   end

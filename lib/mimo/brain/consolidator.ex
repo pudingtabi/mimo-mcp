@@ -257,14 +257,48 @@ defmodule Mimo.Brain.Consolidator do
   end
 
   defp calculate_novelty(%{content: content}) do
-    # Simplified novelty calculation
-    # In production, could compare against existing memories
-    word_count = content |> String.split() |> length()
+    # Compare against existing memories to assess true novelty
+    # Search for similar content in long-term memory
+    case Memory.search_memories(content, limit: 5, min_similarity: 0.5) do
+      similar_memories when is_list(similar_memories) and length(similar_memories) > 0 ->
+        # Calculate novelty based on max similarity to existing memories
+        max_similarity =
+          similar_memories
+          |> Enum.map(fn m -> Map.get(m, :similarity, 0.5) end)
+          |> Enum.max(fn -> 0.0 end)
 
-    unique_ratio =
-      content |> String.split() |> Enum.uniq() |> length() |> Kernel./(max(1, word_count))
+        # Higher similarity = lower novelty (inverse relationship)
+        # 0.9 similarity -> 0.1 novelty, 0.5 similarity -> 0.5 novelty
+        novelty = 1.0 - max_similarity
 
-    min(1.0, unique_ratio * 1.2)
+        # Also factor in unique word ratio for additional signal
+        word_count = content |> String.split() |> length()
+
+        unique_ratio =
+          content |> String.split() |> Enum.uniq() |> length() |> Kernel./(max(1, word_count))
+
+        # Blend memory-based novelty (60%) with word uniqueness (40%)
+        min(1.0, novelty * 0.6 + unique_ratio * 0.4)
+
+      _ ->
+        # No similar memories found = high novelty
+        # Still factor in word uniqueness
+        word_count = content |> String.split() |> length()
+
+        unique_ratio =
+          content |> String.split() |> Enum.uniq() |> length() |> Kernel./(max(1, word_count))
+
+        min(1.0, 0.8 + unique_ratio * 0.2)
+    end
+  rescue
+    _ ->
+      # Fallback to simple word uniqueness if search fails
+      word_count = content |> String.split() |> length()
+
+      unique_ratio =
+        content |> String.split() |> Enum.uniq() |> length() |> Kernel./(max(1, word_count))
+
+      min(1.0, unique_ratio * 1.2)
   end
 
   defp calculate_novelty(_), do: 0.5

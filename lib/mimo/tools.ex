@@ -26,7 +26,8 @@ defmodule Mimo.Tools do
   14. `code_symbols` - Code structure analysis (Tree-Sitter)
   15. `library` - Package documentation lookup
   16. `diagnostics` - Compile/lint errors and warnings
-  17. `graph` - [DEPRECATED] Redirects to knowledge tool
+  17. `onboard` - Project initialization meta-tool (SPEC-031)
+  18. `graph` - [DEPRECATED] Redirects to knowledge tool
 
   ## Architecture (SPEC-030)
 
@@ -114,6 +115,17 @@ defmodule Mimo.Tools do
       "diagnostics" ->
         Dispatchers.Diagnostics.dispatch(arguments)
 
+      # Project onboarding (SPEC-031 Phase 3)
+      "onboard" ->
+        Dispatchers.Onboard.dispatch(arguments)
+
+      # Compound domain actions (SPEC-031 Phase 5)
+      "analyze_file" ->
+        Dispatchers.AnalyzeFile.dispatch(arguments)
+
+      "debug_error" ->
+        Dispatchers.DebugError.dispatch(arguments)
+
       # Legacy aliases for backward compatibility
       "http_request" ->
         Dispatchers.Web.dispatch_fetch(Map.put(arguments, "format", "raw"))
@@ -139,7 +151,7 @@ defmodule Mimo.Tools do
 
       _ ->
         {:error,
-         "Unknown tool: #{tool_name}. Available: file, terminal, fetch, think, web_parse, search, web_extract, sonar, vision, knowledge, code_symbols, library, graph, cognitive, diagnostics, blink, browser"}
+         "Unknown tool: #{tool_name}. Available: file, terminal, fetch, think, web_parse, search, web_extract, sonar, vision, knowledge, code_symbols, library, graph, cognitive, diagnostics, onboard, blink, browser"}
     end
   end
 end

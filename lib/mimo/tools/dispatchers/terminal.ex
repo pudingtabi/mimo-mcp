@@ -17,7 +17,7 @@ defmodule Mimo.Tools.Dispatchers.Terminal do
   - "force_kill" -> Terminal.force_terminate (NOT force_kill_process!)
   """
 
-  alias Mimo.Tools.Helpers
+  alias Mimo.Tools.{Helpers, Suggestions}
 
   @doc """
   Dispatch terminal operation based on args.
@@ -27,37 +27,41 @@ defmodule Mimo.Tools.Dispatchers.Terminal do
     command = args["command"] || ""
     skip_context = Map.get(args, "skip_memory_context", false)
 
-    case op do
-      "execute" ->
-        dispatch_execute(command, args, skip_context)
+    result =
+      case op do
+        "execute" ->
+          dispatch_execute(command, args, skip_context)
 
-      "start_process" ->
-        dispatch_start_process(command, args)
+        "start_process" ->
+          dispatch_start_process(command, args)
 
-      "read_output" ->
-        # CORRECT: Terminal.read_process_output (NOT read_output!)
-        Mimo.Skills.Terminal.read_process_output(args["pid"], timeout_ms: args["timeout"] || 1000)
+        "read_output" ->
+          # CORRECT: Terminal.read_process_output (NOT read_output!)
+          Mimo.Skills.Terminal.read_process_output(args["pid"], timeout_ms: args["timeout"] || 1000)
 
-      "interact" ->
-        # CORRECT: Terminal.interact_with_process (NOT interact!)
-        Mimo.Skills.Terminal.interact_with_process(args["pid"], args["input"] || "")
+        "interact" ->
+          # CORRECT: Terminal.interact_with_process (NOT interact!)
+          Mimo.Skills.Terminal.interact_with_process(args["pid"], args["input"] || "")
 
-      "kill" ->
-        Mimo.Skills.Terminal.kill_process(args["pid"])
+        "kill" ->
+          Mimo.Skills.Terminal.kill_process(args["pid"])
 
-      "force_kill" ->
-        # CORRECT: Terminal.force_terminate (NOT force_kill_process!)
-        Mimo.Skills.Terminal.force_terminate(args["pid"])
+        "force_kill" ->
+          # CORRECT: Terminal.force_terminate (NOT force_kill_process!)
+          Mimo.Skills.Terminal.force_terminate(args["pid"])
 
-      "list_sessions" ->
-        Mimo.Skills.Terminal.list_sessions()
+        "list_sessions" ->
+          Mimo.Skills.Terminal.list_sessions()
 
-      "list_processes" ->
-        Mimo.Skills.Terminal.list_processes()
+        "list_processes" ->
+          Mimo.Skills.Terminal.list_processes()
 
-      _ ->
-        {:error, "Unknown terminal operation: #{op}"}
-    end
+        _ ->
+          {:error, "Unknown terminal operation: #{op}"}
+      end
+
+    # Add cross-tool suggestions (SPEC-031 Phase 2)
+    Suggestions.maybe_add_suggestion(result, "terminal", args)
   end
 
   # ==========================================================================

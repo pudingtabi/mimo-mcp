@@ -29,9 +29,7 @@ defmodule Mimo.Library.AutoDiscovery do
   def discover_and_cache(project_path) do
     project_path = Path.expand(project_path)
 
-    if not File.dir?(project_path) do
-      {:error, "Path is not a directory: #{project_path}"}
-    else
+    if File.dir?(project_path) do
       ecosystems = detect_ecosystems(project_path)
 
       Logger.info("[AutoDiscovery] Found #{length(ecosystems)} ecosystems: #{inspect(ecosystems)}")
@@ -55,6 +53,8 @@ defmodule Mimo.Library.AutoDiscovery do
          failed: Enum.count(results, &match?({:error, _}, &1)),
          details: results
        }}
+    else
+      {:error, "Path is not a directory: #{project_path}"}
     end
   end
 

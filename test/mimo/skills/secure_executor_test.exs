@@ -147,7 +147,7 @@ defmodule Mimo.Skills.SecureExecutorTest do
       # Should not error on validation (may fail on execution if npx not found)
       result = SecureExecutor.execute_skill(config)
       # Either succeeds with a port or fails with command_not_found
-      assert match?({:ok, _}, result) or match?({:error, {:command_not_found, _}}, result)
+      assert match?({:ok, _, _}, result) or match?({:error, {:command_not_found, _}}, result)
     end
 
     test "blocks non-whitelisted env var interpolation" do
@@ -161,7 +161,7 @@ defmodule Mimo.Skills.SecureExecutorTest do
       # The env var will be replaced with empty string (blocked)
       # This is not an error, just silent blocking
       result = SecureExecutor.execute_skill(config)
-      assert match?({:ok, _}, result) or match?({:error, {:command_not_found, _}}, result)
+      assert match?({:ok, _, _}, result) or match?({:error, {:command_not_found, _}}, result)
     end
 
     test "validates env var name format" do
@@ -174,7 +174,7 @@ defmodule Mimo.Skills.SecureExecutorTest do
 
       # Invalid env var names are filtered out
       result = SecureExecutor.execute_skill(config)
-      assert match?({:ok, _}, result) or match?({:error, {:command_not_found, _}}, result)
+      assert match?({:ok, _, _}, result) or match?({:error, {:command_not_found, _}}, result)
     end
   end
 

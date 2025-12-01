@@ -6,10 +6,10 @@ defmodule Mimo.McpServer.Stdio do
   require Logger
 
   # JSON-RPC Error Codes
-  @parse_error -32700
-  @invalid_request -32600
-  @method_not_found -32601
-  @internal_error -32603
+  @parse_error -32_700
+  @invalid_request -32_600
+  @method_not_found -32_601
+  @internal_error -32_603
 
   # Timeout for tool execution (30 seconds)
   @tool_timeout 30_000
@@ -291,7 +291,7 @@ defmodule Mimo.McpServer.Stdio do
                 "jsonrpc" => "2.0",
                 "id" => map["id"],
                 "error" => %{
-                  "code" => -32603,
+                  "code" => -32_603,
                   "message" => "JSON encoding failed: #{inspect(reason)}"
                 }
               })

@@ -9,6 +9,7 @@ defmodule Mimo.Skills.SecureExecutor do
   - Environment variable filtering
   - Resource limits (timeout, memory)
   - Telemetry logging of all executions
+  - **Automatic timeout enforcement** - runaway processes are killed
 
   ## Usage
 
@@ -18,7 +19,15 @@ defmodule Mimo.Skills.SecureExecutor do
         "env" => %{"API_KEY" => "${EXA_API_KEY}"}
       }
       
-      {:ok, port} = Mimo.Skills.SecureExecutor.execute_skill(config)
+      {:ok, port, timeout_ref} = Mimo.Skills.SecureExecutor.execute_skill(config)
+      
+      # ... use port ...
+      
+      # When done, cancel the timeout to prevent premature killing
+      Mimo.Skills.SecureExecutor.cancel_timeout(timeout_ref)
+      
+  If you don't cancel the timeout, the port will be automatically killed after
+  the configured timeout period (e.g., 120s for npx, 300s for docker).
   """
 
   require Logger
@@ -128,7 +137,8 @@ defmodule Mimo.Skills.SecureExecutor do
   @doc """
   Execute a skill with secure subprocess spawning.
 
-  Returns `{:ok, port}` on success or `{:error, reason}` on failure.
+  Returns `{:ok, port, timeout_ref}` on success or `{:error, reason}` on failure.
+  Call `cancel_timeout(timeout_ref)` when the port completes normally.
   """
   def execute_skill(config) when is_map(config) do
     with {:ok, normalized} <- normalize_config(config),
@@ -344,7 +354,7 @@ defmodule Mimo.Skills.SecureExecutor do
           :hide,
           {:args, args},
           {:env, opts[:env]},
-          {:line, 16384},
+          {:line, 16_384},
           {:parallelism, true}
         ]
 
@@ -359,9 +369,9 @@ defmodule Mimo.Skills.SecureExecutor do
             {:error, :port_spawn_failed}
 
           _ ->
-            # Set up timeout monitor
-            schedule_timeout_check(port, opts[:timeout_ms])
-            {:ok, port}
+            # Set up timeout monitor - spawns a process that will kill the port after timeout
+            timeout_ref = schedule_timeout_check(port, opts[:timeout_ms])
+            {:ok, port, timeout_ref}
         end
 
       error ->
@@ -369,11 +379,55 @@ defmodule Mimo.Skills.SecureExecutor do
     end
   end
 
+  # Schedules a timeout check for a port. Returns a timeout reference that can be
+  # cancelled with `cancel_timeout/1` when the port completes normally.
+  #
+  # The spawned monitor process will forcefully close the port after timeout_ms.
   defp schedule_timeout_check(port, timeout_ms) do
-    # This would be handled by the calling GenServer in practice
-    # For now, just log that a timeout is expected
-    Logger.debug("Port #{inspect(port)} has #{timeout_ms}ms timeout")
+    caller = self()
+
+    # Spawn a monitor process that will kill the port after timeout
+    # This runs independently so callers who forget to handle timeout are protected
+    monitor_pid =
+      spawn(fn ->
+        receive do
+          :cancel_timeout ->
+            # Port completed normally, timeout cancelled
+            :ok
+        after
+          timeout_ms ->
+            # Timeout reached - kill the port if it still exists
+            Logger.warning(
+              "SecureExecutor: Port #{inspect(port)} timed out after #{timeout_ms}ms, killing"
+            )
+
+            if is_port(port) and :erlang.port_info(port) != :undefined do
+              try do
+                Port.close(port)
+              catch
+                _, _ -> :already_closed
+              end
+
+              # Notify the caller that timeout occurred
+              send(caller, {:port_timeout, port})
+            end
+        end
+      end)
+
+    # Return reference so caller can cancel on successful completion
+    {:timeout_monitor, monitor_pid}
   end
+
+  @doc """
+  Cancels a pending timeout. Call this when the port completes successfully
+  to prevent the timeout monitor from killing it.
+  """
+  def cancel_timeout({:timeout_monitor, pid}) when is_pid(pid) do
+    send(pid, :cancel_timeout)
+    :ok
+  end
+
+  def cancel_timeout(_), do: :ok
 
   # ==========================================================================
   # Security Logging

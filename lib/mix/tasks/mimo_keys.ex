@@ -204,7 +204,7 @@ defmodule Mix.Tasks.Mimo.Keys.Verify do
 
     failed = Enum.filter(checks, fn {status, _, _} -> status == :error end)
 
-    if length(failed) == 0 do
+    if failed == [] do
       Mix.shell().info("✅ All API key checks passed")
       :ok
     else

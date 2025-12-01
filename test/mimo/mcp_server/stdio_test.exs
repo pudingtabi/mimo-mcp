@@ -93,7 +93,7 @@ defmodule Mimo.McpServer.StdioTest do
       assert response["jsonrpc"] == "2.0"
       assert response["id"] == 5
       assert Map.has_key?(response, "error")
-      assert response["error"]["code"] == -32000
+      assert response["error"]["code"] == -32_000
     end
 
     test "handles missing arguments gracefully" do
@@ -114,7 +114,7 @@ defmodule Mimo.McpServer.StdioTest do
       response = simulate_handle_request(request)
 
       assert response["jsonrpc"] == "2.0"
-      assert response["error"]["code"] == -32601
+      assert response["error"]["code"] == -32_601
       assert response["error"]["message"] =~ "Method not found"
     end
 
@@ -128,7 +128,7 @@ defmodule Mimo.McpServer.StdioTest do
       request = %{"invalid" => "structure"}
       response = simulate_handle_request(request)
 
-      assert response["error"]["code"] == -32600
+      assert response["error"]["code"] == -32_600
       assert response["error"]["message"] == "Invalid Request"
     end
   end
@@ -275,7 +275,7 @@ defmodule Mimo.McpServer.StdioTest do
     else
       %{
         "jsonrpc" => "2.0",
-        "error" => %{"code" => -32000, "message" => "Tool '#{tool_name}' not found"},
+        "error" => %{"code" => -32_000, "message" => "Tool '#{tool_name}' not found"},
         "id" => id
       }
     end
@@ -284,7 +284,7 @@ defmodule Mimo.McpServer.StdioTest do
   defp simulate_handle_request(%{"method" => method, "id" => id}) do
     %{
       "jsonrpc" => "2.0",
-      "error" => %{"code" => -32601, "message" => "Method not found: #{method}"},
+      "error" => %{"code" => -32_601, "message" => "Method not found: #{method}"},
       "id" => id
     }
   end
@@ -296,7 +296,7 @@ defmodule Mimo.McpServer.StdioTest do
   defp simulate_handle_request(_invalid) do
     %{
       "jsonrpc" => "2.0",
-      "error" => %{"code" => -32600, "message" => "Invalid Request"},
+      "error" => %{"code" => -32_600, "message" => "Invalid Request"},
       "id" => nil
     }
   end

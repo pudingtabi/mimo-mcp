@@ -99,7 +99,13 @@ defmodule Mimo.Tools.Dispatchers.Code do
       args["path"] ->
         # List symbols in file
         symbols = Mimo.Code.SymbolIndex.symbols_in_file(args["path"])
-        {:ok, %{file: args["path"], symbols: symbols, count: length(symbols)}}
+
+        {:ok,
+         %{
+           file: args["path"],
+           symbols: Enum.map(symbols, &Helpers.format_symbol/1),
+           count: length(symbols)
+         }}
 
       true ->
         # Return index stats

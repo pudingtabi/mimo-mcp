@@ -283,19 +283,111 @@ defmodule Mimo.ToolInterface do
     execute_memory_stats()
   end
 
+  defp do_execute("memory", %{"operation" => "health"} = _args) do
+    execute_memory_health()
+  end
+
   defp do_execute("memory", %{"operation" => "decay_check"} = args) do
     threshold = Map.get(args, "threshold", 0.1)
     limit = Map.get(args, "limit", 50)
     execute_memory_decay_check(threshold, limit)
   end
 
+  # SPEC-034: Temporal Memory Chains operations
+  defp do_execute("memory", %{"operation" => "get_chain", "id" => id}) do
+    execute_memory_get_chain(id)
+  end
+
+  defp do_execute("memory", %{"operation" => "get_chain"}) do
+    {:error, "Missing required argument: 'id'"}
+  end
+
+  defp do_execute("memory", %{"operation" => "get_current", "id" => id}) do
+    execute_memory_get_current(id)
+  end
+
+  defp do_execute("memory", %{"operation" => "get_current"}) do
+    {:error, "Missing required argument: 'id'"}
+  end
+
+  defp do_execute("memory", %{"operation" => "get_original", "id" => id}) do
+    execute_memory_get_original(id)
+  end
+
+  defp do_execute("memory", %{"operation" => "get_original"}) do
+    {:error, "Missing required argument: 'id'"}
+  end
+
+  defp do_execute("memory", %{"operation" => "supersede"} = args) do
+    old_id = Map.get(args, "old_id")
+    new_id = Map.get(args, "new_id")
+    supersession_type = Map.get(args, "type", "update")
+
+    if is_nil(old_id) or is_nil(new_id) do
+      {:error, "Missing required arguments: 'old_id' and 'new_id'"}
+    else
+      execute_memory_supersede(old_id, new_id, supersession_type)
+    end
+  end
+
   defp do_execute("memory", %{"operation" => op}) do
     {:error,
-     "Unknown memory operation: #{op}. Valid: store, search, list, delete, stats, decay_check"}
+     "Unknown memory operation: #{op}. Valid: store, search, list, delete, stats, health, decay_check, get_chain, get_current, get_original, supersede"}
   end
 
   defp do_execute("memory", _args) do
     {:error, "Missing required argument: 'operation'"}
+  end
+
+  # ============================================================================
+  # Tool Usage Analytics
+  # ============================================================================
+
+  # Get comprehensive tool usage statistics
+  defp do_execute("tool_usage", %{"operation" => "stats"} = args) do
+    days = Map.get(args, "days", 30)
+    limit = Map.get(args, "limit", 50)
+    include_daily = Map.get(args, "include_daily", false)
+
+    stats =
+      Mimo.Brain.Interaction.tool_usage_stats(
+        days: days,
+        limit: limit,
+        include_daily: include_daily
+      )
+
+    {:ok,
+     %{
+       tool_call_id: UUID.uuid4(),
+       status: "success",
+       data: stats
+     }}
+  end
+
+  # Get detailed stats for a specific tool
+  defp do_execute("tool_usage", %{"operation" => "detail", "tool_name" => tool_name} = args) do
+    days = Map.get(args, "days", 30)
+    detail = Mimo.Brain.Interaction.tool_detail(tool_name, days: days)
+
+    {:ok,
+     %{
+       tool_call_id: UUID.uuid4(),
+       status: "success",
+       data: detail
+     }}
+  end
+
+  defp do_execute("tool_usage", %{"operation" => "detail"}) do
+    {:error, "Missing required argument: 'tool_name'"}
+  end
+
+  # Get quick rankings (default operation)
+  defp do_execute("tool_usage", args) when map_size(args) == 0 or args == %{} do
+    do_execute("tool_usage", %{"operation" => "stats", "days" => 30, "limit" => 20})
+  end
+
+  defp do_execute("tool_usage", %{"operation" => op}) do
+    {:error, "Unknown tool_usage operation: #{op}. Valid: stats, detail"}
   end
 
   # ============================================================================
@@ -527,7 +619,9 @@ defmodule Mimo.ToolInterface do
   # ============================================================================
 
   defp execute_memory_store(content, category, importance) do
-    case Memory.persist_memory(content, category, importance) do
+    # SPEC-034: Route through Memory.persist_memory for TMC integration
+    # This ensures contradiction detection and supersession for explicit user stores
+    case Mimo.Brain.Memory.persist_memory(content, category, importance) do
       {:ok, id} ->
         {:ok,
          %{
@@ -547,9 +641,31 @@ defmodule Mimo.ToolInterface do
     threshold = Map.get(args, "threshold", 0.3)
     category = Map.get(args, "category")
     time_filter = Map.get(args, "time_filter")
+    # New: opt-in intelligent routing via MemoryRouter
+    use_router = Map.get(args, "use_router", true)
 
-    # Build base search
-    base_results = Memory.search_memories(query, limit: limit * 2, min_similarity: threshold)
+    # Use MemoryRouter for intelligent routing or fall back to direct search
+    {base_results, query_type, routing_confidence} =
+      if use_router do
+        case Mimo.Brain.MemoryRouter.route(query, limit: limit * 2, include_working: true) do
+          {:ok, routed_results} ->
+            # MemoryRouter returns tuples {memory, score} - convert to map format
+            results = normalize_router_results(routed_results)
+            # Get query type for observability
+            {type, confidence} = Mimo.Brain.MemoryRouter.analyze(query)
+            {results, type, confidence}
+
+          {:error, _reason} ->
+            # Fallback to direct search
+            Logger.warning("MemoryRouter failed, falling back to direct search")
+            results = Memory.search_memories(query, limit: limit * 2, min_similarity: threshold)
+            {results, :fallback, 0.0}
+        end
+      else
+        # Direct search without router
+        results = Memory.search_memories(query, limit: limit * 2, min_similarity: threshold)
+        {results, :direct, 1.0}
+      end
 
     # Apply category filter
     filtered =
@@ -610,10 +726,40 @@ defmodule Mimo.ToolInterface do
        status: "success",
        data: %{
          results: formatted,
-         total_searched: length(base_results)
-       }
+         total_searched: length(base_results),
+         # SPEC-XXX: MemoryRouter integration - query type for observability
+         query_type: query_type,
+         routing_confidence: Float.round(routing_confidence, 2)
+       },
+       # SPEC-031 Phase 2: Cross-tool suggestion
+       suggestion: "💡 For entity relationships, also check `knowledge operation=query`"
      }}
   end
+
+  # Helper to normalize MemoryRouter results (tuples) to map format
+  defp normalize_router_results(results) when is_list(results) do
+    Enum.map(results, fn
+      # MemoryRouter returns {memory_map, score} tuples
+      {memory, score} when is_map(memory) ->
+        memory
+        |> Map.put(:similarity, score)
+        |> Map.put_new(:id, Map.get(memory, :id))
+        |> Map.put_new(:content, Map.get(memory, :content))
+        |> Map.put_new(:category, Map.get(memory, :category))
+        |> Map.put_new(:importance, Map.get(memory, :importance, 0.5))
+
+      # HybridRetriever already returns maps with :similarity
+      memory when is_map(memory) ->
+        memory
+
+      # Handle any other format
+      _ ->
+        nil
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp normalize_router_results(_), do: []
 
   defp execute_memory_list(args) do
     limit = Map.get(args, "limit", 20)
@@ -736,6 +882,32 @@ defmodule Mimo.ToolInterface do
      }}
   end
 
+  defp execute_memory_health do
+    # Get brain system health report from HealthMonitor
+    report =
+      try do
+        Mimo.Brain.HealthMonitor.health_report()
+      rescue
+        _ -> %{error: "HealthMonitor not running"}
+      catch
+        :exit, _ -> %{error: "HealthMonitor process not available"}
+      end
+
+    {:ok,
+     %{
+       tool_call_id: UUID.uuid4(),
+       status: "success",
+       data: %{
+         healthy: Map.get(report, :healthy, false),
+         last_check: format_datetime(Map.get(report, :last_check)),
+         issues: Map.get(report, :issues, []),
+         metrics: Map.get(report, :metrics, %{}),
+         check_count: Map.get(report, :check_count, 0),
+         error: Map.get(report, :error)
+       }
+     }}
+  end
+
   defp execute_memory_decay_check(threshold, limit) do
     # Get memories and calculate decay scores
     memories =
@@ -776,6 +948,130 @@ defmodule Mimo.ToolInterface do
          total_checked: length(memories)
        }
      }}
+  end
+
+  # SPEC-034: Temporal Memory Chains - Implementation Functions
+  defp execute_memory_get_chain(id) do
+    chain = Memory.get_chain(id)
+
+    formatted_chain =
+      Enum.map(chain, fn engram ->
+        %{
+          id: engram.id,
+          content: String.slice(engram.content, 0, 200),
+          category: engram.category,
+          importance: engram.importance,
+          active: Engram.active?(engram),
+          supersedes_id: engram.supersedes_id,
+          superseded_at: format_datetime(engram.superseded_at),
+          supersession_type: engram.supersession_type,
+          inserted_at: format_datetime(engram.inserted_at)
+        }
+      end)
+
+    {:ok,
+     %{
+       tool_call_id: UUID.uuid4(),
+       status: "success",
+       data: %{
+         chain: formatted_chain,
+         chain_length: length(chain),
+         original_id: if(chain != [], do: hd(chain).id, else: nil),
+         current_id: if(chain != [], do: List.last(chain).id, else: nil)
+       }
+     }}
+  end
+
+  defp execute_memory_get_current(id) do
+    case Memory.get_current(id) do
+      nil ->
+        {:error, "Memory not found: #{id}"}
+
+      engram ->
+        {:ok,
+         %{
+           tool_call_id: UUID.uuid4(),
+           status: "success",
+           data: %{
+             id: engram.id,
+             content: engram.content,
+             category: engram.category,
+             importance: engram.importance,
+             is_current: true,
+             supersedes_id: engram.supersedes_id,
+             inserted_at: format_datetime(engram.inserted_at)
+           }
+         }}
+    end
+  end
+
+  defp execute_memory_get_original(id) do
+    case Memory.get_original(id) do
+      nil ->
+        {:error, "Memory not found: #{id}"}
+
+      engram ->
+        {:ok,
+         %{
+           tool_call_id: UUID.uuid4(),
+           status: "success",
+           data: %{
+             id: engram.id,
+             content: engram.content,
+             category: engram.category,
+             importance: engram.importance,
+             is_original: true,
+             chain_length: Memory.chain_length(engram.id),
+             inserted_at: format_datetime(engram.inserted_at)
+           }
+         }}
+    end
+  end
+
+  defp execute_memory_supersede(old_id, new_id, supersession_type) do
+    old_engram = Repo.get(Engram, old_id)
+    new_engram = Repo.get(Engram, new_id)
+
+    cond do
+      is_nil(old_engram) ->
+        {:error, "Old memory not found: #{old_id}"}
+
+      is_nil(new_engram) ->
+        {:error, "New memory not found: #{new_id}"}
+
+      not is_nil(old_engram.superseded_at) ->
+        {:error, "Memory #{old_id} is already superseded"}
+
+      true ->
+        # Update old engram to mark as superseded
+        {:ok, updated_old} =
+          Repo.update(
+            Engram.changeset(old_engram, %{
+              superseded_at: DateTime.utc_now() |> DateTime.truncate(:second)
+            })
+          )
+
+        # Update new engram to link to old one
+        {:ok, updated_new} =
+          Repo.update(
+            Engram.changeset(new_engram, %{
+              supersedes_id: old_id,
+              supersession_type: supersession_type
+            })
+          )
+
+        {:ok,
+         %{
+           tool_call_id: UUID.uuid4(),
+           status: "success",
+           data: %{
+             superseded_id: updated_old.id,
+             successor_id: updated_new.id,
+             supersession_type: supersession_type,
+             message: "Memory #{old_id} superseded by #{new_id}"
+           }
+         }}
+    end
   end
 
   # ============================================================================

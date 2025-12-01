@@ -172,7 +172,8 @@ defmodule Mimo.Brain.HybridRetriever do
   defp vector_search(_query, embedding, opts) do
     limit = Keyword.get(opts, :vector_limit, @default_vector_limit)
 
-    case Memory.search_memories(embedding, limit: limit) do
+    # Use search_with_embedding to avoid re-generating the embedding
+    case Memory.search_with_embedding(embedding, limit: limit) do
       {:ok, results} -> results
       _ -> []
     end
@@ -251,7 +252,9 @@ defmodule Mimo.Brain.HybridRetriever do
     end)
     |> Map.new()
   rescue
-    _ -> %{}
+    e ->
+      Logger.warning("Graph scores failed: #{Exception.message(e)}")
+      %{}
   end
 
   # ==========================================================================
@@ -264,7 +267,9 @@ defmodule Mimo.Brain.HybridRetriever do
       _ -> nil
     end
   rescue
-    _ -> nil
+    e ->
+      Logger.warning("Query embedding failed: #{Exception.message(e)}")
+      nil
   end
 
   defp get_strategy_weights(:balanced) do

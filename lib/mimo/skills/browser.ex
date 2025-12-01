@@ -97,7 +97,7 @@ defmodule Mimo.Skills.Browser do
       case Blink.smart_fetch(url, 2, browser: :chrome_136) do
         {:ok, response} ->
           # Check if we got a challenge page
-          if is_challenge_response?(response) do
+          if challenge_response?(response) do
             Logger.info("[Browser] Blink got challenge, escalating to full browser")
             browser_fetch(url, opts)
           else
@@ -122,10 +122,7 @@ defmodule Mimo.Skills.Browser do
   Fetch URL using full browser with Puppeteer.
   """
   def browser_fetch(url, opts \\ []) do
-    if not puppeteer_available?() do
-      {:error,
-       "Puppeteer not available. Install with: npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth"}
-    else
+    if puppeteer_available?() do
       options = %{
         url: url,
         profile: Keyword.get(opts, :profile, "chrome"),
@@ -138,6 +135,9 @@ defmodule Mimo.Skills.Browser do
       }
 
       execute_command("fetch", options)
+    else
+      {:error,
+       "Puppeteer not available. Install with: npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth"}
     end
   end
 
@@ -154,9 +154,7 @@ defmodule Mimo.Skills.Browser do
   - `:wait_for_selector` - Wait for element before screenshot
   """
   def screenshot(url, opts \\ []) do
-    if not puppeteer_available?() do
-      {:error, "Puppeteer not available"}
-    else
+    if puppeteer_available?() do
       options = %{
         url: url,
         profile: Keyword.get(opts, :profile, "chrome"),
@@ -169,6 +167,8 @@ defmodule Mimo.Skills.Browser do
       }
 
       execute_command("screenshot", options)
+    else
+      {:error, "Puppeteer not available"}
     end
   end
 
@@ -183,9 +183,7 @@ defmodule Mimo.Skills.Browser do
   - `:margin` - Page margins map
   """
   def pdf(url, opts \\ []) do
-    if not puppeteer_available?() do
-      {:error, "Puppeteer not available"}
-    else
+    if puppeteer_available?() do
       options = %{
         url: url,
         profile: Keyword.get(opts, :profile, "chrome"),
@@ -196,6 +194,8 @@ defmodule Mimo.Skills.Browser do
       }
 
       execute_command("pdf", options)
+    else
+      {:error, "Puppeteer not available"}
     end
   end
 
@@ -208,9 +208,7 @@ defmodule Mimo.Skills.Browser do
   - `:wait_for_selector` - Wait for element before executing
   """
   def evaluate(url, script, opts \\ []) do
-    if not puppeteer_available?() do
-      {:error, "Puppeteer not available"}
-    else
+    if puppeteer_available?() do
       options = %{
         url: url,
         script: script,
@@ -220,6 +218,8 @@ defmodule Mimo.Skills.Browser do
       }
 
       execute_command("evaluate", options)
+    else
+      {:error, "Puppeteer not available"}
     end
   end
 
@@ -251,9 +251,7 @@ defmodule Mimo.Skills.Browser do
       ])
   """
   def interact(url, actions, opts \\ []) do
-    if not puppeteer_available?() do
-      {:error, "Puppeteer not available"}
-    else
+    if puppeteer_available?() do
       options = %{
         url: url,
         actions: actions,
@@ -262,6 +260,8 @@ defmodule Mimo.Skills.Browser do
       }
 
       execute_command("interact", options)
+    else
+      {:error, "Puppeteer not available"}
     end
   end
 
@@ -310,9 +310,7 @@ defmodule Mimo.Skills.Browser do
       ])
   """
   def test(url, tests, opts \\ []) do
-    if not puppeteer_available?() do
-      {:error, "Puppeteer not available"}
-    else
+    if puppeteer_available?() do
       options = %{
         url: url,
         tests: tests,
@@ -321,6 +319,8 @@ defmodule Mimo.Skills.Browser do
       }
 
       execute_command("test", options)
+    else
+      {:error, "Puppeteer not available"}
     end
   end
 
@@ -391,9 +391,31 @@ defmodule Mimo.Skills.Browser do
       {:error, "Browser error: #{Exception.message(e)}"}
   end
 
+  # Known safe keys from Puppeteer responses - whitelist to prevent atom exhaustion
+  @safe_browser_keys ~w(
+    status body headers url title content screenshot pdf
+    success error message data results cookies
+    width height type quality format margin
+    selector text value visible exists count
+    name passed failed assertions actions
+    bodySize method layer layer_used protection
+    waitForSelector waitForNavigation waitForChallenge
+    fullPage printBackground
+  )a |> MapSet.new(&Atom.to_string/1)
+
+  # SECURITY: Only convert known keys to atoms to prevent atom table exhaustion
+  # from malicious web responses. Unknown keys are kept as strings.
   defp atomize_keys(map) when is_map(map) do
     Map.new(map, fn {k, v} ->
-      key = if is_binary(k), do: String.to_atom(k), else: k
+      key =
+        cond do
+          is_atom(k) -> k
+          is_binary(k) and MapSet.member?(@safe_browser_keys, k) -> String.to_existing_atom(k)
+          # Keep unknown keys as strings
+          is_binary(k) -> k
+          true -> k
+        end
+
       {key, atomize_keys(v)}
     end)
   end
@@ -419,7 +441,7 @@ defmodule Mimo.Skills.Browser do
     not Enum.any?(challenge_domains, &String.contains?(host, &1))
   end
 
-  defp is_challenge_response?(%{body: body, status: status}) when is_binary(body) do
+  defp challenge_response?(%{body: body, status: status}) when is_binary(body) do
     challenge_patterns = [
       "just a moment",
       "checking your browser",
@@ -437,7 +459,7 @@ defmodule Mimo.Skills.Browser do
     end
   end
 
-  defp is_challenge_response?(_), do: false
+  defp challenge_response?(_), do: false
 
   defp normalize_blink_response(response) do
     %{

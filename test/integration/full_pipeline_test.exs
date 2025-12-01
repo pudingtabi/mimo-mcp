@@ -84,7 +84,7 @@ defmodule Mimo.Integration.FullPipelineTest do
 
     test "creates proper error responses" do
       error = Mimo.Protocol.McpParser.error_for(:tool_not_found, 1, "test_tool")
-      assert error["error"]["code"] == -32000
+      assert error["error"]["code"] == -32_000
       assert String.contains?(error["error"]["message"], "test_tool")
     end
   end

@@ -162,7 +162,7 @@ defmodule Mimo.Brain.ActivityTracker do
         # Fraction of today that has passed
         now = DateTime.utc_now()
         seconds_today = now.hour * 3600 + now.minute * 60 + now.second
-        seconds_today / 86400.0
+        seconds_today / 86_400.0
       else
         0.0
       end
@@ -194,7 +194,7 @@ defmodule Mimo.Brain.ActivityTracker do
       last_activity: state.last_activity,
       total_active_days: state.total_active_days,
       active_today: MapSet.member?(state.active_dates, Date.utc_today()),
-      is_active: is_active?(state)
+      is_active: active?(state)
     }
 
     {:reply, stats, state}
@@ -268,7 +268,7 @@ defmodule Mimo.Brain.ActivityTracker do
   defp parse_date(%Date{} = date), do: date
   defp parse_date(_), do: nil
 
-  defp is_active?(state) do
+  defp active?(state) do
     threshold_hours = get_config(:inactivity_threshold_hours, @inactivity_threshold_hours)
 
     case state.last_activity do
