@@ -21,10 +21,10 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            otp: "27.1"
+            otp: "26.0"
             elixir: "1.19"
           - os: macos-latest
-            otp: "27.1"
+            otp: "26.0"
             elixir: "1.19"
 
     steps:
