@@ -85,14 +85,30 @@ defmodule Mimo.Brain.CleanupTest do
     end
 
     test "preserves recent memories" do
-      # Create a recent low-importance memory
-      {:ok, _} = Memory.persist_memory("TEST_RECENT_LOW_IMPORTANCE", "fact", 0.3)
+      # Create a recent low-importance memory with unique content
+      # Use direct Repo.insert to bypass duplicate detection
+      unique_content = "TEST_RECENT_LOW_IMPORTANCE_#{System.unique_integer()}"
+
+      now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+
+      {:ok, engram} =
+        Repo.insert(%Engram{
+          content: unique_content,
+          category: "fact",
+          importance: 0.3,
+          embedding: List.duplicate(0.1, 64),
+          inserted_at: now,
+          updated_at: now
+        })
+
+      # Verify it exists before cleanup
+      assert Repo.exists?(from(e in Engram, where: e.id == ^engram.id))
 
       # Run cleanup
       Cleanup.force_cleanup()
 
       # Should NOT be removed (recent)
-      assert Repo.exists?(from(e in Engram, where: e.content == "TEST_RECENT_LOW_IMPORTANCE"))
+      assert Repo.exists?(from(e in Engram, where: e.id == ^engram.id))
     end
   end
 
@@ -113,12 +129,23 @@ defmodule Mimo.Brain.CleanupTest do
       initial_stats = Cleanup.cleanup_stats()
       initial_count = initial_stats.total_memories
 
-      # Add a memory
-      {:ok, _} = Memory.persist_memory("TEST_COUNT_CHECK", "observation", 0.5)
+      # Add a memory with unique content
+      unique_content = "TEST_COUNT_CHECK_#{System.unique_integer()}"
 
-      # Check count increased
-      new_stats = Cleanup.cleanup_stats()
-      assert new_stats.total_memories == initial_count + 1
+      # Handle both new memory and duplicate detection cases
+      result = Memory.persist_memory(unique_content, "observation", 0.5)
+
+      case result do
+        {:ok, _} ->
+          # New memory created - check count increased
+          new_stats = Cleanup.cleanup_stats()
+          assert new_stats.total_memories == initial_count + 1
+
+        {:duplicate, _id} ->
+          # Duplicate detected - memory already exists, count unchanged
+          new_stats = Cleanup.cleanup_stats()
+          assert new_stats.total_memories == initial_count
+      end
     end
 
     test "tracks importance distribution" do

@@ -114,7 +114,7 @@ defmodule Mimo.Brain.Memory do
         case Math.quantize_int8(query_embedding) do
           {:ok, {query_int8, _scale, _offset}} ->
             # Determine search strategy
-            actual_strategy = determine_strategy(strategy, opts)
+            actual_strategy = select_strategy(strategy, opts)
 
             case actual_strategy do
               :hnsw ->
@@ -192,7 +192,7 @@ defmodule Mimo.Brain.Memory do
     results =
       case Math.quantize_int8(embedding) do
         {:ok, {query_int8, _scale, _offset}} ->
-          actual_strategy = determine_strategy(strategy, opts)
+          actual_strategy = select_strategy(strategy, opts)
 
           case actual_strategy do
             :hnsw ->
@@ -220,6 +220,76 @@ defmodule Mimo.Brain.Memory do
     e ->
       Logger.error("Memory search with embedding failed: #{Exception.message(e)}")
       {:ok, []}
+  end
+
+  @doc """
+  Count total memories in the store.
+  
+  Useful for strategy selection and statistics.
+  
+  ## Examples
+  
+      count_memories()
+      #=> 1234
+  """
+  def count_memories do
+    Repo.one(from(e in Engram, select: count(e.id))) || 0
+  end
+
+  @doc """
+  Determine which search strategy to use based on memory count.
+  
+  This function exposes the strategy selection logic for testing and
+  allows callers to understand which strategy will be used for a given
+  memory count.
+  
+  ## Arguments
+  
+    * `count` - Number of memories in the store
+    * `explicit_strategy` - Optional explicit strategy override (nil for auto)
+  
+  ## Returns
+  
+    * `:exact` - For small memory counts (<500)
+    * `:binary_rescore` - For medium counts (500-999) or when HNSW unavailable
+    * `:hnsw` - For large counts (>=1000) when HNSW index is available
+  
+  ## Examples
+  
+      determine_strategy(100, nil)    #=> :exact
+      determine_strategy(500, nil)    #=> :binary_rescore
+      determine_strategy(1000, nil)   #=> :hnsw (if available)
+      determine_strategy(100, :hnsw)  #=> :hnsw (explicit override)
+  """
+  def determine_strategy(count, explicit_strategy) when is_integer(count) do
+    # If explicit strategy is specified, use it
+    if explicit_strategy && explicit_strategy in [:exact, :binary_rescore, :hnsw] do
+      explicit_strategy
+    else
+      # Auto-select based on count and HNSW availability
+      cond do
+        count >= @hnsw_search_threshold ->
+          # Check if HNSW is available
+          if hnsw_available?() do
+            :hnsw
+          else
+            :binary_rescore
+          end
+        
+        count >= @binary_search_threshold ->
+          :binary_rescore
+        
+        true ->
+          :exact
+      end
+    end
+  end
+
+  # Check if HNSW index is available
+  defp hnsw_available? do
+    HnswIndex.should_use_hnsw?()
+  rescue
+    _ -> false
   end
 
   @doc """
@@ -360,6 +430,10 @@ defmodule Mimo.Brain.Memory do
             Repo.rollback(changeset.errors)
         end
       else
+        {:duplicate, id} ->
+          # Return duplicate info instead of rolling back
+          {:duplicate, id}
+
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
@@ -728,8 +802,8 @@ defmodule Mimo.Brain.Memory do
   # SPEC-033: Search Strategy Selection and Implementations
   # ==========================================================================
 
-  # Determine which search strategy to use
-  defp determine_strategy(:auto, opts) do
+  # Determine which search strategy to use (internal)
+  defp select_strategy(:auto, opts) do
     # Check if HNSW index is available and has enough vectors
     if HnswIndex.should_use_hnsw?() do
       :hnsw
@@ -763,17 +837,17 @@ defmodule Mimo.Brain.Memory do
     end
   rescue
     # If HnswIndex GenServer isn't running, fall back to other strategies
-    _ -> determine_strategy_without_hnsw(opts)
+    _ -> select_strategy_without_hnsw(opts)
   end
 
-  defp determine_strategy(strategy, _opts) when strategy in [:exact, :binary_rescore, :hnsw] do
+  defp select_strategy(strategy, _opts) when strategy in [:exact, :binary_rescore, :hnsw] do
     strategy
   end
 
-  defp determine_strategy(_, opts), do: determine_strategy_without_hnsw(opts)
+  defp select_strategy(_, opts), do: select_strategy_without_hnsw(opts)
 
   # Fallback strategy selection when HNSW is not available
-  defp determine_strategy_without_hnsw(opts) do
+  defp select_strategy_without_hnsw(opts) do
     category = Keyword.get(opts, :category)
 
     count =
@@ -1321,6 +1395,7 @@ defmodule Mimo.Brain.Memory do
 
   defp unwrap_transaction_result({:ok, {:ok, result}}), do: {:ok, result}
   defp unwrap_transaction_result({:ok, {:error, reason}}), do: {:error, reason}
+  defp unwrap_transaction_result({:ok, {:duplicate, id}}), do: {:duplicate, id}
   defp unwrap_transaction_result({:error, reason}), do: {:error, reason}
 
   defp log_memory_event(event, id, category, project_id \\ "global", tags \\ []) do

@@ -58,7 +58,7 @@ defmodule Mimo.Brain.Memory.SearchStrategyTest do
 
     test "search_memories/3 uses correct strategy for empty database" do
       # With empty database, should use exact strategy
-      {:ok, results} = Memory.search_memories("test query", limit: 10)
+      results = Memory.search_memories("test query", limit: 10)
 
       # Should return empty list, not error
       assert results == []
@@ -68,7 +68,7 @@ defmodule Mimo.Brain.Memory.SearchStrategyTest do
       # Create a few engrams with embeddings
       engrams = create_test_engrams(10)
 
-      {:ok, results} = Memory.search_memories("test query", limit: 5)
+      results = Memory.search_memories("test query", limit: 5)
 
       # Should return up to 5 results
       assert length(results) <= 5
@@ -96,7 +96,7 @@ defmodule Mimo.Brain.Memory.SearchStrategyTest do
       assert total >= 500
 
       # Search should still work
-      {:ok, results} = Memory.search_memories("test query", limit: 10)
+      results = Memory.search_memories("test query", limit: 10)
 
       assert is_list(results)
 
@@ -114,7 +114,7 @@ defmodule Mimo.Brain.Memory.SearchStrategyTest do
     test "returns results with similarity scores" do
       engrams = create_test_engrams(5)
 
-      {:ok, results} = Memory.search_memories("test", limit: 10)
+      results = Memory.search_memories("test", limit: 10)
 
       Enum.each(results, fn result ->
         assert Map.has_key?(result, :similarity) or Map.has_key?(result, :score)
@@ -132,8 +132,8 @@ defmodule Mimo.Brain.Memory.SearchStrategyTest do
     test "respects limit parameter" do
       engrams = create_test_engrams(20)
 
-      {:ok, results_5} = Memory.search_memories("test", limit: 5)
-      {:ok, results_10} = Memory.search_memories("test", limit: 10)
+      results_5 = Memory.search_memories("test", limit: 5)
+      results_10 = Memory.search_memories("test", limit: 10)
 
       assert length(results_5) <= 5
       assert length(results_10) <= 10
@@ -144,7 +144,7 @@ defmodule Mimo.Brain.Memory.SearchStrategyTest do
     test "respects min_similarity threshold" do
       engrams = create_test_engrams(10)
 
-      {:ok, results} = Memory.search_memories("test", limit: 10, min_similarity: 0.5)
+      results = Memory.search_memories("test", limit: 10, min_similarity: 0.5)
 
       Enum.each(results, fn result ->
         score = result[:similarity] || result[:score] || 0
@@ -165,8 +165,8 @@ defmodule Mimo.Brain.Memory.SearchStrategyTest do
       fact_engrams = create_test_engrams(5, category: :fact)
       observation_engrams = create_test_engrams(5, category: :observation)
 
-      {:ok, fact_results} = Memory.search_memories("test", limit: 10, category: :fact)
-      {:ok, obs_results} = Memory.search_memories("test", limit: 10, category: :observation)
+      fact_results = Memory.search_memories("test", limit: 10, category: :fact)
+      obs_results = Memory.search_memories("test", limit: 10, category: :observation)
 
       # Each should only return its category
       Enum.each(fact_results, fn r ->

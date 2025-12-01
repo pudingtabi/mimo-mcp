@@ -34,6 +34,10 @@ defmodule Mimo.ErrorHandling.RetryStrategies do
       :ok ->
         :ok
 
+      # Pass through duplicate detection - not an error
+      {:duplicate, _id} = duplicate ->
+        duplicate
+
       {:error, reason} = _error when attempt < max_retries ->
         delay = calculate_delay(attempt, base_delay)
 
