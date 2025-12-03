@@ -377,6 +377,24 @@ defmodule Mimo.ToolRegistry do
   defp classify_tool("blink"), do: {:mimo_core, :blink}
   defp classify_tool("browser"), do: {:mimo_core, :browser}
 
+  # SPEC-030: Unified Web Tool (consolidates fetch, search, blink, browser, vision, sonar, web_extract, web_parse)
+  defp classify_tool("web"), do: {:mimo_core, :web}
+
+  # SPEC-030 Phase 3: Unified Code Intelligence (consolidates code_symbols, library, diagnostics)
+  defp classify_tool("code"), do: {:mimo_core, :code}
+
+  # SPEC-043: Metacognitive Self-Reflection
+  defp classify_tool("reflector"), do: {:mimo_core, :reflector}
+
+  # SPEC-044: Emergence Pattern Detection
+  defp classify_tool("emergence"), do: {:mimo_core, :emergence}
+
+  # SPEC-AI-TEST: Executable Verification
+  defp classify_tool("verify"), do: {:mimo_core, :verify}
+
+  # SPEC-036: Meta Composite Tool
+  defp classify_tool("meta"), do: {:mimo_core, :meta}
+
   # SPEC-021: Code structure analysis
   defp classify_tool("code_symbols"), do: {:mimo_core, :code_symbols}
 

@@ -390,25 +390,97 @@ defmodule Mimo.Skills.Terminal do
     end
   end
 
+  # Shell builtins that cannot be executed directly via System.cmd
+  @shell_builtins MapSet.new(~w[
+    cd pushd popd dirs
+    export unset set
+    source . alias unalias
+    bg fg jobs disown
+    eval exec
+    read
+    ulimit umask
+    shopt
+    history fc
+    hash type command
+    wait
+    trap
+    return exit
+  ])
+
+  # Patterns that require shell interpretation
+  @shell_operator_patterns [
+    # Command chaining
+    ~r/\s*&&\s*/,
+    ~r/\s*\|\|\s*/,
+    ~r/\s*;\s*/,
+    # Pipes
+    ~r/\s*\|\s*/,
+    # Redirections
+    ~r/\s*>\s*/,
+    ~r/\s*>>\s*/,
+    ~r/\s*<\s*/,
+    ~r/\s*<<\s*/,
+    ~r/\s*2>&1\s*/,
+    ~r/\s*2>\s*/,
+    # Command substitution
+    ~r/\$\(/,
+    ~r/`[^`]+`/,
+    # Variable expansion
+    ~r/\$\{/,
+    ~r/\$[A-Za-z_]/,
+    # Glob patterns with special chars
+    ~r/[*?]/,
+    # Process substitution
+    ~r/<\(/,
+    ~r/>\(/,
+    # Subshell
+    ~r/\(\s*\w/
+  ]
+
+  # Check if command requires shell interpretation
+  defp needs_shell?(cmd_str) do
+    # Get first word (command name)
+    first_word =
+      cmd_str
+      |> String.trim()
+      |> String.split(~r/\s+/, parts: 2)
+      |> List.first()
+      |> to_string()
+
+    # Check if it's a shell builtin
+    is_builtin = MapSet.member?(@shell_builtins, first_word)
+
+    # Check if it contains shell operators
+    has_operators = Enum.any?(@shell_operator_patterns, &Regex.match?(&1, cmd_str))
+
+    is_builtin || has_operators
+  end
+
   # Build command based on shell selection
   defp build_command(cmd_str, nil) do
-    # Direct execution - use proper shell argument parsing
-    case parse_shell_args(cmd_str) do
-      {:ok, [cmd | args]} ->
-        {cmd, args}
+    # Auto-detect if shell is needed
+    if needs_shell?(cmd_str) do
+      # Use /bin/sh for portability (POSIX standard)
+      {"/bin/sh", ["-c", cmd_str]}
+    else
+      # Direct execution - use proper shell argument parsing
+      case parse_shell_args(cmd_str) do
+        {:ok, [cmd | args]} ->
+          {cmd, args}
 
-      {:ok, []} ->
-        {"", []}
+        {:ok, []} ->
+          {"", []}
 
-      {:error, _reason} ->
-        # Fallback to simple split if parsing fails
-        [cmd | args] = String.split(cmd_str)
-        {cmd, args}
+        {:error, _reason} ->
+          # Fallback to simple split if parsing fails
+          [cmd | args] = String.split(cmd_str)
+          {cmd, args}
+      end
     end
   end
 
   defp build_command(cmd_str, "bash"), do: {"/usr/bin/bash", ["-c", cmd_str]}
-  defp build_command(cmd_str, "sh"), do: {"/usr/bin/sh", ["-c", cmd_str]}
+  defp build_command(cmd_str, "sh"), do: {"/bin/sh", ["-c", cmd_str]}
   defp build_command(cmd_str, "zsh"), do: {"/usr/bin/zsh", ["-c", cmd_str]}
   defp build_command(cmd_str, "powershell"), do: {"powershell", ["-Command", cmd_str]}
   defp build_command(cmd_str, shell) when is_binary(shell), do: {shell, ["-c", cmd_str]}
