@@ -141,7 +141,7 @@ defmodule Mimo.SemanticStore.Resolver do
   # Private Functions
   # ==========================================================================
 
-  defp search_entity_anchors(text, expected_type, graph_id, min_score \\ 0.85) do
+  defp search_entity_anchors(text, expected_type, graph_id, min_score) do
     # Use vector similarity search with proper threshold
     case Memory.search(text, limit: 5, type: @entity_anchor_type, min_similarity: min_score) do
       {:ok, results} ->

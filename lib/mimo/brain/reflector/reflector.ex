@@ -582,14 +582,12 @@ defmodule Mimo.Brain.Reflector do
     end
   end
 
-  @doc """
-  Extract verifiable claims from output.
-
-  Looks for patterns that can be verified:
-  - Counting claims ("X has Y letters/items")
-  - Arithmetic claims ("X * Y = Z")
-  - Logic claims with premises
-  """
+  # Extract verifiable claims from output.
+  #
+  # Looks for patterns that can be verified:
+  # - Counting claims ("X has Y letters/items")
+  # - Arithmetic claims ("X * Y = Z")
+  # - Logic claims with premises
   @spec extract_verifiable_claims(String.t(), map()) :: list(map())
   defp extract_verifiable_claims(output, _context) do
     claims = []
