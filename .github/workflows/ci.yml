@@ -74,7 +74,9 @@ jobs:
         run: mix format --check-formatted
 
       - name: Compile (includes Rust NIFs)
-        run: mix compile --warnings-as-errors
+        run: |
+          mix deps.compile
+          mix compile --warnings-as-errors --force
 
       - name: Setup Database
         run: |
