@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "mimo": {
-      "type": "stdio",
-      "command": "/workspace/mrc-server/mimo-mcp/bin/mimo",
-      "args": ["stdio"]
-    }
-  }
-}

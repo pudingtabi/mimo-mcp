@@ -42,10 +42,13 @@ erl_crash.dump
 # Test
 /cover/
 /doc/
+_test_diagnostics_*/
+test_mcp.json
 
 # Temporary
 /tmp/
 *.log
+.git_commit_msg
 native/vector_math/target/
 /workspace/
 
