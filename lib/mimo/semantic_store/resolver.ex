@@ -42,7 +42,7 @@ defmodule Mimo.SemanticStore.Resolver do
 
     # Search for existing entity anchors
     result =
-      case search_entity_anchors(normalized_text, expected_type, graph_id) do
+      case search_entity_anchors(normalized_text, expected_type, graph_id, min_score) do
         {:ok, []} ->
           # No matches - create new entity
           create_new_entity(normalized_text, expected_type, graph_id)
@@ -110,7 +110,7 @@ defmodule Mimo.SemanticStore.Resolver do
 
       {:error, :not_found} ->
         # Create new anchor asynchronously
-        Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
+        Mimo.Sandbox.run_async(Mimo.Repo, fn ->
           create_entity_anchor(entity_id, normalized, graph_id)
         end)
 
@@ -141,9 +141,9 @@ defmodule Mimo.SemanticStore.Resolver do
   # Private Functions
   # ==========================================================================
 
-  defp search_entity_anchors(text, expected_type, graph_id) do
-    # Use vector similarity search
-    case Memory.search(text, limit: 5, type: @entity_anchor_type) do
+  defp search_entity_anchors(text, expected_type, graph_id, min_score \\ 0.85) do
+    # Use vector similarity search with proper threshold
+    case Memory.search(text, limit: 5, type: @entity_anchor_type, min_similarity: min_score) do
       {:ok, results} ->
         candidates =
           results
@@ -178,16 +178,31 @@ defmodule Mimo.SemanticStore.Resolver do
   end
 
   defp create_entity_anchor(entity_id, text, graph_id) do
-    Memory.store(%{
-      content: text,
-      type: @entity_anchor_type,
-      ref: entity_id,
-      metadata: %{
-        "graph_id" => graph_id,
-        "entity_type" => extract_type_from_id(entity_id),
-        "created_at" => DateTime.utc_now() |> DateTime.to_iso8601()
-      }
-    })
+    do_create_entity_anchor(entity_id, text, graph_id, 3)
+  end
+
+  defp do_create_entity_anchor(_entity_id, _text, _graph_id, 0), do: {:error, :max_retries_exceeded}
+
+  defp do_create_entity_anchor(entity_id, text, graph_id, attempts) do
+    try do
+      Memory.store(%{
+        content: text,
+        type: @entity_anchor_type,
+        ref: entity_id,
+        metadata: %{
+          "graph_id" => graph_id,
+          "entity_type" => extract_type_from_id(entity_id),
+          "created_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+        }
+      })
+    rescue
+      e ->
+        # Retry on DB busy or connection errors
+        Logger.warning("create_entity_anchor failed (#{attempts} attempts left): #{inspect(e)}")
+
+        :timer.sleep(50)
+        do_create_entity_anchor(entity_id, text, graph_id, attempts - 1)
+    end
   end
 
   defp generate_canonical_id(text, type) do

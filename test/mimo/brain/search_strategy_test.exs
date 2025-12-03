@@ -37,7 +37,7 @@ defmodule Mimo.Brain.Memory.SearchStrategyTest do
       result = Memory.determine_strategy(1000, nil)
       assert result in [:hnsw, :binary_rescore]
 
-      result = Memory.determine_strategy(10000, nil)
+      result = Memory.determine_strategy(10_000, nil)
       assert result in [:hnsw, :binary_rescore]
     end
 

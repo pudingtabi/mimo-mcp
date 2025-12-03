@@ -150,11 +150,16 @@ defmodule Mimo.Brain.AccessTracker do
     now = NaiveDateTime.utc_now()
     ids = Map.keys(pending)
 
-    # Batch update all pending accesses
-    Enum.each(pending, fn {id, increment} ->
-      # Increment access count and update last_accessed_at
+    # Group IDs by increment value for batched updates
+    # Most accesses are +1, so this batches efficiently
+    by_increment =
+      pending
+      |> Enum.group_by(fn {_id, increment} -> increment end, fn {id, _increment} -> id end)
+
+    # Batch update each increment group with a single query
+    Enum.each(by_increment, fn {increment, id_list} ->
       from(e in Engram,
-        where: e.id == ^id,
+        where: e.id in ^id_list,
         update: [
           set: [
             access_count: coalesce(e.access_count, 0) + ^increment,

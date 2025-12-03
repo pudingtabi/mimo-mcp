@@ -392,28 +392,33 @@ defmodule Mimo.Skills.FileOps do
   defp search_in_file(path, pattern, max_results, context_lines) do
     case File.read(path) do
       {:ok, content} ->
-        regex = Regex.compile!(pattern, [:caseless])
-        lines = String.split(content, "\n")
+        case Regex.compile(pattern, [:caseless]) do
+          {:ok, regex} ->
+            lines = String.split(content, "\n")
 
-        matches =
-          lines
-          |> Enum.with_index(1)
-          |> Enum.filter(fn {line, _} -> Regex.match?(regex, line) end)
-          |> Enum.take(max_results)
-          |> Enum.map(fn {line, idx} ->
-            before = get_context(lines, idx, -context_lines)
-            after_ctx = get_context(lines, idx, context_lines)
+            matches =
+              lines
+              |> Enum.with_index(1)
+              |> Enum.filter(fn {line, _} -> Regex.match?(regex, line) end)
+              |> Enum.take(max_results)
+              |> Enum.map(fn {line, idx} ->
+                before = get_context(lines, idx, -context_lines)
+                after_ctx = get_context(lines, idx, context_lines)
 
-            %{
-              file: path,
-              line: idx,
-              content: line,
-              context_before: before,
-              context_after: after_ctx
-            }
-          end)
+                %{
+                  file: path,
+                  line: idx,
+                  content: line,
+                  context_before: before,
+                  context_after: after_ctx
+                }
+              end)
 
-        {:ok, matches}
+            {:ok, matches}
+
+          {:error, {reason, position}} ->
+            {:error, "Invalid regex pattern: #{reason} at position #{position}"}
+        end
 
       {:error, reason} ->
         {:error, reason}

@@ -5,29 +5,35 @@ defmodule Mimo.Tools do
   This is the public API for Mimo's native tools. It delegates to modular
   dispatcher modules for actual implementation.
 
-  Consolidated native Elixir tools - fewer tools, more power.
-  Each tool handles multiple operations via the 'operation' parameter.
+  ## Tool Architecture (After Phase 1-4 Consolidation)
 
-  ## Core Tools
+  Mimo provides 17 primary tools with 12 deprecated aliases for backward compatibility.
 
-  1. `file` - All file operations (read, write, ls, search, info, etc.)
+  ### Primary Tools (17)
+
+  1. `file` - All file operations (read, write, ls, search, edit, glob, etc.)
   2. `terminal` - All terminal/process operations
-  3. `fetch` - All network operations (text, html, json, markdown)
-  4. `think` - All cognitive operations (thought, plan, sequential)
-  5. `web_parse` - Convert HTML to Markdown
-  6. `search` - Web search via DuckDuckGo, Bing, or Brave (auto-fallback)
-  7. `web_extract` - Extract clean content from web pages
-  8. `sonar` - UI accessibility scanner
-  9. `vision` - Image analysis via vision-capable LLM
-  10. `knowledge` - Knowledge graph operations (SemanticStore + Synapse)
-  11. `blink` - Enhanced web fetch with browser fingerprinting (HTTP-level)
-  12. `browser` - Full browser automation with Puppeteer stealth
-  13. `cognitive` - Epistemic uncertainty & meta-cognition (SPEC-024)
-  14. `code_symbols` - Code structure analysis (Tree-Sitter)
-  15. `library` - Package documentation lookup
-  16. `diagnostics` - Compile/lint errors and warnings
-  17. `onboard` - Project initialization meta-tool (SPEC-031)
-  18. `graph` - [DEPRECATED] Redirects to knowledge tool
+  3. `web` - **UNIFIED** All web operations (fetch, search, blink, browser, vision, sonar, extract, parse)
+  4. `code` - **UNIFIED** All code intelligence (symbols, library, diagnostics)
+  5. `think` - Cognitive operations (thought, plan, sequential)
+  6. `knowledge` - Knowledge graph operations (SemanticStore + Synapse)
+  7. `cognitive` - Meta-cognition, verification, emergence, reflector operations
+  8. `reason` - Unified reasoning engine (CoT, ToT, ReAct, Reflexion)
+  9. `onboard` - Project initialization meta-tool
+  10. `meta` - Unified composite operations (analyze_file, debug_error, prepare_context, suggest_next_tool)
+  11. `analyze_file` - Composite: file + symbols + diagnostics + knowledge
+  12. `debug_error` - Composite: memory + symbols + diagnostics
+  13. `prepare_context` - Smart context aggregation
+  14. `suggest_next_tool` - Workflow guidance
+  15. `emergence` - Pattern detection (SPEC-044)
+  16. `reflector` - Self-reflection (SPEC-043)
+  17. `verify` - Executable verification (SPEC-AI-TEST)
+
+  ### Deprecated Tools (12) - Redirect to Unified
+
+  - `fetch`, `search`, `blink`, `browser`, `vision`, `sonar`, `web_extract`, `web_parse` → `web`
+  - `code_symbols`, `library`, `diagnostics` → `code`
+  - `graph` → `knowledge`
 
   ## Architecture (SPEC-030)
 
@@ -59,30 +65,47 @@ defmodule Mimo.Tools do
       "terminal" ->
         Dispatchers.Terminal.dispatch(arguments)
 
-      # Web operations
+      # =================================================================
+      # WEB TOOL (Unified - Phase 4)
+      # =================================================================
+      # Consolidates: fetch, search, blink, browser, vision, sonar,
+      #               web_extract, web_parse
+      # =================================================================
+      "web" ->
+        Dispatchers.Web.dispatch(arguments)
+
+      # Legacy web tools - redirect to unified dispatcher
       "fetch" ->
-        Dispatchers.Web.dispatch_fetch(arguments)
+        # DEPRECATED: Use `web operation=fetch` instead
+        Dispatchers.Web.dispatch(Map.put(arguments, "operation", "fetch"))
 
       "search" ->
-        Dispatchers.Web.dispatch_search(arguments)
+        # DEPRECATED: Use `web operation=search` instead
+        Dispatchers.Web.dispatch(Map.put(arguments, "operation", "search"))
 
       "blink" ->
-        Dispatchers.Web.dispatch_blink(arguments)
+        # DEPRECATED: Use `web operation=blink` instead
+        Dispatchers.Web.dispatch(Map.put(arguments, "operation", "blink"))
 
       "browser" ->
-        Dispatchers.Web.dispatch_browser(arguments)
+        # DEPRECATED: Use `web operation=browser` instead
+        Dispatchers.Web.dispatch(Map.put(arguments, "operation", "browser"))
 
       "vision" ->
-        Dispatchers.Web.dispatch_vision(arguments)
+        # DEPRECATED: Use `web operation=vision` instead
+        Dispatchers.Web.dispatch(Map.put(arguments, "operation", "vision"))
 
       "sonar" ->
-        Dispatchers.Web.dispatch_sonar(arguments)
+        # DEPRECATED: Use `web operation=sonar` instead
+        Dispatchers.Web.dispatch(Map.put(arguments, "operation", "sonar"))
 
       "web_extract" ->
-        Dispatchers.Web.dispatch_web_extract(arguments)
+        # DEPRECATED: Use `web operation=extract` instead
+        Dispatchers.Web.dispatch(Map.put(arguments, "operation", "extract"))
 
       "web_parse" ->
-        Dispatchers.Web.dispatch_web_parse(arguments)
+        # DEPRECATED: Use `web operation=parse` instead
+        Dispatchers.Web.dispatch(Map.put(arguments, "operation", "parse"))
 
       # Cognitive operations
       "think" ->
@@ -90,6 +113,9 @@ defmodule Mimo.Tools do
 
       "cognitive" ->
         Dispatchers.Cognitive.dispatch(arguments)
+
+      "reason" ->
+        Dispatchers.Cognitive.dispatch_reason(arguments)
 
       # Knowledge graph operations
       "knowledge" ->
@@ -103,28 +129,104 @@ defmodule Mimo.Tools do
 
         Dispatchers.Knowledge.dispatch(arguments)
 
-      # Code analysis
-      "code_symbols" ->
+      # Unified Code Intelligence (SPEC-030 Phase 3 consolidation)
+      "code" ->
         Dispatchers.Code.dispatch(arguments)
 
-      # Library documentation
-      "library" ->
-        Dispatchers.Library.dispatch(arguments)
+      # Legacy code_symbols → code tool
+      "code_symbols" ->
+        Logger.debug("[LEGACY] 'code_symbols' tool called - consider using 'code operation=...'")
+        Dispatchers.Code.dispatch(arguments)
 
-      # Diagnostics
+      # Legacy library → code tool with library_* operations
+      "library" ->
+        Logger.debug(
+          "[LEGACY] 'library' tool called - consider using 'code operation=library|library_search|library_ensure|library_discover|library_stats'"
+        )
+
+        # Map legacy library operations to new code tool operations
+        op = arguments["operation"] || "get"
+
+        new_op =
+          case op do
+            "get" -> "library_get"
+            "search" -> "library_search"
+            "ensure" -> "library_ensure"
+            "discover" -> "library_discover"
+            "stats" -> "library_stats"
+            _ -> "library_get"
+          end
+
+        Dispatchers.Code.dispatch(Map.put(arguments, "operation", new_op))
+
+      # Legacy diagnostics → code tool with check/lint/typecheck/diagnose operations
       "diagnostics" ->
-        Dispatchers.Diagnostics.dispatch(arguments)
+        Logger.debug(
+          "[LEGACY] 'diagnostics' tool called - consider using 'code operation=check|lint|typecheck|diagnose'"
+        )
+
+        # Map legacy diagnostics operations to new code tool operations
+        op = arguments["operation"] || "all"
+
+        new_op =
+          case op do
+            "all" -> "diagnostics_all"
+            "check" -> "check"
+            "lint" -> "lint"
+            "typecheck" -> "typecheck"
+            _ -> "diagnostics_all"
+          end
+
+        Dispatchers.Code.dispatch(Map.put(arguments, "operation", new_op))
+
+      # Verification (SPEC-AI-TEST)
+      "verify" ->
+        Dispatchers.Verify.dispatch(arguments)
 
       # Project onboarding (SPEC-031 Phase 3)
       "onboard" ->
         Dispatchers.Onboard.dispatch(arguments)
 
-      # Compound domain actions (SPEC-031 Phase 5)
+      # Compound domain actions (SPEC-031 Phase 5) - Now consolidated into meta tool
+      # Legacy standalone interfaces still work but redirect to meta dispatcher
+      "meta" ->
+        Dispatchers.Meta.dispatch(arguments)
+
       "analyze_file" ->
-        Dispatchers.AnalyzeFile.dispatch(arguments)
+        Logger.debug(
+          "[LEGACY] 'analyze_file' tool called - consider using 'meta operation=analyze_file'"
+        )
+
+        Dispatchers.Meta.dispatch_analyze_file(arguments)
 
       "debug_error" ->
-        Dispatchers.DebugError.dispatch(arguments)
+        Logger.debug(
+          "[LEGACY] 'debug_error' tool called - consider using 'meta operation=debug_error'"
+        )
+
+        Dispatchers.Meta.dispatch_debug_error(arguments)
+
+      "prepare_context" ->
+        Logger.debug(
+          "[LEGACY] 'prepare_context' tool called - consider using 'meta operation=prepare_context'"
+        )
+
+        Dispatchers.Meta.dispatch_prepare_context(arguments)
+
+      "suggest_next_tool" ->
+        Logger.debug(
+          "[LEGACY] 'suggest_next_tool' tool called - consider using 'meta operation=suggest_next_tool'"
+        )
+
+        Dispatchers.Meta.dispatch_suggest_next_tool(arguments)
+
+      # Emergent Capabilities (SPEC-044)
+      "emergence" ->
+        Dispatchers.Emergence.dispatch(arguments)
+
+      # Reflective Intelligence (SPEC-043)
+      "reflector" ->
+        Dispatchers.Reflector.dispatch(arguments)
 
       # Legacy aliases for backward compatibility
       "http_request" ->
@@ -151,7 +253,7 @@ defmodule Mimo.Tools do
 
       _ ->
         {:error,
-         "Unknown tool: #{tool_name}. Available: file, terminal, fetch, think, web_parse, search, web_extract, sonar, vision, knowledge, code_symbols, library, graph, cognitive, diagnostics, onboard, blink, browser"}
+         "Unknown tool: #{tool_name}. Available: file, terminal, web, fetch, search, blink, browser, vision, sonar, web_extract, web_parse, think, cognitive, reason, knowledge, code, code_symbols, library, diagnostics, verify, graph, onboard, meta, analyze_file, debug_error, prepare_context, suggest_next_tool, emergence, reflector"}
     end
   end
 end

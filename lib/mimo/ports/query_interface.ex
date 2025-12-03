@@ -9,6 +9,8 @@ defmodule Mimo.QueryInterface do
   """
   require Logger
 
+  alias Mimo.TaskHelper
+
   @doc """
   Process a natural language query through the Meta-Cognitive Router.
   Routes to appropriate stores (Episodic, Semantic, Procedural) based on query classification.
@@ -27,7 +29,7 @@ defmodule Mimo.QueryInterface do
     timeout_ms = Keyword.get(opts, :timeout_ms, 30_000)
 
     task =
-      Task.async(fn ->
+      TaskHelper.async_with_callers(fn ->
         # Classify the query through Meta-Cognitive Router
         router_decision = Mimo.MetaCognitiveRouter.classify(query)
 
@@ -39,42 +41,66 @@ defmodule Mimo.QueryInterface do
         entities = extract_entities_from_query(query)
         proactive_suggestions = get_observer_suggestions(entities, [])
 
-        # Always synthesize with LLM - ask_mimo should provide intelligent answers
-        # not just raw memory dumps
-        synthesis_result = Mimo.Brain.LLM.consult_chief_of_staff(query, memories.episodic || [])
+        # If LLM services are unavailable, return memory-only results without error
+        if not Mimo.Brain.LLM.available?() or
+             Application.get_env(:mimo_mcp, :skip_external_apis, false) do
+          {:ok,
+           %{
+             query_id: UUID.uuid4(),
+             router_decision: router_decision,
+             results: memories,
+             synthesis: nil,
+             synthesis_error: ":no_api_key",
+             proactive_suggestions: proactive_suggestions,
+             context_id: context_id
+           }}
+        else
+          # Prefer LLM synthesis when available to enrich answers
+          synthesis_result = Mimo.Brain.LLM.consult_chief_of_staff(query, memories.episodic || [])
 
-        case synthesis_result do
-          {:ok, response} ->
-            # Record the conversation in memory (async, don't block response)
-            record_conversation(query, response, context_id)
+          case synthesis_result do
+            {:ok, response} ->
+              # Record the conversation in memory (async, don't block response)
+              record_conversation(query, response, context_id)
 
-            {:ok,
-             %{
-               query_id: UUID.uuid4(),
-               router_decision: router_decision,
-               results: memories,
-               synthesis: response,
-               proactive_suggestions: proactive_suggestions,
-               context_id: context_id
-             }}
+              {:ok,
+               %{
+                 query_id: UUID.uuid4(),
+                 router_decision: router_decision,
+                 results: memories,
+                 synthesis: response,
+                 proactive_suggestions: proactive_suggestions,
+                 context_id: context_id
+               }}
 
-          {:error, :no_api_key} ->
-            {:error,
-             "OpenRouter API key not configured. Set OPENROUTER_API_KEY environment variable."}
+            {:error, :no_api_key} ->
+              Logger.warning("LLM unavailable (no API key); returning memories only")
 
-          {:error, reason} ->
-            Logger.warning("LLM synthesis failed: #{inspect(reason)}, returning memories only")
-            # Return memories without synthesis if LLM fails (circuit breaker, timeout, etc.)
-            {:ok,
-             %{
-               query_id: UUID.uuid4(),
-               router_decision: router_decision,
-               results: memories,
-               synthesis: nil,
-               synthesis_error: inspect(reason),
-               proactive_suggestions: proactive_suggestions,
-               context_id: context_id
-             }}
+              {:ok,
+               %{
+                 query_id: UUID.uuid4(),
+                 router_decision: router_decision,
+                 results: memories,
+                 synthesis: nil,
+                 synthesis_error: ":no_api_key",
+                 proactive_suggestions: proactive_suggestions,
+                 context_id: context_id
+               }}
+
+            {:error, reason} ->
+              Logger.warning("LLM synthesis failed: #{inspect(reason)}, returning memories only")
+              # Return memories without synthesis if LLM fails (circuit breaker, timeout, etc.)
+              {:ok,
+               %{
+                 query_id: UUID.uuid4(),
+                 router_decision: router_decision,
+                 results: memories,
+                 synthesis: nil,
+                 synthesis_error: inspect(reason),
+                 proactive_suggestions: proactive_suggestions,
+                 context_id: context_id
+               }}
+          end
         end
       end)
 
@@ -118,15 +144,59 @@ defmodule Mimo.QueryInterface do
           8
       end
 
-    results = Mimo.Brain.Memory.search_memories(query, limit: limit, recency_boost: 0.3)
+    # Use MemoryRouter for robust retrieval with fallbacks
+    # (Previously used Memory.search_memories which fails silently on embedding errors)
+    case Mimo.Brain.MemoryRouter.route(query, limit: limit) do
+      {:ok, results} ->
+        # MemoryRouter returns {memory, score} tuples - extract just the memories
+        # Also sanitize for JSON encoding (remove binary embedding field)
+        memories =
+          Enum.map(results, fn
+            {memory, _score} when is_map(memory) -> sanitize_memory_for_json(memory)
+            memory when is_map(memory) -> sanitize_memory_for_json(memory)
+            _ -> nil
+          end)
+          |> Enum.reject(&is_nil/1)
 
-    # Log if we found memories that would have been missed by old logic
-    if not Enum.empty?(results) and decision.primary_store != :episodic do
-      Logger.debug("Found #{length(results)} episodic memories for non-episodic query")
+        # Log if we found memories that would have been missed by old logic
+        if not Enum.empty?(memories) and decision.primary_store != :episodic do
+          Logger.debug("Found #{length(memories)} episodic memories for non-episodic query")
+        end
+
+        memories
+
+      {:error, reason} ->
+        Logger.warning("MemoryRouter failed: #{inspect(reason)}, trying direct search")
+        # Fallback to direct search - also sanitize the results
+        case Mimo.Brain.Memory.search_memories(query, limit: limit, recency_boost: 0.3) do
+          results when is_list(results) ->
+            Enum.map(results, &sanitize_memory_for_json/1)
+
+          _ ->
+            []
+        end
     end
-
-    results
   end
+
+  # Sanitize memory for JSON encoding - remove binary fields and convert structs
+  defp sanitize_memory_for_json(memory) when is_map(memory) do
+    memory
+    |> convert_to_map()
+    |> Map.drop([:embedding, :embedding_int8, :embedding_binary, :__struct__, :__meta__])
+    |> Map.update(:embedding, [], fn
+      nil -> []
+      # Binary embeddings can't be JSON encoded
+      bin when is_binary(bin) -> []
+      # Even float lists are huge, skip
+      list when is_list(list) -> []
+      _ -> []
+    end)
+  end
+
+  defp sanitize_memory_for_json(other), do: other
+
+  defp convert_to_map(%{__struct__: _} = struct), do: Map.from_struct(struct)
+  defp convert_to_map(map) when is_map(map), do: map
 
   defp search_semantic(query, %{primary_store: :semantic} = _decision) do
     alias Mimo.SemanticStore.Query
@@ -190,7 +260,7 @@ defmodule Mimo.QueryInterface do
   # Record ask_mimo conversations in memory for future context
   defp record_conversation(query, response, context_id) do
     # Run async to not block the response
-    Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
+    Mimo.Sandbox.run_async(Mimo.Repo, fn ->
       try do
         # Truncate long responses to avoid bloating memory
         truncated_response =

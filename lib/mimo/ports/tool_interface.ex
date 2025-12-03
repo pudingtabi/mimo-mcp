@@ -67,10 +67,51 @@ defmodule Mimo.ToolInterface do
   defp do_execute(tool_name, arguments)
 
   # ============================================================================
-  # SPEC-011.1: Procedural Store Tools
+  # SPEC-011.1: Procedural Store Tools (consolidated)
   # ============================================================================
 
-  # Execute a registered procedure as a state machine.
+  # Execute or check status of a procedure
+  # operation=status: Check execution status by execution_id
+  defp do_execute("run_procedure", %{"operation" => "status", "execution_id" => execution_id}) do
+    if Mimo.Application.feature_enabled?(:procedural_store) do
+      case Repo.get(Execution, execution_id) do
+        nil ->
+          {:error, "Execution not found: #{execution_id}"}
+
+        execution ->
+          elapsed_ms =
+            if execution.started_at do
+              now = NaiveDateTime.utc_now()
+              NaiveDateTime.diff(now, execution.started_at, :millisecond)
+            else
+              0
+            end
+
+          {:ok,
+           %{
+             tool_call_id: UUID.uuid4(),
+             status: "success",
+             data: %{
+               execution_id: execution.id,
+               status: execution.status,
+               current_state: execution.current_state,
+               context: execution.context,
+               history: execution.history,
+               elapsed_ms: elapsed_ms,
+               error: execution.error
+             }
+           }}
+      end
+    else
+      {:error, "Procedural store is not enabled. Set PROCEDURAL_STORE_ENABLED=true to enable."}
+    end
+  end
+
+  defp do_execute("run_procedure", %{"operation" => "status"}) do
+    {:error, "Missing required argument: 'execution_id' for status operation"}
+  end
+
+  # operation=run (default): Execute a registered procedure as a state machine
   defp do_execute("run_procedure", %{"name" => name} = args) do
     if Mimo.Application.feature_enabled?(:procedural_store) do
       version = Map.get(args, "version", "latest")
@@ -157,47 +198,8 @@ defmodule Mimo.ToolInterface do
   end
 
   defp do_execute("run_procedure", _args) do
-    {:error, "Missing required argument: 'name'"}
-  end
-
-  # Check status of a procedure execution.
-  defp do_execute("procedure_status", %{"execution_id" => execution_id}) do
-    if Mimo.Application.feature_enabled?(:procedural_store) do
-      case Repo.get(Execution, execution_id) do
-        nil ->
-          {:error, "Execution not found: #{execution_id}"}
-
-        execution ->
-          elapsed_ms =
-            if execution.started_at do
-              now = NaiveDateTime.utc_now()
-              NaiveDateTime.diff(now, execution.started_at, :millisecond)
-            else
-              0
-            end
-
-          {:ok,
-           %{
-             tool_call_id: UUID.uuid4(),
-             status: "success",
-             data: %{
-               execution_id: execution.id,
-               status: execution.status,
-               current_state: execution.current_state,
-               context: execution.context,
-               history: execution.history,
-               elapsed_ms: elapsed_ms,
-               error: execution.error
-             }
-           }}
-      end
-    else
-      {:error, "Procedural store is not enabled. Set PROCEDURAL_STORE_ENABLED=true to enable."}
-    end
-  end
-
-  defp do_execute("procedure_status", _args) do
-    {:error, "Missing required argument: 'execution_id'"}
+    {:error,
+     "Missing required argument: 'name' for run operation, or 'execution_id' for status operation"}
   end
 
   # List all registered procedures.
@@ -507,15 +509,87 @@ defmodule Mimo.ToolInterface do
   defp do_execute("ask_mimo", %{"query" => query}) do
     case Mimo.QueryInterface.ask(query) do
       {:ok, result} ->
+        # Sanitize result to ensure all structs are converted to maps for JSON encoding
+        sanitized_result = sanitize_for_json(result)
+
         {:ok,
          %{
            tool_call_id: UUID.uuid4(),
            status: "success",
-           data: result
+           data: sanitized_result
          }}
 
       {:error, reason} ->
         {:error, "Query failed: #{inspect(reason)}"}
+    end
+  end
+
+  # SPEC-040 v1.2: Awakening Status Tool with Tool Balance Metrics
+  defp do_execute("awakening_status", arguments) do
+    include_achievements = Map.get(arguments, "include_achievements", false)
+    include_guidance = Map.get(arguments, "include_guidance", true)
+
+    case Mimo.Awakening.get_status(include_achievements: include_achievements) do
+      {:ok, status} ->
+        # Format the response for display
+        power = status.power_level
+        stats = status.stats
+
+        response = %{
+          power_level: %{
+            level: power["current"],
+            name: power["name"],
+            icon: power["icon"],
+            xp: power["xp"],
+            next_level_xp: power["next_level_xp"],
+            progress_percent: power["progress_percent"]
+          },
+          wisdom_stats: %{
+            total_sessions: stats["total_sessions"],
+            total_memories: stats["total_memories"],
+            total_relationships: stats["total_relationships"],
+            total_procedures: stats["total_procedures"],
+            active_days: stats["active_days"]
+          },
+          unlocked_capabilities: status.unlocked_capabilities
+        }
+
+        response =
+          if include_guidance do
+            Map.put(response, :behavioral_guidance, status.behavioral_guidance)
+          else
+            response
+          end
+
+        response =
+          if include_achievements do
+            Map.put(response, :achievements, status.achievements || [])
+          else
+            response
+          end
+
+        # SPEC-040 v1.2: Add tool balance metrics for behavioral self-awareness
+        session_id = Process.get(:mimo_session_id)
+
+        response =
+          if session_id do
+            case Mimo.Awakening.ContextInjector.build_tool_balance_summary(session_id) do
+              nil -> response
+              balance_summary -> Map.put(response, :tool_balance, balance_summary)
+            end
+          else
+            response
+          end
+
+        {:ok,
+         %{
+           tool_call_id: UUID.uuid4(),
+           status: "success",
+           data: response
+         }}
+
+      {:error, reason} ->
+        {:error, "Failed to get awakening status: #{inspect(reason)}"}
     end
   end
 
@@ -628,6 +702,15 @@ defmodule Mimo.ToolInterface do
            tool_call_id: UUID.uuid4(),
            status: "success",
            data: %{stored: true, id: id, embedding_generated: true}
+         }}
+
+      {:duplicate, id} ->
+        # Handle duplicate detection from TMC
+        {:ok,
+         %{
+           tool_call_id: UUID.uuid4(),
+           status: "success",
+           data: %{stored: true, id: id, duplicate: true, embedding_generated: true}
          }}
 
       {:error, reason} ->
@@ -1101,4 +1184,26 @@ defmodule Mimo.ToolInterface do
   defp format_datetime(%NaiveDateTime{} = dt), do: NaiveDateTime.to_iso8601(dt)
   defp format_datetime(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
   defp format_datetime(other), do: inspect(other)
+
+  # Recursively sanitize data for JSON encoding - converts structs to maps
+  defp sanitize_for_json(%{__struct__: _} = struct) do
+    struct
+    |> Map.from_struct()
+    |> Map.drop([:embedding, :embedding_int8, :embedding_binary, :__meta__])
+    |> sanitize_for_json()
+  end
+
+  defp sanitize_for_json(map) when is_map(map) do
+    Map.new(map, fn {k, v} -> {k, sanitize_for_json(v)} end)
+  end
+
+  defp sanitize_for_json(list) when is_list(list) do
+    Enum.map(list, &sanitize_for_json/1)
+  end
+
+  defp sanitize_for_json(tuple) when is_tuple(tuple) do
+    tuple |> Tuple.to_list() |> sanitize_for_json()
+  end
+
+  defp sanitize_for_json(other), do: other
 end

@@ -64,6 +64,8 @@ defmodule Mimo.Brain.LLM do
   Voice: Professional yet approachable. Use "I" not "we". Be specific.
   """
 
+  # Note: For context-aware steering (with level info), use Mimo.Brain.Steering module
+
   # =============================================================================
   # Public API
   # =============================================================================
@@ -170,13 +172,33 @@ defmodule Mimo.Brain.LLM do
         end)
       end
 
+    # Get current awakening stats for steering
+    steering_rules =
+      case Mimo.Awakening.Stats.get_or_create() do
+        {:ok, stats} ->
+          alias Mimo.Brain.Steering
+          Steering.strict_rules_with_level(stats.current_level, stats.total_xp)
+
+        _ ->
+          # Fallback if stats unavailable
+          alias Mimo.Brain.Steering
+          Steering.strict_rules()
+      end
+
     system_prompt = """
     #{@mimo_identity}
+
+    #{steering_rules}
 
     You have access to your memories:
     #{memory_context}
 
-    Respond in 2-3 sentences max. Be direct.
+    RESPONSE RULES:
+    - Respond in 2-3 sentences max. Be direct.
+    - DO NOT create welcome messages or greetings
+    - DO NOT mention XP or level unless specifically asked
+    - Focus on answering the user's actual question
+    - If asked about context/status, use ONLY the stats from MANDATORY FACTS above
     """
 
     # Use Cerebras for speed, fall back to OpenRouter

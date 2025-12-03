@@ -35,17 +35,16 @@ defmodule Mimo.ToolRegistry do
   # Internal tool definitions
   @internal_tool_names [
     "ask_mimo",
-    "search_vibes",
-    "store_fact",
     "mimo_reload_skills",
-    # SPEC-011.1: Procedural Store Tools
+    # SPEC-011.1: Procedural Store Tools (consolidated)
     "run_procedure",
-    "procedure_status",
     "list_procedures",
     # SPEC-011.2: Unified Memory Tool
     "memory",
     # SPEC-011.3: File Ingestion
-    "ingest"
+    "ingest",
+    # SPEC-040: Awakening Status
+    "awakening_status"
   ]
 
   # ==========================================================================
@@ -351,9 +350,8 @@ defmodule Mimo.ToolRegistry do
   defp classify_tool("store_fact"), do: {:internal, :store_fact}
   defp classify_tool("mimo_reload_skills"), do: {:internal, :reload}
 
-  # SPEC-011.1: Procedural Store Tools
+  # SPEC-011.1: Procedural Store Tools (consolidated - procedure_status merged into run_procedure)
   defp classify_tool("run_procedure"), do: {:internal, :run_procedure}
-  defp classify_tool("procedure_status"), do: {:internal, :procedure_status}
   defp classify_tool("list_procedures"), do: {:internal, :list_procedures}
 
   # SPEC-011.2: Unified Memory Tool
@@ -361,6 +359,9 @@ defmodule Mimo.ToolRegistry do
 
   # SPEC-011.3: File Ingestion
   defp classify_tool("ingest"), do: {:internal, :ingest}
+
+  # SPEC-040: Awakening Status Tool
+  defp classify_tool("awakening_status"), do: {:internal, :awakening_status}
 
   # Mimo.Tools core capabilities (17 tools)
   defp classify_tool("file"), do: {:mimo_core, :file}
@@ -388,6 +389,9 @@ defmodule Mimo.ToolRegistry do
   # SPEC-024: Epistemic uncertainty & meta-cognition
   defp classify_tool("cognitive"), do: {:mimo_core, :cognitive}
 
+  # SPEC-035: Unified Reasoning Engine
+  defp classify_tool("reason"), do: {:mimo_core, :reason}
+
   # SPEC-029: Multi-language diagnostics
   defp classify_tool("diagnostics"), do: {:mimo_core, :diagnostics}
 
@@ -396,6 +400,18 @@ defmodule Mimo.ToolRegistry do
   defp classify_tool("plan"), do: {:mimo_core, :think}
   defp classify_tool("consult_graph"), do: {:mimo_core, :knowledge}
   defp classify_tool("teach_mimo"), do: {:mimo_core, :knowledge}
+
+  # SPEC-031: Composite domain actions (compound tools)
+  defp classify_tool("onboard"), do: {:mimo_core, :onboard}
+  defp classify_tool("analyze_file"), do: {:mimo_core, :analyze_file}
+  defp classify_tool("debug_error"), do: {:mimo_core, :debug_error}
+  # SPEC-036: Smart context aggregation
+  defp classify_tool("prepare_context"), do: {:mimo_core, :prepare_context}
+  # SPEC-037: Workflow routing
+  defp classify_tool("suggest_next_tool"), do: {:mimo_core, :suggest_next_tool}
+
+  # Tool usage analytics
+  defp classify_tool("tool_usage"), do: {:internal, :tool_usage}
 
   defp classify_tool(_), do: :external
 
@@ -451,8 +467,17 @@ defmodule Mimo.ToolRegistry do
     [
       %{
         "name" => "ask_mimo",
-        "description" =>
-          "Consult Mimo's memory for strategic guidance. Query the AI memory system for context, patterns, and recommendations.",
+        "description" => """
+        🎯 ASK MIMO - Strategic memory consultation. Start EVERY session here!
+
+        WORKFLOW EXAMPLES:
+        ✓ Session start: ask_mimo "What context exists about this project?" → accumulated wisdom
+        ✓ Strategic question: ask_mimo "What patterns should I follow here?" → guidance
+        ✓ Before decisions: ask_mimo "What do I know about auth approaches?" → informed choice
+
+        Auto-records conversations for future context. Your questions AND Mimo's answers persist.
+        Consult Mimo's memory for strategic guidance. Query the AI memory system for context, patterns, and recommendations.
+        """,
         "inputSchema" => %{
           "type" => "object",
           "properties" => %{
@@ -518,55 +543,51 @@ defmodule Mimo.ToolRegistry do
         "inputSchema" => %{"type" => "object", "properties" => %{}}
       },
       # ========================================================================
-      # SPEC-011.1: Procedural Store Tools
+      # SPEC-011.1: Procedural Store Tools (consolidated)
       # ========================================================================
       %{
         "name" => "run_procedure",
         "description" =>
-          "Execute a registered procedure as a state machine. Procedures run deterministically without LLM involvement.",
+          "Execute or check status of a procedure. Operations: run (default), status. Procedures run deterministically without LLM involvement.",
         "inputSchema" => %{
           "type" => "object",
           "properties" => %{
+            "operation" => %{
+              "type" => "string",
+              "enum" => ["run", "status"],
+              "default" => "run",
+              "description" => "Operation: 'run' to execute, 'status' to check execution status"
+            },
             "name" => %{
               "type" => "string",
-              "description" => "Procedure name"
+              "description" => "For run: Procedure name"
             },
             "version" => %{
               "type" => "string",
               "default" => "latest",
-              "description" => "Procedure version (or 'latest')"
+              "description" => "For run: Procedure version (or 'latest')"
             },
             "context" => %{
               "type" => "object",
               "default" => %{},
-              "description" => "Initial execution context"
+              "description" => "For run: Initial execution context"
             },
             "async" => %{
               "type" => "boolean",
               "default" => false,
-              "description" => "Return immediately with execution_id instead of waiting"
+              "description" => "For run: Return immediately with execution_id instead of waiting"
             },
             "timeout" => %{
               "type" => "integer",
               "default" => 60_000,
-              "description" => "Timeout in milliseconds (sync mode only)"
-            }
-          },
-          "required" => ["name"]
-        }
-      },
-      %{
-        "name" => "procedure_status",
-        "description" => "Check status of a procedure execution (especially for async executions).",
-        "inputSchema" => %{
-          "type" => "object",
-          "properties" => %{
+              "description" => "For run: Timeout in milliseconds (sync mode only)"
+            },
             "execution_id" => %{
               "type" => "string",
-              "description" => "Execution ID returned from run_procedure"
+              "description" => "For status: Execution ID returned from async run"
             }
           },
-          "required" => ["execution_id"]
+          "required" => []
         }
       },
       %{
@@ -582,8 +603,17 @@ defmodule Mimo.ToolRegistry do
       # ========================================================================
       %{
         "name" => "memory",
-        "description" =>
-          "Unified memory operations: store, search, list, delete, stats, decay_check. Replaces store_fact and search_vibes.",
+        "description" => """
+        🧠 MEMORY - Your persistent knowledge store. Search BEFORE reading files!
+
+        WORKFLOW EXAMPLES:
+        ✓ Before file read: memory search "auth patterns" → found context → skipped file read
+        ✓ After discovery: memory store "Phoenix uses Ecto" category=fact → persists forever
+        ✓ Session start: memory search "user preferences" → personalized behavior
+        ✓ Check health: memory stats → see memory count, categories, decay status
+
+        Unified memory operations: store, search, list, delete, stats, decay_check. Replaces store_fact and search_vibes.
+        """,
         "inputSchema" => %{
           "type" => "object",
           "properties" => %{
@@ -734,6 +764,31 @@ defmodule Mimo.ToolRegistry do
             }
           },
           "required" => ["path"]
+        }
+      },
+      # ========================================================================
+      # SPEC-040: Awakening Status Tool
+      # ========================================================================
+      %{
+        "name" => "awakening_status",
+        "description" =>
+          "Get your current Mimo Awakening status including power level, XP, achievements, and capabilities. " <>
+            "Shows your progression from Base (🌑) through Ultra (🌌) power levels.",
+        "inputSchema" => %{
+          "type" => "object",
+          "properties" => %{
+            "include_achievements" => %{
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Include detailed achievement list in response"
+            },
+            "include_guidance" => %{
+              "type" => "boolean",
+              "default" => true,
+              "description" => "Include behavioral guidance for current power level"
+            }
+          },
+          "required" => []
         }
       }
     ]

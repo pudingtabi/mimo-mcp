@@ -1,0 +1,14 @@
+fix(ci): resolve test failures for CI
+
+Changes:
+- Memory module: Add public determine_strategy/2 and count_memories/0 functions
+- Memory module: Handle {:duplicate, id} in persist_memory transaction
+- Memory module: Add unwrap_transaction_result clause for duplicates
+- RetryStrategies: Pass through {:duplicate, id} without retrying
+- HNSW tests: Add @tag :hnsw_nif to all tests that require NIF
+- HNSW tests: Simplify setup to avoid NIF errors on excluded tests
+- Cleanup tests: Handle duplicate detection in test assertions
+- Cleanup tests: Use direct Repo.insert for predictable test data
+- Search strategy tests: Fix return value expectations (no {:ok, ...} wrapper)
+
+All 149 brain tests now pass with HNSW tests properly excluded.

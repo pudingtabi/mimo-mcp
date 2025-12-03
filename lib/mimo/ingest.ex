@@ -28,6 +28,11 @@ defmodule Mimo.Ingest do
   require Logger
   alias Mimo.Brain.Memory
 
+  # Extension to strategy mappings - reduces cyclomatic complexity
+  @markdown_extensions ~w(.md .markdown)
+  @whole_file_extensions ~w(.json .yaml .yml .toml .xml .html .htm)
+  @paragraph_extensions ~w(.txt .text .ex .exs .py .js .ts .rb .go .rs .java .c .cpp .h .cs)
+
   # Configuration
   # 10MB
   @max_file_size 10_485_760
@@ -187,32 +192,13 @@ defmodule Mimo.Ingest do
   end
 
   defp detect_strategy(path) do
-    case Path.extname(path) |> String.downcase() do
-      ".md" -> :markdown
-      ".markdown" -> :markdown
-      ".txt" -> :paragraphs
-      ".text" -> :paragraphs
-      ".json" -> :whole
-      ".yaml" -> :whole
-      ".yml" -> :whole
-      ".toml" -> :whole
-      ".xml" -> :whole
-      ".html" -> :whole
-      ".htm" -> :whole
-      ".ex" -> :paragraphs
-      ".exs" -> :paragraphs
-      ".py" -> :paragraphs
-      ".js" -> :paragraphs
-      ".ts" -> :paragraphs
-      ".rb" -> :paragraphs
-      ".go" -> :paragraphs
-      ".rs" -> :paragraphs
-      ".java" -> :paragraphs
-      ".c" -> :paragraphs
-      ".cpp" -> :paragraphs
-      ".h" -> :paragraphs
-      ".cs" -> :paragraphs
-      _ -> :paragraphs
+    ext = Path.extname(path) |> String.downcase()
+
+    cond do
+      ext in @markdown_extensions -> :markdown
+      ext in @whole_file_extensions -> :whole
+      ext in @paragraph_extensions -> :paragraphs
+      true -> :paragraphs
     end
   end
 
@@ -284,50 +270,60 @@ defmodule Mimo.Ingest do
     results =
       chunks
       |> Enum.with_index()
-      |> Enum.map(fn {chunk, index} ->
-        chunk_metadata =
-          Map.merge(metadata, %{
-            "source_file" => source,
-            "chunk_index" => index,
-            "total_chunks" => total_chunks,
-            "tags" => tags
-          })
+      |> Enum.map(
+        &store_single_chunk(&1, category, importance, tags, source, metadata, total_chunks)
+      )
 
-        # Build content with source context
-        content_with_context =
-          if total_chunks > 1 do
-            "[From: #{Path.basename(to_string(source))} (#{index + 1}/#{total_chunks})]\n#{chunk}"
-          else
-            chunk
-          end
+    process_store_results(results, source)
+  end
 
-        case Memory.persist_memory(content_with_context, category, importance, nil, chunk_metadata) do
-          {:ok, engram} ->
-            engram_id = if is_map(engram), do: engram.id, else: engram
-            {:ok, engram_id}
+  defp store_single_chunk(
+         {chunk, index},
+         category,
+         importance,
+         tags,
+         source,
+         metadata,
+         total_chunks
+       ) do
+    chunk_metadata = build_chunk_metadata(metadata, source, index, total_chunks, tags)
+    content = build_chunk_content(chunk, source, index, total_chunks)
 
-          {:error, reason} ->
-            {:error, reason}
-        end
-      end)
+    case Memory.persist_memory(content, category, importance, nil, chunk_metadata) do
+      {:ok, engram} ->
+        engram_id = if is_map(engram), do: engram.id, else: engram
+        {:ok, engram_id}
 
-    # Check if all succeeded
-    errors = Enum.filter(results, &match?({:error, _}, &1))
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
-    if Enum.empty?(errors) do
-      ids = Enum.map(results, fn {:ok, id} -> id end)
-      {:ok, ids}
+  defp build_chunk_metadata(metadata, source, index, total_chunks, tags) do
+    Map.merge(metadata, %{
+      "source_file" => source,
+      "chunk_index" => index,
+      "total_chunks" => total_chunks,
+      "tags" => tags
+    })
+  end
+
+  defp build_chunk_content(chunk, _source, _index, 1), do: chunk
+
+  defp build_chunk_content(chunk, source, index, total_chunks) do
+    "[From: #{Path.basename(to_string(source))} (#{index + 1}/#{total_chunks})]\n#{chunk}"
+  end
+
+  defp process_store_results(results, source) do
+    {successes, failures} = Enum.split_with(results, &match?({:ok, _}, &1))
+
+    if Enum.empty?(failures) do
+      {:ok, Enum.map(successes, fn {:ok, id} -> id end)}
     else
-      # Rollback: delete any successfully stored chunks to maintain atomicity
-      successful_ids =
-        results
-        |> Enum.filter(&match?({:ok, _}, &1))
-        |> Enum.map(fn {:ok, id} -> id end)
-
+      # Rollback successful chunks for atomicity
+      successful_ids = Enum.map(successes, fn {:ok, id} -> id end)
       rollback_partial_ingest(successful_ids, source)
-
-      # Report the first error
-      {:error, elem(hd(errors), 1)}
+      {:error, elem(hd(failures), 1)}
     end
   end
 

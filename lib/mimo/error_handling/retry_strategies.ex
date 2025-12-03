@@ -4,10 +4,16 @@ defmodule Mimo.ErrorHandling.RetryStrategies do
   """
   require Logger
 
+  alias Mimo.TaskHelper
+
   @max_retries 3
   @base_delay_ms 1000
   @max_delay_ms 30_000
   @jitter_factor 0.1
+
+  # SQLite-specific retry settings (more aggressive)
+  @sqlite_max_retries 5
+  @sqlite_base_delay_ms 500
 
   @doc """
   Executes operation with exponential backoff retry.
@@ -24,6 +30,96 @@ defmodule Mimo.ErrorHandling.RetryStrategies do
     on_retry = Keyword.get(opts, :on_retry)
 
     do_retry(operation, 0, max_retries, base_delay, on_retry)
+  end
+
+  @doc """
+  Executes a database operation with SQLite-optimized retry logic.
+  Uses shorter delays with more retries for "Database busy" errors.
+  """
+  @spec with_sqlite_retry((-> {:ok, any()} | {:error, any()}), keyword()) ::
+          {:ok, any()} | {:error, any()}
+  def with_sqlite_retry(operation, opts \\ []) when is_function(operation, 0) do
+    max_retries = Keyword.get(opts, :max_retries, @sqlite_max_retries)
+    base_delay = Keyword.get(opts, :base_delay, @sqlite_base_delay_ms)
+    on_retry = Keyword.get(opts, :on_retry)
+
+    do_sqlite_retry(operation, 0, max_retries, base_delay, on_retry)
+  end
+
+  defp do_sqlite_retry(operation, attempt, max_retries, base_delay, on_retry) do
+    try do
+      case operation.() do
+        {:ok, result} ->
+          {:ok, result}
+
+        :ok ->
+          :ok
+
+        {:duplicate, _id} = duplicate ->
+          duplicate
+
+        {:error, reason} = error when attempt < max_retries ->
+          if sqlite_retryable_error?(reason) do
+            delay = calculate_delay(attempt, base_delay)
+
+            Logger.warning(
+              "SQLite busy (attempt #{attempt + 1}/#{max_retries}), retrying in #{delay}ms"
+            )
+
+            if on_retry, do: on_retry.(attempt, reason)
+
+            Process.sleep(delay)
+            do_sqlite_retry(operation, attempt + 1, max_retries, base_delay, on_retry)
+          else
+            error
+          end
+
+        {:error, reason} = error ->
+          Logger.error(
+            "SQLite operation failed after #{max_retries} retries - error: #{inspect(reason)}"
+          )
+
+          error
+      end
+    rescue
+      e in [Exqlite.Error, Ecto.Query.CastError, DBConnection.ConnectionError] ->
+        if attempt < max_retries and sqlite_retryable_exception?(e) do
+          delay = calculate_delay(attempt, base_delay)
+
+          Logger.warning(
+            "SQLite exception (attempt #{attempt + 1}/#{max_retries}), retrying in #{delay}ms - #{Exception.message(e)}"
+          )
+
+          if on_retry, do: on_retry.(attempt, e)
+
+          Process.sleep(delay)
+          do_sqlite_retry(operation, attempt + 1, max_retries, base_delay, on_retry)
+        else
+          Logger.error(
+            "SQLite operation failed after #{max_retries} retries - exception: #{Exception.message(e)}"
+          )
+
+          {:error, Exception.message(e)}
+        end
+    end
+  end
+
+  # Check if the error is a retryable SQLite error
+  defp sqlite_retryable_error?(reason) do
+    case reason do
+      :database_busy -> true
+      {:database_busy, _} -> true
+      "Database busy" <> _ -> true
+      reason when is_binary(reason) -> String.contains?(reason, "Database busy")
+      reason when is_atom(reason) -> reason == :busy
+      _ -> false
+    end
+  end
+
+  # Check if the exception is a retryable SQLite exception
+  defp sqlite_retryable_exception?(exception) do
+    message = Exception.message(exception)
+    String.contains?(message, "Database busy") or String.contains?(message, "SQLITE_BUSY")
   end
 
   defp do_retry(operation, attempt, max_retries, base_delay, on_retry) do
@@ -68,7 +164,7 @@ defmodule Mimo.ErrorHandling.RetryStrategies do
   """
   @spec with_timeout((-> any()), non_neg_integer()) :: {:ok, any()} | {:error, :timeout}
   def with_timeout(operation, timeout_ms) when is_function(operation, 0) do
-    task = Task.async(fn -> operation.() end)
+    task = TaskHelper.async_with_callers(fn -> operation.() end)
 
     case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
       {:ok, result} -> {:ok, result}

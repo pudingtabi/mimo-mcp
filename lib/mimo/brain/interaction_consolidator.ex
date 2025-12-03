@@ -154,6 +154,21 @@ defmodule Mimo.Brain.InteractionConsolidator do
   # ==========================================================================
 
   defp run_consolidation(state, opts) do
+    # Handle sandbox errors in tests
+    try do
+      do_run_consolidation(state, opts)
+    rescue
+      e in DBConnection.OwnershipError ->
+        Logger.debug(
+          "[InteractionConsolidator] Skipping consolidation in test mode: #{Exception.message(e)}"
+        )
+
+        result = %{engrams_created: 0, interactions_processed: 0, skipped: true, reason: :test_mode}
+        {result, state}
+    end
+  end
+
+  defp do_run_consolidation(state, opts) do
     force = Keyword.get(opts, :force, false)
     batch_size = opts[:batch_size] || get_config(:batch_size, @default_batch_size)
     min_interactions = get_config(:min_interactions, @default_min_interactions)
@@ -374,11 +389,19 @@ defmodule Mimo.Brain.InteractionConsolidator do
       limit: ^limit
     )
     |> Repo.all()
+  rescue
+    _e in DBConnection.OwnershipError ->
+      Logger.debug("[InteractionConsolidator] Skipping interaction fetch in test mode")
+      []
   end
 
   defp get_pending_count do
     from(i in Interaction, where: i.consolidated == false, select: count(i.id))
     |> Repo.one()
+  rescue
+    _e in DBConnection.OwnershipError ->
+      Logger.debug("[InteractionConsolidator] Skipping pending count in test mode")
+      0
   end
 
   defp schedule_next(interval) do

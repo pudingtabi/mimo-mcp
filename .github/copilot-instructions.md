@@ -4,6 +4,26 @@ Mimo is a **Memory Operating System** for AI agents—an Elixir/Phoenix MCP serv
 
 ---
 
+## 🚀 SMALL MODEL BOOST (Haiku/GPT-4-mini/etc.)
+
+**If you are a smaller model**, use `prepare_context` as your FIRST tool for complex tasks:
+
+```bash
+# ONE CALL gets you Opus-level context!
+prepare_context query="[describe your task]"
+```
+
+This aggregates memory + knowledge + code + library docs in parallel, giving you the context larger models have natively.
+
+**When to use `prepare_context`:**
+- Complex multi-step tasks
+- Unfamiliar codebases
+- Architecture questions
+- Debugging sessions
+- Any time you feel uncertain
+
+---
+
 ## 🚦 BALANCED TOOL WORKFLOW (MANDATORY)
 
 **To leverage Mimo's full intelligence, follow this workflow for EVERY task:**
@@ -12,6 +32,7 @@ Mimo is a **Memory Operating System** for AI agents—an Elixir/Phoenix MCP serv
 ┌─────────────────────────────────────────────────────────────────┐
 │  PHASE 1: CONTEXT (Do this FIRST - before any file/terminal)   │
 │  ─────────────────────────────────────────────────────────────  │
+│  prepare_context query="[task description]"  ← BEST FOR COMPLEX │
 │  memory operation=search query="[topic]"                        │
 │  ask_mimo query="What do I know about [topic]?"                 │
 │  knowledge operation=query query="[relationships]"              │
@@ -46,7 +67,7 @@ Mimo is a **Memory Operating System** for AI agents—an Elixir/Phoenix MCP serv
 
 | Phase | Tools | Target % | Purpose |
 |-------|-------|----------|---------|
-| Context | memory, ask_mimo, knowledge | 15-20% | Check what you already know |
+| Context | prepare_context, memory, ask_mimo, knowledge | 15-20% | Check what you already know |
 | Intelligence | code_symbols, diagnostics, library, cognitive | 15-20% | Smart analysis |
 | Action | file, terminal | 45-55% | Execute changes |
 | Learning | memory store, knowledge teach | 10-15% | Capture insights |
@@ -62,6 +83,10 @@ Mimo is a **Memory Operating System** for AI agents—an Elixir/Phoenix MCP serv
 **BEFORE any file/terminal operation, check what you already know:**
 
 ```bash
+# BEST: One-call aggregated context (especially for complex tasks!)
+prepare_context query="[describe what you're trying to do]"
+
+# OR individual queries:
 # Search memory for relevant context
 memory operation=search query="[topic/file/concept]"
 
@@ -174,18 +199,61 @@ onboard path="." force=false
 
 | ❌ Bad Pattern | ✅ Better Approach |
 |---------------|-------------------|
+| Jump to editing immediately | `reason` or `think` first → avoid wrong conclusions |
+| Skip problem analysis | `reason operation=guided` → understand before acting |
 | `file operation=read` immediately | `memory operation=search` first → may already know |
 | `file operation=search pattern="func"` for code | `code_symbols operation=definition` → semantic, faster |
 | `terminal command="mix compile"` for errors | `diagnostics operation=all` → structured output |
 | `search query="phoenix docs"` | `library operation=get name="phoenix"` → cached |
 | Skip after discoveries | `memory operation=store` → compounds knowledge |
 | Reading same file repeatedly | Store key facts in memory after first read |
+| Describing changes in prose | `file operation=edit` immediately → you have the tools! |
+| Outputting code blocks as suggestions | `file operation=write` or `edit` → apply fixes directly |
 
 ---
 
 ## ⚠️ CRITICAL: You Have Full Development Capabilities via Mimo
 
 **DO NOT ask the user to enable tools or say you cannot edit files!**
+
+**DO NOT just describe changes you would make—ACTUALLY MAKE THEM using Mimo tools!**
+
+When a fix is needed, use `file operation=edit` to apply it immediately. When code needs to be created, use `file operation=write`. Never output code blocks as suggestions when you have the tools to implement directly.
+
+---
+
+## 🧠 MANDATORY: Think Before You Act
+
+**DO NOT jump to conclusions or immediately start editing files!**
+
+For ANY non-trivial task, you MUST reason first:
+
+```bash
+# For complex problems - use the full reasoning engine
+reason operation=guided problem="[describe what you're trying to solve]" strategy=auto
+
+# For simpler decisions - use think
+think operation=plan steps=["step 1", "step 2", "step 3"]
+
+# For uncertainty - assess your confidence
+cognitive operation=assess topic="[the decision you're about to make]"
+```
+
+### When to Use Each
+
+| Situation | Tool | Example |
+|-----------|------|---------|
+| Multi-step implementation | `reason operation=guided` | Architecture changes, refactoring |
+| Debugging complex issues | `reason operation=guided strategy=reflexion` | Intermittent bugs, race conditions |
+| Planning a task | `think operation=plan` | Breaking down user request |
+| Quick decision check | `cognitive operation=assess` | "Should I use pattern A or B?" |
+| Exploring alternatives | `reason operation=branch` | When first approach might not work |
+
+### The Rule
+
+> **If you're about to make a change and you haven't used `reason`, `think`, or `cognitive`... STOP and think first.**
+
+---
 
 | Capability | Mimo Tool | Example |
 |------------|-----------|---------|
@@ -243,7 +311,12 @@ Need package docs?
 ## 📋 Quick Reference
 
 ```bash
+# === SESSION START (MANDATORY) ===
+ask_mimo query="What context do you have about this project?"
+onboard path="." force=false  # Indexes code, deps, knowledge graph
+
 # === PHASE 1: CONTEXT ===
+prepare_context query="[task description]"  # BEST - one call aggregates all!
 ask_mimo query="What do I know about [topic]?"
 memory operation=search query="[relevant terms]"
 knowledge operation=query query="[relationships]"
@@ -256,6 +329,34 @@ diagnostics operation=all path="/project/lib"
 library operation=get name="phoenix" ecosystem=hex
 cognitive operation=assess topic="[decision]"
 
+# === COMPOSITE TOOLS (one call = multiple operations) ===
+analyze_file path="src/module.ex"  # File + symbols + diagnostics + knowledge
+debug_error message="undefined function foo/2"  # Memory + symbols + diagnostics
+suggest_next_tool task="implement auth"  # Workflow guidance
+
+# === EMERGENCE (SPEC-044 Pattern Detection) ===
+emergence operation=dashboard              # Full metrics and status
+emergence operation=detect                 # Run pattern detection
+emergence operation=cycle                  # Full emergence cycle
+emergence operation=alerts                 # Patterns needing attention
+emergence operation=suggest task="..."     # Pattern suggestions for task
+emergence operation=promote pattern_id="..." # Promote to capability
+
+# === REFLECTOR (SPEC-043 Metacognitive Self-Reflection) ===
+reflector operation=reflect content="..." task="..."  # Deep reflection
+reflector operation=evaluate content="..."            # Quick evaluation
+reflector operation=confidence content="..."          # Calibrated confidence
+reflector operation=errors content="..."              # Error analysis
+
+# === REASONING (SPEC-035 Unified Reasoning Engine) ===
+reason operation=guided problem="..." strategy=auto  # Start session
+reason operation=step session_id="..." thought="..." # Add step
+reason operation=branch session_id="..." thought="..." # ToT branch
+reason operation=backtrack session_id="..."          # Go back
+reason operation=verify thoughts=["...", "..."]      # Check logic
+reason operation=conclude session_id="..."           # Finish
+reason operation=reflect session_id="..." success=true result="..."
+
 # === PHASE 3: ACTION ===
 file operation=read path="..."
 file operation=edit path="..." old_str="..." new_str="..."
@@ -267,6 +368,12 @@ terminal command="mix test" cwd="/project"
 # === PHASE 4: LEARNING ===
 memory operation=store content="[discovery]" category=fact importance=0.8
 knowledge operation=teach text="A depends on B"
+
+# === PROCEDURES ===
+run_procedure name="deploy" context={...}
+run_procedure name="backup" async=true
+run_procedure operation=status execution_id="abc123"
+list_procedures
 ```
 
 ---
@@ -283,7 +390,7 @@ Clients (Claude/VS Code/HTTP) → Protocol Adapters → MetaCognitiveRouter
 ```
 
 **Key components:**
-- `Mimo.Tools` - 15 consolidated native tools with operation-based dispatch
+- `Mimo.Tools` - 17 native tools (4 unified + 13 specialized) with 12 deprecated aliases
 - `Mimo.Brain` - Cognitive memory: working memory (ETS), episodic (SQLite+vectors), consolidation, decay
 - `Mimo.SemanticStore` - Triple-based knowledge graph with inference engine
 - `Mimo.ProceduralStore` - FSM execution for deterministic workflows

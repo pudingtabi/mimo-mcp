@@ -494,7 +494,7 @@ defmodule Mimo.Synapse.DependencySync do
 
   defp fetch_library_docs(name, ecosystem, version) do
     # Use the Library module to ensure docs are cached
-    Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
+    Mimo.Sandbox.run_async(Mimo.Repo, fn ->
       try do
         opts = if version && version != "latest", do: [version: version], else: []
         Library.Index.ensure_cached(name, ecosystem, opts)

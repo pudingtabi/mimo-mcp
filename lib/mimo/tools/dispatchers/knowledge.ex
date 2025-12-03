@@ -200,14 +200,40 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
                %{subject: subject, predicate: predicate, object: object},
                source
              ) do
-          {:ok, id} -> {:ok, %{status: "learned", triple_id: id, store: "semantic"}}
-          error -> error
+          {:ok, id} ->
+            {:ok, %{status: "learned", triple_id: id, store: "semantic"}}
+
+          {:error, :ambiguous, candidates} ->
+            {:error,
+             "Ambiguous entity reference. Multiple matches found: #{Enum.join(candidates, ", ")}. Please be more specific."}
+
+          {:error, reason} when is_binary(reason) ->
+            {:error, reason}
+
+          {:error, reason} ->
+            {:error, "Failed to ingest triple: #{inspect(reason)}"}
+
+          error ->
+            {:error, "Unexpected error: #{inspect(error)}"}
         end
 
       text && text != "" ->
         case Mimo.SemanticStore.Ingestor.ingest_text(text, source) do
-          {:ok, count} -> {:ok, %{status: "learned", triples_created: count, store: "semantic"}}
-          error -> error
+          {:ok, count} ->
+            {:ok, %{status: "learned", triples_created: count, store: "semantic"}}
+
+          {:error, :ambiguous, candidates} ->
+            {:error,
+             "Ambiguous entity references in text. Multiple matches found: #{Enum.join(candidates, ", ")}. Please be more specific."}
+
+          {:error, reason} when is_binary(reason) ->
+            {:error, reason}
+
+          {:error, reason} ->
+            {:error, "Failed to ingest text: #{inspect(reason)}"}
+
+          error ->
+            {:error, "Unexpected error: #{inspect(error)}"}
         end
 
       true ->

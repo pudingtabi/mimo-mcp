@@ -91,7 +91,19 @@ defmodule Mimo.Application do
         {Mimo.Library.CacheManager, []},
         # ===== Cognitive Mechanisms System (SPEC-024) =====
         # Uncertainty tracker for meta-learning
-        {Mimo.Cognitive.UncertaintyTracker, []}
+        {Mimo.Cognitive.UncertaintyTracker, []},
+        # ===== AI Intelligence Test (SPEC-AI-TEST) =====
+        # Verification tracker for ceremonial vs genuine verification detection
+        {Mimo.Brain.VerificationTracker, []},
+        # ===== Unified Reasoning Engine (SPEC-035) =====
+        # ReasoningSession: ETS-backed session storage for multi-step reasoning
+        {Mimo.Cognitive.ReasoningSession, []},
+        # ===== Awakening Protocol (SPEC-040) =====
+        # SessionTracker: Tracks AI sessions and triggers awakening injection
+        {Mimo.Awakening.SessionTracker, []},
+        # ===== Emergent Capabilities Framework (SPEC-044) =====
+        # Emergence Scheduler: Periodic pattern detection and promotion
+        {Mimo.Brain.Emergence.Scheduler, []}
       ] ++ synthetic_cortex_children()
 
     opts = [strategy: :one_for_one, name: Mimo.Supervisor]

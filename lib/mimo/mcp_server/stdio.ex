@@ -2,8 +2,15 @@ defmodule Mimo.McpServer.Stdio do
   @moduledoc """
   Native Elixir implementation of the MCP Model Context Protocol over Stdio.
   Replaces the legacy Python bridge and Mimo.McpCli.
+
+  SPEC-040: Awakening Protocol Integration
+  - Starts a session on `initialize`
+  - Injects awakening context on first `tools/call`
+  - Supports `prompts/list` and `prompts/get` for awakening prompts
   """
   require Logger
+
+  alias Mimo.TaskHelper
 
   # JSON-RPC Error Codes
   @parse_error -32_700
@@ -59,10 +66,25 @@ defmodule Mimo.McpServer.Stdio do
   # --- Request Handlers ---
 
   defp handle_request(%{"method" => "initialize", "id" => id} = _req) do
+    # SPEC-040: Start awakening session
+    session_id = generate_session_id()
+    Process.put(:mimo_session_id, session_id)
+    Process.put(:mimo_awakening_triggered, false)
+
+    # Start session tracking (async)
+    Mimo.Sandbox.run_async(Mimo.Repo, fn ->
+      Mimo.Awakening.start_session(%{
+        session_id: session_id,
+        user_id: "default",
+        project_id: infer_project_id()
+      })
+    end)
+
     send_response(id, %{
       "protocolVersion" => "2024-11-05",
       "capabilities" => %{
-        "tools" => %{"listChanged" => true}
+        "tools" => %{"listChanged" => true},
+        "prompts" => %{"listChanged" => true}
       },
       "serverInfo" => %{
         "name" => "mimo-mcp",
@@ -82,10 +104,39 @@ defmodule Mimo.McpServer.Stdio do
     send_response(id, %{"tools" => tools})
   end
 
+  # SPEC-040: Prompts/list handler
+  defp handle_request(%{"method" => "prompts/list", "id" => id}) do
+    prompts = Mimo.Awakening.PromptResource.list_prompts()
+    send_response(id, %{"prompts" => prompts})
+  end
+
+  # SPEC-040: Prompts/get handler
+  defp handle_request(%{"method" => "prompts/get", "params" => params, "id" => id}) do
+    name = params["name"]
+    arguments = params["arguments"] || %{}
+
+    case Mimo.Awakening.PromptResource.get_prompt(name, arguments) do
+      {:ok, result} ->
+        send_response(id, result)
+
+      {:error, reason} ->
+        send_error(id, @internal_error, "Prompt error: #{reason}")
+    end
+  end
+
   defp handle_request(%{"method" => "tools/call", "params" => params, "id" => id}) do
     tool_name = params["name"]
     args = params["arguments"] || %{}
     start_time = System.monotonic_time(:millisecond)
+
+    # SPEC-040: Record tool call and check for awakening trigger
+    session_id = Process.get(:mimo_session_id)
+    awakening_already_triggered = Process.get(:mimo_awakening_triggered, false)
+
+    # Record the tool call (async)
+    if session_id do
+      Mimo.Sandbox.run_async(Mimo.Repo, fn -> Mimo.Awakening.record_tool_call(session_id) end)
+    end
 
     # Check ToolRegistry first for both internal and external tools
     case Mimo.ToolRegistry.get_tool_owner(tool_name) do
@@ -101,7 +152,8 @@ defmodule Mimo.McpServer.Stdio do
             record_interaction(tool_name, args, result, duration)
             result
           end,
-          id
+          id,
+          awakening_already_triggered
         )
 
       {:ok, {:skill_lazy, skill_name, config, _}} ->
@@ -116,7 +168,8 @@ defmodule Mimo.McpServer.Stdio do
             record_interaction(tool_name, args, result, duration)
             result
           end,
-          id
+          id,
+          awakening_already_triggered
         )
 
       {:ok, {:internal, _}} ->
@@ -131,7 +184,8 @@ defmodule Mimo.McpServer.Stdio do
             record_interaction(tool_name, args, result, duration)
             result
           end,
-          id
+          id,
+          awakening_already_triggered
         )
 
       {:ok, {:mimo_core, _}} ->
@@ -146,7 +200,8 @@ defmodule Mimo.McpServer.Stdio do
             record_interaction(tool_name, args, result, duration)
             result
           end,
-          id
+          id,
+          awakening_already_triggered
         )
 
       {:error, :not_found} ->
@@ -175,6 +230,25 @@ defmodule Mimo.McpServer.Stdio do
   end
 
   # --- Helpers ---
+
+  # SPEC-040: Generate a unique session ID
+  defp generate_session_id do
+    :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
+  end
+
+  # SPEC-040: Infer project ID from environment or workspace
+  defp infer_project_id do
+    cond do
+      project = System.get_env("MIMO_PROJECT_ID") ->
+        project
+
+      root = System.get_env("MIMO_ROOT") ->
+        Path.basename(root)
+
+      true ->
+        "default"
+    end
+  end
 
   # Record interaction to ThreadManager for passive memory (SPEC-012)
   defp record_interaction(tool_name, args, result, duration_ms) do
@@ -225,13 +299,24 @@ defmodule Mimo.McpServer.Stdio do
   defp truncate_string(s, _), do: s
 
   # Execute a tool function with timeout protection
-  defp execute_with_timeout(fun, id) do
-    task = Task.async(fun)
+  # SPEC-040: Includes awakening context injection on first tool call
+  defp execute_with_timeout(fun, id, awakening_already_triggered) do
+    task = TaskHelper.async_with_callers(fun)
 
     case Task.yield(task, @tool_timeout) || Task.shutdown(task) do
       {:ok, {:ok, result}} ->
         content = format_content(result)
-        send_response(id, %{"content" => content})
+
+        # SPEC-040: Inject awakening context on first tool call
+        content_with_awakening =
+          if awakening_already_triggered do
+            content
+          else
+            Process.put(:mimo_awakening_triggered, true)
+            inject_awakening_context(content)
+          end
+
+        send_response(id, %{"content" => content_with_awakening})
 
       {:ok, {:error, reason}} ->
         send_error(id, @internal_error, to_string(reason))
@@ -242,6 +327,28 @@ defmodule Mimo.McpServer.Stdio do
   rescue
     e ->
       send_error(id, @internal_error, "Tool execution error: #{Exception.message(e)}")
+  end
+
+  # SPEC-040: Inject awakening context before tool result
+  defp inject_awakening_context(content) do
+    session_id = Process.get(:mimo_session_id)
+
+    case Mimo.Awakening.maybe_inject_awakening(session_id, %{}) do
+      {:inject, awakening_content} ->
+        # Prepend awakening as a text block
+        awakening_block = %{
+          "type" => "text",
+          "text" => awakening_content
+        }
+
+        [awakening_block | content]
+
+      :skip ->
+        content
+    end
+  rescue
+    # Don't let awakening failures affect tool execution
+    _ -> content
   end
 
   defp send_response(id, result) do
@@ -321,6 +428,14 @@ defmodule Mimo.McpServer.Stdio do
   defp sanitize_for_json(data) when is_tuple(data) do
     # Convert tuples to lists for JSON
     data |> Tuple.to_list() |> sanitize_for_json()
+  end
+
+  defp sanitize_for_json(%{__struct__: _} = struct) do
+    # Convert structs to maps and sanitize recursively
+    struct
+    |> Map.from_struct()
+    |> Map.drop([:embedding, :embedding_int8, :embedding_binary, :__meta__])
+    |> sanitize_for_json()
   end
 
   defp sanitize_for_json(data), do: data

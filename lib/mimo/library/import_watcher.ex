@@ -107,7 +107,7 @@ defmodule Mimo.Library.ImportWatcher do
 
           # Cache in background tasks
           Enum.each(external, fn pkg ->
-            Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
+            Mimo.Sandbox.run_async(Mimo.Repo, fn ->
               case Index.ensure_cached(pkg, ecosystem) do
                 :ok ->
                   Logger.debug("[ImportWatcher] Cached #{ecosystem}/#{pkg}")

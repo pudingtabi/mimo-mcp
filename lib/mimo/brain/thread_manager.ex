@@ -93,9 +93,49 @@ defmodule Mimo.Brain.ThreadManager do
     GenServer.call(__MODULE__, :stats)
   end
 
-  # ─────────────────────────────────────────────────────────────
+  @doc """
+  Gets tool usage statistics from interaction history.
+  Returns `{:ok, stats}` with summary, rankings, performance data.
+  """
+  @spec get_tool_usage_stats(keyword()) :: {:ok, map()} | {:error, term()}
+  def get_tool_usage_stats(opts \\ []) do
+    {:ok, Interaction.tool_usage_stats(opts)}
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  @doc """
+  Gets recent interactions for the current thread.
+  Returns `{:ok, interactions}` where each has tool_name, duration_ms, success.
+  """
+  @spec recent_interactions(non_neg_integer()) :: {:ok, [map()]} | {:error, term()}
+  def recent_interactions(limit \\ 20) do
+    case get_current_thread_id() do
+      nil ->
+        {:ok, []}
+
+      thread_id ->
+        interactions =
+          Interaction.get_recent_for_thread(thread_id, limit: limit)
+          |> Enum.map(fn i ->
+            %{
+              tool_name: i.tool_name,
+              duration_ms: i.duration_ms,
+              # Derive success from result_summary (no error keywords = success)
+              success:
+                not String.contains?(i.result_summary || "", ["error", "Error", "failed", "Failed"])
+            }
+          end)
+
+        {:ok, interactions}
+    end
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  # ─────────────────────────────────────────────────────────────────
   # Server Callbacks
-  # ─────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────
 
   @impl true
   def init(_opts) do
@@ -195,7 +235,7 @@ defmodule Mimo.Brain.ThreadManager do
     case ensure_thread(state) do
       {:ok, thread_id, new_state} ->
         # Record the interaction asynchronously
-        Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
+        Mimo.Sandbox.run_async(Mimo.Repo, fn ->
           opts_with_thread = Keyword.put(opts, :thread_id, thread_id)
 
           case Interaction.record(tool_name, opts_with_thread) do
@@ -250,6 +290,12 @@ defmodule Mimo.Brain.ThreadManager do
         Thread.archive_old(7)
         Interaction.cleanup_old(30)
       rescue
+        _e in DBConnection.OwnershipError ->
+          Logger.debug("[ThreadManager] Cleanup skipped (sandbox mode)")
+
+        _e in DBConnection.ConnectionError ->
+          Logger.debug("[ThreadManager] Cleanup skipped (connection)")
+
         e ->
           Logger.error("[ThreadManager] Cleanup failed: #{Exception.message(e)}")
 

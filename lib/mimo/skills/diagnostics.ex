@@ -117,7 +117,7 @@ defmodule Mimo.Skills.Diagnostics do
       find_project_root(path, "tsconfig.json") ||
         find_project_root(path, "package.json")
 
-    if project_root do
+    if project_root && command_exists?("npx") do
       run_command("npx", ["tsc", "--noEmit", "--pretty", "false"], cd: project_root)
       |> parse_typescript_output()
     else
@@ -126,21 +126,37 @@ defmodule Mimo.Skills.Diagnostics do
   end
 
   defp run_compiler(path, :python) do
-    # Python syntax check with py_compile
-    if File.regular?(path) do
-      run_command("python", ["-m", "py_compile", path])
-      |> parse_python_syntax_output(path)
-    else
-      # For directories, use ruff as a fast syntax checker
-      run_command("ruff", ["check", "--select=E999", path])
-      |> parse_ruff_output()
+    # Prefer python, fall back to python3
+    py =
+      cond do
+        command_exists?("python") -> "python"
+        command_exists?("python3") -> "python3"
+        true -> nil
+      end
+
+    cond do
+      is_nil(py) ->
+        []
+
+      File.regular?(path) ->
+        run_command(py, ["-m", "py_compile", path])
+        |> parse_python_syntax_output(path)
+
+      true ->
+        # For directories, use ruff as a fast syntax checker if available
+        if command_exists?("ruff") do
+          run_command("ruff", ["check", "--select=E999", path])
+          |> parse_ruff_output()
+        else
+          []
+        end
     end
   end
 
   defp run_compiler(path, :rust) do
     project_root = find_project_root(path, "Cargo.toml")
 
-    if project_root do
+    if project_root && command_exists?("cargo") do
       run_command("cargo", ["check", "--message-format=json"], cd: project_root)
       |> parse_cargo_output()
     else
@@ -151,7 +167,7 @@ defmodule Mimo.Skills.Diagnostics do
   defp run_compiler(path, :go) do
     project_root = find_project_root(path, "go.mod")
 
-    if project_root do
+    if project_root && command_exists?("go") do
       run_command("go", ["build", "-o", "/dev/null", "./..."], cd: project_root)
       |> parse_go_output()
     else
@@ -687,9 +703,18 @@ defmodule Mimo.Skills.Diagnostics do
           {"Command timed out after #{@timeout}ms", 124}
       end
     rescue
+      e in ErlangError ->
+        # Handle :enoent (command not found) from System.cmd
+        Logger.debug("Command not found: #{cmd} - #{inspect(e)}")
+        {"Command not found: #{cmd}", 127}
+
       e ->
         Logger.debug("Command failed: #{cmd} #{inspect(args)} - #{Exception.message(e)}")
         {"Command not found or failed: #{cmd}", 127}
+    catch
+      :exit, reason ->
+        Logger.debug("Command exited: #{cmd} - #{inspect(reason)}")
+        {"Command exited unexpectedly: #{cmd}", 127}
     end
   end
 

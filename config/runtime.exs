@@ -20,7 +20,12 @@ config :logger, :console,
 if config_env() == :prod do
   config :mimo_mcp, Mimo.Repo,
     database: System.get_env("DB_PATH") || "priv/mimo_mcp.db",
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
+    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
+    # SQLite concurrency settings to prevent "Database busy" errors
+    busy_timeout: 60_000,
+    journal_mode: :wal,
+    cache_size: -64_000,
+    temp_store: :memory
 end
 
 # =============================================================================

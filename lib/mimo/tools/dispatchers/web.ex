@@ -1,21 +1,155 @@
 defmodule Mimo.Tools.Dispatchers.Web do
   @moduledoc """
-  Web operations dispatcher.
+  Unified Web Operations Dispatcher.
 
-  Handles all web-related tools:
-  - fetch: URL content retrieval (Network.fetch_txt/html/json/markdown)
-  - search: Web search (Network.web_search, code_search)
-  - blink: HTTP-level browser emulation (Blink.fetch/analyze_protection/smart_fetch)
-  - browser: Full Puppeteer automation (Browser.fetch/screenshot/pdf/evaluate/interact/test)
-  - vision: Image analysis (Brain.LLM.analyze_image)
-  - sonar: UI accessibility (Sonar.scan_ui + optional vision)
-  - web_extract: Content extraction (Network.extract_content)
-  - web_parse: HTML to Markdown (Skills.Web.parse)
+  Consolidates all web-related tools into a single unified interface:
+
+  ## Operations
+
+  ### Content Retrieval
+  - `fetch` - URL content retrieval with format options (text/html/json/markdown/raw)
+  - `extract` - Clean content extraction from URLs (Readability-style)
+  - `parse` - Convert HTML to Markdown
+
+  ### Search
+  - `search` - Web search with library-first optimization
+  - `code_search` - Code-specific search
+  - `image_search` - Image search with optional vision analysis
+
+  ### Browser Automation
+  - `blink` - HTTP-level browser emulation (fast, bypasses basic WAF)
+  - `blink_analyze` - Analyze URL protection type
+  - `blink_smart` - Smart fetch with auto-escalation
+  - `browser` - Full Puppeteer fetch (JavaScript execution)
+  - `screenshot` - Capture page screenshot
+  - `pdf` - Generate PDF from page
+  - `evaluate` - Execute JavaScript on page
+  - `interact` - UI automation actions
+  - `test` - Run browser-based tests
+
+  ### Vision & Accessibility
+  - `vision` - Analyze images with AI
+  - `sonar` - UI accessibility scanning with optional vision
+
+  ## Usage
+
+      # Via unified tool
+      dispatch(%{"operation" => "fetch", "url" => "...", "format" => "markdown"})
+      dispatch(%{"operation" => "search", "query" => "...", "type" => "web"})
+      dispatch(%{"operation" => "vision", "image" => "...", "prompt" => "..."})
+      
+  ## Legacy Support
+
+  Individual dispatch_* functions are preserved for backward compatibility
+  but route through the unified dispatcher internally.
   """
 
   require Logger
 
   alias Mimo.Tools.Helpers
+
+  # ==========================================================================
+  # UNIFIED DISPATCHER
+  # ==========================================================================
+
+  @doc """
+  Unified web tool dispatcher with operation-based routing.
+
+  ## Operations
+
+  ### Content Retrieval
+  - `fetch` - Fetch URL content with format options
+  - `extract` - Extract clean content from URL
+  - `parse` - Convert HTML to Markdown
+
+  ### Search
+  - `search` - Web search (default)
+  - `code_search` - Code-specific search
+  - `image_search` - Image search with optional analysis
+
+  ### Browser Automation (HTTP-level)
+  - `blink` - HTTP-level browser emulation
+  - `blink_analyze` - Analyze URL protection
+  - `blink_smart` - Smart fetch with auto-escalation
+
+  ### Browser Automation (Full)
+  - `browser` - Full Puppeteer fetch
+  - `screenshot` - Capture page screenshot
+  - `pdf` - Generate PDF from page
+  - `evaluate` - Execute JavaScript
+  - `interact` - UI automation
+  - `test` - Browser-based tests
+
+  ### Vision & Accessibility
+  - `vision` - Analyze images
+  - `sonar` - UI accessibility scanning
+  """
+  def dispatch(args) do
+    operation = args["operation"] || "fetch"
+
+    case operation do
+      # Content Retrieval
+      "fetch" ->
+        dispatch_fetch(args)
+
+      "extract" ->
+        dispatch_web_extract(args)
+
+      "parse" ->
+        dispatch_web_parse(args)
+
+      # Search operations
+      "search" ->
+        dispatch_search(args)
+
+      "code_search" ->
+        dispatch_search(Map.put(args, "operation", "code"))
+
+      "image_search" ->
+        dispatch_search(Map.put(args, "operation", "images"))
+
+      # Blink operations (HTTP-level browser emulation)
+      "blink" ->
+        dispatch_blink(args)
+
+      "blink_analyze" ->
+        dispatch_blink(Map.put(args, "operation", "analyze"))
+
+      "blink_smart" ->
+        dispatch_blink(Map.put(args, "operation", "smart"))
+
+      # Browser operations (Full Puppeteer)
+      "browser" ->
+        dispatch_browser(args)
+
+      "screenshot" ->
+        dispatch_browser(Map.put(args, "operation", "screenshot"))
+
+      "pdf" ->
+        dispatch_browser(Map.put(args, "operation", "pdf"))
+
+      "evaluate" ->
+        dispatch_browser(Map.put(args, "operation", "evaluate"))
+
+      "interact" ->
+        dispatch_browser(Map.put(args, "operation", "interact"))
+
+      "test" ->
+        dispatch_browser(Map.put(args, "operation", "test"))
+
+      # Vision & Accessibility
+      "vision" ->
+        dispatch_vision(args)
+
+      "sonar" ->
+        dispatch_sonar(args)
+
+      # Unknown operation
+      _ ->
+        {:error,
+         "Unknown web operation: #{operation}. Valid operations: fetch, extract, parse, search, code_search, image_search, blink, blink_analyze, blink_smart, browser, screenshot, pdf, evaluate, interact, test, vision, sonar"}
+    end
+  end
 
   # ==========================================================================
   # FETCH DISPATCHER
@@ -112,6 +246,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
 
   @doc """
   Dispatch search operation.
+  Checks library cache first for package documentation queries before web search.
   """
   def dispatch_search(args) do
     query = args["query"] || ""
@@ -119,6 +254,90 @@ defmodule Mimo.Tools.Dispatchers.Web do
     analyze_images = args["analyze_images"] || false
     max_analyze = args["max_analyze"] || 3
 
+    # Check library first for package-related queries (web search only)
+    if op == "web" do
+      case maybe_check_library_first(query) do
+        {:library_hit, package_info} ->
+          {:ok,
+           %{
+             source: "library_cache",
+             type: "package_documentation",
+             query: query,
+             package: package_info,
+             note: "Found in library cache - no web search needed"
+           }}
+
+        :continue_to_web ->
+          perform_web_search(query, args, analyze_images, max_analyze)
+      end
+    else
+      # For code/image searches, proceed directly
+      perform_search(op, query, args, analyze_images, max_analyze)
+    end
+  end
+
+  # Check if query is asking for package documentation
+  defp maybe_check_library_first(query) do
+    # Detect package documentation patterns
+    package_patterns = [
+      ~r/(docs?|documentation|api|reference|guide|how to use|tutorial)\s+(?:for\s+)?(\w+[-\w]*)/i,
+      ~r/(\w+[-\w]*)\s+(docs?|documentation|api|reference|guide)/i,
+      # Single word might be a package name
+      ~r/^(\w+[-\w]*)\s*$/
+    ]
+
+    Enum.reduce_while(package_patterns, :continue_to_web, fn pattern, _acc ->
+      case Regex.run(pattern, query) do
+        [_, package_name] when byte_size(package_name) > 2 ->
+          check_library_for_package(package_name)
+
+        [_, _keyword, package_name] when byte_size(package_name) > 2 ->
+          check_library_for_package(package_name)
+
+        [_, package_name, _keyword] when byte_size(package_name) > 2 ->
+          check_library_for_package(package_name)
+
+        _ ->
+          {:cont, :continue_to_web}
+      end
+    end)
+  end
+
+  defp check_library_for_package(package_name) do
+    # Try all ecosystems in priority order
+    ecosystems = [:hex, :npm, :pypi, :crates]
+
+    Enum.reduce_while(ecosystems, :continue_to_web, fn ecosystem, _acc ->
+      case Mimo.Library.get_package(package_name, ecosystem) do
+        {:ok, package_info} ->
+          {:halt, {:library_hit, package_info}}
+
+        {:error, _} ->
+          {:cont, :continue_to_web}
+      end
+    end)
+  end
+
+  defp perform_web_search(query, args, _analyze_images, _max_analyze) do
+    opts = []
+
+    opts =
+      if args["num_results"], do: Keyword.put(opts, :num_results, args["num_results"]), else: opts
+
+    opts =
+      if args["backend"] do
+        case Helpers.safe_to_atom(args["backend"], Helpers.allowed_search_backends()) do
+          nil -> opts
+          backend -> Keyword.put(opts, :backend, backend)
+        end
+      else
+        opts
+      end
+
+    Mimo.Skills.Network.web_search(query, opts)
+  end
+
+  defp perform_search(op, query, args, analyze_images, max_analyze) do
     opts = []
 
     opts =

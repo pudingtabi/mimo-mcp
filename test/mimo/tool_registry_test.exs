@@ -81,6 +81,12 @@ defmodule Mimo.ToolRegistryTest do
   describe "get_tool_owner/1" do
     test "returns internal tool marker for internal tools" do
       assert {:ok, {:internal, _}} = ToolRegistry.get_tool_owner("ask_mimo")
+      assert {:ok, {:internal, _}} = ToolRegistry.get_tool_owner("memory")
+      assert {:ok, {:internal, _}} = ToolRegistry.get_tool_owner("run_procedure")
+    end
+
+    test "returns internal tool marker for deprecated tools (backward compatibility)" do
+      # Deprecated tools still route internally but aren't in @internal_tool_names
       assert {:ok, {:internal, _}} = ToolRegistry.get_tool_owner("search_vibes")
       assert {:ok, {:internal, _}} = ToolRegistry.get_tool_owner("store_fact")
     end
@@ -110,9 +116,17 @@ defmodule Mimo.ToolRegistryTest do
   describe "internal_tool?/1" do
     test "returns true for internal tools" do
       assert ToolRegistry.internal_tool?("ask_mimo")
-      assert ToolRegistry.internal_tool?("search_vibes")
-      assert ToolRegistry.internal_tool?("store_fact")
+      assert ToolRegistry.internal_tool?("memory")
+      assert ToolRegistry.internal_tool?("run_procedure")
+      assert ToolRegistry.internal_tool?("list_procedures")
       assert ToolRegistry.internal_tool?("mimo_reload_skills")
+      assert ToolRegistry.internal_tool?("ingest")
+    end
+
+    test "returns false for deprecated tools (not advertised as internal)" do
+      # Deprecated tools work but aren't in @internal_tool_names
+      refute ToolRegistry.internal_tool?("search_vibes")
+      refute ToolRegistry.internal_tool?("store_fact")
     end
 
     test "returns false for external tools" do
@@ -127,7 +141,19 @@ defmodule Mimo.ToolRegistryTest do
 
       assert is_list(names)
       assert "ask_mimo" in names
-      assert "search_vibes" in names
+      assert "memory" in names
+      assert "run_procedure" in names
+      assert "list_procedures" in names
+      assert "ingest" in names
+      assert "mimo_reload_skills" in names
+    end
+
+    test "does not include deprecated tools" do
+      names = ToolRegistry.internal_tool_names()
+
+      refute "search_vibes" in names
+      refute "store_fact" in names
+      refute "procedure_status" in names
     end
   end
 

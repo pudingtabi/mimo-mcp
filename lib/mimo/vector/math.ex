@@ -489,6 +489,9 @@ defmodule Mimo.Vector.Math do
           {:ok, [{non_neg_integer(), non_neg_integer()}]} | {:error, atom()}
   def top_k_hamming(query, corpus, k)
 
+  # Handle empty corpus before NIF - return empty results
+  def top_k_hamming(_query, [], _k), do: {:ok, []}
+
   # NIF stub - replaced at runtime if NIF loads
   def top_k_hamming(query, corpus, k)
       when is_binary(query) and is_list(corpus) and is_integer(k) do

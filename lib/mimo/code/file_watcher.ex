@@ -157,7 +157,7 @@ defmodule Mimo.Code.FileWatcher do
     state.pending_changes
     |> Map.keys()
     |> Enum.each(fn path ->
-      Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
+      Mimo.Sandbox.run_async(Mimo.Repo, fn ->
         try do
           do_reindex(path)
         rescue

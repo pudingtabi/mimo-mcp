@@ -8,6 +8,7 @@ defmodule Mimo.SemanticStore.Repository do
 
   alias Mimo.SemanticStore.Triple
   alias Mimo.Repo
+  alias Mimo.Awakening.Hooks, as: AwakeningHooks
 
   import Ecto.Query
   require Logger
@@ -35,9 +36,18 @@ defmodule Mimo.SemanticStore.Repository do
   """
   @spec create(map()) :: {:ok, Triple.t()} | {:error, Ecto.Changeset.t()}
   def create(attrs) do
-    %Triple{}
-    |> Triple.changeset(attrs)
-    |> Repo.insert()
+    result =
+      %Triple{}
+      |> Triple.changeset(attrs)
+      |> Repo.insert()
+
+    # SPEC-040: Award XP for relationship creation
+    case result do
+      {:ok, triple} -> AwakeningHooks.relationship_created(triple)
+      _ -> :ok
+    end
+
+    result
   end
 
   @doc """
@@ -62,12 +72,21 @@ defmodule Mimo.SemanticStore.Repository do
   """
   @spec upsert(map()) :: {:ok, Triple.t()} | {:error, Ecto.Changeset.t()}
   def upsert(attrs) do
-    %Triple{}
-    |> Triple.changeset(attrs)
-    |> Repo.insert(
-      on_conflict: {:replace, [:confidence, :source, :ttl, :metadata, :updated_at]},
-      conflict_target: [:subject_hash, :predicate, :object_id, :object_type]
-    )
+    result =
+      %Triple{}
+      |> Triple.changeset(attrs)
+      |> Repo.insert(
+        on_conflict: {:replace, [:confidence, :source, :ttl, :metadata, :updated_at]},
+        conflict_target: [:subject_hash, :predicate, :object_id, :object_type]
+      )
+
+    # SPEC-040: Award XP for relationship creation (even on upsert - it's knowledge work)
+    case result do
+      {:ok, triple} -> AwakeningHooks.relationship_created(triple)
+      _ -> :ok
+    end
+
+    result
   end
 
   @doc """
@@ -317,5 +336,37 @@ defmodule Mimo.SemanticStore.Repository do
       |> Repo.aggregate(:count, :id)
 
     outgoing + incoming
+  end
+
+  @doc """
+  Get recent triples for Awakening integration.
+
+  Returns the most recently created triples, useful for understanding
+  what relationships have been learned recently.
+  """
+  @spec recent_triples(non_neg_integer()) :: {:ok, [Triple.t()]} | {:error, term()}
+  def recent_triples(limit \\ 10) do
+    triples =
+      from(t in Triple,
+        order_by: [desc: t.inserted_at],
+        limit: ^limit,
+        select: %{
+          id: t.id,
+          subject: t.subject_id,
+          subject_type: t.subject_type,
+          predicate: t.predicate,
+          object: t.object_id,
+          object_type: t.object_type,
+          confidence: t.confidence,
+          inserted_at: t.inserted_at
+        }
+      )
+      |> Repo.all()
+
+    {:ok, triples}
+  rescue
+    e ->
+      Logger.error("Get recent triples failed: #{Exception.message(e)}")
+      {:error, e}
   end
 end

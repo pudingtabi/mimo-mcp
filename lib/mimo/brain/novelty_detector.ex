@@ -73,10 +73,10 @@ defmodule Mimo.Brain.NoveltyDetector do
           | {:new, []}
   def classify(content, category, opts \\ []) when is_binary(content) and is_binary(category) do
     # Check if TMC is enabled
-    unless tmc_enabled?() do
-      {:new, []}
-    else
+    if tmc_enabled?() do
       do_classify(content, category, opts)
+    else
+      {:new, []}
     end
   end
 

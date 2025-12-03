@@ -31,6 +31,7 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
 
   alias Mimo.ProceduralStore.{Execution, Loader}
   alias Mimo.Repo
+  alias Mimo.TaskHelper
 
   defstruct [
     :procedure,
@@ -295,7 +296,7 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
     # Solution: Monitor the task and set a timeout. If task dies or times out,
     # send an error result so the FSM can handle it properly.
     task =
-      Task.async(fn ->
+      TaskHelper.async_with_callers(fn ->
         result = execute_action(action, data.context)
         send(parent, {:action_result, result})
         result
@@ -322,7 +323,7 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
 
       # Execute with timeout
       task =
-        Task.async(fn ->
+        TaskHelper.async_with_callers(fn ->
           apply(module, function, [context | args])
         end)
 

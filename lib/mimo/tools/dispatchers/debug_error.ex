@@ -76,10 +76,16 @@ defmodule Mimo.Tools.Dispatchers.DebugError do
           memories when is_list(memories) ->
             Enum.map(memories, fn mem ->
               %{
-                content: mem.content || mem[:content],
-                similarity: mem.similarity || mem[:similarity],
-                category: mem.category || mem[:category] || mem.type || mem[:type],
-                created_at: mem.inserted_at || mem[:inserted_at]
+                content: Map.get(mem, :content) || Map.get(mem, "content"),
+                similarity:
+                  Map.get(mem, :similarity) || Map.get(mem, :score) || Map.get(mem, "similarity") ||
+                    0.0,
+                category:
+                  Map.get(mem, :category) || Map.get(mem, :type) || Map.get(mem, "category") ||
+                    "unknown",
+                created_at:
+                  Map.get(mem, :inserted_at) || Map.get(mem, :created_at) ||
+                    Map.get(mem, "inserted_at") || Map.get(mem, "created_at")
               }
             end)
 
@@ -128,7 +134,7 @@ defmodule Mimo.Tools.Dispatchers.DebugError do
     case Diagnostics.dispatch(diag_args) do
       {:ok, result} ->
         issues = result[:issues] || result[:diagnostics] || []
-        errors = Enum.filter(issues, &is_error?/1)
+        errors = Enum.filter(issues, &error?/1)
 
         %{
           total: length(issues),
@@ -241,7 +247,7 @@ defmodule Mimo.Tools.Dispatchers.DebugError do
     end)
   end
 
-  defp is_error?(issue) do
+  defp error?(issue) do
     severity = issue[:severity] || issue["severity"]
     severity == :error or severity == "error"
   end

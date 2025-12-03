@@ -38,6 +38,8 @@ function cleanup() {
 }
 
 // Spawn the Elixir process with proper shell environment
+// CRITICAL: Use --no-compile to prevent build lock contention when multiple
+// MCP instances run in parallel. Compile once manually with: mix compile
 elixir = spawn('/bin/bash', ['-l', '-c', `
   cd "${MIMO_DIR}"
   # Load .env file
@@ -51,7 +53,7 @@ elixir = spawn('/bin/bash', ['-l', '-c', `
   export PROMETHEUS_DISABLED=true
   export MIMO_DISABLE_HTTP=true
   export LOGGER_LEVEL=none
-  exec mix run --no-halt -e "Mimo.McpServer.Stdio.start()"
+  exec mix run --no-halt --no-compile -e "Mimo.McpServer.Stdio.start()"
 `], {
   stdio: ['pipe', 'pipe', 'pipe'],
   cwd: MIMO_DIR,

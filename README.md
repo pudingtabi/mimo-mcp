@@ -2,11 +2,11 @@
 
 **Give your AI agents a brain that remembers.**
 
-Mimo is a Memory Operating System for AI agents. It provides persistent memory, knowledge graphs, and 24 native tools — so your AI actually learns from conversations and remembers context across sessions.
+Mimo is a Memory Operating System for AI agents. It provides persistent memory, knowledge graphs, and 17 native tools — so your AI actually learns from conversations and remembers context across sessions.
 
 [![Elixir](https://img.shields.io/badge/Elixir-1.19+-purple.svg)](https://elixir-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/Tests-700+-green.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-1000+-green.svg)]()
 
 ---
 
@@ -17,7 +17,7 @@ Mimo is a Memory Operating System for AI agents. It provides persistent memory, 
 | AI forgets everything between sessions | Memories persist forever (with intelligent decay) |
 | No context about your project | Remembers your codebase, preferences, patterns |
 | Generic responses | Context-aware responses using past interactions |
-| Manual tool setup | 24 built-in tools ready to use |
+| Manual tool setup | 17 built-in tools ready to use |
 
 ---
 
@@ -92,7 +92,7 @@ Add to `~/.vscode/mcp.json`:
 | **Persistent Memory** | Stores facts, observations, and actions across sessions |
 | **Semantic Search** | Find memories by meaning, not just keywords |
 | **Knowledge Graph** | Store relationships between entities (A depends on B) |
-| **24 Native Tools** | File ops, terminal, web search, code analysis, and more |
+| **17 Native Tools** | File ops, terminal, web search, code analysis, and more |
 | **Memory Decay** | Old, unimportant memories fade naturally |
 | **HNSW Index** | O(log n) search for large memory stores (v2.6) |
 | **Binary Quantization** | 32x memory reduction with fast Hamming search (v2.6) |
@@ -103,18 +103,17 @@ Add to `~/.vscode/mcp.json`:
 
 ## Core Tools
 
-Mimo provides 24 tools out of the box. Here are the most used:
+Mimo provides 17 primary tools (with 12 deprecated aliases for backward compatibility). Here are the most used:
 
 | Tool | Example | Purpose |
 |------|---------|---------|
 | `memory` | `memory operation=store content="User likes TypeScript"` | Store/search memories |
 | `file` | `file operation=edit path="app.ts" old_str="x" new_str="y"` | Read, write, edit files |
 | `terminal` | `terminal command="npm test"` | Run shell commands |
-| `search` | `search query="React hooks best practices"` | Web search |
+| `web` | `web operation=search query="React hooks best practices"` | **Unified web operations** |
+| `code` | `code operation=symbols path="src/"` | **Unified code intelligence** |
 | `knowledge` | `knowledge operation=teach text="Auth depends on DB"` | Build knowledge graph |
-| `code_symbols` | `code_symbols operation=symbols path="src/"` | Analyze code structure |
-
-| `onboard` | `onboard path="."` | Index project at session start (v2.6) |
+| `onboard` | `onboard path="."` | Index project at session start |
 
 See [full tool reference →](docs/API_REFERENCE.md)
 

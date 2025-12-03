@@ -31,8 +31,8 @@ defmodule Mimo.AutoMemory do
   """
   def wrap_tool_call(tool_name, arguments, result) do
     if enabled?() do
-      # RELIABILITY FIX: Use Task.Supervisor instead of Task.start for visibility
-      Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
+      # RELIABILITY FIX: Use Mimo.Sandbox.run_async for proper sandbox synchronization
+      Mimo.Sandbox.run_async(Mimo.Repo, fn ->
         try do
           maybe_store_memory(tool_name, arguments, result)
         rescue
@@ -90,48 +90,31 @@ defmodule Mimo.AutoMemory do
     end
   end
 
-  # Categorize tools by their type
+  # Tool categorization patterns - extracted for clarity and reduced complexity
+  @file_read_patterns ["read_file"]
+  @file_write_patterns ["write_file"]
+  @search_patterns ["search", "vibes"]
+  @browser_patterns ["puppeteer", "browser", "blink"]
+  @process_patterns ["process", "terminal"]
+  @fetch_patterns ["fetch", "web_extract"]
+  @skip_patterns ["store_fact", "ask_mimo", "mimo_", "config", "list_", "get_"]
+
+  # Categorize tools by their type using pattern matching
   defp categorize_tool(tool_name) do
     cond do
-      # File operations
-      String.contains?(tool_name, "read_file") ->
-        {:file_read, :from_args}
-
-      String.contains?(tool_name, "write_file") ->
-        {:file_write, :from_args}
-
-      # Search operations
-      String.contains?(tool_name, "search") or String.contains?(tool_name, "vibes") ->
-        {:search, :from_args}
-
-      # Browser operations (including blink for protected sites)
-      String.contains?(tool_name, "puppeteer") or String.contains?(tool_name, "browser") or
-          String.contains?(tool_name, "blink") ->
-        {:browser, tool_name}
-
-      # Process/terminal operations
-      String.contains?(tool_name, "process") or String.contains?(tool_name, "terminal") ->
-        {:process, :from_args}
-
-      # Fetch operations (URL reads)
-      String.contains?(tool_name, "fetch") or String.contains?(tool_name, "web_extract") ->
-        {:file_read, :url}
-
-      # Skip internal memory tools (avoid recursion)
-      String.contains?(tool_name, "store_fact") or
-        String.contains?(tool_name, "ask_mimo") or
-          String.contains?(tool_name, "mimo_") ->
-        :skip
-
-      # Skip config/utility tools
-      String.contains?(tool_name, "config") or
-        String.contains?(tool_name, "list_") or
-          String.contains?(tool_name, "get_") ->
-        :skip
-
-      true ->
-        :skip
+      matches_any?(tool_name, @file_read_patterns) -> {:file_read, :from_args}
+      matches_any?(tool_name, @file_write_patterns) -> {:file_write, :from_args}
+      matches_any?(tool_name, @search_patterns) -> {:search, :from_args}
+      matches_any?(tool_name, @browser_patterns) -> {:browser, tool_name}
+      matches_any?(tool_name, @process_patterns) -> {:process, :from_args}
+      matches_any?(tool_name, @fetch_patterns) -> {:file_read, :url}
+      matches_any?(tool_name, @skip_patterns) -> :skip
+      true -> :skip
     end
+  end
+
+  defp matches_any?(tool_name, patterns) do
+    Enum.any?(patterns, &String.contains?(tool_name, &1))
   end
 
   # Store memory for file reads

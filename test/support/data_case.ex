@@ -25,9 +25,16 @@ defmodule Mimo.DataCase do
   end
 
   setup tags do
-    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Mimo.Repo, shared: not tags[:async])
-    on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
-    :ok
+    repo_config = Application.get_env(:mimo_mcp, Mimo.Repo, [])
+
+    if Keyword.get(repo_config, :pool) == Ecto.Adapters.SQL.Sandbox do
+      pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Mimo.Repo, shared: not tags[:async])
+      on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
+      :ok
+    else
+      # Repo not configured for Sandbox; proceed without ownership to avoid crashes
+      :ok
+    end
   end
 
   @doc """

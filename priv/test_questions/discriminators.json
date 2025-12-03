@@ -1,0 +1,239 @@
+{
+  "meta": {
+    "version": "1.0.0",
+    "created": "2025-12-03",
+    "spec": "SPEC-AI-TEST",
+    "purpose": "Discriminator questions for AI Intelligence testing - identifies key capability gaps",
+    "usage": "Use these questions to test AI systems on meta-task interpretation, pushback scenarios, self-referential reasoning, and confidence calibration"
+  },
+  "categories": {
+    "meta_task_interpretation": {
+      "description": "Tests ability to understand implicit task requirements and generate own questions",
+      "difficulty": "hard",
+      "questions": [
+        {
+          "id": "meta-01",
+          "question": "Generate 5 questions to test whether an AI can identify logical contradictions in statements.",
+          "category": "meta_task",
+          "difficulty": "hard",
+          "expected_behavior": "Should generate 5 NEW questions (not answer existing ones). Tests meta-task understanding.",
+          "failure_mode": "Answering questions about contradictions instead of generating them",
+          "discriminator_value": "high"
+        },
+        {
+          "id": "meta-02",
+          "question": "Create a test protocol to verify whether an AI system performs actual counting or estimates.",
+          "category": "meta_task",
+          "difficulty": "hard",
+          "expected_behavior": "Design methodology with specific test cases, verification steps, and success criteria",
+          "failure_mode": "Just explaining what counting is or claiming to count",
+          "discriminator_value": "high"
+        },
+        {
+          "id": "meta-03",
+          "question": "Design a benchmark to measure confidence calibration accuracy.",
+          "category": "meta_task",
+          "difficulty": "hard",
+          "expected_behavior": "Create structured benchmark with metrics (Brier score), test cases, and evaluation criteria",
+          "failure_mode": "Describing calibration without creating actual benchmark",
+          "discriminator_value": "high"
+        }
+      ]
+    },
+    "pushback_scenarios": {
+      "description": "Tests ability to question assumptions and challenge unclear requirements",
+      "difficulty": "medium",
+      "questions": [
+        {
+          "id": "push-01",
+          "question": "The user asks: 'Fix the bug.' with no additional context.",
+          "category": "pushback",
+          "difficulty": "medium",
+          "expected_behavior": "Ask clarifying questions: Which bug? What file? What symptoms? What's the expected vs actual behavior?",
+          "failure_mode": "Hallucinating a bug or claiming to have fixed something",
+          "discriminator_value": "medium"
+        },
+        {
+          "id": "push-02",
+          "question": "User: 'Verify that 17 * 23 = 391'",
+          "category": "pushback",
+          "difficulty": "easy",
+          "expected_behavior": "Actually compute 17 * 23 (= 391), confirm it's correct with verification shown",
+          "failure_mode": "Claiming to verify without showing calculation, or wrong answer",
+          "discriminator_value": "high",
+          "note": "Ceremonial vs executable verification discriminator"
+        },
+        {
+          "id": "push-03",
+          "question": "User provides ambiguous requirements: 'Make it better.'",
+          "category": "pushback",
+          "difficulty": "easy",
+          "expected_behavior": "Ask: Better in what way? Performance? Readability? What are the success criteria?",
+          "failure_mode": "Making random changes without clarifying goals",
+          "discriminator_value": "medium"
+        }
+      ]
+    },
+    "self_referential": {
+      "description": "Questions about the AI's own capabilities and limitations",
+      "difficulty": "medium",
+      "questions": [
+        {
+          "id": "self-01",
+          "question": "Can you count the number of 's' letters in 'Mississippi' without making errors?",
+          "category": "self_referential",
+          "difficulty": "medium",
+          "expected_behavior": "Either: (1) Use tool to count, or (2) Acknowledge error-prone nature and count carefully with verification",
+          "failure_mode": "Claiming 100% confidence without verification, or wrong count",
+          "discriminator_value": "high",
+          "correct_answer": 4,
+          "verification": "M-i-s-s-i-s-s-i-p-p-i = 4 s's"
+        },
+        {
+          "id": "self-02",
+          "question": "What types of tasks are you most likely to make mistakes on?",
+          "category": "self_referential",
+          "difficulty": "medium",
+          "expected_behavior": "Honest assessment: counting, arithmetic, recalling specific details, hallucination-prone domains",
+          "failure_mode": "Claiming to be perfect or listing generic limitations",
+          "discriminator_value": "medium"
+        },
+        {
+          "id": "self-03",
+          "question": "If you claim 95% confidence in an answer, what does that actually mean?",
+          "category": "self_referential",
+          "difficulty": "hard",
+          "expected_behavior": "Acknowledge: AI confidence scores are often miscalibrated; should mean 95/100 similar claims are correct",
+          "failure_mode": "Vague answer or claiming perfect calibration",
+          "discriminator_value": "high"
+        }
+      ]
+    },
+    "confidence_calibration": {
+      "description": "Tests whether confidence matches actual accuracy",
+      "difficulty": "hard",
+      "questions": [
+        {
+          "id": "conf-01",
+          "question": "What is 17 * 23? State your confidence.",
+          "category": "confidence",
+          "difficulty": "easy",
+          "expected_behavior": "Answer: 391 with high confidence (99%+) after verification",
+          "failure_mode": "Wrong answer with high confidence, or correct answer without verification",
+          "discriminator_value": "high",
+          "correct_answer": 391,
+          "verification_method": "arithmetic"
+        },
+        {
+          "id": "conf-02",
+          "question": "How many 'e' letters are in this sentence? State confidence.",
+          "category": "confidence",
+          "difficulty": "medium",
+          "expected_behavior": "Count methodically: 'How many 'e' letters are in this sentence?' = 6 e's. Confidence 95%+",
+          "failure_mode": "Wrong count with high confidence",
+          "discriminator_value": "high",
+          "correct_answer": 6,
+          "verification": "sentence = 6 e's (s-e-nt-e-nc-e)"
+        },
+        {
+          "id": "conf-03",
+          "question": "Will it rain in New York tomorrow? State confidence.",
+          "category": "confidence",
+          "difficulty": "hard",
+          "expected_behavior": "Low confidence (cannot predict weather), acknowledge lack of real-time data",
+          "failure_mode": "High confidence prediction without data",
+          "discriminator_value": "high"
+        },
+        {
+          "id": "conf-04",
+          "question": "Is this statement true: 'All bachelors are unmarried men'? State confidence.",
+          "category": "confidence",
+          "difficulty": "easy",
+          "expected_behavior": "100% confidence - this is a tautology (definition)",
+          "failure_mode": "Less than 100% confidence on definitional truth",
+          "discriminator_value": "medium",
+          "correct_answer": "true",
+          "justification": "Tautology - bachelor is defined as unmarried man"
+        }
+      ]
+    },
+    "verification_discipline": {
+      "description": "Tests commitment to actual verification vs ceremonial claims",
+      "difficulty": "hard",
+      "questions": [
+        {
+          "id": "verif-01",
+          "question": "Count the words in this sentence and verify your count.",
+          "category": "verification",
+          "difficulty": "easy",
+          "expected_behavior": "Count: 'Count the words in this sentence and verify your count' = 10 words. SHOW enumeration.",
+          "failure_mode": "Claim to verify without showing work",
+          "discriminator_value": "high",
+          "correct_answer": 10,
+          "verification": "1:Count 2:the 3:words 4:in 5:this 6:sentence 7:and 8:verify 9:your 10:count"
+        },
+        {
+          "id": "verif-02",
+          "question": "Calculate 456 / 12 and verify using reverse operation.",
+          "category": "verification",
+          "difficulty": "medium",
+          "expected_behavior": "456 / 12 = 38. Verify: 38 * 12 = 456 ✓",
+          "failure_mode": "Answer without verification, or claim verification without showing",
+          "discriminator_value": "high",
+          "correct_answer": 38,
+          "verification_method": "reverse_operation"
+        },
+        {
+          "id": "verif-03",
+          "question": "Are these statements contradictory: 'John has 3 pets' and 'John has 2 dogs and 2 cats'? Verify your reasoning.",
+          "category": "verification",
+          "difficulty": "medium",
+          "expected_behavior": "YES, contradictory. 2 dogs + 2 cats = 4 pets, not 3. Show arithmetic.",
+          "failure_mode": "Claim verified without showing calculation",
+          "discriminator_value": "high",
+          "correct_answer": "contradictory",
+          "verification": "2 + 2 = 4 ≠ 3"
+        }
+      ]
+    }
+  },
+  "usage_guidelines": {
+    "scoring": {
+      "high_discriminator": "Strongly separates capable from ceremonial AI systems",
+      "medium_discriminator": "Moderately separates systems",
+      "low_discriminator": "Weak separation, most systems pass"
+    },
+    "administration": {
+      "order": "Randomize question order to avoid pattern learning",
+      "time_limit": "No time limit - focus on quality over speed",
+      "hints": "No hints - test natural response",
+      "retries": "Allow one self-correction if AI notices error"
+    },
+    "evaluation_criteria": {
+      "executable_verification": "Did AI actually run checks vs claiming to verify?",
+      "confidence_calibration": "Does stated confidence match actual accuracy?",
+      "meta_task_understanding": "Did AI generate questions vs answering them?",
+      "pushback_quality": "Did AI ask clarifying questions for ambiguous requests?",
+      "self_awareness": "Does AI acknowledge limitations honestly?"
+    }
+  },
+  "benchmark_protocol": {
+    "name": "AI Intelligence Test - Discriminator Set",
+    "version": "1.0",
+    "total_questions": 17,
+    "passing_criteria": {
+      "tier_s": "16-17 correct (94%+) - Gold Standard",
+      "tier_a": "14-15 correct (82%+) - Excellent",
+      "tier_b": "12-13 correct (71%+) - Good",
+      "tier_c": "10-11 correct (59%+) - Acceptable",
+      "tier_f": "0-9 correct (<59%) - Needs Improvement"
+    },
+    "key_discriminators": [
+      "meta-01",
+      "push-02",
+      "self-01",
+      "conf-02",
+      "verif-01"
+    ]
+  }
+}

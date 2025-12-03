@@ -33,6 +33,132 @@ defmodule Mimo.Skills.Cognition do
   end
 
   # ==========================================================================
+  # Thinking Templates (Anthropic Think Tool best practice)
+  # Domain-specific guided thinking patterns for better reasoning
+  # ==========================================================================
+
+  @thinking_templates %{
+    debug: """
+    1. SYMPTOMS: What exactly is happening vs expected?
+    2. CONTEXT: When did it start? What changed recently?
+    3. HYPOTHESES: List 3 possible causes (most likely first)
+    4. VERIFICATION: How to test each hypothesis?
+    5. EVIDENCE: What do logs/errors/state tell us?
+    6. ROOT CAUSE: Based on evidence, what's the real issue?
+    7. FIX: What's the minimal change to resolve this?
+    """,
+    implement: """
+    1. REQUIREMENTS: What exactly needs to be built?
+    2. CONTEXT: What existing code/patterns can I reuse?
+    3. APPROACH: What's the simplest implementation that works?
+    4. DEPENDENCIES: What modules/functions does this need?
+    5. EDGE CASES: What could go wrong? How to handle?
+    6. TESTS: How will I verify this works?
+    7. INTEGRATION: How does this fit with existing code?
+    """,
+    refactor: """
+    1. CURRENT STATE: What's the existing code doing?
+    2. PROBLEMS: What's wrong with it (complexity, bugs, performance)?
+    3. GOAL: What should it look like after?
+    4. APPROACH: Incremental or big-bang refactor?
+    5. SAFETY: How to ensure behavior doesn't change?
+    6. STEPS: What's the sequence of changes?
+    7. VALIDATION: How to verify the refactor is complete?
+    """,
+    tool_decision: """
+    1. GOAL: What am I trying to accomplish?
+    2. CONTEXT: What do I already know from memory?
+    3. OPTIONS: What tools could help here?
+    4. TRADEOFFS: Which tool is most efficient?
+    5. SEQUENCE: What order should I use tools?
+    6. FALLBACK: What if the chosen tool fails?
+    """,
+    error_analysis: """
+    1. ERROR MESSAGE: What exactly does it say?
+    2. LOCATION: Where in the code does it occur?
+    3. TYPE: Compile error, runtime error, logic error?
+    4. SIMILAR: Have I seen this error pattern before?
+    5. CAUSE: What triggered this specific error?
+    6. FIX: What's the correct code change?
+    7. PREVENTION: How to avoid this in future?
+    """
+  }
+
+  @doc """
+  Get a thinking template for a specific scenario.
+
+  Templates guide structured reasoning for common tasks,
+  implementing Anthropic's Think Tool best practice of
+  providing domain-specific thinking examples.
+
+  ## Available Templates
+
+  - `:debug` - Debugging workflow
+  - `:implement` - Feature implementation
+  - `:refactor` - Code refactoring
+  - `:tool_decision` - Choosing which tools to use
+  - `:error_analysis` - Analyzing error messages
+
+  ## Example
+
+      {:ok, template} = Cognition.get_template(:debug)
+  """
+  @spec get_template(atom()) :: {:ok, String.t()} | {:error, String.t()}
+  def get_template(scenario) when is_atom(scenario) do
+    case Map.get(@thinking_templates, scenario) do
+      nil ->
+        {:error,
+         "Unknown template: #{scenario}. Available: #{@thinking_templates |> Map.keys() |> Enum.join(", ")}"}
+
+      template ->
+        {:ok, String.trim(template)}
+    end
+  end
+
+  @doc """
+  Think with template guidance.
+
+  Combines the thought with a structured template for the scenario,
+  guiding more systematic reasoning.
+  """
+  @spec think_with_template(String.t(), atom()) :: {:ok, map()} | {:error, String.t()}
+  def think_with_template(thought, scenario) do
+    case get_template(scenario) do
+      {:ok, template} ->
+        guided_thought = """
+        ## Thinking Framework (#{scenario})
+        #{template}
+
+        ## Current Thought
+        #{thought}
+        """
+
+        Logger.info("[THINK:#{scenario}] #{thought}")
+
+        {:ok,
+         %{
+           status: "recorded",
+           thought: guided_thought,
+           scenario: scenario,
+           template: template,
+           raw_thought: thought,
+           timestamp: DateTime.utc_now()
+         }}
+
+      error ->
+        error
+    end
+  end
+
+  @doc """
+  List all available thinking templates.
+  """
+  @spec list_templates() :: {:ok, [atom()]}
+  def list_templates do
+    {:ok, Map.keys(@thinking_templates)}
+  end
+
+  # ==========================================================================
   # Basic Cognition (Original)
   # ==========================================================================
 

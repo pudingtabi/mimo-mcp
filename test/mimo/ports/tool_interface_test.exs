@@ -110,8 +110,8 @@ defmodule Mimo.ToolInterfaceTest do
       assert is_binary(message)
     end
 
-    test "procedure_status requires execution_id" do
-      result = ToolInterface.execute("procedure_status", %{})
+    test "run_procedure with operation=status requires execution_id" do
+      result = ToolInterface.execute("run_procedure", %{"operation" => "status"})
       assert {:error, message} = result
       assert message =~ "execution_id"
     end
@@ -449,11 +449,11 @@ defmodule Mimo.ToolInterfaceTest do
       assert Map.has_key?(first_tool, "name") or Map.has_key?(first_tool, :name)
     end
 
-    test "includes internal tools" do
+    test "includes deprecated internal tools (backward compatibility)" do
       tools = ToolInterface.list_tools()
       tool_names = Enum.map(tools, &(&1["name"] || &1[:name]))
 
-      assert "ask_mimo" in tool_names
+      # Deprecated but still available for backward compatibility
       assert "search_vibes" in tool_names
       assert "store_fact" in tool_names
     end
@@ -462,9 +462,8 @@ defmodule Mimo.ToolInterfaceTest do
       tools = ToolInterface.list_tools()
       tool_names = Enum.map(tools, &(&1["name"] || &1[:name]))
 
-      # SPEC-011.1
+      # SPEC-011.1: Procedural Store (procedure_status merged into run_procedure)
       assert "run_procedure" in tool_names
-      assert "procedure_status" in tool_names
       assert "list_procedures" in tool_names
 
       # SPEC-011.2

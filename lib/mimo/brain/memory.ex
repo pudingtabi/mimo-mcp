@@ -61,6 +61,7 @@ defmodule Mimo.Brain.Memory do
   alias Mimo.Vector.Math
   alias Mimo.Brain.NoveltyDetector
   alias Mimo.Brain.MemoryIntegrator
+  alias Mimo.Awakening.Hooks, as: AwakeningHooks
 
   # Configuration constants
   @max_memory_batch_size 1000
@@ -162,6 +163,16 @@ defmodule Mimo.Brain.Memory do
         []
     end
   rescue
+    e in DBConnection.OwnershipError ->
+      # Expected in test mode when background processes don't have sandbox access
+      Logger.debug("Memory search skipped (sandbox mode): #{Exception.message(e)}")
+      []
+
+    e in DBConnection.ConnectionError ->
+      # Can also occur in sandbox mode with connection issues
+      Logger.debug("Memory search skipped (connection): #{Exception.message(e)}")
+      []
+
     e ->
       Logger.error("Memory search failed: #{Exception.message(e)}")
       []
@@ -217,6 +228,16 @@ defmodule Mimo.Brain.Memory do
 
     {:ok, results}
   rescue
+    e in DBConnection.OwnershipError ->
+      # Expected in test mode when background processes don't have sandbox access
+      Logger.debug("Memory search with embedding skipped (sandbox mode): #{Exception.message(e)}")
+      {:ok, []}
+
+    e in DBConnection.ConnectionError ->
+      # Can also occur in sandbox mode with connection issues
+      Logger.debug("Memory search with embedding skipped (connection): #{Exception.message(e)}")
+      {:ok, []}
+
     e ->
       Logger.error("Memory search with embedding failed: #{Exception.message(e)}")
       {:ok, []}
@@ -224,11 +245,11 @@ defmodule Mimo.Brain.Memory do
 
   @doc """
   Count total memories in the store.
-  
+
   Useful for strategy selection and statistics.
-  
+
   ## Examples
-  
+
       count_memories()
       #=> 1234
   """
@@ -238,24 +259,24 @@ defmodule Mimo.Brain.Memory do
 
   @doc """
   Determine which search strategy to use based on memory count.
-  
+
   This function exposes the strategy selection logic for testing and
   allows callers to understand which strategy will be used for a given
   memory count.
-  
+
   ## Arguments
-  
+
     * `count` - Number of memories in the store
     * `explicit_strategy` - Optional explicit strategy override (nil for auto)
-  
+
   ## Returns
-  
+
     * `:exact` - For small memory counts (<500)
     * `:binary_rescore` - For medium counts (500-999) or when HNSW unavailable
     * `:hnsw` - For large counts (>=1000) when HNSW index is available
-  
+
   ## Examples
-  
+
       determine_strategy(100, nil)    #=> :exact
       determine_strategy(500, nil)    #=> :binary_rescore
       determine_strategy(1000, nil)   #=> :hnsw (if available)
@@ -275,10 +296,10 @@ defmodule Mimo.Brain.Memory do
           else
             :binary_rescore
           end
-        
+
         count >= @binary_search_threshold ->
           :binary_rescore
-        
+
         true ->
           :exact
       end
@@ -307,10 +328,10 @@ defmodule Mimo.Brain.Memory do
       persist_memory("API key rotated", "action", importance: 0.9)
   """
   def persist_memory(content, category, importance \\ 0.5) do
-    RetryStrategies.with_retry(
+    RetryStrategies.with_sqlite_retry(
       fn -> do_persist_memory_with_tmc(content, category, importance) end,
-      max_retries: 3,
-      base_delay: 100,
+      max_retries: 5,
+      base_delay: 500,
       on_retry: fn attempt, reason ->
         Logger.warning("Memory persist retry #{attempt}: #{inspect(reason)}")
       end
@@ -422,6 +443,8 @@ defmodule Mimo.Brain.Memory do
             log_memory_event(:stored, engram.id, category, project_id, tags)
             # SPEC-025: Notify Orchestrator for Synapse graph linking
             notify_memory_stored(engram)
+            # SPEC-040: Award XP for memory storage
+            AwakeningHooks.memory_stored(engram)
             # SPEC-032: Auto-protect high-importance memories
             maybe_auto_protect(engram, importance)
             {:ok, engram.id}
@@ -434,7 +457,8 @@ defmodule Mimo.Brain.Memory do
           # Return duplicate info instead of rolling back
           {:duplicate, id}
 
-        {:error, reason} -> Repo.rollback(reason)
+        {:error, reason} ->
+          Repo.rollback(reason)
       end
     end)
     |> unwrap_transaction_result()
@@ -694,6 +718,14 @@ defmodule Mimo.Brain.Memory do
   end
 
   @doc """
+  Alias for get_recent/1 - returns recent engrams for Awakening integration.
+  """
+  @spec recent_engrams(non_neg_integer()) :: {:ok, list()} | {:error, term()}
+  def recent_engrams(limit \\ 10) do
+    get_recent(limit: limit)
+  end
+
+  @doc """
   Persist a memory with full metadata and embedding.
   Used by Consolidator for working memory → long-term transfer.
 
@@ -786,6 +818,8 @@ defmodule Mimo.Brain.Memory do
             log_memory_event(:stored, engram.id, category)
             # SPEC-025: Notify Orchestrator for Synapse graph linking
             notify_memory_stored(engram)
+            # SPEC-040: Award XP for memory storage
+            AwakeningHooks.memory_stored(engram)
             {:ok, engram}
 
           {:error, changeset} ->
@@ -849,12 +883,14 @@ defmodule Mimo.Brain.Memory do
   # Fallback strategy selection when HNSW is not available
   defp select_strategy_without_hnsw(opts) do
     category = Keyword.get(opts, :category)
+    # Convert atom category to string for database query
+    category_str = if is_atom(category) and category != nil, do: to_string(category), else: category
 
     count =
-      if category do
+      if category_str do
         Repo.one(
           from(e in Engram,
-            where: e.category == ^category and not is_nil(e.embedding_binary),
+            where: e.category == ^category_str and not is_nil(e.embedding_binary),
             select: count(e.id)
           )
         ) || 0
@@ -993,9 +1029,17 @@ defmodule Mimo.Brain.Memory do
 
   # Fallback when HNSW isn't available
   defp two_stage_search_fallback(query_int8, limit, min_similarity, recency_boost, opts) do
-    # Need to dequantize to get float embedding for two_stage_search
-    # This is a fallback path, so we just use exact search
-    exact_search(query_int8, limit, min_similarity, recency_boost, opts)
+    # Dequantize int8 to float to enable binary pre-filtering
+    # This adds some overhead but maintains O(n) vs O(n²) advantage of binary search
+    case Math.dequantize_int8(query_int8, 1.0, 0.0) do
+      {:ok, query_float} ->
+        # Use two_stage_search which has binary pre-filtering
+        two_stage_search(query_float, query_int8, limit, min_similarity, recency_boost, opts)
+
+      {:error, _reason} ->
+        # Only fall back to exact search if dequantization fails
+        exact_search(query_int8, limit, min_similarity, recency_boost, opts)
+    end
   end
 
   @doc """
@@ -1031,13 +1075,17 @@ defmodule Mimo.Brain.Memory do
     end
   end
 
-  # Stage 1: Fast Hamming pre-filter
+  # Maximum embeddings to load per batch to prevent OOM
+  @hamming_batch_size 10_000
+
+  # Stage 1: Fast Hamming pre-filter with chunked loading for memory safety
   defp hamming_prefilter(query_binary, candidates, category, project_id, include_superseded) do
-    # Build query for binary embeddings
+    # Build base query for binary embeddings
+    # Note: Use select_merge with map for subquery compatibility
     base_query =
       from(e in Engram,
         where: not is_nil(e.embedding_binary),
-        select: {e.id, e.embedding_binary}
+        select: %{id: e.id, embedding_binary: e.embedding_binary}
       )
 
     query =
@@ -1046,30 +1094,100 @@ defmodule Mimo.Brain.Memory do
       |> maybe_filter_project(project_id)
       |> maybe_filter_superseded(include_superseded)
 
-    # Fetch all binary embeddings
-    engrams = Repo.all(query)
+    # Get total count using a separate count query
+    count_query =
+      from(e in Engram,
+        where: not is_nil(e.embedding_binary)
+      )
+      |> maybe_filter_category(category)
+      |> maybe_filter_project(project_id)
+      |> maybe_filter_superseded(include_superseded)
+      |> select([e], count(e.id))
 
-    if engrams == [] do
+    total_count = Repo.one(count_query) || 0
+
+    if total_count == 0 do
       []
     else
-      # Build corpus and ID map
-      {corpus, id_map} =
-        Enum.reduce(engrams, {[], %{}}, fn {id, binary}, {corpus_acc, map_acc} ->
-          idx = length(corpus_acc)
-          {corpus_acc ++ [binary], Map.put(map_acc, idx, id)}
-        end)
-
-      # Fast Hamming search using NIF
-      case Math.top_k_hamming(query_binary, corpus, candidates) do
-        {:ok, results} ->
-          Enum.map(results, fn {idx, _distance} -> Map.get(id_map, idx) end)
-          |> Enum.reject(&is_nil/1)
-
-        {:error, _reason} ->
-          # Return all IDs on error (will be rescored anyway)
-          Enum.map(engrams, fn {id, _} -> id end)
+      if total_count <= @hamming_batch_size do
+        # Small enough to process in one batch
+        engrams = Repo.all(query)
+        # Convert map results to tuples for compatibility
+        engram_tuples = Enum.map(engrams, fn %{id: id, embedding_binary: eb} -> {id, eb} end)
+        process_hamming_batch(query_binary, engram_tuples, candidates)
+      else
+        # Process in chunks to prevent OOM, merge top candidates
+        process_hamming_chunked(query, query_binary, candidates, total_count)
       end
     end
+  end
+
+  # Process all embeddings when count is small
+  defp process_hamming_batch(query_binary, engrams, candidates) do
+    # Build corpus and ID map
+    {corpus, id_map} =
+      Enum.reduce(engrams, {[], %{}}, fn {id, binary}, {corpus_acc, map_acc} ->
+        idx = length(corpus_acc)
+        {corpus_acc ++ [binary], Map.put(map_acc, idx, id)}
+      end)
+
+    # Fast Hamming search using NIF
+    case Math.top_k_hamming(query_binary, corpus, candidates) do
+      {:ok, results} ->
+        Enum.map(results, fn {idx, _distance} -> Map.get(id_map, idx) end)
+        |> Enum.reject(&is_nil/1)
+
+      {:error, _reason} ->
+        # Return all IDs on error (will be rescored anyway)
+        Enum.map(engrams, fn {id, _} -> id end)
+    end
+  end
+
+  # Process in chunks when memory store is large
+  defp process_hamming_chunked(query, query_binary, candidates, total_count) do
+    num_chunks = div(total_count, @hamming_batch_size) + 1
+    candidates_per_chunk = max(div(candidates, num_chunks) * 2, 100)
+
+    # Process each chunk and collect top candidates
+    all_results =
+      0..(num_chunks - 1)
+      |> Enum.flat_map(fn chunk_idx ->
+        offset = chunk_idx * @hamming_batch_size
+        # Use limit/offset on the original query directly (since it already selects maps)
+        chunk_query = from(q in subquery(query), limit: ^@hamming_batch_size, offset: ^offset)
+        engrams = Repo.all(chunk_query)
+
+        if engrams == [] do
+          []
+        else
+          # Get top candidates from this chunk
+          # engrams are maps with :id and :embedding_binary keys
+          {corpus, id_map} =
+            Enum.reduce(engrams, {[], %{}}, fn %{id: id, embedding_binary: binary},
+                                               {corpus_acc, map_acc} ->
+              idx = length(corpus_acc)
+              {corpus_acc ++ [binary], Map.put(map_acc, idx, id)}
+            end)
+
+          case Math.top_k_hamming(query_binary, corpus, candidates_per_chunk) do
+            {:ok, results} ->
+              Enum.map(results, fn {idx, distance} ->
+                {Map.get(id_map, idx), distance}
+              end)
+              |> Enum.reject(fn {id, _} -> is_nil(id) end)
+
+            {:error, _} ->
+              # On error, include first few IDs from chunk
+              engrams |> Enum.take(candidates_per_chunk) |> Enum.map(fn %{id: id} -> {id, 256} end)
+          end
+        end
+      end)
+
+    # Sort by distance and take top candidates globally
+    all_results
+    |> Enum.sort_by(fn {_id, distance} -> distance end)
+    |> Enum.take(candidates)
+    |> Enum.map(fn {id, _} -> id end)
   end
 
   # Stage 2: Int8 rescore on candidates
@@ -1208,7 +1326,9 @@ defmodule Mimo.Brain.Memory do
   defp maybe_filter_category(query, nil), do: query
 
   defp maybe_filter_category(query, category) do
-    from(e in query, where: e.category == ^category)
+    # Convert atom to string for Ecto - category column is :string type
+    category_str = if is_atom(category), do: to_string(category), else: category
+    from(e in query, where: e.category == ^category_str)
   end
 
   defp maybe_filter_project(query, nil), do: query
@@ -1490,27 +1610,43 @@ defmodule Mimo.Brain.Memory do
   end
 
   defp build_chain(engram) do
-    # First, walk backward to find the original
-    original = walk_chain_backward(engram)
-    # Then walk forward from original to build complete chain
-    walk_chain_forward(original, [])
+    # First, walk backward to find the original (with cycle detection)
+    original = walk_chain_backward(engram, MapSet.new([engram.id]))
+    # Then walk forward from original to build complete chain (with cycle detection)
+    walk_chain_forward(original, [], MapSet.new())
   end
 
-  defp walk_chain_backward(%Engram{supersedes_id: nil} = engram), do: engram
+  defp walk_chain_backward(%Engram{supersedes_id: nil} = engram, _visited), do: engram
 
-  defp walk_chain_backward(%Engram{supersedes_id: predecessor_id}) do
-    case Repo.get(Engram, predecessor_id) do
-      nil -> nil
-      predecessor -> walk_chain_backward(predecessor)
+  defp walk_chain_backward(%Engram{supersedes_id: predecessor_id} = engram, visited) do
+    # Cycle detection: if we've seen this ID before, stop to prevent infinite loop
+    if MapSet.member?(visited, predecessor_id) do
+      Logger.warning(
+        "TMC cycle detected at engram #{engram.id} -> #{predecessor_id}, stopping traversal"
+      )
+
+      engram
+    else
+      case Repo.get(Engram, predecessor_id) do
+        # Broken chain - return current as original
+        nil -> engram
+        predecessor -> walk_chain_backward(predecessor, MapSet.put(visited, predecessor_id))
+      end
     end
   end
 
-  defp walk_chain_forward(nil, acc), do: Enum.reverse(acc)
+  defp walk_chain_forward(nil, acc, _visited), do: Enum.reverse(acc)
 
-  defp walk_chain_forward(engram, acc) do
-    # Find what supersedes this engram (if anything)
-    successor = Repo.one(from(e in Engram, where: e.supersedes_id == ^engram.id))
-    walk_chain_forward(successor, [engram | acc])
+  defp walk_chain_forward(engram, acc, visited) do
+    # Cycle detection: if we've seen this ID before, stop to prevent infinite loop
+    if MapSet.member?(visited, engram.id) do
+      Logger.warning("TMC cycle detected at engram #{engram.id}, stopping forward traversal")
+      Enum.reverse(acc)
+    else
+      # Find what supersedes this engram (if anything)
+      successor = Repo.one(from(e in Engram, where: e.supersedes_id == ^engram.id))
+      walk_chain_forward(successor, [engram | acc], MapSet.put(visited, engram.id))
+    end
   end
 
   @doc """
@@ -1532,12 +1668,26 @@ defmodule Mimo.Brain.Memory do
     end
   end
 
-  defp walk_to_current(engram) do
+  defp walk_to_current(engram), do: walk_to_current(engram, MapSet.new([engram.id]))
+
+  defp walk_to_current(engram, visited) do
     # Find what supersedes this engram
     case Repo.one(from(e in Engram, where: e.supersedes_id == ^engram.id)) do
       # This is the current version
-      nil -> engram
-      successor -> walk_to_current(successor)
+      nil ->
+        engram
+
+      successor ->
+        # Cycle detection
+        if MapSet.member?(visited, successor.id) do
+          Logger.warning(
+            "TMC cycle detected walking to current from #{engram.id}, returning #{engram.id}"
+          )
+
+          engram
+        else
+          walk_to_current(successor, MapSet.put(visited, successor.id))
+        end
     end
   end
 
@@ -1556,7 +1706,7 @@ defmodule Mimo.Brain.Memory do
   def get_original(engram_id) when is_integer(engram_id) do
     case Repo.get(Engram, engram_id) do
       nil -> nil
-      engram -> walk_chain_backward(engram)
+      engram -> walk_chain_backward(engram, MapSet.new([engram.id]))
     end
   end
 

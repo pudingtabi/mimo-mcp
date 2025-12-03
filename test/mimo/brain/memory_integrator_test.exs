@@ -79,7 +79,7 @@ defmodule Mimo.Brain.MemoryIntegratorTest do
         id: 1,
         content: "Old content",
         category: "fact",
-        inserted_at: DateTime.utc_now() |> DateTime.add(-86400, :second)
+        inserted_at: DateTime.utc_now() |> DateTime.add(-86_400, :second)
       }
 
       result = MemoryIntegrator.decide("New content", existing, category: "fact")
@@ -95,7 +95,7 @@ defmodule Mimo.Brain.MemoryIntegratorTest do
         content: "React 18 uses concurrent rendering",
         category: "fact",
         inserted_at:
-          DateTime.utc_now() |> DateTime.add(-86400, :second) |> DateTime.truncate(:second)
+          DateTime.utc_now() |> DateTime.add(-86_400, :second) |> DateTime.truncate(:second)
       }
 
       {:ok, result} =

@@ -10,6 +10,9 @@ defmodule Mimo.Brain.WorkingMemoryItem do
   use Ecto.Schema
   import Ecto.Changeset
 
+  # Enable JSON encoding, excluding the embedding field (too large)
+  @derive {Jason.Encoder, except: [:embedding]}
+
   @type t :: %__MODULE__{}
 
   @primary_key {:id, :binary_id, autogenerate: true}

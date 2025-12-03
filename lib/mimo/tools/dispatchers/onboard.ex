@@ -36,9 +36,7 @@ defmodule Mimo.Tools.Dispatchers.Onboard do
     # Resolve to absolute path
     abs_path = Path.expand(path)
 
-    unless File.dir?(abs_path) do
-      {:error, "Path does not exist or is not a directory: #{abs_path}"}
-    else
+    if File.dir?(abs_path) do
       fingerprint = compute_fingerprint(abs_path)
 
       # Check if already indexed (unless force)
@@ -47,6 +45,8 @@ defmodule Mimo.Tools.Dispatchers.Onboard do
       else
         run_full_onboard(abs_path, fingerprint)
       end
+    else
+      {:error, "Path does not exist or is not a directory: #{abs_path}"}
     end
   end
 
@@ -84,8 +84,13 @@ defmodule Mimo.Tools.Dispatchers.Onboard do
 
         if File.exists?(full_path) do
           case File.stat(full_path) do
-            {:ok, stat} -> "#{file}:#{stat.mtime}"
-            _ -> nil
+            {:ok, stat} ->
+              # Convert mtime tuple to string - mtime is {{year, month, day}, {hour, min, sec}}
+              mtime_str = format_mtime(stat.mtime)
+              "#{file}:#{mtime_str}"
+
+            _ ->
+              nil
           end
         else
           nil
@@ -224,4 +229,14 @@ defmodule Mimo.Tools.Dispatchers.Onboard do
       }
     })
   end
+
+  # Convert Erlang datetime tuple to string
+  defp format_mtime({{year, month, day}, {hour, min, sec}}) do
+    "#{year}-#{pad(month)}-#{pad(day)}T#{pad(hour)}:#{pad(min)}:#{pad(sec)}"
+  end
+
+  defp format_mtime(other), do: inspect(other)
+
+  defp pad(n) when n < 10, do: "0#{n}"
+  defp pad(n), do: "#{n}"
 end

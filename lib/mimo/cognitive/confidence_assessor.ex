@@ -34,6 +34,7 @@ defmodule Mimo.Cognitive.ConfidenceAssessor do
   alias Mimo.Brain.Memory
   alias Mimo.Code.SymbolIndex
   alias Mimo.Synapse.QueryEngine
+  alias Mimo.TaskHelper
 
   @type assessment_opts :: [
           include_memories: boolean(),
@@ -92,7 +93,7 @@ defmodule Mimo.Cognitive.ConfidenceAssessor do
 
     evidence =
       evidence_tasks
-      |> Task.async_stream(fn {key, fun} -> {key, fun.()} end,
+      |> TaskHelper.async_stream_with_callers(fn {key, fun} -> {key, fun.()} end,
         timeout: 5000,
         on_timeout: :kill_task
       )

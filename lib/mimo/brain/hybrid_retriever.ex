@@ -32,11 +32,14 @@ defmodule Mimo.Brain.HybridRetriever do
   """
   require Logger
 
-  alias Mimo.Brain.{Memory, HybridScorer, AccessTracker, LLM}
+  alias Mimo.Brain.{Memory, HybridScorer, AccessTracker, LLM, Engram}
   alias Mimo.SemanticStore
+  alias Mimo.Repo
+  import Ecto.Query
 
   @default_vector_limit 20
   @default_graph_limit 10
+  @default_keyword_limit 15
   @default_final_limit 10
 
   # ==========================================================================
@@ -83,14 +86,33 @@ defmodule Mimo.Brain.HybridRetriever do
     # Configure weights based on strategy
     weights = get_strategy_weights(strategy)
 
-    # Parallel retrieval from multiple sources
+    # Parallel retrieval from multiple sources with graceful timeout handling
+    # Use Task.Supervisor for proper supervision and sandbox allowance propagation
+    tasks = [
+      {:vector, async_with_callers(fn -> vector_search(query, query_embedding, opts) end)},
+      {:graph, async_with_callers(fn -> graph_search(query, opts) end)},
+      {:recency, async_with_callers(fn -> recency_search(opts) end)},
+      {:keyword, async_with_callers(fn -> keyword_search(query, opts) end)}
+    ]
+
     results =
-      [
-        Task.async(fn -> vector_search(query, query_embedding, opts) end),
-        Task.async(fn -> graph_search(query, opts) end),
-        Task.async(fn -> recency_search(opts) end)
-      ]
-      |> Task.await_many(10_000)
+      tasks
+      |> Enum.map(fn {_name, task} -> task end)
+      |> Task.yield_many(10_000)
+      |> Enum.zip(tasks)
+      |> Enum.map(fn
+        {{_task, {:ok, result}}, _} ->
+          result
+
+        {{task, nil}, {name, _}} ->
+          Task.shutdown(task, :brutal_kill)
+          Logger.warning("[HybridRetriever] #{name} search timed out")
+          []
+
+        {{_task, {:exit, reason}}, {name, _}} ->
+          Logger.warning("[HybridRetriever] #{name} search crashed: #{inspect(reason)}")
+          []
+      end)
       |> List.flatten()
       |> deduplicate()
       |> apply_filters(filters)
@@ -135,9 +157,10 @@ defmodule Mimo.Brain.HybridRetriever do
     vector_results = vector_search(query, query_embedding, opts)
     graph_results = graph_search(query, opts)
     recency_results = recency_search(opts)
+    keyword_results = keyword_search(query, opts)
 
     all_results =
-      (vector_results ++ graph_results ++ recency_results)
+      (vector_results ++ graph_results ++ recency_results ++ keyword_results)
       |> deduplicate()
 
     %{
@@ -147,7 +170,8 @@ defmodule Mimo.Brain.HybridRetriever do
       sources: %{
         vector: length(vector_results),
         graph: length(graph_results),
-        recency: length(recency_results)
+        recency: length(recency_results),
+        keyword: length(keyword_results)
       },
       total_unique: length(all_results),
       results:
@@ -213,6 +237,53 @@ defmodule Mimo.Brain.HybridRetriever do
     e ->
       Logger.warning("Recency search failed: #{Exception.message(e)}")
       []
+  end
+
+  defp keyword_search(query, opts) do
+    limit = Keyword.get(opts, :keyword_limit, @default_keyword_limit)
+
+    # Extract keywords from query (split on whitespace, filter short words)
+    keywords =
+      query
+      |> String.downcase()
+      |> String.split(~r/\s+/, trim: true)
+      |> Enum.filter(&(String.length(&1) >= 2))
+
+    if keywords == [] do
+      []
+    else
+      # Build LIKE conditions for each keyword
+      # SQLite uses LIKE with COLLATE NOCASE for case-insensitive matching
+      base_query = from(e in Engram, limit: ^limit, order_by: [desc: e.importance])
+
+      # Add WHERE conditions for keywords using fragments
+      query_with_conditions =
+        Enum.reduce(keywords, base_query, fn keyword, acc ->
+          pattern = "%#{escape_like(keyword)}%"
+          from(e in acc, where: fragment("? LIKE ? COLLATE NOCASE", e.content, ^pattern))
+        end)
+
+      # Convert Engram structs to maps with similarity field for compatibility
+      Repo.all(query_with_conditions)
+      |> Enum.map(fn engram ->
+        engram
+        |> Map.from_struct()
+        # Keyword matches get a high base similarity
+        |> Map.put(:similarity, 0.8)
+      end)
+    end
+  rescue
+    e ->
+      Logger.warning("Keyword search failed: #{Exception.message(e)}")
+      []
+  end
+
+  # Escape special LIKE characters to prevent injection
+  defp escape_like(string) do
+    string
+    |> String.replace("\\", "\\\\")
+    |> String.replace("%", "\\%")
+    |> String.replace("_", "\\_")
   end
 
   # ==========================================================================
@@ -324,4 +395,21 @@ defmodule Mimo.Brain.HybridRetriever do
   end
 
   defp triple_to_memories(_), do: []
+
+  # ==========================================================================
+  # Task Helpers (Sandbox-aware)
+  # ==========================================================================
+
+  # Spawn a task that propagates $callers for Ecto Sandbox allowance in tests.
+  # This ensures spawned tasks inherit database connection access from the caller.
+  defp async_with_callers(fun) do
+    caller = self()
+    callers = Process.get(:"$callers", [])
+
+    Task.Supervisor.async(Mimo.TaskSupervisor, fn ->
+      # Propagate $callers for Ecto Sandbox allowance
+      Process.put(:"$callers", [caller | callers])
+      fun.()
+    end)
+  end
 end

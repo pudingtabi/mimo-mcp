@@ -5,6 +5,28 @@ All notable changes to Mimo-MCP Gateway will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - 2025-12-03
+
+**Major Release** - Tool Consolidation (Phases 1-4): Unified tools for simpler orchestration.
+
+### Changed
+- **Tool Consolidation** - Reduced from 29+ tools to 17 primary tools with 12 deprecated aliases
+  - `web` - **UNIFIED** web operations (fetch, search, blink, browser, vision, sonar, extract, parse)
+  - `code` - **UNIFIED** code intelligence (symbols, library_get, library_search, diagnose, check, lint, typecheck)
+  - `meta` - **UNIFIED** composite operations (analyze_file, debug_error, prepare_context, suggest_next_tool)
+
+### Deprecated
+- `fetch`, `search`, `blink`, `browser`, `vision`, `sonar`, `web_extract`, `web_parse` → Use `web` instead
+- `code_symbols`, `library`, `diagnostics` → Use `code` instead
+- `graph` → Use `knowledge` instead
+
+### Technical Details
+- All deprecated tools continue to work (redirect to unified tools)
+- Documentation updated to reflect consolidation
+- 1007 tests passing, 0 failures
+
+---
+
 ## [2.6.0] - 2025-12-01
 
 **Major Release** - HNSW index, binary quantization, Temporal Memory Chains, and project onboarding.

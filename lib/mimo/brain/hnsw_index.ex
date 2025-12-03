@@ -331,30 +331,43 @@ defmodule Mimo.Brain.HnswIndex do
 
   @impl true
   def init(opts) do
-    # Get configuration
-    config = Application.get_env(:mimo_mcp, __MODULE__, [])
-    merged_opts = Keyword.merge(config, opts)
+    # Check if HNSW NIF is available BEFORE proceeding
+    if Math.hnsw_available?() do
+      # Get configuration
+      config = Application.get_env(:mimo_mcp, __MODULE__, [])
+      merged_opts = Keyword.merge(config, opts)
 
-    dimensions = Keyword.get(merged_opts, :dimensions, @default_dimensions)
-    connectivity = Keyword.get(merged_opts, :connectivity, @default_connectivity)
-    expansion_add = Keyword.get(merged_opts, :expansion_add, @default_expansion_add)
-    expansion_search = Keyword.get(merged_opts, :expansion_search, @default_expansion_search)
-    auto_save_interval = Keyword.get(merged_opts, :auto_save_interval, @default_auto_save_interval)
-    index_path = Keyword.get(merged_opts, :index_path, @default_index_path)
+      dimensions = Keyword.get(merged_opts, :dimensions, @default_dimensions)
+      connectivity = Keyword.get(merged_opts, :connectivity, @default_connectivity)
+      expansion_add = Keyword.get(merged_opts, :expansion_add, @default_expansion_add)
+      expansion_search = Keyword.get(merged_opts, :expansion_search, @default_expansion_search)
 
-    state = %__MODULE__{
-      index: nil,
-      dimensions: dimensions,
-      index_path: index_path,
-      auto_save_interval: auto_save_interval,
-      last_saved_at: nil,
-      dirty: false,
-      vector_count: 0,
-      initialized: false
-    }
+      auto_save_interval =
+        Keyword.get(merged_opts, :auto_save_interval, @default_auto_save_interval)
 
-    # Try to load existing index or create new one
-    {:ok, state, {:continue, {:init_index, connectivity, expansion_add, expansion_search}}}
+      index_path = Keyword.get(merged_opts, :index_path, @default_index_path)
+
+      state = %__MODULE__{
+        index: nil,
+        dimensions: dimensions,
+        index_path: index_path,
+        auto_save_interval: auto_save_interval,
+        last_saved_at: nil,
+        dirty: false,
+        vector_count: 0,
+        initialized: false
+      }
+
+      # Try to load existing index or create new one
+      {:ok, state, {:continue, {:init_index, connectivity, expansion_add, expansion_search}}}
+    else
+      Logger.warning(
+        "⚠️ HNSW NIF not available - index will not be used. Memory search falls back to two-stage strategy."
+      )
+
+      # Return :ignore so supervisor doesn't keep trying to restart
+      :ignore
+    end
   end
 
   @impl true

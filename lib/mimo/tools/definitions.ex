@@ -174,12 +174,236 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # FETCH - All network operations
+    # WEB - Unified Web Operations (Phase 4 Consolidation)
+    # Consolidates: fetch, search, blink, browser, vision, sonar, web_extract, web_parse
+    # ==========================================================================
+    %{
+      name: "web",
+      description: """
+      🌐 UNIFIED WEB OPERATIONS - All network, browser, and vision tools in one!
+
+      This tool consolidates 8 previous tools for simpler orchestration:
+      • fetch → `operation=fetch`
+      • search → `operation=search`  
+      • blink → `operation=blink`
+      • browser → `operation=browser`
+      • vision → `operation=vision`
+      • sonar → `operation=sonar`
+      • web_extract → `operation=extract`
+      • web_parse → `operation=parse`
+
+      ## Operations
+
+      ### Content Retrieval
+      • `fetch` - URL content in various formats (text/html/json/markdown/raw)
+      • `extract` - Clean content extraction (Readability-style)
+      • `parse` - Convert HTML to Markdown
+
+      ### Search
+      • `search` - Web search with library-first optimization
+      • `code_search` - Code-specific search
+      • `image_search` - Image search with optional vision analysis
+
+      ### Browser Automation (HTTP-level)
+      • `blink` - HTTP-level browser emulation (fast, bypasses basic WAF)
+      • `blink_analyze` - Analyze URL protection type
+      • `blink_smart` - Smart fetch with auto-escalation
+
+      ### Browser Automation (Full)
+      • `browser` - Full Puppeteer fetch (JavaScript execution)
+      • `screenshot` - Capture page screenshot
+      • `pdf` - Generate PDF from page
+      • `evaluate` - Execute JavaScript on page
+      • `interact` - UI automation actions
+      • `test` - Run browser-based tests
+
+      ### Vision & Accessibility
+      • `vision` - Analyze images with AI
+      • `sonar` - UI accessibility scanning with optional vision
+
+      ## Examples
+
+      ```
+      # Fetch content
+      web operation=fetch url="https://example.com" format=markdown
+
+      # Web search (checks library cache first!)
+      web operation=search query="phoenix framework docs"
+
+      # Screenshot a page
+      web operation=screenshot url="https://example.com" full_page=true
+
+      # Analyze an image
+      web operation=vision image="https://..." prompt="Describe this UI"
+
+      # Bypass bot protection
+      web operation=blink_smart url="https://protected-site.com"
+      ```
+
+      💡 TIP: For package docs, use `code operation=library_get` - it's faster (cached)!
+      """,
+      input_schema: %{
+        type: "object",
+        properties: %{
+          operation: %{
+            type: "string",
+            enum: [
+              "fetch",
+              "extract",
+              "parse",
+              "search",
+              "code_search",
+              "image_search",
+              "blink",
+              "blink_analyze",
+              "blink_smart",
+              "browser",
+              "screenshot",
+              "pdf",
+              "evaluate",
+              "interact",
+              "test",
+              "vision",
+              "sonar"
+            ],
+            default: "fetch",
+            description: "Operation to perform (default: fetch)"
+          },
+          # Common URL parameter
+          url: %{type: "string", description: "URL for fetch/extract/blink/browser operations"},
+
+          # Fetch parameters
+          format: %{
+            type: "string",
+            enum: ["text", "html", "json", "markdown", "raw"],
+            default: "text",
+            description: "For fetch: output format"
+          },
+          method: %{
+            type: "string",
+            enum: ["get", "post"],
+            default: "get",
+            description: "For fetch: HTTP method"
+          },
+          json: %{type: "object", description: "For fetch: JSON body for POST requests"},
+          headers: %{
+            type: "array",
+            items: %{
+              type: "object",
+              properties: %{name: %{type: "string"}, value: %{type: "string"}}
+            },
+            description: "For fetch: HTTP headers"
+          },
+          timeout: %{type: "integer", description: "Timeout in milliseconds"},
+          analyze_image: %{
+            type: "boolean",
+            default: false,
+            description: "For fetch: auto-analyze image URLs with vision"
+          },
+
+          # Search parameters
+          query: %{type: "string", description: "For search: search query"},
+          num_results: %{type: "integer", default: 10, description: "For search: max results"},
+          backend: %{
+            type: "string",
+            enum: ["auto", "duckduckgo", "bing", "brave"],
+            default: "auto",
+            description: "For search: search backend"
+          },
+          analyze_images: %{
+            type: "boolean",
+            default: false,
+            description: "For image_search: analyze results with vision"
+          },
+          max_analyze: %{
+            type: "integer",
+            default: 3,
+            description: "For image_search: max images to analyze"
+          },
+
+          # Blink parameters
+          browser_profile: %{
+            type: "string",
+            enum: ["chrome", "firefox", "safari", "random"],
+            default: "chrome",
+            description: "For blink: browser to impersonate"
+          },
+          layer: %{type: "integer", default: 1, description: "For blink: bypass layer (0-2)"},
+          max_retries: %{
+            type: "integer",
+            default: 3,
+            description: "For blink_smart: max retry attempts"
+          },
+
+          # Browser parameters
+          profile: %{
+            type: "string",
+            enum: ["chrome", "firefox", "safari", "mobile"],
+            default: "chrome",
+            description: "For browser: browser profile"
+          },
+          wait_for_selector: %{type: "string", description: "For browser: CSS selector to wait for"},
+          wait_for_challenge: %{
+            type: "boolean",
+            default: true,
+            description: "For browser: wait for Cloudflare"
+          },
+          force_browser: %{
+            type: "boolean",
+            default: false,
+            description: "For browser: skip Blink optimization"
+          },
+          full_page: %{
+            type: "boolean",
+            default: true,
+            description: "For screenshot: capture full page"
+          },
+          script: %{type: "string", description: "For evaluate: JavaScript code to execute"},
+          actions: %{
+            type: "string",
+            description: "For interact: JSON array of actions [{type, selector, ...}]"
+          },
+          tests: %{
+            type: "string",
+            description: "For test: JSON array of test cases [{name, actions, assertions}]"
+          },
+
+          # Vision parameters
+          image: %{type: "string", description: "For vision: image URL or base64 data"},
+          prompt: %{type: "string", description: "For vision/sonar: analysis prompt"},
+          max_tokens: %{
+            type: "integer",
+            default: 1000,
+            description: "For vision: max response length"
+          },
+
+          # Sonar parameters
+          vision: %{
+            type: "boolean",
+            default: false,
+            description: "For sonar: include vision analysis"
+          },
+
+          # Extract parameters
+          include_structured: %{
+            type: "boolean",
+            default: false,
+            description: "For extract: include JSON-LD/OpenGraph"
+          },
+
+          # Parse parameters
+          html: %{type: "string", description: "For parse: HTML content to convert"}
+        },
+        required: []
+      }
+    },
+    # ==========================================================================
+    # FETCH - [DEPRECATED] Use `web operation=fetch` instead
     # ==========================================================================
     %{
       name: "fetch",
       description:
-        "Fetch URL content. Format: text, html, json, markdown, raw. Supports GET/POST. Can auto-analyze images with NVIDIA vision for non-vision AI agents.",
+        "⚠️ DEPRECATED: Use `web operation=fetch` instead. Fetch URL content. Format: text, html, json, markdown, raw.",
       input_schema: %{
         type: "object",
         properties: %{
@@ -229,11 +453,11 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # WEB_PARSE - Convert HTML to Markdown
+    # WEB_PARSE - [DEPRECATED] Use `web operation=parse` instead
     # ==========================================================================
     %{
       name: "web_parse",
-      description: "Converts HTML to Markdown",
+      description: "⚠️ DEPRECATED: Use `web operation=parse` instead. Converts HTML to Markdown.",
       input_schema: %{
         type: "object",
         properties: %{html: %{type: "string"}},
@@ -241,12 +465,12 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # SEARCH - Web search (native, multi-backend, no API key required)
+    # SEARCH - [DEPRECATED] Use `web operation=search` instead
     # ==========================================================================
     %{
       name: "search",
       description:
-        "Search the web using DuckDuckGo, Bing, or Brave with automatic fallback. Operations: web (default), code, images. For image search, can auto-analyze results with NVIDIA vision. No API key required.",
+        "⚠️ DEPRECATED: Use `web operation=search` instead. Web search with DuckDuckGo/Bing/Brave fallback.",
       input_schema: %{
         type: "object",
         properties: %{
@@ -280,12 +504,12 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # WEB_EXTRACT - Content extraction from URLs (Phase 2)
+    # WEB_EXTRACT - [DEPRECATED] Use `web operation=extract` instead
     # ==========================================================================
     %{
       name: "web_extract",
       description:
-        "Extract clean content from web pages. Uses Readability-style algorithms to remove ads, navigation, and noise. Returns title, main content, and metadata.",
+        "⚠️ DEPRECATED: Use `web operation=extract` instead. Extract clean content from web pages.",
       input_schema: %{
         type: "object",
         properties: %{
@@ -300,12 +524,12 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # SONAR - UI accessibility scanner with vision
+    # SONAR - [DEPRECATED] Use `web operation=sonar` instead
     # ==========================================================================
     %{
       name: "sonar",
       description:
-        "UI Accessibility Scanner with optional vision analysis. Scans UI elements via accessibility APIs (Linux/macOS) and can take screenshots for AI vision analysis using NVIDIA Nemotron.",
+        "⚠️ DEPRECATED: Use `web operation=sonar` instead. UI Accessibility Scanner with optional vision analysis.",
       input_schema: %{
         type: "object",
         properties: %{
@@ -325,12 +549,12 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # VISION - Image analysis with multimodal LLM
+    # VISION - [DEPRECATED] Use `web operation=vision` instead
     # ==========================================================================
     %{
       name: "vision",
       description:
-        "Analyze images using vision-capable LLM (Mistral). Supports URLs or base64 encoded images. Useful for: describing images, reading text from screenshots, analyzing charts/diagrams, accessibility audits, UI analysis.",
+        "⚠️ DEPRECATED: Use `web operation=vision` instead. Analyze images using vision-capable LLM.",
       input_schema: %{
         type: "object",
         properties: %{
@@ -362,6 +586,12 @@ defmodule Mimo.Tools.Definitions do
       name: "knowledge",
       description: """
       🧠 KNOWLEDGE GRAPH - Store and query RELATIONSHIPS between concepts, code, and entities.
+
+      WORKFLOW EXAMPLES:
+      ✓ Find relationships: knowledge query "what depends on UserService?" → graph traversal
+      ✓ Store relationship: knowledge teach "AuthService depends on UserService" → persists
+      ✓ Architecture questions: knowledge traverse node_name="Database" → see connections
+      ✓ Path finding: knowledge path from_node="login" to_node="database" → connection chain
 
       WHEN TO USE THIS vs file/memory search:
       • Store architecture facts → operation=teach text='AuthService depends on UserService'
@@ -457,12 +687,12 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # BLINK - HTTP-level browser emulation (no JS execution)
+    # BLINK - [DEPRECATED] Use `web operation=blink` instead
     # ==========================================================================
     %{
       name: "blink",
       description:
-        "HTTP-level browser emulation with realistic headers and TLS fingerprinting. Bypasses basic bot detection (Cloudflare WAF, Akamai). Does NOT execute JavaScript. Use when fetch returns 403/503. For JS challenges (CAPTCHA, Turnstile), use 'browser' tool instead. Operations: fetch, analyze, smart.",
+        "⚠️ DEPRECATED: Use `web operation=blink` instead. HTTP-level browser emulation for bypassing basic bot detection.",
       input_schema: %{
         type: "object",
         properties: %{
@@ -501,12 +731,12 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # BROWSER - Real browser with Puppeteer (executes JavaScript)
+    # BROWSER - [DEPRECATED] Use `web operation=browser` instead
     # ==========================================================================
     %{
       name: "browser",
       description:
-        "Real browser automation using Puppeteer with stealth mode. Executes JavaScript and solves challenges (Cloudflare Turnstile, CAPTCHA). Slower than blink but handles JS-protected sites. Also useful for UI testing, screenshots, and form automation. Operations: fetch, screenshot, pdf, evaluate, interact, test.",
+        "⚠️ DEPRECATED: Use `web operation=browser` instead. Full Puppeteer browser automation with JavaScript execution.",
       input_schema: %{
         type: "object",
         properties: %{
@@ -573,23 +803,159 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # CODE_SYMBOLS - Code structure analysis (SPEC-021 Living Codebase)
+    # CODE - Unified Code Intelligence (SPEC-021 + SPEC-022 + SPEC-029)
+    # Consolidates: code_symbols, library, diagnostics
+    # ==========================================================================
+    %{
+      name: "code",
+      description: """
+      🧠 UNIFIED CODE INTELLIGENCE - Symbols, Library Docs, and Diagnostics in ONE tool!
+
+      Three operation groups:
+      1. SYMBOLS (code analysis) - Find definitions, references, call graphs
+      2. LIBRARY (package docs) - Get/search npm/pypi/hex/crates documentation
+      3. DIAGNOSTICS (errors) - Compile, lint, typecheck
+
+      ═══════════════════════════════════════════════════════════════════════════
+      SYMBOLS OPERATIONS (use instead of file search!)
+      ═══════════════════════════════════════════════════════════════════════════
+      ✓ code symbols path="lib/auth.ex"           → list all symbols in file
+      ✓ code definition name="authenticate"        → find where function is defined
+      ✓ code references name="UserService"         → find all usages
+      ✓ code call_graph name="handle_request"      → who calls what
+      ✓ code search pattern="auth*" kind=function  → search by pattern
+      ✓ code index path="/project/src"             → build symbol database
+      ✓ code parse source="def foo..." language=elixir → parse source code
+
+      ═══════════════════════════════════════════════════════════════════════════
+      LIBRARY OPERATIONS (faster than web search!)
+      ═══════════════════════════════════════════════════════════════════════════
+      ✓ code library_get name="phoenix" ecosystem=hex     → get package docs
+      ✓ code library_search query="json" ecosystem=npm    → search packages
+      ✓ code library_ensure name="requests" ecosystem=pypi → cache for offline
+      ✓ code library_discover path="."                    → auto-cache all deps
+      ✓ code library_stats                                → cache statistics
+
+      ═══════════════════════════════════════════════════════════════════════════
+      DIAGNOSTICS OPERATIONS (better than terminal!)
+      ═══════════════════════════════════════════════════════════════════════════
+      ✓ code diagnose path="/project"             → all errors (compile+lint+type)
+      ✓ code check path="lib/"                    → compiler errors only
+      ✓ code lint path="lib/"                     → linter warnings only
+      ✓ code typecheck path="lib/"                → type errors only
+
+      Supports: Elixir, TypeScript, Python, Rust, Go
+
+      💡 MIGRATION: code_symbols, library, diagnostics tools still work but redirect here.
+      """,
+      input_schema: %{
+        type: "object",
+        properties: %{
+          operation: %{
+            type: "string",
+            enum: [
+              # Symbol operations
+              "parse",
+              "symbols",
+              "references",
+              "search",
+              "definition",
+              "call_graph",
+              "index",
+              # Library operations
+              "library",
+              "library_get",
+              "library_search",
+              "library_ensure",
+              "library_discover",
+              "library_stats",
+              # Diagnostics operations
+              "check",
+              "lint",
+              "typecheck",
+              "diagnose",
+              "diagnostics_all"
+            ],
+            default: "symbols",
+            description:
+              "Operation: symbols/definition/references/call_graph/search/index/parse (code analysis), library_get/library_search/library_ensure/library_discover/library_stats (package docs), check/lint/typecheck/diagnose (diagnostics)"
+          },
+          # Symbol parameters
+          path: %{
+            type: "string",
+            description: "File or directory path to analyze"
+          },
+          source: %{
+            type: "string",
+            description: "Source code string (for parse operation without file)"
+          },
+          language: %{
+            type: "string",
+            enum: ["elixir", "python", "javascript", "typescript", "tsx", "auto", "rust", "go"],
+            description: "Language for parsing or diagnostics (auto-detects if not specified)"
+          },
+          name: %{
+            type: "string",
+            description: "Symbol name to search for (for definition/references/call_graph)"
+          },
+          pattern: %{
+            type: "string",
+            description: "Search pattern for symbol search"
+          },
+          kind: %{
+            type: "string",
+            enum: ["function", "class", "module", "method", "variable", "constant", "import"],
+            description: "Filter by symbol kind"
+          },
+          # Library parameters
+          ecosystem: %{
+            type: "string",
+            enum: ["hex", "pypi", "npm", "crates"],
+            default: "hex",
+            description: "Package ecosystem for library operations"
+          },
+          query: %{
+            type: "string",
+            description: "Search query for library_search"
+          },
+          version: %{
+            type: "string",
+            description: "Specific package version (default: latest)"
+          },
+          # Diagnostics parameters
+          severity: %{
+            type: "string",
+            enum: ["error", "warning", "info", "all"],
+            default: "all",
+            description: "Filter diagnostics by severity level"
+          },
+          # Common
+          limit: %{
+            type: "integer",
+            default: 50,
+            description: "Maximum results to return"
+          }
+        },
+        required: ["operation"]
+      }
+    },
+    # ==========================================================================
+    # CODE_SYMBOLS - [DEPRECATED] Use 'code' tool instead
+    # Kept for backward compatibility - redirects to unified code tool
     # ==========================================================================
     %{
       name: "code_symbols",
       description: """
-      🎯 SEMANTIC CODE INTELLIGENCE - Use INSTEAD OF file search for code navigation!
+      ⚠️ DEPRECATED: Use 'code' tool instead - it has symbols + library + diagnostics!
 
-      WHEN TO USE THIS vs file search:
-      • Find WHERE something is DEFINED → operation=definition name='functionName'
-      • Find ALL USAGES of a symbol → operation=references name='className'
-      • List ALL functions/classes in file → operation=symbols path='src/module.ex'
-      • Understand CALL RELATIONSHIPS → operation=call_graph name='handler'
-      • Search symbols by PATTERN → operation=search pattern='auth*' kind=function
+      This tool still works but redirects to the unified 'code' tool.
 
-      10x faster and more accurate than grep/file search. Works for Elixir, Python, JS/TS.
+      Quick migration:
+      • code_symbols symbols path="lib/" → code symbols path="lib/"
+      • code_symbols definition name="foo" → code definition name="foo"
+      • code_symbols references name="Bar" → code references name="Bar"
 
-      💡 TIP: Run `operation=index path='/project/src'` first to build the symbol database for large projects.
+      🎯 The 'code' tool also includes library docs and diagnostics!
       """,
       input_schema: %{
         type: "object",
@@ -636,27 +1002,22 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # LIBRARY - Package documentation lookup (SPEC-022 Universal Library)
+    # LIBRARY - [DEPRECATED] Use 'code' tool instead
+    # Kept for backward compatibility - redirects to unified code tool
     # ==========================================================================
     %{
       name: "library",
       description: """
-      📚 PACKAGE DOCUMENTATION - Get docs for npm/pypi/hex/crates packages INSTANTLY.
+      ⚠️ DEPRECATED: Use 'code' tool instead - it has library + symbols + diagnostics!
 
-      ⚡ FASTER THAN WEB SEARCH - cached locally, no rate limits, no ads!
+      This tool still works but redirects to the unified 'code' tool.
 
-      WHEN TO USE THIS vs web search:
-      • Need API docs for a package → operation=get name='phoenix' ecosystem=hex
-      • Search for packages by feature → operation=search query='json parser' ecosystem=npm
-      • Ensure docs are cached → operation=ensure name='requests' ecosystem=pypi
-      • Check cache stats → operation=stats
+      Quick migration:
+      • library get name="phoenix" → code library_get name="phoenix" ecosystem=hex
+      • library search query="json" → code library_search query="json" ecosystem=npm
+      • library discover path="." → code library_discover path="."
 
-      Supports: npm (JavaScript), pypi (Python), hex (Elixir), crates (Rust)
-
-      🚀 SESSION START: Run `operation=discover path='/project'` to auto-cache ALL project dependencies!
-      Then all package doc lookups are instant.
-
-      💡 TIP: Use this BEFORE web search - it's faster and returns structured data.
+      🎯 The 'code' tool also includes symbol navigation and diagnostics!
       """,
       input_schema: %{
         type: "object",
@@ -750,13 +1111,49 @@ defmodule Mimo.Tools.Definitions do
     %{
       name: "cognitive",
       description:
-        "Epistemic uncertainty and meta-cognitive operations. Assess confidence, detect knowledge gaps, and generate calibrated responses. Operations: assess (evaluate confidence), gaps (detect knowledge gaps), query (full epistemic query with calibrated response), can_answer (check if topic is answerable), suggest (get learning suggestions), stats (tracker statistics).",
+        "Epistemic uncertainty and meta-cognitive operations. Assess confidence, detect knowledge gaps, and generate calibrated responses. Operations: assess (evaluate confidence), gaps (detect knowledge gaps), query (full epistemic query with calibrated response), can_answer (check if topic is answerable), suggest (get learning suggestions), stats (tracker statistics). ALSO INCLUDES: verify_* operations (SPEC-AI-TEST executable verification), emergence_* operations (SPEC-044 pattern detection), reflector_* operations (SPEC-043 self-reflection), verification_* operations (tracking). These are consolidated here for MCP cache compatibility.",
       input_schema: %{
         type: "object",
         properties: %{
           operation: %{
             type: "string",
-            enum: ["assess", "gaps", "query", "can_answer", "suggest", "stats"],
+            enum: [
+              "assess",
+              "gaps",
+              "query",
+              "can_answer",
+              "suggest",
+              "stats",
+              # Verify operations (SPEC-AI-TEST)
+              "verify_count",
+              "verify_math",
+              "verify_logic",
+              "verify_compare",
+              "verify_self_check",
+              # Emergence operations (SPEC-044)
+              "emergence_detect",
+              "emergence_dashboard",
+              "emergence_alerts",
+              "emergence_amplify",
+              "emergence_promote",
+              "emergence_cycle",
+              "emergence_list",
+              "emergence_search",
+              "emergence_suggest",
+              "emergence_status",
+              # Reflector operations (SPEC-043)
+              "reflector_reflect",
+              "reflector_evaluate",
+              "reflector_confidence",
+              "reflector_errors",
+              "reflector_format",
+              "reflector_config",
+              # Verification tracking
+              "verification_stats",
+              "verification_overconfidence",
+              "verification_success_by_type",
+              "verification_brier_score"
+            ],
             default: "assess",
             description: "Operation to perform"
           },
@@ -783,34 +1180,117 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # DIAGNOSTICS - Compile/lint errors and warnings (SPEC-029)
+    # REASON - Unified Reasoning Engine (SPEC-035)
+    # ==========================================================================
+    %{
+      name: "reason",
+      description: """
+      🧠 UNIFIED REASONING ENGINE - Structured reasoning with multiple strategies!
+
+      Merges think + cognitive into a powerful reasoning system with:
+      • Chain-of-Thought (CoT): Linear step-by-step reasoning
+      • Tree-of-Thoughts (ToT): Branching exploration with backtracking
+      • ReAct: Interleaved reasoning and tool use
+      • Reflexion: Self-critique and learning from mistakes
+
+      WORKFLOW:
+      1. Start with `guided` → analyzes problem, selects strategy, returns session_id
+      2. Record steps with `step` → get evaluation & feedback
+      3. For ToT: use `branch` and `backtrack` to explore alternatives
+      4. Use `verify` to check logical consistency
+      5. After completion: `reflect` on outcome (stores lessons for future)
+      6. Finish with `conclude` → synthesizes final answer
+
+      WHEN TO USE EACH STRATEGY:
+      • CoT (default): Math, logic, step-by-step problems
+      • ToT: Ambiguous problems, creative tasks, multiple approaches
+      • ReAct: Problems requiring tool use (file, terminal, search)
+      • Reflexion: Learning from failures, iterative improvement
+
+      💡 TIP: Memory integration means similar past problems are auto-retrieved!
+      """,
+      input_schema: %{
+        type: "object",
+        properties: %{
+          operation: %{
+            type: "string",
+            enum: [
+              "guided",
+              "decompose",
+              "step",
+              "verify",
+              "reflect",
+              "branch",
+              "backtrack",
+              "conclude"
+            ],
+            default: "guided",
+            description:
+              "Operation: guided (start), decompose, step, verify, reflect, branch (ToT), backtrack (ToT), conclude"
+          },
+          problem: %{
+            type: "string",
+            description: "For guided/decompose: The problem to reason about"
+          },
+          session_id: %{
+            type: "string",
+            description:
+              "Session ID returned from guided (for step, reflect, branch, backtrack, conclude)"
+          },
+          thought: %{
+            type: "string",
+            description: "For step/branch: The reasoning step or branch thought"
+          },
+          strategy: %{
+            type: "string",
+            enum: ["auto", "cot", "tot", "react", "reflexion"],
+            default: "auto",
+            description: "For guided: Force a specific reasoning strategy"
+          },
+          thoughts: %{
+            type: "array",
+            items: %{type: "string"},
+            description: "For verify: List of thoughts to verify (alternative to session_id)"
+          },
+          success: %{
+            type: "boolean",
+            default: false,
+            description: "For reflect: Whether the reasoning led to success"
+          },
+          error: %{
+            type: "string",
+            description: "For reflect: Error message if unsuccessful"
+          },
+          result: %{
+            type: "string",
+            description: "For reflect: Result if successful"
+          },
+          to_branch: %{
+            type: "string",
+            description: "For backtrack: Specific branch ID to backtrack to"
+          }
+        },
+        required: ["operation"]
+      }
+    },
+    # ==========================================================================
+    # DIAGNOSTICS - [DEPRECATED] Use 'code' tool instead
+    # Kept for backward compatibility - redirects to unified code tool
     # ==========================================================================
     %{
       name: "diagnostics",
       description: """
-      🔍 CODE DIAGNOSTICS - Better than terminal for finding errors!
+      ⚠️ DEPRECATED: Use 'code' tool instead - it has diagnostics + symbols + library!
 
-      WHEN TO USE THIS vs terminal:
-      • Get ALL errors at once → operation=all path='/project/src'
-      • Compiler errors only → operation=check
-      • Linter warnings only → operation=lint
-      • Type errors only → operation=typecheck
-      • Filter by severity → severity=error (skip warnings)
+      This tool still works but redirects to the unified 'code' tool.
 
-      WHY use this vs terminal commands:
-      - Runs compiler + linter + type checker in ONE call
-      - Structured output (not raw terminal text)
-      - Auto-detects language from file/project
-      - Consistent format across Elixir, TypeScript, Python, Rust, Go
+      Quick migration:
+      • diagnostics all path="/project" → code diagnose path="/project"
+      • diagnostics check path="lib/" → code check path="lib/"
+      • diagnostics lint path="lib/" → code lint path="lib/"
+      • diagnostics typecheck path="lib/" → code typecheck path="lib/"
 
-      Supports:
-      • Elixir: mix compile, credo
-      • TypeScript: tsc, eslint
-      • Python: ruff/pylint, mypy
-      • Rust: cargo check, clippy
-      • Go: go build, golangci-lint
-
-      💡 TIP: Run after making changes to catch issues before committing.
+      🎯 The 'code' tool also includes symbol navigation and library docs!
       """,
       input_schema: %{
         type: "object",
@@ -977,6 +1457,470 @@ defmodule Mimo.Tools.Definitions do
           }
         },
         required: ["message"]
+      }
+    },
+    # ==========================================================================
+    # META - Unified Meta/Orchestration Tool (Phase 2 Consolidation)
+    # ==========================================================================
+    %{
+      name: "meta",
+      description: """
+      🎯 META TOOL - Unified orchestration and composite operations.
+
+      Consolidates 4 composite tools into a single unified interface:
+      • analyze_file: Unified file analysis (file + symbols + diagnostics + knowledge)
+      • debug_error: Error debugging assistant (memory + symbols + diagnostics)
+      • prepare_context: Smart context aggregation (memory + knowledge + code + library)
+      • suggest_next_tool: Workflow guidance based on task
+
+      WHEN TO USE:
+      • File analysis → meta operation=analyze_file path="src/app.ts"
+      • Error debugging → meta operation=debug_error message="undefined function"
+      • Context gathering → meta operation=prepare_context query="implement auth"
+      • Next step guidance → meta operation=suggest_next_tool task="fix this bug"
+
+      WHY USE META:
+      • Reduces tool count for MCP cache compatibility
+      • Unified interface for orchestration operations
+      • Legacy standalone tools still work (backward compatible)
+
+      💡 Part of Phase 2 tool consolidation (36→14 tools).
+      """,
+      input_schema: %{
+        type: "object",
+        properties: %{
+          operation: %{
+            type: "string",
+            enum: ["analyze_file", "debug_error", "prepare_context", "suggest_next_tool"],
+            description: "Operation to perform (default: analyze_file)"
+          },
+          # analyze_file parameters
+          path: %{
+            type: "string",
+            description: "For analyze_file: File path to analyze"
+          },
+          include_content: %{
+            type: "boolean",
+            default: false,
+            description: "For analyze_file: Include file content in response"
+          },
+          max_content_lines: %{
+            type: "integer",
+            default: 100,
+            description: "For analyze_file: Max lines of content to include"
+          },
+          # debug_error parameters
+          message: %{
+            type: "string",
+            description: "For debug_error: Error message to debug"
+          },
+          symbol: %{
+            type: "string",
+            description: "For debug_error: Optional symbol name to look up definition"
+          },
+          # prepare_context parameters
+          query: %{
+            type: "string",
+            description: "For prepare_context: The task or question to gather context for"
+          },
+          max_tokens: %{
+            type: "integer",
+            description: "For prepare_context: Approximate max tokens for output (default: 2000)"
+          },
+          sources: %{
+            type: "array",
+            items: %{type: "string"},
+            description: "For prepare_context: Sources to query (memory, knowledge, code, library)"
+          },
+          include_scores: %{
+            type: "boolean",
+            description: "For prepare_context: Include relevance scores in output"
+          },
+          # suggest_next_tool parameters
+          task: %{
+            type: "string",
+            description: "For suggest_next_tool: What you're trying to accomplish"
+          },
+          recent_tools: %{
+            type: "array",
+            items: %{type: "string"},
+            description: "For suggest_next_tool: Tools used recently in this task"
+          },
+          context: %{
+            type: "string",
+            description: "For suggest_next_tool: Additional context about the situation"
+          }
+        },
+        required: []
+      }
+    },
+    # ==========================================================================
+    # PREPARE_CONTEXT - Smart Context Aggregation (SPEC-036)
+    # ==========================================================================
+    # ==========================================================================
+    # PREPARE_CONTEXT - Smart Context Aggregation (SPEC-036)
+    # ==========================================================================
+    %{
+      name: "prepare_context",
+      description: """
+      🧠 SMART CONTEXT - Give any model photographic memory of the project!
+
+      Aggregates context from ALL Mimo cognitive systems in parallel:
+      1. memory search → Relevant past memories and insights
+      2. knowledge graph → Related concepts and relationships
+      3. code_symbols → Matching code definitions and symbols
+      4. library docs → Related package documentation
+
+      Returns structured context ready to inject into your reasoning.
+
+      WHEN TO USE:
+      • Before complex tasks → prepare_context query="implement auth flow"
+      • When context matters → prepare_context query="how does X work?"
+      • To help small models → prepare_context query="..." (gives Haiku Opus-level context!)
+
+      WHY THIS MATTERS:
+      • Small models lack context → this tool provides it
+      • Prevents hallucination → grounded in stored knowledge
+      • Faster than manual lookup → parallel queries, one call
+
+      💡 This is the FOUNDATION for small model capability enhancement!
+      """,
+      input_schema: %{
+        type: "object",
+        properties: %{
+          query: %{
+            type: "string",
+            description: "The task or question to gather context for (required)"
+          },
+          max_tokens: %{
+            type: "integer",
+            description: "Approximate max tokens for output (default: 2000)"
+          },
+          sources: %{
+            type: "array",
+            items: %{type: "string"},
+            description: "Sources to query: memory, knowledge, code, library (default: all)"
+          },
+          include_scores: %{
+            type: "boolean",
+            description: "Include relevance scores in output (default: false)"
+          }
+        },
+        required: ["query"]
+      }
+    },
+    # ==========================================================================
+    # SUGGEST_NEXT_TOOL - Workflow Routing Guidance (SPEC-041 P4)
+    # ==========================================================================
+    %{
+      name: "suggest_next_tool",
+      description: """
+      🧭 WORKFLOW ROUTER - Get Mimo-optimal guidance for your next step!
+
+      Analyzes your current task and recent tool usage to suggest the best next tool
+      according to the Mimo workflow: Context → Intelligence → Action → Learning.
+
+      WHEN TO USE:
+      • Uncertain which tool to use → suggest_next_tool task="find auth function"
+      • After completing a step → suggest_next_tool task="what's next?"
+      • Before starting complex work → suggest_next_tool task="implement feature X"
+
+      RETURNS:
+      • suggested_tool: The recommended next tool
+      • reason: Why this tool is recommended
+      • workflow_phase: Where you are (context/intelligence/action/learning)
+      • alternatives: Other valid options
+      • warning: If you're about to skip important steps
+
+      💡 Helps enforce the Mimo Way without blocking your workflow.
+      """,
+      input_schema: %{
+        type: "object",
+        properties: %{
+          task: %{
+            type: "string",
+            description: "What you're trying to accomplish (required)"
+          },
+          recent_tools: %{
+            type: "array",
+            items: %{type: "string"},
+            description: "Tools used recently in this task (helps avoid redundant suggestions)"
+          },
+          context: %{
+            type: "string",
+            description: "Additional context about the current situation"
+          }
+        },
+        required: ["task"]
+      }
+    },
+    # ==========================================================================
+    # EMERGENCE - Pattern Detection & Emergence Framework (SPEC-044)
+    # ==========================================================================
+    %{
+      name: "emergence",
+      description: """
+      🌱 EMERGENCE - Detect and promote emergent patterns in AI behavior.
+
+      This tool enables the discovery of naturally occurring patterns from memory and tool usage,
+      promoting them to explicit capabilities when validated.
+
+      Operations:
+      • detect: Run pattern detection across memories and tool usage
+      • dashboard: Get full emergence metrics and status
+      • alerts: Get patterns that need attention (ready to promote, etc.)
+      • amplify: Increase pattern weight when observed again
+      • promote: Promote a validated pattern to explicit capability
+      • cycle: Run a full emergence cycle (detect → evaluate → alert)
+      • list: List all tracked patterns with optional filtering
+      • search: Search patterns by query
+      • suggest: Get pattern suggestions for a task
+      • status: Get emergence system status
+      • pattern: Get details of a specific pattern
+
+      WHEN TO USE:
+      • After repeated similar actions → detect for patterns
+      • Periodically → cycle to find emerging capabilities
+      • Before implementing new features → suggest to check for existing patterns
+      • When pattern is reliable → promote to make it explicit
+
+      💡 The emergence system learns from your actual behavior, not prescribed rules.
+      """,
+      input_schema: %{
+        type: "object",
+        properties: %{
+          operation: %{
+            type: "string",
+            enum: [
+              "detect",
+              "dashboard",
+              "alerts",
+              "amplify",
+              "promote",
+              "cycle",
+              "list",
+              "search",
+              "suggest",
+              "status",
+              "pattern"
+            ],
+            default: "dashboard",
+            description: "Operation to perform"
+          },
+          pattern_id: %{
+            type: "string",
+            description: "Pattern ID for pattern/amplify/promote operations"
+          },
+          type: %{
+            type: "string",
+            enum: ["tool_sequence", "memory_cluster", "error_recovery", "optimization"],
+            description: "Filter by pattern type for list operation"
+          },
+          status: %{
+            type: "string",
+            enum: ["emerging", "stable", "promoted", "dormant"],
+            description: "Filter by pattern status for list operation"
+          },
+          query: %{
+            type: "string",
+            description: "Search query for search operation"
+          },
+          task: %{
+            type: "string",
+            description: "Task description for suggest operation"
+          },
+          limit: %{
+            type: "integer",
+            default: 20,
+            description: "Maximum results for list/search operations"
+          },
+          min_confidence: %{
+            type: "number",
+            minimum: 0,
+            maximum: 1,
+            default: 0.5,
+            description: "Minimum confidence threshold"
+          }
+        },
+        required: []
+      }
+    },
+    # ==========================================================================
+    # REFLECTOR - Metacognitive Self-Reflection (SPEC-043)
+    # ==========================================================================
+    %{
+      name: "reflector",
+      description: """
+      🪞 REFLECTOR - Metacognitive self-reflection and evaluation system.
+
+      This tool enables structured self-evaluation of AI responses and actions,
+      providing confidence calibration, error detection, and actionable insights.
+
+      Operations:
+      • reflect: Perform deep reflection on a thought/action/response
+      • evaluate: Quick evaluation with scoring
+      • confidence: Get calibrated confidence assessment
+      • errors: Analyze potential errors and biases
+      • format: Format reflection results for display
+      • config: Get/set reflector configuration
+
+      WHEN TO USE:
+      • After complex reasoning → reflect to validate
+      • Before finalizing responses → evaluate for quality
+      • When uncertain → confidence to calibrate
+      • After errors → errors to understand what went wrong
+      • For critical decisions → full reflect workflow
+
+      REFLECTION DIMENSIONS:
+      • accuracy: Factual correctness
+      • completeness: Coverage of requirements
+      • coherence: Logical consistency
+      • relevance: Alignment with user intent
+      • clarity: Communication quality
+
+      💡 Honest self-assessment leads to better outcomes.
+      """,
+      input_schema: %{
+        type: "object",
+        properties: %{
+          operation: %{
+            type: "string",
+            enum: ["reflect", "evaluate", "confidence", "errors", "format", "config"],
+            default: "reflect",
+            description: "Operation to perform"
+          },
+          content: %{
+            type: "string",
+            description: "Content to reflect on (thought, response, action)"
+          },
+          context: %{
+            type: "string",
+            description: "Additional context for reflection"
+          },
+          task: %{
+            type: "string",
+            description: "Original task/request being addressed"
+          },
+          dimensions: %{
+            type: "array",
+            items: %{
+              type: "string",
+              enum: ["accuracy", "completeness", "coherence", "relevance", "clarity"]
+            },
+            description: "Specific dimensions to evaluate (default: all)"
+          },
+          depth: %{
+            type: "string",
+            enum: ["quick", "standard", "deep"],
+            default: "standard",
+            description: "Reflection depth level"
+          },
+          include_suggestions: %{
+            type: "boolean",
+            default: true,
+            description: "Include improvement suggestions"
+          }
+        },
+        required: []
+      }
+    },
+    # ==========================================================================
+    # VERIFY - Executable Verification (SPEC-AI-TEST Recommendations)
+    # ==========================================================================
+    %{
+      name: "verify",
+      description: """
+      ✅ VERIFY - Executable verification for AI claims.
+
+      Actually runs checks rather than claiming verification. Eliminates the gap
+      between "ceremonial verification" and "executable verification".
+
+      Based on AI Intelligence Test Round 2 findings:
+      • Gemini 3 Pro showed gold standard: run Python/terminal to verify
+      • Opus 4.5 claimed "verified" but was wrong (ceremonial verification)
+      • This tool makes verification auditable and executable
+
+      Operations:
+      • count: Count letters/words/characters with actual character-by-character enumeration
+      • math: Verify arithmetic by evaluating both claimed and actual
+      • logic: Check logical consistency via basic constraint checking
+      • compare: Compare two values with explicit relation verification
+      • self_check: Framework for independent re-derivation (use with reason tool)
+
+      WHEN TO USE:
+      • Before claiming "I counted X" → verify operation=count to actually count
+      • After arithmetic → verify operation=math to confirm calculation
+      • For logical claims → verify operation=logic to check consistency
+      • High-stakes answers → verify operation=self_check for independent validation
+
+      💡 Verification should be EXECUTED, not just claimed!
+      """,
+      input_schema: %{
+        type: "object",
+        properties: %{
+          operation: %{
+            type: "string",
+            enum: ["count", "math", "logic", "compare", "self_check"],
+            description: "Type of verification to perform"
+          },
+          # Count operation parameters
+          text: %{
+            type: "string",
+            description: "For count: text to analyze"
+          },
+          target: %{
+            type: "string",
+            description: "For count (letter): the letter/character to count"
+          },
+          type: %{
+            type: "string",
+            enum: ["letter", "word", "character"],
+            description: "For count: what to count (letter/word/character)"
+          },
+          # Math operation parameters
+          expression: %{
+            type: "string",
+            description: "For math: arithmetic expression to evaluate (e.g., '17 * 23')"
+          },
+          claimed_result: %{
+            type: "number",
+            description: "For math: the result you claim is correct"
+          },
+          # Logic operation parameters
+          statements: %{
+            type: "array",
+            items: %{type: "string"},
+            description: "For logic: list of logical statements/premises"
+          },
+          claim: %{
+            type: "string",
+            description: "For logic: the claim to verify against statements"
+          },
+          # Compare operation parameters
+          value_a: %{
+            type: "number",
+            description: "For compare: first value"
+          },
+          value_b: %{
+            type: "number",
+            description: "For compare: second value"
+          },
+          relation: %{
+            type: "string",
+            enum: ["greater", "less", "equal", "greater_equal", "less_equal"],
+            description: "For compare: relationship to verify"
+          },
+          # Self-check operation parameters
+          problem: %{
+            type: "string",
+            description: "For self_check: the original problem/question"
+          },
+          claimed_answer: %{
+            type: ["string", "number", "boolean", "null"],
+            description: "The answer you want to verify independently"
+          }
+        },
+        required: ["operation"]
       }
     }
   ]

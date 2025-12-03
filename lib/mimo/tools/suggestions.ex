@@ -1,9 +1,10 @@
 defmodule Mimo.Tools.Suggestions do
   @moduledoc """
-  Cross-tool suggestions for SPEC-031 Phase 2.
+  Cross-tool suggestions for SPEC-031 Phase 2 + SPEC-040 v1.2 Behavioral Reinforcement.
 
   Adds contextual tips to tool responses guiding users toward more appropriate
-  tools for their use case. Rate-limited to 1 suggestion per response.
+  tools for their use case. Now includes active behavioral reinforcement to
+  counter factory LLM bias and encourage the mimo-cognitive workflow.
 
   ## Suggestion Rules
 
@@ -14,7 +15,17 @@ defmodule Mimo.Tools.Suggestions do
   | `memory operation=search` | knowledge operation=query |
   | `terminal` error output | diagnostics operation=all |
   | Any file op in unindexed project | onboard path='.' |
+
+  ## SPEC-040 v1.2: Behavioral Reinforcement
+
+  | Pattern Detected | Reinforcement |
+  |------------------|---------------|
+  | 3+ consecutive file/terminal without context | Warning to use memory/ask_mimo |
+  | Low context ratio (<20%) after 10+ calls | Suggestion to improve balance |
+  | After file edit or terminal with errors | Prompt to store insights |
   """
+
+  alias Mimo.Awakening.ContextInjector
 
   @code_extensions ~w(.ex .exs .py .js .ts .tsx .rs .go .rb .java .c .cpp .h .hpp)
   @code_search_patterns ~w(def defp fn function class module struct impl trait interface)
@@ -22,7 +33,7 @@ defmodule Mimo.Tools.Suggestions do
   @doc """
   Add a suggestion to a response map based on tool context.
   Returns the response with a :suggestion key added if applicable.
-  Rate-limited to 1 suggestion per response.
+  Now includes SPEC-040 v1.2 behavioral reinforcement.
   """
   @spec add_suggestion(map(), String.t(), map()) :: map()
   def add_suggestion(response, tool_name, args) when is_map(response) do
@@ -30,9 +41,17 @@ defmodule Mimo.Tools.Suggestions do
     if Map.has_key?(response, :suggestion) do
       response
     else
-      case generate_suggestion(tool_name, args, response) do
-        nil -> response
-        suggestion -> Map.put(response, :suggestion, suggestion)
+      # First check for behavioral reinforcement (SPEC-040 v1.2)
+      case get_behavioral_suggestion(tool_name, args) do
+        nil ->
+          # Fall back to standard tool suggestions
+          case generate_suggestion(tool_name, args, response) do
+            nil -> response
+            suggestion -> Map.put(response, :suggestion, suggestion)
+          end
+
+        behavioral_suggestion ->
+          Map.put(response, :suggestion, behavioral_suggestion)
       end
     end
   end
@@ -49,6 +68,27 @@ defmodule Mimo.Tools.Suggestions do
   end
 
   def maybe_add_suggestion(other, _tool_name, _args), do: other
+
+  # ==========================================================================
+  # SPEC-040 v1.2: BEHAVIORAL REINFORCEMENT
+  # ==========================================================================
+
+  @doc """
+  Get behavioral reinforcement suggestion based on current session patterns.
+  This actively counters factory LLM bias by reminding about the mimo-cognitive workflow.
+  """
+  @spec get_behavioral_suggestion(String.t(), map()) :: String.t() | nil
+  def get_behavioral_suggestion(tool_name, _args) do
+    case get_session_id() do
+      nil -> nil
+      session_id -> ContextInjector.generate_reinforcement_suggestion(session_id, tool_name)
+    end
+  end
+
+  defp get_session_id do
+    # Try to get session ID from process dictionary
+    Process.get(:mimo_session_id)
+  end
 
   # ==========================================================================
   # SUGGESTION GENERATORS
@@ -69,7 +109,7 @@ defmodule Mimo.Tools.Suggestions do
   # File read on code file → code_symbols symbols
   defp generate_suggestion("file", %{"operation" => "read", "path" => path}, _response)
        when is_binary(path) do
-    if is_code_file?(path) do
+    if code_file?(path) do
       "💡 List all functions/classes with `code_symbols operation=symbols path=\"#{path}\"`"
     else
       nil
@@ -129,7 +169,7 @@ defmodule Mimo.Tools.Suggestions do
     |> String.trim()
   end
 
-  defp is_code_file?(path) do
+  defp code_file?(path) do
     ext = Path.extname(path) |> String.downcase()
     ext in @code_extensions
   end

@@ -16,6 +16,7 @@ defmodule Mimo.Tools.Dispatchers.AnalyzeFile do
 
   alias Mimo.Tools.Dispatchers.{Code, Diagnostics, Knowledge}
   alias Mimo.Tools.Dispatchers.File, as: FileDispatcher
+  alias Mimo.TaskHelper
 
   @doc """
   Dispatch analyze_file operation.
@@ -33,10 +34,10 @@ defmodule Mimo.Tools.Dispatchers.AnalyzeFile do
     else
       abs_path = Path.expand(path)
 
-      unless File.exists?(abs_path) do
-        {:error, "File not found: #{abs_path}"}
-      else
+      if File.exists?(abs_path) do
         run_analysis(abs_path, args)
+      else
+        {:error, "File not found: #{abs_path}"}
       end
     end
   end
@@ -49,18 +50,37 @@ defmodule Mimo.Tools.Dispatchers.AnalyzeFile do
     Logger.info("[AnalyzeFile] Starting unified analysis for: #{path}")
     start_time = System.monotonic_time(:millisecond)
 
-    # Run all analyses in parallel using Task.async
+    # Run all analyses in parallel using Task.async with sandbox allowance
     tasks = [
-      Task.async(fn -> {:file_info, get_file_info(path, args)} end),
-      Task.async(fn -> {:symbols, get_symbols(path)} end),
-      Task.async(fn -> {:diagnostics, get_diagnostics(path)} end),
-      Task.async(fn -> {:knowledge, get_knowledge_context(path)} end)
+      {:file_info,
+       TaskHelper.async_with_callers(fn -> {:file_info, get_file_info(path, args)} end)},
+      {:symbols, TaskHelper.async_with_callers(fn -> {:symbols, get_symbols(path)} end)},
+      {:diagnostics,
+       TaskHelper.async_with_callers(fn -> {:diagnostics, get_diagnostics(path)} end)},
+      {:knowledge,
+       TaskHelper.async_with_callers(fn -> {:knowledge, get_knowledge_context(path)} end)}
     ]
 
-    # Collect results with timeout
+    # Collect results with timeout - use yield_many for graceful timeout handling
     results =
       tasks
-      |> Task.await_many(15_000)
+      |> Enum.map(fn {_name, task} -> task end)
+      |> Task.yield_many(15_000)
+      |> Enum.zip(tasks)
+      |> Enum.map(fn
+        {{_task, {:ok, {key, value}}}, _} ->
+          {key, value}
+
+        {{task, nil}, {name, _}} ->
+          # Task timed out - shutdown and return fallback
+          Task.shutdown(task, :brutal_kill)
+          Logger.warning("[AnalyzeFile] #{name} task timed out")
+          {name, %{error: "timeout", message: "Analysis timed out after 15s"}}
+
+        {{_task, {:exit, reason}}, {name, _}} ->
+          Logger.warning("[AnalyzeFile] #{name} task crashed: #{inspect(reason)}")
+          {name, %{error: "crashed", message: inspect(reason)}}
+      end)
       |> Enum.into(%{})
 
     duration = System.monotonic_time(:millisecond) - start_time
@@ -225,11 +245,11 @@ defmodule Mimo.Tools.Dispatchers.AnalyzeFile do
 
     # Suggest based on knowledge
     suggestions =
-      if !knowledge[:has_context] do
+      if knowledge[:has_context] do
+        suggestions
+      else
         suggestions ++
           ["📚 Use `knowledge operation=link path=\".\"` to connect to knowledge graph."]
-      else
-        suggestions
       end
 
     case suggestions do

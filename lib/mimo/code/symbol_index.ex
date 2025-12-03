@@ -23,6 +23,7 @@ defmodule Mimo.Code.SymbolIndex do
   import Ecto.Query
   alias Mimo.Repo
   alias Mimo.Code.{AstAnalyzer, Symbol, SymbolReference}
+  alias Mimo.TaskHelper
 
   require Logger
 
@@ -84,7 +85,7 @@ defmodule Mimo.Code.SymbolIndex do
   def index_files(file_paths) do
     results =
       file_paths
-      |> Task.async_stream(&index_file/1, max_concurrency: 4, timeout: 30_000)
+      |> TaskHelper.async_stream_with_callers(&index_file/1, max_concurrency: 4, timeout: 30_000)
       |> Enum.map(fn
         {:ok, result} -> result
         {:exit, reason} -> {:error, reason}

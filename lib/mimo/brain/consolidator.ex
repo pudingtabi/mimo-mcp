@@ -250,6 +250,17 @@ defmodule Mimo.Brain.Consolidator do
           error
       end
     rescue
+      e in DBConnection.OwnershipError ->
+        Logger.debug(
+          "[Consolidator] Skipping consolidation (sandbox mode): #{Exception.message(e)}"
+        )
+
+        {:error, :sandbox_mode}
+
+      e in DBConnection.ConnectionError ->
+        Logger.debug("[Consolidator] Skipping consolidation (connection): #{Exception.message(e)}")
+        {:error, :sandbox_mode}
+
       e ->
         Logger.error("Consolidation error: #{Exception.message(e)}")
         {:error, e}

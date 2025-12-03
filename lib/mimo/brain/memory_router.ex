@@ -108,6 +108,14 @@ defmodule Mimo.Brain.MemoryRouter do
     # Apply limit and return
     {:ok, Enum.take(results, limit)}
   rescue
+    e in DBConnection.OwnershipError ->
+      Logger.debug("[MemoryRouter] Routing skipped (sandbox mode): #{Exception.message(e)}")
+      {:error, :sandbox_mode}
+
+    e in DBConnection.ConnectionError ->
+      Logger.debug("[MemoryRouter] Routing skipped (connection): #{Exception.message(e)}")
+      {:error, :sandbox_mode}
+
     e ->
       Logger.error("Routing failed: #{Exception.message(e)}")
       {:error, {:routing_failed, e}}
@@ -269,9 +277,17 @@ defmodule Mimo.Brain.MemoryRouter do
   defp search_working_memory(query, limit) do
     case WorkingMemory.search(query, limit: limit) do
       results when is_list(results) ->
-        # Convert to scored tuples with working memory boost
+        # Convert WorkingMemoryItem structs to maps for JSON encoding
+        # Add source marker and convert to scored tuples with working memory boost
         Enum.map(results, fn item ->
-          {Map.put(item, :source, :working_memory), item.importance + 0.2}
+          item_map =
+            item
+            |> Map.from_struct()
+            # Remove large fields
+            |> Map.drop([:embedding])
+            |> Map.put(:source, :working_memory)
+
+          {item_map, item.importance + 0.2}
         end)
 
       _ ->

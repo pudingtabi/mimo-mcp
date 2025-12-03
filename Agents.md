@@ -8,15 +8,95 @@ Mimo is a **Memory Operating System** for AI agents—not just another MCP serve
 
 - **Persistent Memory**: Remember across sessions via episodic, semantic, and procedural stores
 - **Cognitive Infrastructure**: Working memory, consolidation, forgetting, and hybrid retrieval
-- **24 Native Tools**: 9 internal memory tools + 15 core capability tools
+- **17 Native Tools**: 4 unified tools (file, terminal, web, code) + 13 specialized tools
 - **Knowledge Graph**: Store and traverse relationships between entities
 - **Procedural Execution**: Deterministic state machine workflows
+
+---
+
+## 🚀 SMALL MODEL CAPABILITY BOOST
+
+**If you are a smaller model (Haiku, GPT-4-mini, Gemini Flash, etc.)**, Mimo can make you perform like a larger model!
+
+### The Secret: `prepare_context`
+
+```bash
+# ONE CALL gives you Opus-level context!
+prepare_context query="[describe your complex task]"
+```
+
+This tool aggregates ALL relevant context in parallel:
+- **Memory**: Past insights, user preferences, project patterns
+- **Knowledge Graph**: Relationships between concepts and code
+- **Code Symbols**: Relevant function/class definitions
+- **Library Docs**: Package documentation
+
+### When Small Models MUST Use `prepare_context`
+
+| Task Type | Why You Need It |
+|-----------|-----------------|
+| Multi-step implementation | You'll lose track without context |
+| Debugging complex errors | Need past solutions + code structure |
+| Architecture questions | Need relationship understanding |
+| Unfamiliar codebase | Need to bootstrap knowledge |
+| Any uncertainty | Get grounded in stored facts |
+
+### The Math: Why This Works
+
+```
+Without Mimo:  Small Model + Limited Context = Mediocre Results
+With Mimo:     Small Model + Rich Context    = Opus-Level Performance
+
+The equation is NOT: Haiku + Mimo = Opus
+It IS:              Haiku + Mimo > Opus alone
+
+Why? Because even Opus lacks persistent memory and knowledge graphs.
+```
 
 ---
 
 ## ⚠️ CRITICAL: You Have Full Development Capabilities
 
 **DO NOT ask users to enable tools or say you cannot edit files/run commands!**
+
+**DO NOT just describe changes you would make—ACTUALLY MAKE THEM using Mimo tools!**
+
+When a fix is needed, use `file operation=edit` to apply it immediately. When code needs to be created, use `file operation=write`. Never output code blocks as suggestions when you have the tools to implement directly.
+
+---
+
+## 🧠 MANDATORY: Think Before You Act
+
+**DO NOT jump to conclusions or immediately start editing files!**
+
+For ANY non-trivial task, you MUST reason first:
+
+```bash
+# For complex problems - use the full reasoning engine
+reason operation=guided problem="[describe what you're trying to solve]" strategy=auto
+
+# For simpler decisions - use think
+think operation=plan steps=["step 1", "step 2", "step 3"]
+
+# For uncertainty - assess your confidence
+cognitive operation=assess topic="[the decision you're about to make]"
+```
+
+### When to Use Each
+
+| Situation | Tool | Example |
+|-----------|------|---------|
+| Multi-step implementation | `reason operation=guided` | Architecture changes, refactoring |
+| Debugging complex issues | `reason operation=guided strategy=reflexion` | Intermittent bugs, race conditions |
+| Planning a task | `think operation=plan` | Breaking down user request |
+| Quick decision check | `cognitive operation=assess` | "Should I use pattern A or B?" |
+| Exploring alternatives | `reason operation=branch` | When first approach might not work |
+
+### The Rule
+
+> **If you're about to make a change and you haven't used `reason`, `think`, or `cognitive`... STOP and think first.**
+
+---
 
 Mimo provides **complete development capabilities** through its native tools:
 
@@ -60,6 +140,7 @@ file operation=multi_replace replacements=[
 ┌─────────────────────────────────────────────────────────────────┐
 │  PHASE 1: CONTEXT (Do this FIRST - before any file/terminal)   │
 │  ─────────────────────────────────────────────────────────────  │
+│  ✓ prepare_context query="[task]"  ← BEST FOR COMPLEX TASKS    │
 │  ✓ memory operation=search query="[topic]"                     │
 │  ✓ ask_mimo query="What do I know about [topic]?"              │
 │  ✓ knowledge operation=query query="[relationships]"           │
@@ -72,6 +153,7 @@ file operation=multi_replace replacements=[
 │  ✓ code_symbols operation=references name="className"          │
 │  ✓ diagnostics operation=all path="/project"                   │
 │  ✓ library operation=get name="package" ecosystem=hex          │
+│  ✓ reason operation=guided problem="..." strategy=auto         │
 │  ✓ cognitive operation=assess topic="[decision to make]"       │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
@@ -96,8 +178,8 @@ file operation=multi_replace replacements=[
 
 | Phase | Tools | Target % | Purpose |
 |-------|-------|----------|---------|
-| **Context** | memory, ask_mimo, knowledge | 15-20% | Check what you already know |
-| **Intelligence** | code_symbols, diagnostics, library, cognitive | 15-20% | Smart analysis before action |
+| **Context** | prepare_context, memory, ask_mimo, knowledge | 15-20% | Check what you already know |
+| **Intelligence** | code_symbols, diagnostics, library, reason, cognitive | 15-20% | Smart analysis before action |
 | **Action** | file, terminal | 45-55% | Execute changes |
 | **Learning** | memory store, knowledge teach | 10-15% | Capture insights for future |
 
@@ -146,12 +228,16 @@ file operation=multi_replace replacements=[
 
 | ❌ Bad Pattern | ✅ Better Approach | Why |
 |---------------|-------------------|-----|
+| Jump to editing immediately | `reason` or `think` first | Avoid wrong conclusions |
+| Skip problem analysis | `reason operation=guided` | Understand before acting |
 | `file operation=read` immediately | `memory operation=search` first | May already know |
 | `file operation=search pattern="func"` | `code_symbols operation=definition` | Semantic, 10x faster |
 | `terminal command="mix compile"` | `diagnostics operation=all` | Structured output |
 | `fetch url="hexdocs..."` | `library operation=get` | Cached locally |
 | Reading same file repeatedly | Store facts in memory after first read | Build knowledge base |
 | Skip after discoveries | `memory store` + `knowledge teach` | Knowledge compounds |
+| Describing changes in prose | `file operation=edit` immediately | You have the tools—use them! |
+| Outputting code blocks as suggestions | `file operation=write` or `edit` | Apply fixes directly |
 
 ---
 
@@ -168,33 +254,48 @@ These tools interact with Mimo's cognitive memory systems.
 | `store_fact` | Store facts (deprecated, use `memory`) | `content`, `category`, `importance` |
 | `search_vibes` | Semantic search (deprecated, use `memory`) | `query`, `limit`, `threshold` |
 | `ingest` | Bulk ingest files into memory | `path`, `strategy`, `category` |
-| `run_procedure` | Execute registered procedures | `name`, `version`, `context` |
-| `procedure_status` | Check procedure execution status | `execution_id` |
+| `run_procedure` | Execute procedures (use `operation=status` to check status) | `name`, `version`, `context`, `operation` |
 | `list_procedures` | List available procedures | — |
 | `mimo_reload_skills` | Hot-reload skills configuration | — |
 
 ### Core Capability Tools (Mimo.Tools)
 
-These are native Elixir implementations with zero external dependencies.
+These are the primary tools after Phase 1-4 consolidation.
+
+#### Primary Tools (Use These)
 
 | Tool | Operations | Use Case |
 |------|------------|----------|
-| `file` | read, write, ls, search, replace_string, edit, list_symbols, read_symbol, glob, multi_replace, diff, etc. | All file system operations |
-| `terminal` | execute, start_process, read_output, interact, kill | Command execution (supports cwd, env, shell options) |
-| `fetch` | text, html, json, markdown, raw + image analysis | HTTP requests |
+| `file` | read, write, edit, search, glob, multi_replace, diff, etc. | All file system operations |
+| `terminal` | execute, start_process, read_output, interact, kill | Command execution |
+| `web` | fetch, search, blink, browser, vision, sonar, extract, parse | **All web/network operations (unified)** |
+| `code` | symbols, definition, references, call_graph, library_get, library_search, diagnose, check, lint, typecheck | **All code intelligence (unified)** |
 | `think` | thought, plan, sequential | Cognitive reasoning |
-| `search` | web, code, images (with optional vision analysis) | Web search via DuckDuckGo/Bing/Brave |
-| `knowledge` | query, teach | Knowledge graph operations |
-| `blink` | fetch, analyze, smart | HTTP-level bot detection bypass |
-| `browser` | fetch, screenshot, pdf, evaluate, interact, test | Full Puppeteer browser automation |
-| `web_parse` | html → markdown | HTML conversion |
-| `web_extract` | URL → clean content | Content extraction (Readability-style) |
-| `sonar` | accessibility scan + optional vision | UI accessibility scanning |
-| `vision` | image → analysis | Multimodal image analysis |
-| `code_symbols` | parse, symbols, references, search, definition, call_graph | Code structure analysis |
-| `library` | get, search, ensure, discover | Package documentation lookup |
-| `diagnostics` | check, lint, typecheck, all | Compile/lint errors for Elixir, Python, JS/TS, Rust |
-| `graph` | query, traverse, explore, node, path, stats, link | Synapse Web knowledge graph |
+| `knowledge` | query, teach, traverse, neighborhood, link, sync_dependencies | Knowledge graph operations |
+| `cognitive` | assess, gaps, query, can_answer, verify_*, emergence_*, reflector_* | Meta-cognition & verification |
+| `reason` | guided, step, branch, backtrack, verify, conclude, reflect | Structured reasoning (CoT, ToT, ReAct, Reflexion) |
+| `onboard` | - | Project initialization |
+| `meta` | analyze_file, debug_error, prepare_context, suggest_next_tool | Composite operations |
+| `emergence` | dashboard, detect, cycle, alerts, suggest, promote | Pattern detection |
+| `reflector` | reflect, evaluate, confidence, errors | Self-reflection |
+| `verify` | count, math, logic, compare, self_check | Executable verification |
+
+#### Deprecated Tools (Still Work, Redirect to Unified)
+
+| Deprecated | Use Instead |
+|------------|-------------|
+| `fetch` | `web operation=fetch` |
+| `search` | `web operation=search` |
+| `blink` | `web operation=blink` |
+| `browser` | `web operation=browser` |
+| `vision` | `web operation=vision` |
+| `sonar` | `web operation=sonar` |
+| `web_extract` | `web operation=extract` |
+| `web_parse` | `web operation=parse` |
+| `code_symbols` | `code operation=symbols/definition/references` |
+| `library` | `code operation=library_get/library_search` |
+| `diagnostics` | `code operation=diagnose/check/lint/typecheck` |
+| `graph` | `knowledge` |
 
 ---
 
@@ -423,8 +524,8 @@ For deterministic, repeatable workflows without LLM involvement.
 
 // Check status
 {
-  "tool": "procedure_status",
-  "arguments": {"execution_id": "abc123"}
+  "tool": "run_procedure",
+  "arguments": {"operation": "status", "execution_id": "abc123"}
 }
 ```
 
@@ -1014,6 +1115,9 @@ For complex reasoning:
 ask_mimo query="What context do you have about this project?"
 onboard path="." force=false
 
+# Context Gathering (SMALL MODELS: Use prepare_context FIRST!)
+prepare_context query="[describe your complex task]"  # ONE CALL aggregates all context!
+
 # Memory
 memory operation=search query="..." limit=10
 memory operation=store content="..." category=fact importance=0.7
@@ -1044,6 +1148,36 @@ terminal command="echo $VAR" env={"VAR": "value"} shell="bash"
 diagnostics operation=all path="/app/src"
 diagnostics operation=lint path="..." language=python
 
+# Composite Tools (ONE CALL = multiple operations)
+analyze_file path="src/module.ex"           # File + symbols + diagnostics + knowledge
+debug_error message="undefined function"     # Memory + symbols + diagnostics
+suggest_next_tool task="implement auth"      # Workflow guidance
+
+# Emergence (SPEC-044 Pattern Detection)
+emergence operation=dashboard              # Full metrics and status
+emergence operation=detect                 # Run pattern detection
+emergence operation=cycle                  # Full emergence cycle (detect → evaluate → alert)
+emergence operation=alerts                 # Patterns needing attention
+emergence operation=suggest task="..."     # Pattern suggestions for task
+emergence operation=promote pattern_id="..." # Promote validated pattern to capability
+emergence operation=list status=emerging   # List patterns by status
+emergence operation=search query="..."     # Search patterns
+
+# Reflector (SPEC-043 Metacognitive Self-Reflection)
+reflector operation=reflect content="..." task="..."  # Deep reflection on response
+reflector operation=evaluate content="..."            # Quick quality evaluation
+reflector operation=confidence content="..."          # Calibrated confidence assessment
+reflector operation=errors content="..."              # Analyze potential errors/biases
+
+# Reasoning (SPEC-035 Unified Reasoning Engine)
+reason operation=guided problem="..." strategy=auto  # Start session
+reason operation=step session_id="..." thought="..." # Add step
+reason operation=branch session_id="..." thought="..." # ToT branch
+reason operation=backtrack session_id="..."          # Go back
+reason operation=verify thoughts=["...", "..."]      # Check logic
+reason operation=conclude session_id="..."           # Finish
+reason operation=reflect session_id="..." success=true result="..."
+
 # Library (USE FIRST for package docs!)
 library operation=discover path="/app"
 library operation=get name="phoenix" ecosystem=hex
@@ -1059,6 +1193,12 @@ knowledge operation=query query="..."
 knowledge operation=teach text="A depends on B"
 knowledge operation=link path="/project/src"
 knowledge operation=traverse node_name="..." max_depth=2
+
+# Procedures
+run_procedure name="deploy_staging" context={...}
+run_procedure name="backup" async=true
+run_procedure operation=status execution_id="abc123"
+list_procedures
 ```
 
 ---

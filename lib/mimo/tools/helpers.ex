@@ -210,7 +210,7 @@ defmodule Mimo.Tools.Helpers do
   """
   def enrich_file_response({:ok, data}, path, false = _skip) when is_map(data) do
     task =
-      Task.async(fn ->
+      Mimo.TaskHelper.async_with_callers(fn ->
         Mimo.Skills.MemoryContext.get_file_context(path)
       end)
 
@@ -232,7 +232,7 @@ defmodule Mimo.Tools.Helpers do
   """
   def enrich_terminal_response({:ok, data}, command, false = _skip) when is_map(data) do
     task =
-      Task.async(fn ->
+      Mimo.TaskHelper.async_with_callers(fn ->
         Mimo.Skills.MemoryContext.get_command_context(command)
       end)
 

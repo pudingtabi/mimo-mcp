@@ -97,7 +97,7 @@ fn parse_incremental<'a>(
     _edits: Vec<(usize, usize, usize)>, // (start_byte, old_end_byte, new_end_byte)
 ) -> NifResult<Term<'a>> {
     let language = {
-        let guard = old_tree.tree.lock().unwrap();
+        let _guard = old_tree.tree.lock().unwrap();
         old_tree.language.clone()
     };
 
@@ -647,7 +647,7 @@ fn extract_js_symbols(
             ]);
         }
         "export_statement" => {
-            let pos = node.start_position();
+            let _pos = node.start_position();
             // Check for named export
             for i in 0..node.child_count() {
                 if let Some(child) = node.child(i) {

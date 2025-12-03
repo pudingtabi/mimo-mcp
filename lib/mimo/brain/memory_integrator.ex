@@ -362,41 +362,53 @@ defmodule Mimo.Brain.MemoryIntegrator do
     importance = opts[:importance] || 0.5
     supersedes_id = get_id(existing)
 
-    # Create new memory with supersedes_id via metadata
-    metadata = %{supersedes_id: supersedes_id}
+    # CRITICAL: Wrap all operations in a single transaction to prevent orphaned chains
+    # If any step fails, the entire operation is rolled back
+    Repo.transaction(fn ->
+      # Create new memory with supersedes_id via metadata
+      metadata = %{supersedes_id: supersedes_id}
 
-    case Memory.persist_memory(new_content, category, importance, nil, metadata) do
-      {:ok, new_engram} ->
-        # Update the engram to set supersedes_id if not set via metadata
-        # (persist_memory may not handle supersedes_id)
-        new_engram =
-          if new_engram.supersedes_id != supersedes_id do
-            case Repo.update(Ecto.Changeset.change(new_engram, %{supersedes_id: supersedes_id})) do
-              {:ok, updated} -> updated
-              {:error, _} -> new_engram
+      case Memory.persist_memory(new_content, category, importance, nil, metadata) do
+        {:ok, new_engram} ->
+          # Update the engram to set supersedes_id if not set via metadata
+          # (persist_memory may not handle supersedes_id)
+          new_engram =
+            if new_engram.supersedes_id != supersedes_id do
+              case Repo.update(Ecto.Changeset.change(new_engram, %{supersedes_id: supersedes_id})) do
+                {:ok, updated} ->
+                  updated
+
+                {:error, changeset} ->
+                  Logger.error("Failed to set supersedes_id: #{inspect(changeset.errors)}")
+                  Repo.rollback({:supersedes_update_failed, changeset.errors})
+              end
+            else
+              new_engram
+            end
+
+          # Mark old as superseded
+          if is_struct(existing, Engram) do
+            case supersede(existing, new_engram, supersession_type) do
+              {:ok, _} ->
+                new_engram
+
+              {:error, reason} ->
+                Logger.error("Failed to mark old memory as superseded: #{inspect(reason)}")
+                # Rollback the entire transaction to prevent orphaned chains
+                Repo.rollback({:supersession_failed, reason})
             end
           else
+            # Existing was a map, not a persisted engram
             new_engram
           end
 
-        # Mark old as superseded
-        if is_struct(existing, Engram) do
-          case supersede(existing, new_engram, supersession_type) do
-            {:ok, _} ->
-              {:ok, new_engram}
-
-            {:error, reason} ->
-              Logger.error("Failed to mark old memory as superseded: #{inspect(reason)}")
-              # Still return success - new memory was created
-              {:ok, new_engram}
-          end
-        else
-          # Existing was a map, not a persisted engram
-          {:ok, new_engram}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
+        {:error, reason} ->
+          Repo.rollback({:persist_failed, reason})
+      end
+    end)
+    |> case do
+      {:ok, engram} -> {:ok, engram}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -513,7 +525,7 @@ defmodule Mimo.Brain.MemoryIntegrator do
     cond do
       diff_seconds < 60 -> "just now"
       diff_seconds < 3600 -> "#{div(diff_seconds, 60)} minutes ago"
-      diff_seconds < 86400 -> "#{div(diff_seconds, 3600)} hours ago"
+      diff_seconds < 86_400 -> "#{div(diff_seconds, 3600)} hours ago"
       diff_seconds < 604_800 -> "#{div(diff_seconds, 86400)} days ago"
       true -> "#{div(diff_seconds, 604_800)} weeks ago"
     end

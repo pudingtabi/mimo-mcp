@@ -399,11 +399,13 @@ defmodule Mimo.Vector.Fallback do
   Pure Elixir top-k by Hamming distance.
 
   Returns the k vectors with lowest Hamming distance (most similar).
+  Empty corpus returns empty results (not an error).
   """
   @spec top_k_hamming(binary(), [binary()], non_neg_integer()) ::
           {:ok, [{non_neg_integer(), non_neg_integer()}]} | {:error, atom()}
   def top_k_hamming(<<>>, _, _), do: {:error, :empty_vector}
-  def top_k_hamming(_, [], _), do: {:error, :empty_corpus}
+  # Empty corpus is valid - just return empty results
+  def top_k_hamming(_query, [], _k), do: {:ok, []}
 
   def top_k_hamming(query, corpus, k)
       when is_binary(query) and is_list(corpus) and is_integer(k) do

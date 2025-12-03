@@ -266,7 +266,13 @@ defmodule Mimo.Brain.WorkingMemory do
   end
 
   @impl true
-  def handle_call({:search, query, opts}, _from, state) do
+  # Handle case where opts is an integer (legacy/incorrect caller)
+  def handle_call({:search, query, limit}, _from, state) when is_integer(limit) do
+    handle_call({:search, query, [limit: limit]}, nil, state)
+  end
+
+  @impl true
+  def handle_call({:search, query, opts}, _from, state) when is_list(opts) do
     limit = Keyword.get(opts, :limit, 10)
     query_lower = String.downcase(query)
 

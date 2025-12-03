@@ -113,10 +113,15 @@ paths:
         Direct, low-level execution of specific memory operations.
         
         Supported tools:
-        - `search_vibes`: Vector similarity search in Episodic Store
-        - `store_fact`: Insert facts into Semantic/Episodic Store
-        - `recall_procedure`: Retrieve rules from Procedural Store
+        - `memory`: Unified memory operations (store, search, list, delete, stats, decay_check)
+        - `run_procedure`: Execute procedures (use operation=status to check status)
+        - `list_procedures`: List available procedures
+        - `ingest`: Bulk ingest files into memory
         - `mimo_reload_skills`: Hot-reload skills from disk
+        
+        Deprecated tools (still work, redirect to memory):
+        - `search_vibes`: Use `memory operation=search` instead
+        - `store_fact`: Use `memory operation=store` instead
       operationId: executeTool
       tags:
         - Mimo API
@@ -129,16 +134,34 @@ paths:
             schema:
               $ref: '#/components/schemas/ToolRequest'
             examples:
-              searchVibes:
-                summary: Vector search
+              memorySearch:
+                summary: Memory search (recommended)
+                value:
+                  tool: "memory"
+                  arguments:
+                    operation: "search"
+                    query: "mysterious dungeon atmosphere"
+                    limit: 5
+                    threshold: 0.75
+              memoryStore:
+                summary: Store a fact (recommended)
+                value:
+                  tool: "memory"
+                  arguments:
+                    operation: "store"
+                    content: "User prefers dark mode in the editor"
+                    category: "observation"
+                    importance: 0.7
+              searchVibesDeprecated:
+                summary: Vector search (deprecated)
                 value:
                   tool: "search_vibes"
                   arguments:
                     query: "mysterious dungeon atmosphere"
                     limit: 5
                     threshold: 0.75
-              storeFact:
-                summary: Store a fact
+              storeFactDeprecated:
+                summary: Store a fact (deprecated)
                 value:
                   tool: "store_fact"
                   arguments:
@@ -342,7 +365,7 @@ components:
         tool:
           type: string
           description: Tool name to execute
-          enum: [search_vibes, store_fact, recall_procedure, mimo_reload_skills]
+          enum: [memory, run_procedure, list_procedures, ingest, mimo_reload_skills, search_vibes, store_fact]
         arguments:
           type: object
           description: Tool-specific arguments

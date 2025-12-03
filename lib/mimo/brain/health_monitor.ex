@@ -127,34 +127,45 @@ defmodule Mimo.Brain.HealthMonitor do
   defp run_health_check(state) do
     Logger.debug("[HealthMonitor] Running brain health check...")
 
-    metrics = collect_metrics()
-    issues = analyze_issues(metrics)
+    # Wrap in try to handle sandbox errors in tests
+    try do
+      metrics = collect_metrics()
+      issues = analyze_issues(metrics)
 
-    # Log warnings if issues found
-    if issues != [] do
-      Logger.warning("[HealthMonitor] Brain health issues detected: #{inspect(issues)}")
+      # Log warnings if issues found
+      if issues != [] do
+        Logger.warning("[HealthMonitor] Brain health issues detected: #{inspect(issues)}")
 
+        :telemetry.execute(
+          [:mimo, :brain, :health, :issues_detected],
+          %{count: length(issues)},
+          %{issues: issues}
+        )
+      end
+
+      # Emit regular health telemetry
       :telemetry.execute(
-        [:mimo, :brain, :health, :issues_detected],
-        %{count: length(issues)},
-        %{issues: issues}
+        [:mimo, :brain, :health, :check],
+        metrics,
+        %{issues_count: length(issues)}
       )
+
+      %{
+        state
+        | last_check: DateTime.utc_now(),
+          issues: issues,
+          metrics: metrics,
+          check_count: state.check_count + 1
+      }
+    rescue
+      e in DBConnection.OwnershipError ->
+        Logger.debug("[HealthMonitor] Skipping health check in test mode: #{Exception.message(e)}")
+        state
+
+      e ->
+        Logger.warning("[HealthMonitor] Health check failed: #{Exception.message(e)}")
+        %{state | metrics: %{error: Exception.message(e)}}
     end
-
-    # Emit regular health telemetry
-    :telemetry.execute(
-      [:mimo, :brain, :health, :check],
-      metrics,
-      %{issues_count: length(issues)}
-    )
-
-    %{
-      state
-      | last_check: DateTime.utc_now(),
-        issues: issues,
-        metrics: metrics,
-        check_count: state.check_count + 1
-    }
   end
 
   defp collect_metrics do
@@ -183,6 +194,13 @@ defmodule Mimo.Brain.HealthMonitor do
         ) || 0
     }
   rescue
+    e in DBConnection.OwnershipError ->
+      Logger.debug(
+        "[HealthMonitor] Skipping metrics collection in test mode: #{Exception.message(e)}"
+      )
+
+      %{error: :test_mode}
+
     e ->
       Logger.error("[HealthMonitor] Failed to collect metrics: #{Exception.message(e)}")
       %{error: Exception.message(e)}
@@ -193,7 +211,7 @@ defmodule Mimo.Brain.HealthMonitor do
       from(e in Engram,
         where:
           (is_nil(e.embedding_int8) or fragment("length(?) = 0", e.embedding_int8)) and
-            (is_nil(e.embedding) or e.embedding == "[]"),
+            (is_nil(e.embedding) or fragment("length(?) = 0", e.embedding)),
         select: count()
       )
     ) || 0

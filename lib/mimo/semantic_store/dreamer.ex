@@ -11,6 +11,7 @@ defmodule Mimo.SemanticStore.Dreamer do
 
   alias Mimo.SemanticStore.InferenceEngine
   alias Mimo.Repo
+  alias Mimo.Sandbox
 
   @debounce_ms 500
 
@@ -170,6 +171,24 @@ defmodule Mimo.SemanticStore.Dreamer do
   end
 
   defp run_inference_pass(graph_id) do
+    # Skip if running in test mode with sandbox - we don't have DB access
+    if Sandbox.sandbox_mode?() do
+      Logger.debug("Dreamer: Skipping inference in sandbox mode")
+
+      {:ok,
+       %{
+         graph_id: graph_id,
+         triples_created: 0,
+         by_predicate: %{},
+         inverse_created: 0,
+         timestamp: DateTime.utc_now()
+       }}
+    else
+      do_run_inference_pass(graph_id)
+    end
+  end
+
+  defp do_run_inference_pass(graph_id) do
     # Run inside transaction with configurable mode
     Repo.transaction(
       fn ->

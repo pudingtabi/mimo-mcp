@@ -104,6 +104,16 @@ defmodule Mimo.SemanticStore.Ingestor do
         error ->
           error
       end
+    else
+      {:error, :ambiguous, candidates} ->
+        {:error,
+         "Ambiguous entity: multiple matches found (#{Enum.join(candidates, ", ")}). Use specific entity format like 'entity:name' or 'concept:name'."}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      other ->
+        {:error, "Failed to resolve entities: #{inspect(other)}"}
     end
   end
 
@@ -276,7 +286,7 @@ defmodule Mimo.SemanticStore.Ingestor do
 
   defp schedule_async_tasks(triples, graph_id) do
     # Ensure all entity anchors exist (async)
-    Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
+    Mimo.Sandbox.run_async(Mimo.Repo, fn ->
       Enum.each(triples, fn t ->
         Resolver.ensure_entity_anchor(
           t.subject_id,

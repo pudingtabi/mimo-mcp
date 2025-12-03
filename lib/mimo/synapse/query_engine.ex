@@ -299,53 +299,54 @@ defmodule Mimo.Synapse.QueryEngine do
     alias Mimo.Repo
     alias Mimo.Synapse.GraphNode
 
-    # Generate embedding for the query
-    case Mimo.Brain.LLM.generate_embedding(query_text) do
-      {:ok, query_embedding} when is_list(query_embedding) and length(query_embedding) > 0 ->
-        try do
-          # Get candidate nodes with embeddings
-          candidates =
-            GraphNode
-            |> where([n], n.node_type in ^node_types)
-            |> where([n], fragment("length(?) > 2", n.embedding))
-            |> limit(^(limit * 10))
-            |> Repo.all()
-            |> Enum.filter(fn node ->
-              is_list(node.embedding) and length(node.embedding) > 0
-            end)
+    with {:ok, query_embedding} when is_list(query_embedding) and length(query_embedding) > 0 <-
+           Mimo.Brain.LLM.generate_embedding(query_text),
+         candidates when candidates != [] <- get_embedding_candidates(node_types, limit),
+         {:ok, results} <- score_candidates_by_similarity(candidates, query_embedding, limit) do
+      results
+    else
+      _ -> []
+    end
+  end
 
-          if Enum.empty?(candidates) do
-            []
-          else
-            corpus = Enum.map(candidates, & &1.embedding)
+  defp get_embedding_candidates(node_types, limit) do
+    import Ecto.Query
+    alias Mimo.Repo
+    alias Mimo.Synapse.GraphNode
 
-            case Mimo.Vector.Math.batch_similarity(query_embedding, corpus) do
-              {:ok, similarities} ->
-                candidates
-                |> Enum.zip(similarities)
-                |> Enum.filter(fn {_node, score} -> score >= 0.3 end)
-                |> Enum.sort_by(fn {_node, score} -> score end, :desc)
-                |> Enum.take(limit)
-                |> Enum.map(fn {node, score} ->
-                  %{
-                    node: node,
-                    score: score,
-                    depth: 0,
-                    source: :seed
-                  }
-                end)
+    try do
+      GraphNode
+      |> where([n], n.node_type in ^node_types)
+      |> where([n], fragment("length(?) > 2", n.embedding))
+      |> limit(^(limit * 10))
+      |> Repo.all()
+      |> Enum.filter(fn node ->
+        is_list(node.embedding) and length(node.embedding) > 0
+      end)
+    rescue
+      _ -> []
+    end
+  end
 
-              {:error, _} ->
-                []
-            end
-          end
-        rescue
-          _ -> []
-        end
+  defp score_candidates_by_similarity(candidates, query_embedding, limit) do
+    corpus = Enum.map(candidates, & &1.embedding)
 
-      _ ->
-        # Embedding generation failed, will fall back to text search
-        []
+    case Mimo.Vector.Math.batch_similarity(query_embedding, corpus) do
+      {:ok, similarities} ->
+        results =
+          candidates
+          |> Enum.zip(similarities)
+          |> Enum.filter(fn {_node, score} -> score >= 0.3 end)
+          |> Enum.sort_by(fn {_node, score} -> score end, :desc)
+          |> Enum.take(limit)
+          |> Enum.map(fn {node, score} ->
+            %{node: node, score: score, depth: 0, source: :seed}
+          end)
+
+        {:ok, results}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -413,52 +414,47 @@ defmodule Mimo.Synapse.QueryEngine do
 
   defp format_node_for_context(%{node: node, score: score, depth: depth}) do
     type_label = node.node_type |> to_string() |> String.capitalize()
-
     header = "## #{type_label}: #{node.name}"
     score_info = "Relevance: #{Float.round(score, 2)} | Depth: #{depth}"
-
-    details =
-      case node.node_type do
-        :function ->
-          props = node.properties || %{}
-          file = props["file_path"] || "unknown"
-          line = props["start_line"] || "?"
-          sig = props["signature"] || ""
-          doc = props["doc"] || ""
-          "File: #{file}:#{line}\n#{sig}\n#{doc}"
-
-        :module ->
-          props = node.properties || %{}
-          file = props["file_path"] || "unknown"
-          "File: #{file}"
-
-        :file ->
-          props = node.properties || %{}
-          lang = props["language"] || "unknown"
-          "Language: #{lang}"
-
-        :external_lib ->
-          props = node.properties || %{}
-          eco = props["ecosystem"] || "unknown"
-          ver = props["version"] || "?"
-          "#{eco}@#{ver}"
-
-        :memory ->
-          props = node.properties || %{}
-          preview = props["content_preview"] || ""
-          "Preview: #{preview}"
-
-        :concept ->
-          node.description || ""
-
-        _ ->
-          ""
-      end
+    details = format_node_details(node.node_type, node)
 
     [header, score_info, details]
-    |> Enum.filter(&(&1 != ""))
+    |> Enum.reject(&(&1 == ""))
     |> Enum.join("\n")
   end
+
+  defp format_node_details(:function, node) do
+    props = node.properties || %{}
+    file = props["file_path"] || "unknown"
+    line = props["start_line"] || "?"
+    sig = props["signature"] || ""
+    doc = props["doc"] || ""
+    "File: #{file}:#{line}\n#{sig}\n#{doc}"
+  end
+
+  defp format_node_details(:module, node) do
+    props = node.properties || %{}
+    "File: #{props["file_path"] || "unknown"}"
+  end
+
+  defp format_node_details(:file, node) do
+    props = node.properties || %{}
+    "Language: #{props["language"] || "unknown"}"
+  end
+
+  defp format_node_details(:external_lib, node) do
+    props = node.properties || %{}
+    "#{props["ecosystem"] || "unknown"}@#{props["version"] || "?"}"
+  end
+
+  defp format_node_details(:memory, node) do
+    props = node.properties || %{}
+    "Preview: #{props["content_preview"] || ""}"
+  end
+
+  defp format_node_details(:concept, node), do: node.description || ""
+
+  defp format_node_details(_type, _node), do: ""
 
   defp format_node_context_string(center_node, subgraph) do
     center_info =

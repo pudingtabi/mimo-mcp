@@ -14,9 +14,20 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   - thought: Single reasoning step
   - plan: Planning with steps
   - sequential: Sequential thinking chain
+
+  Also handles the 'reason' tool operations (SPEC-035 Unified Reasoning Engine):
+  - guided: Start guided reasoning with strategy selection
+  - decompose: Break problem into sub-problems
+  - step: Record a reasoning step and get feedback
+  - verify: Verify reasoning chain for consistency
+  - reflect: Reflect on completed reasoning (Reflexion pattern)
+  - branch: Create a new reasoning branch (ToT pattern)
+  - backtrack: Backtrack to previous branch (ToT pattern)
+  - conclude: Conclude reasoning and generate final answer
   """
 
   alias Mimo.Tools.Helpers
+  alias Mimo.Cognitive.Reasoner
 
   @doc """
   Dispatch cognitive operation based on args.
@@ -43,9 +54,91 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
       "stats" ->
         dispatch_stats()
 
+      # SPEC-AI-TEST: Verification tracking operations
+      "verification_stats" ->
+        dispatch_verification_stats()
+
+      "verification_overconfidence" ->
+        dispatch_verification_overconfidence(args)
+
+      "verification_success_by_type" ->
+        dispatch_verification_success_by_type()
+
+      "verification_brier_score" ->
+        dispatch_verification_brier_score()
+
+      # === VERIFY TOOL OPERATIONS (SPEC-AI-TEST) ===
+      # Direct access to verify operations for MCP cache workaround
+      "verify_count" ->
+        Mimo.Tools.Dispatchers.Verify.dispatch(Map.put(args, "operation", "count"))
+
+      "verify_math" ->
+        Mimo.Tools.Dispatchers.Verify.dispatch(Map.put(args, "operation", "math"))
+
+      "verify_logic" ->
+        Mimo.Tools.Dispatchers.Verify.dispatch(Map.put(args, "operation", "logic"))
+
+      "verify_compare" ->
+        Mimo.Tools.Dispatchers.Verify.dispatch(Map.put(args, "operation", "compare"))
+
+      "verify_self_check" ->
+        Mimo.Tools.Dispatchers.Verify.dispatch(Map.put(args, "operation", "self_check"))
+
+      # === EMERGENCE TOOL OPERATIONS (SPEC-044) ===
+      # Direct access to emergence operations for MCP cache workaround
+      "emergence_detect" ->
+        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "detect"))
+
+      "emergence_dashboard" ->
+        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "dashboard"))
+
+      "emergence_alerts" ->
+        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "alerts"))
+
+      "emergence_amplify" ->
+        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "amplify"))
+
+      "emergence_promote" ->
+        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "promote"))
+
+      "emergence_cycle" ->
+        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "cycle"))
+
+      "emergence_list" ->
+        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "list"))
+
+      "emergence_search" ->
+        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "search"))
+
+      "emergence_suggest" ->
+        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "suggest"))
+
+      "emergence_status" ->
+        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "status"))
+
+      # === REFLECTOR TOOL OPERATIONS (SPEC-043) ===
+      # Direct access to reflector operations for MCP cache workaround
+      "reflector_reflect" ->
+        Mimo.Tools.Dispatchers.Reflector.dispatch(Map.put(args, "operation", "reflect"))
+
+      "reflector_evaluate" ->
+        Mimo.Tools.Dispatchers.Reflector.dispatch(Map.put(args, "operation", "evaluate"))
+
+      "reflector_confidence" ->
+        Mimo.Tools.Dispatchers.Reflector.dispatch(Map.put(args, "operation", "confidence"))
+
+      "reflector_errors" ->
+        Mimo.Tools.Dispatchers.Reflector.dispatch(Map.put(args, "operation", "errors"))
+
+      "reflector_format" ->
+        Mimo.Tools.Dispatchers.Reflector.dispatch(Map.put(args, "operation", "format"))
+
+      "reflector_config" ->
+        Mimo.Tools.Dispatchers.Reflector.dispatch(Map.put(args, "operation", "config"))
+
       _ ->
         {:error,
-         "Unknown cognitive operation: #{op}. Available: assess, gaps, query, can_answer, suggest, stats"}
+         "Unknown cognitive operation: #{op}. Available: assess, gaps, query, can_answer, suggest, stats, verification_*, verify_*, emergence_*, reflector_*"}
     end
   end
 
@@ -70,8 +163,18 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
           "nextThoughtNeeded" => args["nextThoughtNeeded"] || false
         })
 
+      "template" ->
+        # Think with template guidance (Anthropic Think Tool pattern)
+        scenario = String.to_atom(args["scenario"] || "debug")
+        Mimo.Skills.Cognition.think_with_template(args["thought"] || "", scenario)
+
+      "templates" ->
+        # List available thinking templates
+        Mimo.Skills.Cognition.list_templates()
+
       _ ->
-        {:error, "Unknown think operation: #{op}"}
+        {:error,
+         "Unknown think operation: #{op}. Available: thought, plan, sequential, template, templates"}
     end
   end
 
@@ -195,5 +298,252 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
        confidence_distribution: Map.get(stats, :confidence_distribution, %{}),
        average_confidence: Float.round(avg_conf * 1.0, 3)
      }}
+  end
+
+  # ==========================================================================
+  # REASON TOOL DISPATCHER (SPEC-035)
+  # ==========================================================================
+
+  @doc """
+  Dispatch reason tool operations for unified reasoning engine.
+  """
+  def dispatch_reason(args) do
+    op = args["operation"] || "guided"
+
+    case op do
+      "guided" ->
+        dispatch_reason_guided(args)
+
+      "decompose" ->
+        dispatch_reason_decompose(args)
+
+      "step" ->
+        dispatch_reason_step(args)
+
+      "verify" ->
+        dispatch_reason_verify(args)
+
+      "reflect" ->
+        dispatch_reason_reflect(args)
+
+      "branch" ->
+        dispatch_reason_branch(args)
+
+      "backtrack" ->
+        dispatch_reason_backtrack(args)
+
+      "conclude" ->
+        dispatch_reason_conclude(args)
+
+      "enrich" ->
+        dispatch_reason_enrich(args)
+
+      "steps" ->
+        dispatch_reason_steps(args)
+
+      _ ->
+        {:error,
+         "Unknown reason operation: #{op}. Available: guided, decompose, step, enrich, steps, verify, reflect, branch, backtrack, conclude"}
+    end
+  end
+
+  defp dispatch_reason_guided(args) do
+    problem = args["problem"] || ""
+
+    if problem == "" do
+      {:error, "Problem is required for guided reasoning"}
+    else
+      strategy = parse_strategy(args["strategy"])
+      opts = if strategy, do: [strategy: strategy], else: []
+
+      Reasoner.guided(problem, opts)
+    end
+  end
+
+  defp dispatch_reason_decompose(args) do
+    problem = args["problem"] || ""
+
+    if problem == "" do
+      {:error, "Problem is required for decompose operation"}
+    else
+      strategy = parse_strategy(args["strategy"])
+      opts = if strategy, do: [strategy: strategy], else: []
+
+      Reasoner.decompose(problem, opts)
+    end
+  end
+
+  defp dispatch_reason_step(args) do
+    session_id = args["session_id"] || ""
+    thought = args["thought"] || ""
+
+    cond do
+      session_id == "" ->
+        {:error, "session_id is required for step operation"}
+
+      thought == "" ->
+        {:error, "thought is required for step operation"}
+
+      true ->
+        Reasoner.step(session_id, thought)
+    end
+  end
+
+  defp dispatch_reason_verify(args) do
+    session_id = args["session_id"]
+    thoughts = args["thoughts"]
+
+    cond do
+      session_id != nil and session_id != "" ->
+        Reasoner.verify(session_id)
+
+      thoughts != nil and is_list(thoughts) ->
+        Reasoner.verify(thoughts)
+
+      true ->
+        {:error, "Either session_id or thoughts list is required for verify operation"}
+    end
+  end
+
+  defp dispatch_reason_reflect(args) do
+    session_id = args["session_id"] || ""
+    success = args["success"] || false
+    error = args["error"]
+    result = args["result"]
+
+    if session_id == "" do
+      {:error, "session_id is required for reflect operation"}
+    else
+      outcome = %{
+        success: success,
+        error: error,
+        result: result
+      }
+
+      Reasoner.reflect(session_id, outcome)
+    end
+  end
+
+  defp dispatch_reason_branch(args) do
+    session_id = args["session_id"] || ""
+    thought = args["thought"] || ""
+
+    cond do
+      session_id == "" ->
+        {:error, "session_id is required for branch operation"}
+
+      thought == "" ->
+        {:error, "thought is required for branch operation"}
+
+      true ->
+        Reasoner.branch(session_id, thought)
+    end
+  end
+
+  defp dispatch_reason_backtrack(args) do
+    session_id = args["session_id"] || ""
+    to_branch = args["to_branch"]
+
+    if session_id == "" do
+      {:error, "session_id is required for backtrack operation"}
+    else
+      opts = if to_branch, do: [to_branch: to_branch], else: []
+      Reasoner.backtrack(session_id, opts)
+    end
+  end
+
+  defp dispatch_reason_conclude(args) do
+    session_id = args["session_id"] || ""
+
+    if session_id == "" do
+      {:error, "session_id is required for conclude operation"}
+    else
+      Reasoner.conclude(session_id)
+    end
+  end
+
+  defp dispatch_reason_enrich(args) do
+    session_id = args["session_id"] || ""
+    step_number = args["step_number"] || 1
+
+    if session_id == "" do
+      {:error, "session_id is required for enrich operation"}
+    else
+      Reasoner.enrich(session_id, step_number)
+    end
+  end
+
+  defp dispatch_reason_steps(args) do
+    session_id = args["session_id"] || ""
+    thoughts = args["thoughts"] || []
+
+    if session_id == "" do
+      {:error, "session_id is required for steps operation"}
+    else
+      Reasoner.steps(session_id, thoughts)
+    end
+  end
+
+  defp parse_strategy(strategy) do
+    case strategy do
+      "auto" -> :auto
+      "cot" -> :cot
+      "tot" -> :tot
+      "react" -> :react
+      "reflexion" -> :reflexion
+      nil -> nil
+      _ -> nil
+    end
+  end
+
+  # ==========================================================================
+  # SPEC-AI-TEST: Verification Tracker Operations
+  # ==========================================================================
+
+  defp dispatch_verification_stats do
+    case Mimo.Brain.VerificationTracker.stats() do
+      stats when is_map(stats) ->
+        {:ok, stats}
+
+      error ->
+        {:error, "Failed to retrieve verification stats: #{inspect(error)}"}
+    end
+  end
+
+  defp dispatch_verification_overconfidence(args) do
+    threshold = args["brier_threshold"] || 0.3
+
+    case Mimo.Brain.VerificationTracker.detect_overconfidence(brier_threshold: threshold) do
+      patterns when is_list(patterns) ->
+        {:ok,
+         %{
+           threshold: threshold,
+           patterns_detected: length(patterns),
+           patterns: patterns
+         }}
+
+      error ->
+        {:error, "Failed to detect overconfidence: #{inspect(error)}"}
+    end
+  end
+
+  defp dispatch_verification_success_by_type do
+    case Mimo.Brain.VerificationTracker.success_by_type() do
+      success_map when is_map(success_map) ->
+        {:ok, success_map}
+
+      error ->
+        {:error, "Failed to retrieve success by type: #{inspect(error)}"}
+    end
+  end
+
+  defp dispatch_verification_brier_score do
+    case Mimo.Brain.VerificationTracker.brier_score() do
+      result when is_map(result) ->
+        {:ok, result}
+
+      error ->
+        {:error, "Failed to calculate Brier score: #{inspect(error)}"}
+    end
   end
 end

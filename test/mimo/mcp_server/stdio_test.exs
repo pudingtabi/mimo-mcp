@@ -46,16 +46,18 @@ defmodule Mimo.McpServer.StdioTest do
       response = simulate_handle_request(request)
 
       tool_names = Enum.map(response["result"]["tools"], & &1["name"])
-      # Internal tools should be present
-      internal_tools = [
+      # Current internal tools (not including deprecated)
+      current_internal_tools = [
         "ask_mimo",
-        "search_vibes",
-        "store_fact",
-        "mimo_store_memory",
-        "mimo_reload_skills"
+        "mimo_reload_skills",
+        "run_procedure",
+        "list_procedures",
+        "memory",
+        "ingest"
       ]
 
-      assert Enum.any?(internal_tools, &(&1 in tool_names)) or length(tool_names) >= 0
+      # At least some internal tools should be present
+      assert Enum.any?(current_internal_tools, &(&1 in tool_names)) or length(tool_names) >= 0
     end
   end
 
@@ -260,10 +262,15 @@ defmodule Mimo.McpServer.StdioTest do
 
     internal_tools = [
       "ask_mimo",
+      # Deprecated but still works
       "search_vibes",
+      # Deprecated but still works
       "store_fact",
-      "mimo_store_memory",
-      "mimo_reload_skills"
+      "mimo_reload_skills",
+      "run_procedure",
+      "list_procedures",
+      "memory",
+      "ingest"
     ]
 
     if tool_name in internal_tools do

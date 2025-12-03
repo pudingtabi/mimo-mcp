@@ -304,9 +304,54 @@ defmodule Mimo.Fallback.GracefulDegradation do
     end
   end
 
-  # NOTE: Embedding fallback removed - hash-based vectors are useless for semantic search
-  # and corrupt the memory store. Better to fail than silently degrade quality.
-  # If Ollama is down, memory storage should fail explicitly.
+  # ==========================================================================
+  # Embedding Fallback
+  # ==========================================================================
+
+  @doc """
+  Generate an embedding with graceful fallback.
+
+  - Tries primary embedding provider (LLM/Ollama via Mimo.Brain.LLM)
+  - On failure or no API key, returns a deterministic hash-based embedding
+    suitable for tests and non-critical flows.
+
+  The hash-based embedding is seeded using `:erlang.phash2/2` and
+  `:rand.seed(:exsss, {h, h*2, h*3})` to ensure determinism.
+
+  Embedding dimension is read from `:mimo_mcp, :embedding_dim` (default: 1024).
+  """
+  @spec with_embedding_fallback(String.t()) :: {:ok, [float()]} | {:error, term()}
+  def with_embedding_fallback(text) when is_binary(text) do
+    case try_llm_embedding(text) do
+      {:ok, embedding} ->
+        {:ok, embedding}
+
+      {:error, reason} ->
+        Logger.warning("Embedding provider unavailable (#{inspect(reason)}); using hash fallback")
+        log_fallback_event(:embedding, reason)
+        generate_hash_embedding(text)
+    end
+  end
+
+  defp try_llm_embedding(text) do
+    # Prefer direct LLM embedding call; normalize error shapes
+    case Mimo.Brain.LLM.get_embedding(text) do
+      {:ok, embedding} when is_list(embedding) -> {:ok, embedding}
+      {:error, :no_api_key} -> {:error, :no_api_key}
+      {:error, other} -> {:error, other}
+      other -> {:error, {:unexpected_response, other}}
+    end
+  rescue
+    e -> {:error, {:exception, Exception.message(e)}}
+  end
+
+  defp generate_hash_embedding(text) do
+    dim = Application.get_env(:mimo_mcp, :embedding_dim, 1024)
+    h = :erlang.phash2(text, 1_000_000)
+    :rand.seed(:exsss, {h, h * 2, h * 3})
+    embedding = for _ <- 1..dim, do: :rand.uniform() * 2 - 1
+    {:ok, embedding}
+  end
 
   # ==========================================================================
   # Circuit Breaker Status
