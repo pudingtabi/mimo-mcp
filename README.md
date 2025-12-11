@@ -2,7 +2,7 @@
 
 **Give your AI agents a brain that remembers.**
 
-Mimo is a Memory Operating System for AI agents. It provides persistent memory, knowledge graphs, and 18 unified tools — so your AI actually learns from conversations and remembers context across sessions.
+Mimo is a Memory Operating System for AI agents. It provides persistent memory, knowledge graphs, and 19 unified tools — so your AI actually learns from conversations and remembers context across sessions.
 
 [![Elixir](https://img.shields.io/badge/Elixir-1.19+-purple.svg)](https://elixir-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -26,7 +26,7 @@ Mimo is a Memory Operating System for AI agents. It provides persistent memory, 
 ### Option 1: Docker (Recommended)
 
 ```bash
-git clone https://github.com/anthropics/mimo-mcp.git
+git clone https://github.com/yourusername/mimo-mcp.git
 cd mimo-mcp
 docker-compose up -d
 docker exec mimo-ollama ollama pull qwen3-embedding:0.6b
@@ -35,7 +35,7 @@ curl http://localhost:4000/health  # Should return {"status":"healthy"}
 
 ### Option 2: Single Binary
 
-Download from [Releases](https://github.com/anthropics/mimo-mcp/releases), then:
+Download from [Releases](https://github.com/yourusername/mimo-mcp/releases), then:
 
 ```bash
 ./mimo server  # HTTP server on port 4000
@@ -103,7 +103,7 @@ Add to `~/.vscode/mcp.json`:
 
 ## Core Tools
 
-Mimo exposes 18 unified tools via MCP (with 21 deprecated aliases hidden but working for backward compatibility). Here are the most used:
+Mimo exposes 19 unified tools via MCP (with deprecated aliases hidden but working for backward compatibility). Here are the most used:
 
 | Tool | Example | Purpose |
 |------|---------|---------|
@@ -164,7 +164,9 @@ You say something → Mimo stores it → Time passes → You ask about it → Mi
 | [API Reference](docs/API_REFERENCE.md) | All endpoints and tools |
 | [Architecture](docs/ARCHITECTURE.md) | System design and roadmap |
 | [Deployment Guide](docs/DEPLOYMENT.md) | Docker, VPS, native setup |
-| [Agent Guide](Agents.md) | How AI agents should use Mimo |
+| [Agent Integration Guide](AGENTS.md) | How AI agents should use Mimo |
+| [Security Policy](SECURITY.md) | Security best practices and guidelines |
+| [Specifications](docs/specs/README.md) | Core implementation specs (SPEC-001 to SPEC-011) |
 | [Vision](VISION.md) | Long-term roadmap |
 
 ---
@@ -181,7 +183,7 @@ mix ecto.create && mix ecto.migrate
 ./bin/mimo stdio     # MCP mode
 
 # Test
-mix test             # 700+ tests
+mix test             # 1000+ tests
 ```
 
 ---
