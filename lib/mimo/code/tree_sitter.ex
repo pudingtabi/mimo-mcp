@@ -298,7 +298,8 @@ defmodule Mimo.Code.TreeSitter do
 
   defp safe_key_to_atom(key, known_keys) when is_binary(key) do
     if MapSet.member?(known_keys, key) do
-      String.to_existing_atom(key)
+      # Safe to use String.to_atom since we've validated against our whitelist
+      String.to_atom(key)
     else
       # Keep unknown keys as strings - defensive against NIF changes
       key

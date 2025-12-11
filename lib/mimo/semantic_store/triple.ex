@@ -32,6 +32,22 @@ defmodule Mimo.SemanticStore.Triple do
 
   @type t :: %__MODULE__{}
 
+  @derive {Jason.Encoder,
+           only: [
+             :id,
+             :subject_id,
+             :subject_type,
+             :predicate,
+             :object_id,
+             :object_type,
+             :confidence,
+             :source,
+             :context,
+             :graph_id,
+             :inferred_by_rule_id,
+             :inserted_at
+           ]}
+
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
@@ -52,11 +68,14 @@ defmodule Mimo.SemanticStore.Triple do
     field(:graph_id, :string, default: "global")
     field(:expires_at, :utc_datetime)
 
+    # Neuro-symbolic linkage
+    field(:inferred_by_rule_id, :binary_id)
+
     timestamps(type: :naive_datetime_usec)
   end
 
   @required_fields [:subject_id, :subject_type, :predicate, :object_id, :object_type]
-  @optional_fields [:confidence, :source, :ttl, :metadata, :context, :graph_id, :expires_at]
+  @optional_fields [:confidence, :source, :ttl, :metadata, :context, :graph_id, :expires_at, :inferred_by_rule_id]
 
   @doc """
   Creates a changeset for a triple.

@@ -4,7 +4,36 @@ defmodule Mimo.Tools.Definitions do
 
   This module contains all tool definitions (JSON schemas) for the MCP protocol.
   Extracted from the monolithic tools.ex as part of SPEC-030 modularization.
+
+  ## Tool Consolidation (Phase 2)
+
+  Primary tools (exposed to MCP):
+  - file, terminal, web, code, knowledge, memory, think, reason, onboard, cognitive, meta
+  - ask_mimo, ingest (memory helpers)
+  - run_procedure, list_procedures, mimo_reload_skills (procedural)
+  - tool_usage, awakening_status (monitoring)
+
+  Deprecated tools (hidden from MCP, still work internally):
+  - fetch, search, blink, browser, vision, sonar, web_extract, web_parse → use `web`
+  - code_symbols, library, diagnostics, graph → use `code` or `knowledge`
+  - analyze_file, debug_error, prepare_context, suggest_next_tool → use `meta`
+  - emergence, reflector, verify → use `cognitive`
+  - store_fact, search_vibes → use `memory`
   """
+
+  # Deprecated tool names - these are hidden from MCP exposure but still work internally
+  @deprecated_tools MapSet.new([
+    # Web aliases → use `web operation=...`
+    "fetch", "search", "blink", "browser", "vision", "sonar", "web_extract", "web_parse",
+    # Code aliases → use `code operation=...`
+    "code_symbols", "library", "diagnostics", "graph",
+    # Meta aliases → use `meta operation=...`
+    "analyze_file", "debug_error", "prepare_context", "suggest_next_tool",
+    # Cognitive aliases → use `cognitive operation=...`
+    "emergence", "reflector", "verify",
+    # Memory aliases → use `memory operation=...`
+    "store_fact", "search_vibes"
+  ])
 
   @tool_definitions [
     # ==========================================================================
@@ -104,7 +133,7 @@ defmodule Mimo.Tools.Definitions do
           proposed_content: %{type: "string", description: "Content to diff against file"},
           skip_memory_context: %{
             type: "boolean",
-            default: false,
+            default: true,
             description:
               "Skip auto-including memory context (for batch/performance-sensitive operations)"
           }
@@ -118,11 +147,11 @@ defmodule Mimo.Tools.Definitions do
     %{
       name: "terminal",
       description:
-        "Execute commands and manage processes with automatic memory context. Responses include related memories (past errors, patterns) for accuracy. Operations: execute (default), start_process, read_output, interact, kill, force_kill, list_sessions, list_processes. 💡 Memory context is auto-included. Store important results with `memory operation=store category=action`.",
+        "Executes shell commands and manages processes with automatic memory context. You MUST provide the 'command' string argument explicitly. Do not run this without a command. Operations: execute (default), start_process, read_output, interact, kill, force_kill, list_sessions, list_processes. Responses include related memories (past errors, patterns) for accuracy. 💡 Memory context is auto-included. Store important results with `memory operation=store category=action`.",
       input_schema: %{
         type: "object",
         properties: %{
-          command: %{type: "string", description: "Command to execute"},
+          command: %{type: "string", description: "The actual shell command to execute (e.g., 'ls -la', 'npm test', 'cargo build'). This parameter is REQUIRED."},
           operation: %{
             type: "string",
             enum: [
@@ -165,7 +194,7 @@ defmodule Mimo.Tools.Definitions do
           confirm: %{type: "boolean", description: "Confirm destructive commands (rm, kill, etc.)"},
           skip_memory_context: %{
             type: "boolean",
-            default: false,
+            default: true,
             description:
               "Skip auto-including memory context (for batch/performance-sensitive operations)"
           }
@@ -585,30 +614,28 @@ defmodule Mimo.Tools.Definitions do
     %{
       name: "knowledge",
       description: """
-      🧠 KNOWLEDGE GRAPH - Store and query RELATIONSHIPS between concepts, code, and entities.
+      🧠 KNOWLEDGE GRAPH - Query RELATIONSHIPS between concepts, code, and entities.
 
-      WORKFLOW EXAMPLES:
-      ✓ Find relationships: knowledge query "what depends on UserService?" → graph traversal
-      ✓ Store relationship: knowledge teach "AuthService depends on UserService" → persists
-      ✓ Architecture questions: knowledge traverse node_name="Database" → see connections
-      ✓ Path finding: knowledge path from_node="login" to_node="database" → connection chain
+      ⚠️ AUTO-TRIGGER: This tool should be called automatically when:
+      • "how does X relate to Y" / "what depends on" / "what uses"
+      • Architecture questions ("structure of", "flow of", "pipeline")
+      • Dependency exploration ("imports", "calls", "requires")
+      • "Which modules/files/functions" questions
+      • Understanding code relationships before changes
 
-      WHEN TO USE THIS vs file/memory search:
-      • Store architecture facts → operation=teach text='AuthService depends on UserService'
-      • Query relationships → operation=query query='what depends on the database?'
-      • Explore code structure → operation=traverse node_name='AuthModule' direction=both
-      • Find path between entities → operation=path from_node='login' to_node='database'
-      • Get neighborhood context → operation=neighborhood node_name='UserService' hops=2
+      OPERATIONS:
+      • query: Natural language relationship queries
+      • teach: Store new relationships ("A depends on B")
+      • traverse: Explore connections from a node
+      • path: Find connection chain between two entities
+      • neighborhood: Get nearby nodes within N hops
 
       WHY use this vs file search:
       - Understands RELATIONSHIPS not just text matches
       - Remembers context ACROSS SESSIONS
       - Can infer transitive dependencies (A→B→C means A→C)
 
-      🚀 BOOTSTRAP: Run `operation=link path='/project/src'` at session start to index code into the graph!
-      Also run `operation=sync_dependencies` to import package relationships.
-
-      💡 TIP: Use operation=stats to see what's in the knowledge graph.
+      🚀 BOOTSTRAP: Run `operation=link path='/project/src'` at session start!
       """,
       input_schema: %{
         type: "object",
@@ -1185,29 +1212,30 @@ defmodule Mimo.Tools.Definitions do
     %{
       name: "reason",
       description: """
-      🧠 UNIFIED REASONING ENGINE - Structured reasoning with multiple strategies!
+      🧠 UNIFIED REASONING ENGINE - Use this BEFORE making complex changes!
 
-      Merges think + cognitive into a powerful reasoning system with:
-      • Chain-of-Thought (CoT): Linear step-by-step reasoning
-      • Tree-of-Thoughts (ToT): Branching exploration with backtracking
-      • ReAct: Interleaved reasoning and tool use
-      • Reflexion: Self-critique and learning from mistakes
+      ⚠️ AUTO-TRIGGER: This tool should be called automatically when:
+      • Multi-step tasks (implement feature, refactor, migrate)
+      • Decision points ("should I", "which is better", "vs")
+      • Architecture changes (restructure, redesign, modularize)
+      • Debugging complex issues (intermittent bugs, race conditions)
+      • Uncertainty detected ("maybe", "unsure", "not sure")
 
-      WORKFLOW:
-      1. Start with `guided` → analyzes problem, selects strategy, returns session_id
-      2. Record steps with `step` → get evaluation & feedback
-      3. For ToT: use `branch` and `backtrack` to explore alternatives
-      4. Use `verify` to check logical consistency
-      5. After completion: `reflect` on outcome (stores lessons for future)
-      6. Finish with `conclude` → synthesizes final answer
-
-      WHEN TO USE EACH STRATEGY:
+      STRATEGIES:
       • CoT (default): Math, logic, step-by-step problems
       • ToT: Ambiguous problems, creative tasks, multiple approaches
       • ReAct: Problems requiring tool use (file, terminal, search)
       • Reflexion: Learning from failures, iterative improvement
 
-      💡 TIP: Memory integration means similar past problems are auto-retrieved!
+      WORKFLOW:
+      1. `guided` → analyzes problem, selects strategy, returns session_id
+      2. `step` → record reasoning steps with evaluation
+      3. `branch`/`backtrack` → explore alternatives (ToT)
+      4. `verify` → check logical consistency
+      5. `reflect` → store lessons learned
+      6. `conclude` → synthesize final answer
+
+      💡 Memory integration means similar past problems are auto-retrieved!
       """,
       input_schema: %{
         type: "object",
@@ -1365,11 +1393,13 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # ANALYZE_FILE - Compound domain action (SPEC-031 Phase 5)
+    # ANALYZE_FILE - [DEPRECATED] Use 'meta operation=analyze_file' instead
     # ==========================================================================
     %{
       name: "analyze_file",
       description: """
+      ⚠️ DEPRECATED: Use `meta operation=analyze_file` instead.
+
       📊 UNIFIED FILE ANALYSIS - Get complete understanding of any file in one call!
 
       Chains multiple tools for comprehensive analysis:
@@ -1378,18 +1408,7 @@ defmodule Mimo.Tools.Definitions do
       3. diagnostics all → Get compile/lint errors
       4. knowledge node → Get related knowledge graph context
 
-      Returns unified result with:
-      • File info (size, type, modified time)
-      • Symbol summary (functions, classes by kind)
-      • Diagnostic health (errors, warnings)
-      • Knowledge connections
-
-      WHEN TO USE:
-      • Opening a new file for the first time → analyze_file path="src/app.ts"
-      • Before making changes to understand structure → analyze_file path="lib/module.ex"
-      • Investigating unfamiliar code → analyze_file path="..." include_content=true
-
-      💡 This replaces the need to manually call 4 separate tools!
+      💡 This tool still works but redirects to the unified 'meta' tool.
       """,
       input_schema: %{
         type: "object",
@@ -1413,11 +1432,13 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # DEBUG_ERROR - Compound domain action (SPEC-031 Phase 5)
+    # DEBUG_ERROR - [DEPRECATED] Use 'meta operation=debug_error' instead
     # ==========================================================================
     %{
       name: "debug_error",
       description: """
+      ⚠️ DEPRECATED: Use `meta operation=debug_error` instead.
+
       🔧 ERROR DEBUGGING ASSISTANT - Find solutions to errors fast!
 
       Chains multiple tools for comprehensive error analysis:
@@ -1425,20 +1446,7 @@ defmodule Mimo.Tools.Definitions do
       2. code_symbols definition → Find where error originates
       3. diagnostics check → Get current compiler errors
 
-      Returns:
-      • Past solutions from memory (with similarity scores)
-      • Symbol definitions for referenced code
-      • Current active errors in codebase
-
-      WHEN TO USE:
-      • Got an error message → debug_error message="undefined function foo/2"
-      • Build failing → debug_error message="CompileError: ..." path="lib/"
-      • Finding why something broke → debug_error message="..." symbol="ModuleName"
-
-      AFTER FIXING, store the solution:
-      memory operation=store content="Fixed [error]: [solution]" category=fact importance=0.8
-
-      💡 Learns from past errors! The more you use it, the smarter it gets.
+      💡 This tool still works but redirects to the unified 'meta' tool.
       """,
       input_schema: %{
         type: "object",
@@ -1555,14 +1563,16 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # PREPARE_CONTEXT - Smart Context Aggregation (SPEC-036)
+    # PREPARE_CONTEXT - [DEPRECATED] Use 'meta operation=prepare_context' instead
     # ==========================================================================
     # ==========================================================================
-    # PREPARE_CONTEXT - Smart Context Aggregation (SPEC-036)
+    # PREPARE_CONTEXT - [DEPRECATED] Use 'meta operation=prepare_context' instead
     # ==========================================================================
     %{
       name: "prepare_context",
       description: """
+      ⚠️ DEPRECATED: Use `meta operation=prepare_context` instead.
+
       🧠 SMART CONTEXT - Give any model photographic memory of the project!
 
       Aggregates context from ALL Mimo cognitive systems in parallel:
@@ -1571,19 +1581,7 @@ defmodule Mimo.Tools.Definitions do
       3. code_symbols → Matching code definitions and symbols
       4. library docs → Related package documentation
 
-      Returns structured context ready to inject into your reasoning.
-
-      WHEN TO USE:
-      • Before complex tasks → prepare_context query="implement auth flow"
-      • When context matters → prepare_context query="how does X work?"
-      • To help small models → prepare_context query="..." (gives Haiku Opus-level context!)
-
-      WHY THIS MATTERS:
-      • Small models lack context → this tool provides it
-      • Prevents hallucination → grounded in stored knowledge
-      • Faster than manual lookup → parallel queries, one call
-
-      💡 This is the FOUNDATION for small model capability enhancement!
+      💡 This tool still works but redirects to the unified 'meta' tool.
       """,
       input_schema: %{
         type: "object",
@@ -1610,29 +1608,19 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # SUGGEST_NEXT_TOOL - Workflow Routing Guidance (SPEC-041 P4)
+    # SUGGEST_NEXT_TOOL - [DEPRECATED] Use 'meta operation=suggest_next_tool' instead
     # ==========================================================================
     %{
       name: "suggest_next_tool",
       description: """
+      ⚠️ DEPRECATED: Use `meta operation=suggest_next_tool` instead.
+
       🧭 WORKFLOW ROUTER - Get Mimo-optimal guidance for your next step!
 
       Analyzes your current task and recent tool usage to suggest the best next tool
       according to the Mimo workflow: Context → Intelligence → Action → Learning.
 
-      WHEN TO USE:
-      • Uncertain which tool to use → suggest_next_tool task="find auth function"
-      • After completing a step → suggest_next_tool task="what's next?"
-      • Before starting complex work → suggest_next_tool task="implement feature X"
-
-      RETURNS:
-      • suggested_tool: The recommended next tool
-      • reason: Why this tool is recommended
-      • workflow_phase: Where you are (context/intelligence/action/learning)
-      • alternatives: Other valid options
-      • warning: If you're about to skip important steps
-
-      💡 Helps enforce the Mimo Way without blocking your workflow.
+      💡 This tool still works but redirects to the unified 'meta' tool.
       """,
       input_schema: %{
         type: "object",
@@ -1655,36 +1643,23 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # EMERGENCE - Pattern Detection & Emergence Framework (SPEC-044)
+    # EMERGENCE - [DEPRECATED] Use 'cognitive operation=emergence_*' instead
     # ==========================================================================
     %{
       name: "emergence",
       description: """
+      ⚠️ DEPRECATED: Use `cognitive operation=emergence_*` instead.
+
       🌱 EMERGENCE - Detect and promote emergent patterns in AI behavior.
 
-      This tool enables the discovery of naturally occurring patterns from memory and tool usage,
-      promoting them to explicit capabilities when validated.
+      This tool still works but redirects to the unified 'cognitive' tool.
 
-      Operations:
-      • detect: Run pattern detection across memories and tool usage
-      • dashboard: Get full emergence metrics and status
-      • alerts: Get patterns that need attention (ready to promote, etc.)
-      • amplify: Increase pattern weight when observed again
-      • promote: Promote a validated pattern to explicit capability
-      • cycle: Run a full emergence cycle (detect → evaluate → alert)
-      • list: List all tracked patterns with optional filtering
-      • search: Search patterns by query
-      • suggest: Get pattern suggestions for a task
-      • status: Get emergence system status
-      • pattern: Get details of a specific pattern
+      Quick migration:
+      • emergence operation=dashboard → cognitive operation=emergence_dashboard
+      • emergence operation=detect → cognitive operation=emergence_detect
+      • emergence operation=promote → cognitive operation=emergence_promote
 
-      WHEN TO USE:
-      • After repeated similar actions → detect for patterns
-      • Periodically → cycle to find emerging capabilities
-      • Before implementing new features → suggest to check for existing patterns
-      • When pattern is reliable → promote to make it explicit
-
-      💡 The emergence system learns from your actual behavior, not prescribed rules.
+      💡 The 'cognitive' tool consolidates all meta-cognitive operations.
       """,
       input_schema: %{
         type: "object",
@@ -1746,39 +1721,23 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # REFLECTOR - Metacognitive Self-Reflection (SPEC-043)
+    # REFLECTOR - [DEPRECATED] Use 'cognitive operation=reflector_*' instead
     # ==========================================================================
     %{
       name: "reflector",
       description: """
+      ⚠️ DEPRECATED: Use `cognitive operation=reflector_*` instead.
+
       🪞 REFLECTOR - Metacognitive self-reflection and evaluation system.
 
-      This tool enables structured self-evaluation of AI responses and actions,
-      providing confidence calibration, error detection, and actionable insights.
+      This tool still works but redirects to the unified 'cognitive' tool.
 
-      Operations:
-      • reflect: Perform deep reflection on a thought/action/response
-      • evaluate: Quick evaluation with scoring
-      • confidence: Get calibrated confidence assessment
-      • errors: Analyze potential errors and biases
-      • format: Format reflection results for display
-      • config: Get/set reflector configuration
+      Quick migration:
+      • reflector operation=reflect → cognitive operation=reflector_reflect
+      • reflector operation=evaluate → cognitive operation=reflector_evaluate
+      • reflector operation=confidence → cognitive operation=reflector_confidence
 
-      WHEN TO USE:
-      • After complex reasoning → reflect to validate
-      • Before finalizing responses → evaluate for quality
-      • When uncertain → confidence to calibrate
-      • After errors → errors to understand what went wrong
-      • For critical decisions → full reflect workflow
-
-      REFLECTION DIMENSIONS:
-      • accuracy: Factual correctness
-      • completeness: Coverage of requirements
-      • coherence: Logical consistency
-      • relevance: Alignment with user intent
-      • clarity: Communication quality
-
-      💡 Honest self-assessment leads to better outcomes.
+      💡 The 'cognitive' tool consolidates all meta-cognitive operations.
       """,
       input_schema: %{
         type: "object",
@@ -1825,35 +1784,23 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # VERIFY - Executable Verification (SPEC-AI-TEST Recommendations)
+    # VERIFY - [DEPRECATED] Use 'cognitive operation=verify_*' instead
     # ==========================================================================
     %{
       name: "verify",
       description: """
+      ⚠️ DEPRECATED: Use `cognitive operation=verify_*` instead.
+
       ✅ VERIFY - Executable verification for AI claims.
 
-      Actually runs checks rather than claiming verification. Eliminates the gap
-      between "ceremonial verification" and "executable verification".
+      This tool still works but redirects to the unified 'cognitive' tool.
 
-      Based on AI Intelligence Test Round 2 findings:
-      • Gemini 3 Pro showed gold standard: run Python/terminal to verify
-      • Opus 4.5 claimed "verified" but was wrong (ceremonial verification)
-      • This tool makes verification auditable and executable
+      Quick migration:
+      • verify operation=count → cognitive operation=verify_count
+      • verify operation=math → cognitive operation=verify_math
+      • verify operation=logic → cognitive operation=verify_logic
 
-      Operations:
-      • count: Count letters/words/characters with actual character-by-character enumeration
-      • math: Verify arithmetic by evaluating both claimed and actual
-      • logic: Check logical consistency via basic constraint checking
-      • compare: Compare two values with explicit relation verification
-      • self_check: Framework for independent re-derivation (use with reason tool)
-
-      WHEN TO USE:
-      • Before claiming "I counted X" → verify operation=count to actually count
-      • After arithmetic → verify operation=math to confirm calculation
-      • For logical claims → verify operation=logic to check consistency
-      • High-stakes answers → verify operation=self_check for independent validation
-
-      💡 Verification should be EXECUTED, not just claimed!
+      💡 The 'cognitive' tool consolidates all meta-cognitive operations.
       """,
       input_schema: %{
         type: "object",
@@ -1922,16 +1869,81 @@ defmodule Mimo.Tools.Definitions do
         },
         required: ["operation"]
       }
+    },
+    # ==========================================================================
+    # AUTONOMOUS - Autonomous task execution with cognitive enhancement (SPEC-071)
+    # ==========================================================================
+    %{
+      name: "autonomous",
+      description:
+        "Autonomous task execution with cognitive enhancement. Queue tasks for background execution with memory-powered hints, contradiction checking, and circuit breaker safety. Operations: queue (add task), status (get runner status), pause (stop execution), resume (continue execution), reset_circuit (reset after failures), list_queue (show queued tasks), clear_queue (remove all queued tasks), check_safety (validate task safety).",
+      input_schema: %{
+        type: "object",
+        properties: %{
+          operation: %{
+            type: "string",
+            enum: ["queue", "status", "pause", "resume", "reset_circuit", "list_queue", "clear_queue", "check_safety"],
+            default: "status",
+            description: "Operation to perform"
+          },
+          # Task queue parameters
+          type: %{
+            type: "string",
+            description: "For queue: Task type (e.g., 'test', 'build', 'deploy', 'memory_search')"
+          },
+          description: %{
+            type: "string",
+            description: "For queue: Human-readable task description (required)"
+          },
+          command: %{
+            type: "string",
+            description: "For queue: Shell command to execute"
+          },
+          path: %{
+            type: "string",
+            description: "For queue: File path for file operations"
+          },
+          query: %{
+            type: "string",
+            description: "For queue: Query string for search-type tasks"
+          }
+        },
+        required: ["operation"]
+      }
     }
   ]
 
   @doc """
-  Returns all MCP tool definitions.
+  Returns all MCP tool definitions (filtered - excludes deprecated tools).
+  
+  Deprecated tools are hidden from MCP exposure to reduce context consumption
+  but still work internally for backward compatibility.
   """
-  def definitions, do: @tool_definitions
+  def definitions do
+    @tool_definitions
+    |> Enum.reject(fn tool -> 
+      MapSet.member?(@deprecated_tools, to_string(tool.name))
+    end)
+  end
 
   @doc """
   Returns the list of tool definitions (alias for definitions/0).
   """
-  def list_tools, do: @tool_definitions
+  def list_tools, do: definitions()
+
+  @doc """
+  Returns ALL tool definitions including deprecated ones.
+  Used internally for backward compatibility routing.
+  """
+  def all_definitions, do: @tool_definitions
+
+  @doc """
+  Returns the set of deprecated tool names.
+  """
+  def deprecated_tools, do: @deprecated_tools
+
+  @doc """
+  Checks if a tool name is deprecated.
+  """
+  def deprecated?(name), do: MapSet.member?(@deprecated_tools, to_string(name))
 end

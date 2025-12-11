@@ -124,6 +124,16 @@ defmodule Mimo.Brain.Engram do
     # Type of supersession: "update", "correction", "refinement", "merge"
     field(:supersession_type, :string)
 
+    # Knowledge syncing field (for auto-learning from memories)
+    # Timestamp when this memory was synced to knowledge graph (NULL = not yet synced)
+    field(:knowledge_synced_at, :utc_datetime)
+
+    # Temporal validity (SPEC-060)
+    # valid_from/valid_until allow time-bounded facts; validity_source tracks origin
+    field(:valid_from, :utc_datetime)
+    field(:valid_until, :utc_datetime)
+    field(:validity_source, :string, default: "inferred")
+
     # Link to source interactions (join table with binary_id)
     # many_to_many :interactions, Mimo.Brain.Interaction, join_through: "interaction_engrams"
 
@@ -164,16 +174,49 @@ defmodule Mimo.Brain.Engram do
       # SPEC-034: Temporal Memory Chains
       :supersedes_id,
       :superseded_at,
-      :supersession_type
+      :supersession_type,
+      # Knowledge syncing
+      :knowledge_synced_at,
+      # SPEC-060: Temporal validity
+      :valid_from,
+      :valid_until,
+      :validity_source
     ])
     |> validate_required([:content, :category])
     |> validate_inclusion(:category, @valid_categories)
     |> validate_number(:importance, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
     |> validate_number(:decay_rate, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
     |> validate_inclusion(:supersession_type, ["update", "correction", "refinement", "merge", nil])
+    |> validate_inclusion(:validity_source, ["explicit", "inferred", "superseded", "corrected", "expired", nil])
     |> validate_no_self_supersession()
     |> set_original_importance()
     |> set_decay_rate_from_importance()
+  end
+
+  @doc """
+  Check if the engram is valid at a given datetime (SPEC-060).
+  """
+  @spec valid_at?(%__MODULE__{}, DateTime.t()) :: boolean()
+  def valid_at?(%__MODULE__{} = engram, %DateTime{} = datetime) do
+    from_ok = is_nil(engram.valid_from) or DateTime.compare(engram.valid_from, datetime) != :gt
+    until_ok = is_nil(engram.valid_until) or DateTime.compare(engram.valid_until, datetime) == :gt
+    from_ok and until_ok
+  end
+
+  @doc """
+  Check if the engram is currently valid.
+  """
+  @spec currently_valid?(%__MODULE__{}) :: boolean()
+  def currently_valid?(%__MODULE__{} = engram) do
+    valid_at?(engram, DateTime.utc_now())
+  end
+
+  @doc """
+  Invalidate an engram by setting valid_until to now and updating validity_source.
+  """
+  @spec invalidate(%__MODULE__{}, String.t()) :: Ecto.Changeset.t()
+  def invalidate(%__MODULE__{} = engram, reason \\ "superseded") do
+    change(engram, %{valid_until: DateTime.utc_now(), validity_source: reason})
   end
 
   # SPEC-034: Prevent self-supersession (engram cannot supersede itself)

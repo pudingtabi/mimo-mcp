@@ -13,6 +13,7 @@ defmodule Mimo.Tools.Dispatchers.Library do
   """
 
   alias Mimo.Tools.Helpers
+  alias Mimo.Utils.InputValidation
 
   @doc """
   Dispatch library operation based on args.
@@ -70,7 +71,8 @@ defmodule Mimo.Tools.Dispatchers.Library do
   defp dispatch_search(args) do
     query = args["query"] || args["name"] || ""
     ecosystem = Helpers.parse_ecosystem(args["ecosystem"] || "hex")
-    limit = args["limit"] || 10
+    # Validate limit
+    limit = InputValidation.validate_limit(args["limit"], default: 10, max: 100)
 
     if query == "" do
       {:error, "Search query is required"}

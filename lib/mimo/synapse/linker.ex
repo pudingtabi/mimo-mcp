@@ -60,11 +60,18 @@ defmodule Mimo.Synapse.Linker do
     references = get_code_references(file_path)
 
     # Create file node
-    {:ok, file_node} =
-      Graph.find_or_create_node(:file, file_path, %{
+    file_node =
+      case Graph.find_or_create_node(:file, file_path, %{
         language: detect_language(file_path),
         indexed_at: DateTime.utc_now() |> DateTime.to_iso8601()
-      })
+      }) do
+        {:ok, node} -> node
+        {:error, _} -> nil
+      end
+
+    if file_node == nil do
+      {:error, "Failed to create file node"}
+    else
 
     # Create nodes for each symbol
     symbol_nodes =
@@ -73,8 +80,8 @@ defmodule Mimo.Synapse.Linker do
         node_type = symbol_kind_to_node_type(symbol.kind)
         name = symbol.qualified_name || symbol.name
 
-        {:ok, node} =
-          Graph.find_or_create_node(node_type, name, %{
+        node =
+          case Graph.find_or_create_node(node_type, name, %{
             language: symbol.language,
             visibility: symbol.visibility || "public",
             file_path: file_path,
@@ -82,7 +89,10 @@ defmodule Mimo.Synapse.Linker do
             end_line: symbol.end_line,
             signature: symbol.signature,
             doc: symbol.doc
-          })
+          }) do
+            {:ok, n} -> n
+            {:error, _} -> nil
+          end
 
         # Link file -> symbol (defines)
         Graph.ensure_edge(file_node.id, node.id, :defines, %{source: "static_analysis"})
@@ -95,15 +105,20 @@ defmodule Mimo.Synapse.Linker do
     refs_linked =
       references
       |> Enum.map(fn ref ->
-        source_node = Map.get(symbol_nodes, ref.source_name)
+        # Handle both struct and map access for reference name
+        # SymbolReference uses :name, TreeSitter output uses :name as well
+        ref_name = get_ref_field(ref, :name) || get_ref_field(ref, :source_name)
+        source_node = Map.get(symbol_nodes, ref_name)
         target_node = find_or_create_ref_target(ref, symbol_nodes)
 
         if source_node && target_node do
-          edge_type = reference_kind_to_edge_type(ref.kind)
+          ref_kind = get_ref_field(ref, :kind) || "call"
+          ref_line = get_ref_field(ref, :line) || 0
+          edge_type = reference_kind_to_edge_type(ref_kind)
 
           Graph.ensure_edge(source_node.id, target_node.id, edge_type, %{
             source: "static_analysis",
-            line: ref.line
+            line: ref_line
           })
 
           1
@@ -119,6 +134,7 @@ defmodule Mimo.Synapse.Linker do
        symbols_linked: map_size(symbol_nodes),
        refs_linked: refs_linked
      }}
+    end
   rescue
     e ->
       Logger.error("Failed to link code file #{file_path}: #{Exception.message(e)}")
@@ -188,39 +204,42 @@ defmodule Mimo.Synapse.Linker do
 
       {:ok, engram} ->
         # Create memory node
-        {:ok, memory_node} =
-          Graph.find_or_create_node(:memory, "engram_#{engram_id}", %{
-            content_preview: String.slice(engram.content || "", 0, 200),
-            category: engram.category,
-            importance: engram.importance,
-            source_ref_type: "engram",
-            source_ref_id: to_string(engram_id)
-          })
+        case Graph.find_or_create_node(:memory, "engram_#{engram_id}", %{
+          content_preview: String.slice(engram.content || "", 0, 200),
+          category: engram.category,
+          importance: engram.importance,
+          source_ref_type: "engram",
+          source_ref_id: to_string(engram_id)
+        }) do
+          {:ok, memory_node} ->
+            edges_created =
+              if engram.embedding && length(engram.embedding) > 0 do
+                # Find similar nodes by embedding
+                similar_nodes = find_similar_nodes(engram.embedding, threshold, max_links)
 
-        edges_created =
-          if engram.embedding && length(engram.embedding) > 0 do
-            # Find similar nodes by embedding
-            similar_nodes = find_similar_nodes(engram.embedding, threshold, max_links)
-
-            # Create "mentions" edges
-            Enum.map(similar_nodes, fn {node, _similarity} ->
-              case Graph.ensure_edge(memory_node.id, node.id, :mentions, %{
-                     source: "semantic_inference",
-                     created_at: DateTime.utc_now() |> DateTime.to_iso8601()
-                   }) do
-                {:ok, _} -> 1
-                _ -> 0
+                # Create "mentions" edges
+                Enum.map(similar_nodes, fn {node, _similarity} ->
+                  case Graph.ensure_edge(memory_node.id, node.id, :mentions, %{
+                         source: "semantic_inference",
+                         created_at: DateTime.utc_now() |> DateTime.to_iso8601()
+                       }) do
+                    {:ok, _} -> 1
+                    _ -> 0
+                  end
+                end)
+                |> Enum.sum()
+              else
+                0
               end
-            end)
-            |> Enum.sum()
-          else
-            0
-          end
 
-        # Also link by entity extraction
-        entity_edges = link_memory_entities(memory_node, engram.content)
+            # Also link by entity extraction
+            entity_edges = link_memory_entities(memory_node, engram.content)
 
-        {:ok, edges_created + entity_edges}
+            {:ok, edges_created + entity_edges}
+
+          {:error, reason} ->
+            {:error, "Failed to create memory node: #{inspect(reason)}"}
+        end
     end
   end
 
@@ -322,8 +341,13 @@ defmodule Mimo.Synapse.Linker do
   """
   @spec link_to_concept(String.t(), String.t()) :: {:ok, Graph.GraphEdge.t()} | {:error, term()}
   def link_to_concept(node_id, concept_name) do
-    {:ok, concept_node} = Graph.find_or_create_node(:concept, concept_name)
-    Graph.ensure_edge(node_id, concept_node.id, :implements, %{source: "manual"})
+    case Graph.find_or_create_node(:concept, concept_name) do
+      {:ok, concept_node} ->
+        Graph.ensure_edge(node_id, concept_node.id, :implements, %{source: "manual"})
+
+      {:error, reason} ->
+        {:error, "Failed to create concept node: #{inspect(reason)}"}
+    end
   end
 
   @doc """
@@ -368,13 +392,17 @@ defmodule Mimo.Synapse.Linker do
         patterns
         |> Enum.filter(fn {regex, _concept} -> Regex.match?(regex, node.name) end)
         |> Enum.map(fn {_regex, concept} ->
-          {:ok, concept_node} = create_concept(concept)
+          case create_concept(concept) do
+            {:ok, concept_node} ->
+              case Graph.ensure_edge(node.id, concept_node.id, :implements, %{
+                     source: "auto_categorize"
+                   }) do
+                {:ok, _edge} -> 1
+                _ -> 0
+              end
 
-          case Graph.ensure_edge(node.id, concept_node.id, :implements, %{
-                 source: "auto_categorize"
-               }) do
-            {:ok, _edge} -> 1
-            _ -> 0
+            {:error, _} ->
+              0
           end
         end)
       end)
@@ -448,19 +476,66 @@ defmodule Mimo.Synapse.Linker do
   # ============================================
 
   defp get_code_symbols(file_path) do
-    # Try to get from SymbolIndex if available
-    try do
-      Mimo.Code.SymbolIndex.symbols_in_file(file_path)
-    rescue
+    # First try to get from SymbolIndex
+    symbols =
+      try do
+        Mimo.Code.SymbolIndex.symbols_in_file(file_path)
+      rescue
+        _ -> []
+      end
+
+    # If empty, fall back to direct TreeSitter parsing
+    if symbols == [] do
+      parse_symbols_with_treesitter(file_path)
+    else
+      symbols
+    end
+  end
+
+  defp parse_symbols_with_treesitter(file_path) do
+    with {:ok, tree} <- Mimo.Code.TreeSitter.parse_file(file_path),
+         {:ok, symbols} <- Mimo.Code.TreeSitter.get_symbols(tree) do
+      # Convert TreeSitter output to expected format
+      Enum.map(symbols, fn sym ->
+        %{
+          name: sym[:name] || sym["name"],
+          kind: String.to_atom(sym[:kind] || sym["kind"] || "unknown"),
+          start_line: sym[:start_line] || sym["start_line"],
+          end_line: sym[:end_line] || sym["end_line"],
+          visibility: sym[:visibility] || sym["visibility"] || "public",
+          qualified_name: sym[:name] || sym["name"],
+          language: detect_language(file_path),
+          signature: nil,
+          doc: nil
+        }
+      end)
+    else
       _ -> []
     end
   end
 
   defp get_code_references(file_path) do
-    # Try to get from SymbolIndex if available
-    try do
-      Mimo.Code.SymbolIndex.references_in_file(file_path)
-    rescue
+    # First try to get from SymbolIndex
+    refs =
+      try do
+        Mimo.Code.SymbolIndex.references_in_file(file_path)
+      rescue
+        _ -> []
+      end
+
+    # If empty, fall back to direct TreeSitter parsing
+    if refs == [] do
+      parse_references_with_treesitter(file_path)
+    else
+      refs
+    end
+  end
+
+  defp parse_references_with_treesitter(file_path) do
+    with {:ok, tree} <- Mimo.Code.TreeSitter.parse_file(file_path),
+         {:ok, refs} <- Mimo.Code.TreeSitter.get_references(tree) do
+      refs
+    else
       _ -> []
     end
   end
@@ -541,20 +616,29 @@ defmodule Mimo.Synapse.Linker do
   defp reference_kind_to_edge_type(_), do: :uses
 
   defp find_or_create_ref_target(ref, symbol_nodes) do
+    # Get the target name - use qualified_name, target_module, or name
+    # SymbolReference struct uses :qualified_name, :target_module, :name
+    # TreeSitter maps may use different keys
+    target_name =
+      get_ref_field(ref, :qualified_name) ||
+        get_ref_field(ref, :target_module) ||
+        get_ref_field(ref, :name) ||
+        "unknown"
+
     # First try to find in local symbols
-    case Map.get(symbol_nodes, ref.target_name) do
+    case Map.get(symbol_nodes, target_name) do
       nil ->
         # Check if it's an external module
-        if external_module?(ref.target_name) do
+        if external_module?(target_name) do
           {:ok, node} =
-            Graph.find_or_create_node(:external_lib, ref.target_name, %{
+            Graph.find_or_create_node(:external_lib, target_name, %{
               inferred: true
             })
 
           node
         else
           # Try to find existing node
-          Graph.search_nodes(ref.target_name, limit: 1) |> List.first()
+          Graph.search_nodes(target_name, limit: 1) |> List.first()
         end
 
       node ->
@@ -587,6 +671,17 @@ defmodule Mimo.Synapse.Linker do
       true -> false
     end
   end
+
+  # Helper to access fields from both structs and maps
+  defp get_ref_field(ref, key) when is_struct(ref) do
+    Map.get(ref, key)
+  end
+
+  defp get_ref_field(ref, key) when is_map(ref) do
+    ref[key] || ref[Atom.to_string(key)]
+  end
+
+  defp get_ref_field(_, _), do: nil
 
   defp detect_language(path) do
     case Path.extname(path) do

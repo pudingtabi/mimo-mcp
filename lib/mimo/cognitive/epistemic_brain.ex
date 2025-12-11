@@ -396,7 +396,7 @@ defmodule Mimo.Cognitive.EpistemicBrain do
     if String.length(content) > 50 do
       summary = "Research on '#{String.slice(question, 0..50)}': #{String.slice(content, 0..300)}"
 
-      Mimo.Brain.WorkingMemory.store(summary,
+      Mimo.Brain.SafeMemory.store(summary,
         category: "fact",
         importance: 0.6,
         source: "gap_research",

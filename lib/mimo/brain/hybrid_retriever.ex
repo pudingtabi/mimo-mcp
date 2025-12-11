@@ -406,10 +406,21 @@ defmodule Mimo.Brain.HybridRetriever do
     caller = self()
     callers = Process.get(:"$callers", [])
 
-    Task.Supervisor.async(Mimo.TaskSupervisor, fn ->
-      # Propagate $callers for Ecto Sandbox allowance
-      Process.put(:"$callers", [caller | callers])
-      fun.()
-    end)
+    # Check if TaskSupervisor is available before spawning
+    case Mimo.TaskHelper.supervisor_available?(Mimo.TaskSupervisor) do
+      true ->
+        Task.Supervisor.async(Mimo.TaskSupervisor, fn ->
+          # Propagate $callers for Ecto Sandbox allowance
+          Process.put(:"$callers", [caller | callers])
+          fun.()
+        end)
+        
+      false ->
+        # Fallback: run synchronously with Task.async (unsupervised)
+        Task.async(fn ->
+          Process.put(:"$callers", [caller | callers])
+          fun.()
+        end)
+    end
   end
 end

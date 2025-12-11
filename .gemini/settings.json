@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "mimo": {
+      "command": "node",
+      "args": [
+        "/workspace/mrc-server/mimo-mcp/bin/mimo-node-wrapper.js"
+      ]
+    }
+  }
+}

@@ -19,10 +19,10 @@ defmodule Mimo.ToolRegistry do
 
       # Register tools for a skill
       Mimo.ToolRegistry.register_skill_tools("exa", tools, self())
-      
+
       # Look up a tool owner
       {:ok, {:skill, "exa", pid, tool_def}} = Mimo.ToolRegistry.get_tool_owner("exa_search")
-      
+
       # List all tools
       tools = Mimo.ToolRegistry.list_all_tools()
   """
@@ -32,7 +32,8 @@ defmodule Mimo.ToolRegistry do
 
   @topic :"mimo_tools_#{Mix.env()}"
 
-  # Internal tool definitions
+  # Internal tool definitions (exposed to MCP)
+  # Deprecated aliases (search_vibes, store_fact) are defined but filtered out
   @internal_tool_names [
     "ask_mimo",
     "mimo_reload_skills",
@@ -44,7 +45,9 @@ defmodule Mimo.ToolRegistry do
     # SPEC-011.3: File Ingestion
     "ingest",
     # SPEC-040: Awakening Status
-    "awakening_status"
+    "awakening_status",
+    # Tool usage analytics
+    "tool_usage"
   ]
 
   # ==========================================================================
@@ -146,9 +149,9 @@ defmodule Mimo.ToolRegistry do
 
   @impl true
   def init(_opts) do
-    # Join distributed process group for coordination
-    :pg.start_link()
-    :pg.join(@topic, self())
+    # Note: :pg distributed coordination disabled for now
+    # Can be re-enabled when running in distributed mode
+    # :pg.join(@topic, self())
 
     state = %{
       # tool_name => {skill_name, pid, tool_def}
@@ -315,6 +318,18 @@ defmodule Mimo.ToolRegistry do
     {:reply, tools, state}
   end
 
+  # REMOVED: :health_check handler (Dec 6 2025 Incident - TASK 4)
+  #
+  # The :health_check handler was removed because calling GenServer.call(ToolRegistry, :health_check)
+  # during startup created a circular dependency that blocked initialization.
+  #
+  # DEFENSIVE PATTERN: Instead of health checks, use:
+  # - Process.whereis(Mimo.ToolRegistry) to check if process is registered
+  # - Mimo.Fallback.ServiceRegistry.available?(Mimo.ToolRegistry) to check if ready
+  # - Try/catch around GenServer calls for graceful degradation
+  #
+  # @see Mimo.Fallback.ServiceRegistry.safe_call/3 for reusable defensive pattern
+
   @impl true
   def handle_cast({:unregister, skill_name}, state) do
     {:noreply, cleanup_skill(state, skill_name)}
@@ -430,6 +445,9 @@ defmodule Mimo.ToolRegistry do
 
   # Tool usage analytics
   defp classify_tool("tool_usage"), do: {:internal, :tool_usage}
+
+  # Autonomous Task Execution (SPEC-071)
+  defp classify_tool("autonomous"), do: {:mimo_core, :autonomous}
 
   defp classify_tool(_), do: :external
 
@@ -810,6 +828,8 @@ defmodule Mimo.ToolRegistry do
         }
       }
     ]
+    # Filter to only include non-deprecated internal tools
+    |> Enum.filter(fn %{"name" => name} -> name in @internal_tool_names end)
   end
 
   # Tools from pre-generated manifest (instant, no process)
@@ -863,8 +883,24 @@ defmodule Mimo.ToolRegistry do
 
   # Tools from already-running skill processes
   defp active_skill_tools do
-    GenServer.call(__MODULE__, :get_active_tools, 5000)
-  rescue
-    _ -> []
+    case Process.whereis(__MODULE__) do
+      nil ->
+        # Process not started yet
+        []
+
+      pid when is_pid(pid) ->
+        if Process.alive?(pid) do
+          try do
+            GenServer.call(__MODULE__, :get_active_tools, 5000)
+          catch
+            :exit, {:noproc, _} -> []
+            :exit, {:timeout, _} -> []
+            :exit, reason when is_tuple(reason) and elem(reason, 0) == :noproc -> []
+            _, _ -> []
+          end
+        else
+          []
+        end
+    end
   end
 end

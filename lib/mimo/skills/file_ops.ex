@@ -37,6 +37,8 @@ defmodule Mimo.Skills.FileOps do
   end
 
   # Get list of allowed roots (sandbox_root + any additional from MIMO_ALLOWED_PATHS)
+  # SECURITY: Only the sandbox_root and explicitly allowed paths are permitted.
+  # We no longer automatically allow /workspace to prevent path traversal attacks.
   defp allowed_roots do
     base = [sandbox_root()]
 
@@ -47,10 +49,7 @@ defmodule Mimo.Skills.FileOps do
         paths -> String.split(paths, ":") |> Enum.map(&Path.expand/1)
       end
 
-    # Also allow /workspace by default for VS Code devcontainers
-    workspace = ["/workspace"] |> Enum.filter(&File.dir?/1)
-
-    (base ++ additional ++ workspace) |> Enum.uniq()
+    (base ++ additional) |> Enum.uniq()
   end
 
   # ==========================================================================
@@ -78,8 +77,11 @@ defmodule Mimo.Skills.FileOps do
     ```
   """
   def read(path, opts \\ []) when is_binary(path) do
-    offset = Keyword.get(opts, :offset, 1)
-    limit = min(Keyword.get(opts, :limit, @max_chunk_lines), @max_chunk_lines)
+    # Validate offset: must be positive (1-indexed line numbers)
+    offset = max(Keyword.get(opts, :offset, 1), 1)
+    # Validate limit: must be positive and capped at max
+    limit = Keyword.get(opts, :limit, @max_chunk_lines)
+    limit = min(max(limit, 1), @max_chunk_lines)
 
     task = Task.async(fn -> do_chunked_read(path, offset, limit) end)
 
@@ -254,16 +256,19 @@ defmodule Mimo.Skills.FileOps do
          symbol when not is_nil(symbol) <- Enum.find(symbols, &(&1.name == symbol_name)) do
       # Read from symbol line with context
       start_line = max(1, symbol.line - context_before)
-      # Estimate end by reading ahead (we'll refine this)
-      {:ok, chunk} = read(path, offset: start_line, limit: 100 + context_after)
-
-      {:ok,
-       %{
-         symbol: symbol,
-         content: chunk.content,
-         start_line: start_line,
-         lines_read: chunk.lines_read
-       }}
+      # Estimate end by reading ahead (graceful on failure)
+      case read(path, offset: start_line, limit: 100 + context_after) do
+        {:ok, chunk} ->
+          {:ok,
+           %{
+             symbol: symbol,
+             content: chunk.content,
+             start_line: start_line,
+             lines_read: chunk.lines_read
+           }}
+        {:error, reason} ->
+          {:error, {:read_failed, reason}}
+      end
     else
       nil -> {:error, :symbol_not_found}
       error -> error

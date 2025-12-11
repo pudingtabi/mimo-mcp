@@ -76,6 +76,15 @@ defmodule Mimo.Ingest do
 
       {:error, reason}
   """
+  # Files that are already attached to prompts and shouldn't be bulk-ingested
+  # Ingesting these causes memory pollution - they appear in search results
+  # but provide no value since they're already in context
+  @attached_doc_patterns [
+    ~r/copilot-instructions\.md$/i,
+    ~r/AGENTS\.md$/i,
+    ~r/\.github\/copilot-instructions\.md$/i
+  ]
+
   @spec ingest_file(String.t(), ingest_opts()) :: {:ok, map()} | {:error, term()}
   def ingest_file(path, opts \\ []) do
     strategy = Keyword.get(opts, :strategy, :auto)
@@ -84,7 +93,8 @@ defmodule Mimo.Ingest do
     tags = Keyword.get(opts, :tags, [])
     metadata = Keyword.get(opts, :metadata, %{})
 
-    with :ok <- check_sandbox(path),
+    with :ok <- check_attached_doc_warning(path),
+         :ok <- check_sandbox(path),
          {:ok, content} <- read_file_safe(path),
          {:ok, actual_strategy} <- resolve_strategy(strategy, path),
          {:ok, chunks} <- chunk_content(content, actual_strategy, opts),
@@ -136,6 +146,31 @@ defmodule Mimo.Ingest do
   # ============================================================================
   # Sandbox & File Reading
   # ============================================================================
+
+  # Warn (and optionally block) ingestion of files that are already attached to prompts
+  # These cause memory pollution - chunks appear in search but add no value
+  defp check_attached_doc_warning(path) do
+    basename = Path.basename(path)
+    
+    if Enum.any?(@attached_doc_patterns, &Regex.match?(&1, path)) do
+      Logger.warning("""
+      ⚠️ MEMORY POLLUTION WARNING: Attempting to ingest '#{basename}'
+      
+      This file is likely already attached to prompts via VS Code/Copilot.
+      Ingesting it will create duplicate chunks that pollute memory search results.
+      
+      Consider:
+      1. Using `memory operation=store` for specific insights instead
+      2. Using `knowledge operation=teach` for relationships
+      3. The content is already available in agent context
+      """)
+      
+      # Return error to block ingestion (can be changed to :ok to just warn)
+      {:error, {:attached_doc_blocked, basename, "Use memory store for specific insights instead of bulk ingestion"}}
+    else
+      :ok
+    end
+  end
 
   defp check_sandbox(path) do
     sandbox_dir = System.get_env("SANDBOX_DIR")

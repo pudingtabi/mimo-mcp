@@ -29,6 +29,7 @@ defmodule Mimo.ToolInterface do
 
   alias Mimo.Brain.{Memory, Engram, DecayScorer}
   alias Mimo.ProceduralStore.{ExecutionFSM, Loader, Execution}
+  alias Mimo.Utils.InputValidation
   alias Mimo.Repo
 
   # Timeouts
@@ -49,9 +50,53 @@ defmodule Mimo.ToolInterface do
     # Register activity for pause-aware decay (non-blocking)
     register_activity()
 
-    # Dispatch to specific tool handler
-    do_execute(tool_name, arguments)
+    # SPEC-INTERCEPTOR: Analyze request for cognitive enhancement
+    case Mimo.RequestInterceptor.analyze_and_enrich(tool_name, arguments) do
+      {:enriched, context, metadata} ->
+        # Auto-enriched with cognitive context - add to arguments
+        enriched_args = Map.put(arguments, "_mimo_context", context)
+        result = do_execute(tool_name, enriched_args)
+        add_cognitive_metadata(result, metadata)
+
+      {:suggest, cognitive_tool, query, reason} ->
+        # Execute the tool but add suggestion to result
+        result = do_execute(tool_name, arguments)
+        add_cognitive_suggestion(result, cognitive_tool, query, reason)
+
+      {:continue, nil} ->
+        # Normal execution
+        do_execute(tool_name, arguments)
+    end
   end
+
+  # Add cognitive metadata to successful results
+  defp add_cognitive_metadata({:ok, result}, metadata) when is_map(result) do
+    {:ok, Map.put(result, :_cognitive_enhancement, metadata)}
+  end
+  defp add_cognitive_metadata(result, _metadata), do: result
+
+  # Add cognitive suggestion to successful results
+  defp add_cognitive_suggestion({:ok, result}, tool, query, reason) when is_map(result) do
+    suggestion = %{
+      recommended_tool: tool,
+      query: query,
+      reason: reason,
+      hint: build_suggestion_hint(tool, query)
+    }
+    {:ok, Map.put(result, :_cognitive_suggestion, suggestion)}
+  end
+  defp add_cognitive_suggestion(result, _tool, _query, _reason), do: result
+
+  defp build_suggestion_hint(:reason, problem) do
+    "💡 Consider using: reason operation=guided problem=\"#{String.slice(problem, 0, 50)}...\""
+  end
+  defp build_suggestion_hint(:knowledge, query) do
+    "💡 Consider using: knowledge operation=query query=\"#{String.slice(query, 0, 50)}...\""
+  end
+  defp build_suggestion_hint(:prepare_context, query) do
+    "💡 Consider using: prepare_context query=\"#{String.slice(query, 0, 50)}...\""
+  end
+  defp build_suggestion_hint(_, _), do: nil
 
   # Register activity with the ActivityTracker (non-blocking)
   defp register_activity do
@@ -250,10 +295,17 @@ defmodule Mimo.ToolInterface do
     category = Map.get(args, "category", "fact")
     importance = Map.get(args, "importance", 0.5)
 
+    # SPEC-060: Temporal validity options
+    temporal_opts = [
+      valid_from: parse_datetime(Map.get(args, "valid_from")),
+      valid_until: parse_datetime(Map.get(args, "valid_until")),
+      validity_source: Map.get(args, "validity_source")
+    ] |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+
     if is_nil(content) do
       {:error, "Missing required argument: 'content'"}
     else
-      execute_memory_store(content, category, importance)
+      execute_memory_store(content, category, importance, temporal_opts)
     end
   end
 
@@ -602,14 +654,18 @@ defmodule Mimo.ToolInterface do
 
         case Mimo.Tools.dispatch(tool_name, arguments) do
           {:ok, result} ->
+            # Try to enrich result with context (non-blocking)
+            enriched = try_enrich_result(tool_name, arguments, result)
             {:ok,
              %{
                tool_call_id: UUID.uuid4(),
                status: "success",
-               data: result
+               data: enriched
              }}
 
           {:error, reason} ->
+            # Record error for debugging chain detection
+            Mimo.RequestInterceptor.record_error(tool_name, reason)
             {:error, "Core tool execution failed: #{inspect(reason)}"}
 
           # Handle bare :ok (some operations don't return data)
@@ -680,6 +736,17 @@ defmodule Mimo.ToolInterface do
     end
   end
 
+  # Try to enrich a tool result with memory/knowledge context (non-blocking)
+  defp try_enrich_result(tool_name, arguments, result) do
+    case Mimo.RequestInterceptor.enrich_result(tool_name, arguments, result) do
+      {:enriched, enriched_result} -> enriched_result
+      {:ok, original} -> original
+      _ -> result
+    end
+  rescue
+    _ -> result
+  end
+
   @doc """
   List all supported tools with their schemas.
   """
@@ -692,16 +759,22 @@ defmodule Mimo.ToolInterface do
   # Private: Memory Operations
   # ============================================================================
 
-  defp execute_memory_store(content, category, importance) do
+  # SPEC-060: Support temporal validity options
+  defp execute_memory_store(content, category, importance, opts) do
     # SPEC-034: Route through Memory.persist_memory for TMC integration
     # This ensures contradiction detection and supersession for explicit user stores
-    case Mimo.Brain.Memory.persist_memory(content, category, importance) do
+    # SPEC-060: Pass temporal validity options (valid_from, valid_until, validity_source)
+    case Mimo.Brain.Memory.persist_memory(content, category, importance, opts) do
       {:ok, id} ->
+        # Build response data with temporal info if provided
+        base_data = %{stored: true, id: id, embedding_generated: true}
+        temporal_data = build_temporal_response(opts)
+        
         {:ok,
          %{
            tool_call_id: UUID.uuid4(),
            status: "success",
-           data: %{stored: true, id: id, embedding_generated: true}
+           data: Map.merge(base_data, temporal_data)
          }}
 
       {:duplicate, id} ->
@@ -718,12 +791,25 @@ defmodule Mimo.ToolInterface do
     end
   end
 
+  # Build temporal validity info for response
+  defp build_temporal_response(opts) do
+    temporal_fields = [:valid_from, :valid_until, :validity_source]
+    
+    opts
+    |> Keyword.take(temporal_fields)
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Map.new(fn {k, v} -> {k, format_datetime(v)} end)
+  end
+
   defp execute_memory_search(args) do
     query = Map.get(args, "query")
-    limit = Map.get(args, "limit", 10)
-    threshold = Map.get(args, "threshold", 0.3)
+    limit = InputValidation.validate_limit(Map.get(args, "limit"), default: 10, max: 200)
+    threshold = InputValidation.validate_threshold(Map.get(args, "threshold"), default: 0.3)
     category = Map.get(args, "category")
     time_filter = Map.get(args, "time_filter")
+    # SPEC-060: Temporal validity search parameters
+    as_of = parse_datetime(Map.get(args, "as_of"))
+    valid_at = parse_datetime(Map.get(args, "valid_at"))
     # New: opt-in intelligent routing via MemoryRouter
     use_router = Map.get(args, "use_router", true)
 
@@ -787,13 +873,16 @@ defmodule Mimo.ToolInterface do
           end
       end
 
+    # SPEC-060: Apply temporal validity filters
+    filtered = apply_temporal_validity_filter(filtered, as_of, valid_at)
+
     # Take final limit
     results = Enum.take(filtered, limit)
 
     # Format response
     formatted =
       Enum.map(results, fn r ->
-        %{
+        base = %{
           id: r[:id],
           content: r[:content],
           category: r[:category],
@@ -801,22 +890,62 @@ defmodule Mimo.ToolInterface do
           importance: r[:importance],
           created_at: format_datetime(r[:inserted_at])
         }
+        
+        # SPEC-060: Include temporal validity info when present
+        temporal = %{
+          valid_from: format_datetime(r[:valid_from]),
+          valid_until: format_datetime(r[:valid_until]),
+          validity_source: r[:validity_source]
+        } |> Enum.reject(fn {_k, v} -> is_nil(v) end) |> Map.new()
+        
+        Map.merge(base, temporal)
       end)
+
+    # Build temporal context for response
+    temporal_context = build_search_temporal_context(as_of, valid_at)
 
     {:ok,
      %{
        tool_call_id: UUID.uuid4(),
        status: "success",
-       data: %{
+       data: Map.merge(%{
          results: formatted,
          total_searched: length(base_results),
          # SPEC-XXX: MemoryRouter integration - query type for observability
          query_type: query_type,
          routing_confidence: Float.round(routing_confidence, 2)
-       },
+       }, temporal_context),
        # SPEC-031 Phase 2: Cross-tool suggestion
        suggestion: "💡 For entity relationships, also check `knowledge operation=query`"
      }}
+  end
+
+  # SPEC-060: Apply temporal validity filters to search results
+  defp apply_temporal_validity_filter(results, nil, nil), do: results
+  
+  defp apply_temporal_validity_filter(results, as_of, valid_at) do
+    # Determine the effective query time
+    query_time = valid_at || as_of || DateTime.utc_now()
+    
+    Enum.filter(results, fn result ->
+      # Check if result has an engram with temporal validity fields
+      valid_from = result[:valid_from]
+      valid_until = result[:valid_until]
+      
+      from_ok = is_nil(valid_from) or DateTime.compare(valid_from, query_time) != :gt
+      until_ok = is_nil(valid_until) or DateTime.compare(valid_until, query_time) == :gt
+      
+      from_ok and until_ok
+    end)
+  end
+
+  # Build temporal search context for response
+  defp build_search_temporal_context(nil, nil), do: %{}
+  defp build_search_temporal_context(as_of, valid_at) do
+    context = %{}
+    context = if as_of, do: Map.put(context, :as_of, format_datetime(as_of)), else: context
+    context = if valid_at, do: Map.put(context, :valid_at, format_datetime(valid_at)), else: context
+    if map_size(context) > 0, do: %{temporal_query: context}, else: %{}
   end
 
   # Helper to normalize MemoryRouter results (tuples) to map format
@@ -830,6 +959,7 @@ defmodule Mimo.ToolInterface do
         |> Map.put_new(:content, Map.get(memory, :content))
         |> Map.put_new(:category, Map.get(memory, :category))
         |> Map.put_new(:importance, Map.get(memory, :importance, 0.5))
+        |> Map.put_new(:inserted_at, Map.get(memory, :inserted_at))
 
       # HybridRetriever already returns maps with :similarity
       memory when is_map(memory) ->
@@ -845,8 +975,8 @@ defmodule Mimo.ToolInterface do
   defp normalize_router_results(_), do: []
 
   defp execute_memory_list(args) do
-    limit = Map.get(args, "limit", 20)
-    offset = Map.get(args, "offset", 0)
+    limit = InputValidation.validate_limit(Map.get(args, "limit"), default: 20, max: 200)
+    offset = InputValidation.validate_offset(Map.get(args, "offset"))
     category = Map.get(args, "category")
     sort = Map.get(args, "sort", "recent")
 
@@ -1126,34 +1256,44 @@ defmodule Mimo.ToolInterface do
         {:error, "Memory #{old_id} is already superseded"}
 
       true ->
-        # Update old engram to mark as superseded
-        {:ok, updated_old} =
-          Repo.update(
+        # Update old engram to mark as superseded (graceful handling)
+        old_update_result = Repo.update(
             Engram.changeset(old_engram, %{
               superseded_at: DateTime.utc_now() |> DateTime.truncate(:second)
             })
           )
 
-        # Update new engram to link to old one
-        {:ok, updated_new} =
-          Repo.update(
-            Engram.changeset(new_engram, %{
-              supersedes_id: old_id,
-              supersession_type: supersession_type
-            })
-          )
+        case old_update_result do
+          {:ok, updated_old} ->
+            # Update new engram to link to old one
+            new_update_result = Repo.update(
+                Engram.changeset(new_engram, %{
+                  supersedes_id: old_id,
+                  supersession_type: supersession_type
+                })
+              )
 
-        {:ok,
-         %{
-           tool_call_id: UUID.uuid4(),
-           status: "success",
-           data: %{
-             superseded_id: updated_old.id,
-             successor_id: updated_new.id,
-             supersession_type: supersession_type,
-             message: "Memory #{old_id} superseded by #{new_id}"
-           }
-         }}
+            case new_update_result do
+              {:ok, updated_new} ->
+                {:ok,
+                 %{
+                   tool_call_id: UUID.uuid4(),
+                   status: "success",
+                   data: %{
+                     superseded_id: updated_old.id,
+                     successor_id: updated_new.id,
+                     supersession_type: supersession_type,
+                     message: "Memory #{old_id} superseded by #{new_id}"
+                   }
+                 }}
+
+              {:error, changeset} ->
+                {:error, "Failed to update new memory: #{inspect(changeset.errors)}"}
+            end
+
+          {:error, changeset} ->
+            {:error, "Failed to update old memory: #{inspect(changeset.errors)}"}
+        end
     end
   end
 
@@ -1184,6 +1324,22 @@ defmodule Mimo.ToolInterface do
   defp format_datetime(%NaiveDateTime{} = dt), do: NaiveDateTime.to_iso8601(dt)
   defp format_datetime(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
   defp format_datetime(other), do: inspect(other)
+
+  # SPEC-060: Parse datetime strings for temporal validity
+  defp parse_datetime(nil), do: nil
+  defp parse_datetime(%DateTime{} = dt), do: dt
+  defp parse_datetime(string) when is_binary(string) do
+    case DateTime.from_iso8601(string) do
+      {:ok, dt, _offset} -> dt
+      {:error, _} ->
+        # Try parsing as date only (assume start of day UTC)
+        case Date.from_iso8601(string) do
+          {:ok, date} -> DateTime.new!(date, ~T[00:00:00], "Etc/UTC")
+          {:error, _} -> nil
+        end
+    end
+  end
+  defp parse_datetime(_), do: nil
 
   # Recursively sanitize data for JSON encoding - converts structs to maps
   defp sanitize_for_json(%{__struct__: _} = struct) do

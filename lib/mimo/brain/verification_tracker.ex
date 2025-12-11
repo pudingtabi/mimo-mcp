@@ -223,7 +223,7 @@ defmodule Mimo.Brain.VerificationTracker do
         verified_correct:
           if(verified, do: stats.verified_correct + 1, else: stats.verified_correct),
         verified_incorrect:
-          if(!verified, do: stats.verified_incorrect + 1, else: stats.verified_incorrect),
+          if(verified, do: stats.verified_incorrect, else: stats.verified_incorrect + 1),
         total_brier_score: stats.total_brier_score + brier_component,
         overconfidence_detected:
           if(overconfident,

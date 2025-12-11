@@ -22,6 +22,7 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
   import Ecto.Query, only: [from: 2]
 
   alias Mimo.Tools.Helpers
+  alias Mimo.Utils.InputValidation
 
   @doc """
   Dispatch knowledge operation based on args.
@@ -88,7 +89,8 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
     query = args["query"]
     entity = args["entity"]
     predicate = args["predicate"]
-    depth = args["depth"] || 3
+    # Validate depth to prevent expensive recursive queries
+    depth = InputValidation.validate_depth(args["depth"], default: 3)
 
     cond do
       entity && predicate ->
@@ -143,7 +145,9 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
 
   defp try_synapse_query(query, args) do
     opts = []
-    opts = if args["limit"], do: Keyword.put(opts, :max_nodes, args["limit"]), else: opts
+    # Validate limit to prevent excessive results
+    limit = InputValidation.validate_limit(args["limit"], default: 50, max: 500)
+    opts = Keyword.put(opts, :max_nodes, limit)
 
     case Mimo.Synapse.QueryEngine.query(query, opts) do
       {:ok, result} ->
@@ -256,8 +260,11 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
       if actual_node_id do
         opts = []
 
+        # Validate max_depth to prevent expensive recursive queries
+        max_depth = InputValidation.validate_depth(args["max_depth"])
+
         opts =
-          if args["max_depth"], do: Keyword.put(opts, :max_depth, args["max_depth"]), else: opts
+          if args["max_depth"], do: Keyword.put(opts, :max_depth, max_depth), else: opts
 
         opts =
           if args["direction"] do
@@ -296,7 +303,9 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
     if query == "" do
       {:error, "Query is required for explore"}
     else
-      opts = if args["limit"], do: [limit: args["limit"]], else: []
+      # Validate limit to prevent excessive results
+      limit = InputValidation.validate_limit(args["limit"], default: 50, max: 500)
+      opts = [limit: limit]
       Mimo.Synapse.QueryEngine.explore(query, opts)
     end
   end
@@ -390,10 +399,22 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
     if is_nil(path) or path == "" do
       {:error, "Path is required for link operation"}
     else
-      if File.dir?(path) do
-        Mimo.Synapse.Linker.link_directory(path)
-      else
-        Mimo.Synapse.Linker.link_code_file(path)
+      result =
+        if File.dir?(path) do
+          # Use optimized linker for directories (50x faster)
+          Mimo.Synapse.LinkerOptimized.link_directory(path)
+        else
+          Mimo.Synapse.Linker.link_code_file(path)
+        end
+
+      # Format GraphNode struct for JSON serialization
+      case result do
+        {:ok, res} when is_map(res) ->
+          formatted_res = Map.update(res, :file_node, nil, &Helpers.format_graph_node/1)
+          {:ok, formatted_res}
+
+        other ->
+          other
       end
     end
   end
@@ -446,8 +467,9 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
     node_id = args["node_id"]
     node_name = args["node_name"]
     node_type = args["node_type"]
-    depth = args["depth"] || 2
-    limit = args["limit"] || 50
+    # Validate depth and limit to prevent expensive operations
+    depth = InputValidation.validate_depth(args["depth"], default: 2)
+    limit = InputValidation.validate_limit(args["limit"], default: 50, max: 500)
 
     # Find node by ID or by name/type
     node =

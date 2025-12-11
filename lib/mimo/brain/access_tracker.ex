@@ -28,6 +28,7 @@ defmodule Mimo.Brain.AccessTracker do
 
   import Ecto.Query
   alias Mimo.{Repo, Brain.Engram}
+  alias Mimo.SafeCall
 
   @flush_interval 5_000
   @batch_size 100
@@ -59,18 +60,26 @@ defmodule Mimo.Brain.AccessTracker do
 
   @doc """
   Force immediate flush of pending access updates.
+  Returns :ok or :unavailable if tracker not running.
   """
-  @spec flush() :: :ok
+  @spec flush() :: :ok | {:error, :unavailable}
   def flush do
-    GenServer.call(__MODULE__, :flush)
+    SafeCall.genserver(__MODULE__, :flush,
+      raw: true,
+      fallback: :ok
+    )
   end
 
   @doc """
   Get tracking statistics.
+  Returns empty stats if tracker unavailable.
   """
   @spec stats() :: map()
   def stats do
-    GenServer.call(__MODULE__, :stats)
+    SafeCall.genserver(__MODULE__, :stats,
+      raw: true,
+      fallback: %{status: :unavailable, total_tracked: 0}
+    )
   end
 
   # ==========================================================================

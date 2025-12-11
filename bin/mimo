@@ -2,8 +2,57 @@
 # Mimo Native Launcher & Build Tool
 # Usage: ./bin/mimo [command]
 
+# Source asdf to use correct Erlang/Elixir versions
+if [ -f "$HOME/.asdf/asdf.sh" ]; then
+  . "$HOME/.asdf/asdf.sh"
+elif [ -f "/root/.asdf/asdf.sh" ]; then
+  . "/root/.asdf/asdf.sh"
+fi
+
+# Set proper encoding for Elixir (fixes locale issues in containers/remote envs)
+export ELIXIR_ERL_OPTIONS="+fnu"
+export LC_ALL="C.UTF-8"
+export LANG="C.UTF-8"
+export LC_CTYPE="C.UTF-8"
+
+# Get the absolute path to the mimo-mcp directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MIMO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Set database path to absolute path (required for MCP mode)
+export MIMO_DB_PATH="${MIMO_DB_PATH:-$MIMO_ROOT/priv/mimo_mcp.db}"
+export MIMO_ROOT="${MIMO_ROOT:-$MIMO_ROOT}"
+
+# Change to mimo directory to ensure relative paths work
+cd "$MIMO_ROOT"
+
+# Install Hex and Rebar if needed (force non-interactive, pipe yes to handle prompts)
+export HEX_HOME="${HEX_HOME:-$HOME/.hex}"
+export MIX_HOME="${MIX_HOME:-$HOME/.mix}"
+(yes n 2>/dev/null | mix local.hex --force) >/dev/null 2>&1 || true
+(yes n 2>/dev/null | mix local.rebar --force) >/dev/null 2>&1 || true
+
 COMMAND=${1:-stdio}
 shift 2>/dev/null || true
+
+LOCK_FILE="/tmp/mimo_mcp_stdio.lock"
+
+# ============================================================================
+# Instance Management - Prevent concurrent crashes
+# ============================================================================
+kill_existing() {
+  if [ -f "$LOCK_FILE" ]; then
+    OLD_PID=$(cat "$LOCK_FILE" 2>/dev/null)
+    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+      echo "Stopping existing Mimo instance (PID: $OLD_PID)..."
+      kill "$OLD_PID" 2>/dev/null
+      sleep 1
+    fi
+    rm -f "$LOCK_FILE"
+  fi
+  # Also kill any orphaned beam processes running Mimo
+  pkill -f "Mimo.McpServer.Stdio.start" 2>/dev/null || true
+}
 
 # ============================================================================
 # Ollama Dependency Check
@@ -47,13 +96,44 @@ ensure_ollama() {
 case "$COMMAND" in
   stdio)
     # Run in stdio mode for MCP clients (Claude, VS Code)
-    ensure_ollama
+    # Kill existing instances first
+    if [ -f "$LOCK_FILE" ]; then
+      OLD_PID=$(cat "$LOCK_FILE" 2>/dev/null)
+      if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+        kill "$OLD_PID" 2>/dev/null
+        sleep 0.5
+      fi
+      rm -f "$LOCK_FILE"
+    fi
+    pkill -f "Mimo.McpServer.Stdio.start" 2>/dev/null || true
+    sleep 0.5
+    
+    # Check Ollama silently (don't fail if it's not running)
+    if ! curl -s --connect-timeout 1 "${OLLAMA_URL:-http://localhost:11434}/api/tags" >/dev/null 2>&1; then
+      # Ollama not running, but continue anyway (non-critical for MCP operation)
+      true
+    fi
+    
     export MIX_ENV=prod
+    export PROMETHEUS_DISABLED=true
+    export MIMO_DISABLE_HTTP=true
+    export LOGGER_LEVEL=none
+    
+    # Ensure app is compiled before running
+    APP_FILE="$MIMO_ROOT/_build/prod/lib/mimo_mcp/ebin/mimo_mcp.app"
+    if [ ! -f "$APP_FILE" ]; then
+      mix deps.get --only prod >/dev/null 2>&1
+      mix compile >/dev/null 2>&1
+    fi
+    
+    # Save PID for cleanup
+    echo "$$" > "$LOCK_FILE"
     exec mix run --no-halt --no-compile -e "Mimo.McpServer.Stdio.start()"
     ;;
   
   server)
     # Run as a standard Phoenix server
+    kill_existing
     ensure_ollama
     export MIX_ENV=prod
     exec mix phx.server
@@ -75,6 +155,14 @@ case "$COMMAND" in
     else
       start_ollama
     fi
+    ;;
+
+  stop)
+    # Stop any running Mimo instances
+    echo "Stopping Mimo..."
+    kill_existing
+    pkill -9 -f "beam.smp.*mimo" 2>/dev/null || true
+    echo "✅ Mimo stopped"
     ;;
     
   help)

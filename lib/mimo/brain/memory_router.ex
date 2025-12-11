@@ -28,7 +28,7 @@ defmodule Mimo.Brain.MemoryRouter do
   """
   require Logger
 
-  alias Mimo.Brain.{HybridRetriever, WorkingMemory}
+  alias Mimo.Brain.HybridRetriever
   alias Mimo.ProceduralStore
 
   # Query type indicators
@@ -275,7 +275,7 @@ defmodule Mimo.Brain.MemoryRouter do
   # ==========================================================================
 
   defp search_working_memory(query, limit) do
-    case WorkingMemory.search(query, limit: limit) do
+    case Mimo.Brain.SafeMemory.search(query, limit: limit) do
       results when is_list(results) ->
         # Convert WorkingMemoryItem structs to maps for JSON encoding
         # Add source marker and convert to scored tuples with working memory boost

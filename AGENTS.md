@@ -8,7 +8,7 @@ Mimo is a **Memory Operating System** for AI agents—not just another MCP serve
 
 - **Persistent Memory**: Remember across sessions via episodic, semantic, and procedural stores
 - **Cognitive Infrastructure**: Working memory, consolidation, forgetting, and hybrid retrieval
-- **17 Native Tools**: 4 unified tools (file, terminal, web, code) + 13 specialized tools
+- **18 Unified Tools**: 4 core (file, terminal, web, code) + 14 specialized (memory, knowledge, cognitive, meta, reason, think, etc.)
 - **Knowledge Graph**: Store and traverse relationships between entities
 - **Procedural Execution**: Deterministic state machine workflows
 
@@ -96,6 +96,60 @@ cognitive operation=assess topic="[the decision you're about to make]"
 
 > **If you're about to make a change and you haven't used `reason`, `think`, or `cognitive`... STOP and think first.**
 
+### 🧠 PHASE 0: AUTO-REASONING (Replaces Built-in Thinking)
+
+> **Mimo's `think`, `cognitive`, and `reason` tools REPLACE your built-in reasoning.**
+> Use them EXPLICITLY instead of relying on implicit model thinking.
+
+**Why This Matters:**
+- Without explicit reasoning, you jump straight to action and fail more often
+- Mimo reasoning is **persistent** (stored in memory), **learnable** (informs future decisions), and **structured** (CoT, ToT, ReAct, Reflexion)
+
+**Complexity Detection:**
+
+| Trigger | Tool | Why |
+|---------|------|-----|
+| Multiple files involved | `reason operation=guided` | Need to track dependencies |
+| "Debug", "fix", "why" in request | `reason operation=guided strategy=reflexion` | May need iteration |
+| Architecture/design decision | `reason operation=guided strategy=tot` | Explore alternatives |
+| "Should I", "which is better" | `cognitive operation=assess` | Need confidence check |
+| User gives numbered steps | `think operation=plan` | Simple sequence |
+| Single file edit, clear target | `think operation=thought` | Quick reasoning |
+
+**The Explicit Reasoning Rule:**
+
+```
+❌ WRONG (relying on implicit thinking):
+   User: "Fix the auth bug"
+   Agent: [immediately runs] file operation=search pattern="auth"
+
+✅ RIGHT (explicit Mimo reasoning):
+   User: "Fix the auth bug"
+   Agent: 
+     1. cognitive operation=assess topic="fix auth bug"
+        → confidence: 0.4, gaps: "which auth bug? what symptoms?"
+     2. reason operation=guided problem="fix auth bug" strategy=reflexion
+        → decomposition: ["identify bug", "find root cause", "implement fix", "verify"]
+     3. THEN proceed with file/terminal tools
+```
+
+### 🪞 Complete the Learning Loop with `reason reflect`
+
+**Only 25% of models currently use `reason reflect` - but it's critical for continuous improvement!**
+
+After completing a reasoning session, **always reflect on what worked:**
+
+```bash
+# After using reason operation=guided, ALWAYS reflect
+reason operation=reflect session_id="..." success=true result="[what you accomplished]"
+```
+
+**Why reflect matters:**
+- ✅ Stores successful patterns for future reuse
+- ✅ Identifies what went wrong when debugging
+- ✅ Compounds learning across sessions
+- ✅ Makes you smarter over time
+
 ---
 
 Mimo provides **complete development capabilities** through its native tools:
@@ -149,10 +203,10 @@ file operation=multi_replace replacements=[
 ┌─────────────────────────────────────────────────────────────────┐
 │  PHASE 2: INTELLIGENCE (Use smart tools, not brute force)      │
 │  ─────────────────────────────────────────────────────────────  │
-│  ✓ code_symbols operation=definition name="functionName"       │
-│  ✓ code_symbols operation=references name="className"          │
-│  ✓ diagnostics operation=all path="/project"                   │
-│  ✓ library operation=get name="package" ecosystem=hex          │
+│  ✓ code operation=definition name="functionName"               │
+│  ✓ code operation=references name="className"                  │
+│  ✓ code operation=diagnose path="/project"                     │
+│  ✓ code operation=library_get name="package" ecosystem=hex     │
 │  ✓ reason operation=guided problem="..." strategy=auto         │
 │  ✓ cognitive operation=assess topic="[decision to make]"       │
 └─────────────────────────────────────────────────────────────────┘
@@ -178,9 +232,9 @@ file operation=multi_replace replacements=[
 
 | Phase | Tools | Target % | Purpose |
 |-------|-------|----------|---------|
-| **Context** | prepare_context, memory, ask_mimo, knowledge | 15-20% | Check what you already know |
-| **Intelligence** | code_symbols, diagnostics, library, reason, cognitive | 15-20% | Smart analysis before action |
-| **Action** | file, terminal | 45-55% | Execute changes |
+| **Context** | meta (prepare_context), memory, ask_mimo, knowledge | 15-20% | Check what you already know |
+| **Intelligence** | code, reason, cognitive | 15-20% | Smart analysis before action |
+| **Action** | file, terminal, web | 45-55% | Execute changes |
 | **Learning** | memory store, knowledge teach | 10-15% | Capture insights for future |
 
 ### ⚠️ MANDATORY RULES
@@ -198,19 +252,19 @@ file operation=multi_replace replacements=[
 **BEFORE searching for code:**
 ```json
 // DON'T: file operation=search pattern="functionName"
-// DO: code_symbols operation=definition name="functionName"
+// DO: code operation=definition name="functionName"
 ```
 
 **BEFORE running compile/test for errors:**
 ```json
 // DON'T: terminal command="mix compile"
-// DO: diagnostics operation=all path="/project"
+// DO: code operation=diagnose path="/project"
 ```
 
 **BEFORE web search for package docs:**
 ```json
-// DON'T: search query="phoenix documentation"
-// DO: library operation=get name="phoenix" ecosystem=hex
+// DON'T: web operation=search query="phoenix documentation"
+// DO: code operation=library_get name="phoenix" ecosystem=hex
 ```
 
 **AFTER any significant discovery:**
@@ -231,13 +285,61 @@ file operation=multi_replace replacements=[
 | Jump to editing immediately | `reason` or `think` first | Avoid wrong conclusions |
 | Skip problem analysis | `reason operation=guided` | Understand before acting |
 | `file operation=read` immediately | `memory operation=search` first | May already know |
-| `file operation=search pattern="func"` | `code_symbols operation=definition` | Semantic, 10x faster |
-| `terminal command="mix compile"` | `diagnostics operation=all` | Structured output |
-| `fetch url="hexdocs..."` | `library operation=get` | Cached locally |
+| `file operation=search pattern="func"` | `code operation=definition` | Semantic, 10x faster |
+| `terminal command="mix compile"` | `code operation=diagnose` | Structured output |
+| `web operation=fetch url="hexdocs..."` | `code operation=library_get` | Cached locally |
 | Reading same file repeatedly | Store facts in memory after first read | Build knowledge base |
 | Skip after discoveries | `memory store` + `knowledge teach` | Knowledge compounds |
 | Describing changes in prose | `file operation=edit` immediately | You have the tools—use them! |
 | Outputting code blocks as suggestions | `file operation=write` or `edit` | Apply fixes directly |
+
+---
+
+## 🎯 Development Philosophy: Keep It Simple
+
+**We value simplicity, readability, and maintainability above all else.**
+
+### Core Principles
+
+1. **Simple, Readable Code**
+   - Write code that's easy to understand at first glance
+   - Avoid over-engineering or unnecessary complexity
+   - Prefer straightforward solutions over clever ones
+
+2. **Inline Documentation**
+   - Add comments explaining WHY, not just WHAT
+   - Document complex logic inline where it happens
+   - Make it easy for humans to follow the flow
+
+3. **Robust Without Complexity**
+   - Handle errors gracefully with simple patterns
+   - Use explicit checks over implicit assumptions
+   - Return clear error messages
+
+4. **No Test Running Required**
+   - We don't need to run tests after every change
+   - Instead: Read through changes CAREFULLY
+   - Verify logic by understanding, not just testing
+
+5. **Careful Review Process**
+   - After making changes, re-read your code thoroughly
+   - Check associated parts of the codebase that depend on your changes
+   - For complex features, use subagents to validate your work
+
+### When to Use Subagents
+
+For slightly complex features or changes:
+- Create subagents with clear instructions on what to evaluate
+- Let subagents review and report findings
+- Create multiple subagents for different aspects of a change
+
+**Example:**
+```
+"Review the memory storage changes and verify:
+1. No breaking changes to existing API
+2. Error handling covers edge cases
+3. Inline documentation is clear"
+```
 
 ---
 
@@ -251,8 +353,7 @@ These tools interact with Mimo's cognitive memory systems.
 |------|---------|----------------|
 | `ask_mimo` | Strategic memory consultation (auto-records conversations) | `query` |
 | `memory` | **Unified memory operations** (preferred) | `operation`, `content`, `query`, etc. |
-| `store_fact` | Store facts (deprecated, use `memory`) | `content`, `category`, `importance` |
-| `search_vibes` | Semantic search (deprecated, use `memory`) | `query`, `limit`, `threshold` |
+
 | `ingest` | Bulk ingest files into memory | `path`, `strategy`, `category` |
 | `run_procedure` | Execute procedures (use `operation=status` to check status) | `name`, `version`, `context`, `operation` |
 | `list_procedures` | List available procedures | — |
@@ -276,26 +377,38 @@ These are the primary tools after Phase 1-4 consolidation.
 | `reason` | guided, step, branch, backtrack, verify, conclude, reflect | Structured reasoning (CoT, ToT, ReAct, Reflexion) |
 | `onboard` | - | Project initialization |
 | `meta` | analyze_file, debug_error, prepare_context, suggest_next_tool | Composite operations |
-| `emergence` | dashboard, detect, cycle, alerts, suggest, promote | Pattern detection |
-| `reflector` | reflect, evaluate, confidence, errors | Self-reflection |
-| `verify` | count, math, logic, compare, self_check | Executable verification |
 
-#### Deprecated Tools (Still Work, Redirect to Unified)
 
-| Deprecated | Use Instead |
-|------------|-------------|
-| `fetch` | `web operation=fetch` |
-| `search` | `web operation=search` |
-| `blink` | `web operation=blink` |
-| `browser` | `web operation=browser` |
-| `vision` | `web operation=vision` |
-| `sonar` | `web operation=sonar` |
-| `web_extract` | `web operation=extract` |
-| `web_parse` | `web operation=parse` |
-| `code_symbols` | `code operation=symbols/definition/references` |
-| `library` | `code operation=library_get/library_search` |
-| `diagnostics` | `code operation=diagnose/check/lint/typecheck` |
-| `graph` | `knowledge` |
+#### Deprecated Tools (Hidden from MCP, Still Work Internally)
+
+These tools are no longer exposed via MCP to reduce context consumption, but still work for backward compatibility:
+
+| Category | Deprecated Tools | Use Instead |
+|----------|------------------|-------------|
+| **Web** | `fetch`, `search`, `blink`, `browser`, `vision`, `sonar`, `web_extract`, `web_parse` | `web operation=...` |
+| **Code** | `code_symbols`, `library`, `diagnostics`, `graph` | `code operation=...` or `knowledge` |
+| **Meta** | `analyze_file`, `debug_error`, `prepare_context`, `suggest_next_tool` | `meta operation=...` |
+| **Cognitive** | `emergence`, `reflector`, `verify` | `cognitive operation=...` |
+| **Memory** | `store_fact`, `search_vibes` | `memory operation=...` |
+
+### 🔥 UNDERUTILIZED: Cognitive Verification & Intelligence
+
+**These operations exist and work but are rarely used. USE THEM!**
+
+| Operation | Use Case | Example |
+|-----------|----------|---------|
+| `verify_count` | Count letters/words/chars accurately | `cognitive operation=verify_count text="hello" type=character` |
+| `verify_math` | Verify arithmetic claims | `cognitive operation=verify_math expression="2+2" claimed_result=5` |
+| `verify_logic` | Check logical consistency | `cognitive operation=verify_logic statements=[...] claim="..."` |
+| `emergence_dashboard` | See detected patterns | `cognitive operation=emergence_dashboard` |
+| `emergence_detect` | Find new patterns | `cognitive operation=emergence_detect days=7` |
+| `reflector_evaluate` | Evaluate output quality | `cognitive operation=reflector_evaluate content="..."` |
+| `reflector_confidence` | Estimate confidence | `cognitive operation=reflector_confidence content="..."` |
+
+**When to Use:**
+- Before making claims about counts/math → `verify_*`
+- After generating responses → `reflector_evaluate`
+- Periodically → `emergence_dashboard` to see patterns
 
 ---
 
@@ -434,6 +547,39 @@ The forgetting system runs hourly during active use:
 - Use 0.6-0.7 for general observations and context
 - Use 0.4-0.5 for session-specific temporary info
 - Don't worry about cleanup - low-value memories naturally fade
+
+### Temporal Memory Chains (SPEC-034)
+
+Mimo automatically handles **memory updates, corrections, and contradictions** through Temporal Memory Chains.
+
+**How It Works:**
+
+When you store a new memory, Mimo automatically:
+1. **Detects similar memories** using semantic similarity
+2. **Classifies the relationship** (new, update, correction, refinement, redundant)
+3. **Creates chains** linking related memories over time
+4. **Excludes superseded memories** from default searches
+
+**Automatic Classification:**
+
+| Similarity | Classification | Action |
+|------------|----------------|--------|
+| ≥0.95 | Redundant | Skip storage, reinforce existing |
+| 0.80-0.94 | Ambiguous | LLM decides (update/correct/refine) |
+| <0.80 | New | Store as new memory |
+
+**Supersession Types:**
+
+| Type | When Used | Example |
+|------|-----------|---------|
+| `update` | Information changed over time | "React 18" → "React 19" |
+| `correction` | Previous info was wrong | "Bug exists" → "Bug was false alarm" |
+| `refinement` | Added details/context | "Uses caching" → "Uses Redis with 5min TTL" |
+
+**Best Practices:**
+- Trust the system — TMC automatically handles contradictions
+- Store frequently — Redundant stores reinforce existing memories
+- Default searches are accurate — superseded memories are filtered out
 
 ---
 
@@ -577,7 +723,7 @@ Note: `blink` automatically escalates to `browser` on failure.
 ```json
 // List symbols in a file
 {
-  "tool": "code_symbols",
+  "tool": "code",
   "arguments": {
     "operation": "symbols",
     "path": "/workspace/project/src/auth.ts"
@@ -586,7 +732,7 @@ Note: `blink` automatically escalates to `browser` on failure.
 
 // Find symbol definition
 {
-  "tool": "code_symbols",
+  "tool": "code",
   "arguments": {
     "operation": "definition",
     "name": "authenticateUser"
@@ -595,7 +741,7 @@ Note: `blink` automatically escalates to `browser` on failure.
 
 // Get call graph
 {
-  "tool": "code_symbols",
+  "tool": "code",
   "arguments": {
     "operation": "call_graph",
     "name": "handleRequest"
@@ -604,7 +750,7 @@ Note: `blink` automatically escalates to `browser` on failure.
 
 // Search symbols by pattern
 {
-  "tool": "code_symbols",
+  "tool": "code",
   "arguments": {
     "operation": "search",
     "pattern": "auth*",
@@ -613,14 +759,14 @@ Note: `blink` automatically escalates to `browser` on failure.
 }
 ```
 
-### Synapse Web Graph
+### Knowledge Graph (Synapse)
 
 The knowledge graph connects code, concepts, and memories:
 
 ```json
 // Query the graph
 {
-  "tool": "graph",
+  "tool": "knowledge",
   "arguments": {
     "operation": "query",
     "query": "authentication patterns"
@@ -629,7 +775,7 @@ The knowledge graph connects code, concepts, and memories:
 
 // Traverse from a node
 {
-  "tool": "graph",
+  "tool": "knowledge",
   "arguments": {
     "operation": "traverse",
     "node_name": "AuthService",
@@ -641,7 +787,7 @@ The knowledge graph connects code, concepts, and memories:
 
 // Find path between nodes
 {
-  "tool": "graph",
+  "tool": "knowledge",
   "arguments": {
     "operation": "path",
     "from_node": "login_handler",
@@ -651,7 +797,7 @@ The knowledge graph connects code, concepts, and memories:
 
 // Link code to graph
 {
-  "tool": "graph",
+  "tool": "knowledge",
   "arguments": {
     "operation": "link",
     "path": "/workspace/project/src/"
@@ -661,14 +807,14 @@ The knowledge graph connects code, concepts, and memories:
 
 ---
 
-## 📦 Library Documentation
+## 📦 Library Documentation (via code tool)
 
 ```json
 // Get package info
 {
-  "tool": "library",
+  "tool": "code",
   "arguments": {
-    "operation": "get",
+    "operation": "library_get",
     "name": "phoenix",
     "ecosystem": "hex"
   }
@@ -676,9 +822,9 @@ The knowledge graph connects code, concepts, and memories:
 
 // Search packages
 {
-  "tool": "library",
+  "tool": "code",
   "arguments": {
-    "operation": "search",
+    "operation": "library_search",
     "query": "json parser",
     "ecosystem": "npm",
     "limit": 5
@@ -687,9 +833,9 @@ The knowledge graph connects code, concepts, and memories:
 
 // Ensure package is cached
 {
-  "tool": "library",
+  "tool": "code",
   "arguments": {
-    "operation": "ensure",
+    "operation": "library_ensure",
     "name": "requests",
     "ecosystem": "pypi",
     "version": "2.31.0"
@@ -728,12 +874,61 @@ If this is a new/unknown project, run onboarding to enable all intelligent tools
 ```
 
 This indexes:
-- **Code symbols** → enables `code_symbols` for precise navigation
-- **Dependencies** → enables `library` for instant package docs  
+- **Code symbols** → enables `code operation=symbols/definition/references` for precise navigation
+- **Dependencies** → enables `code operation=library_get/library_discover` for instant package docs  
 - **Knowledge graph** → enables `knowledge` for relationship queries
 
 ### Step 3: Then Proceed with Task
 Now all Mimo tools work at full capacity!
+
+---
+
+## 🎯 Token-Efficient Patterns
+
+### Use Symbol-Based Reading (10x savings)
+
+Instead of reading entire files (~2000 tokens), read just the function you need (~200 tokens):
+
+```bash
+# DON'T: Read entire file (~2000 tokens)
+file operation=read path="src/auth.ex"
+
+# DO: Read just the function (~200 tokens)
+file operation=read_symbol path="src/auth.ex" symbol_name="authenticate"
+
+# DO: Get overview first (~100 tokens)
+file operation=list_symbols path="src/auth.ex"
+```
+
+### Memory Context is Opt-In
+
+`skip_memory_context` defaults to `true` for file and terminal operations. This saves ~300-500 tokens per call.
+
+**Request memory context explicitly when:**
+- Debugging (past errors and solutions help)
+- Architecture decisions (past patterns matter)
+- User preference context is needed
+
+```bash
+# Memory context skipped by default (saves tokens)
+file operation=read path="config.ex"
+
+# Request it explicitly when needed
+file operation=read path="config.ex" skip_memory_context=false
+```
+
+### Batch Operations
+
+```bash
+# Read multiple files at once
+file operation=read_multiple paths=["file1.ex", "file2.ex"]
+
+# Atomic multi-file edits
+file operation=multi_replace replacements=[
+  {"path": "api.ts", "old": "oldFunc", "new": "newFunc"},
+  {"path": "utils.ts", "old": "oldFunc", "new": "newFunc"}
+]
+```
 
 ---
 
@@ -748,24 +943,24 @@ Need to find something in code?
 What are you looking for?
         │
         ├─► Function/class/symbol DEFINITION
-        │   └─► code_symbols operation=definition name="symbolName"
+        │   └─► code operation=definition name="symbolName"
         │
         ├─► All USAGES of a symbol
-        │   └─► code_symbols operation=references name="symbolName"
+        │   └─► code operation=references name="symbolName"
         │
         ├─► List ALL symbols in a file
-        │   └─► code_symbols operation=symbols path="file.ts"
+        │   └─► code operation=symbols path="file.ts"
         │
         ├─► CALL relationships
-        │   └─► code_symbols operation=call_graph name="functionName"
+        │   └─► code operation=call_graph name="functionName"
         │
         └─► Text/pattern search (non-code, comments, strings)
             └─► file operation=search path="." pattern="TODO"
 ```
 
-### 🎯 code_symbols vs file search
+### 🎯 code tool vs file search
 
-| Use `code_symbols` when... | Use `file search` when... |
+| Use `code` tool when... | Use `file search` when... |
 |---------------------------|--------------------------|
 | Finding where a function is defined | Searching for text in comments |
 | Finding all references to a class | Finding TODOs or FIXMEs |
@@ -773,7 +968,21 @@ What are you looking for?
 | Listing functions in a module | Pattern matching across files |
 | Navigating by symbol name | Grep-style text search |
 
-**Rule of thumb:** If it's a code construct (function, class, variable), use `code_symbols`. If it's text content, use `file search`.
+**Rule of thumb:** If it's a code construct (function, class, variable), use `code` tool. If it's text content, use `file search`.
+
+**⚠️ Graceful Fallback Pattern:**
+
+In some environments, `code operation=references` may not be available or may fail. If you encounter this:
+
+```bash
+# Primary approach (try this first)
+code operation=references name="symbolName"
+
+# Fallback if not available (graceful recovery)
+file operation=search path="." pattern="symbolName"
+```
+
+**Graceful recovery is preferred** — if a tool fails, use the next best alternative rather than stopping.
 
 ### Finding Relationships?
 
@@ -785,14 +994,14 @@ What kind of relationship?
         │
         ├─► Code dependencies (imports, calls)
         │   └─► knowledge operation=query query="what depends on X?"
-        │   └─► code_symbols operation=call_graph name="X"
+        │   └─► code operation=call_graph name="X"
         │
         ├─► Architecture/service relationships
         │   └─► knowledge operation=query query="..."
         │   └─► knowledge operation=traverse node_name="ServiceX"
         │
         └─► Package dependencies
-            └─► library operation=discover path="."
+            └─► code operation=library_discover path="."
             └─► knowledge operation=sync_dependencies
 ```
 
@@ -802,14 +1011,14 @@ What kind of relationship?
 Need package/library docs?
         │
         ▼
-Use library FIRST (faster, cached)
+Use code library_get FIRST (faster, cached)
         │
-        └─► library operation=get name="package" ecosystem=npm/pypi/hex/crates
+        └─► code operation=library_get name="package" ecosystem=npm/pypi/hex/crates
         │
         ▼
 Not found in library?
         │
-        └─► search query="package documentation" operation=web
+        └─► web operation=search query="package documentation"
 ```
 
 ---
@@ -939,18 +1148,18 @@ For large documentation or codebases:
 }
 ```
 
-### 5. Package Documentation Lookup (Library-First!)
+### 5. Package Documentation Lookup (Code Library-First!)
 
-**IMPORTANT: Always check `library` before using `search`/`fetch` for package documentation!**
+**IMPORTANT: Always check `code operation=library_get` before using `web` for package documentation!**
 
-The `library` tool caches package docs locally and now searches external package registries (Hex, NPM, PyPI, crates.io) when cache is empty.
+The `code` tool's library operations cache package docs locally and search external package registries (Hex, NPM, PyPI, crates.io) when cache is empty.
 
 ```json
 // FIRST: Search library for package docs
 {
-  "tool": "library",
+  "tool": "code",
   "arguments": {
-    "operation": "search",
+    "operation": "library_search",
     "query": "json parser",
     "ecosystem": "npm"
   }
@@ -959,9 +1168,9 @@ The `library` tool caches package docs locally and now searches external package
 
 // Get specific package documentation
 {
-  "tool": "library",
+  "tool": "code",
   "arguments": {
-    "operation": "get",
+    "operation": "library_get",
     "name": "phoenix",
     "ecosystem": "hex"
   }
@@ -969,16 +1178,16 @@ The `library` tool caches package docs locally and now searches external package
 
 // Auto-discover and cache all project dependencies
 {
-  "tool": "library",
+  "tool": "code",
   "arguments": {
-    "operation": "discover",
+    "operation": "library_discover",
     "path": "/workspace/project"
   }
 }
 ```
 
-**Only use web `search`/`fetch` when:**
-- Library tool doesn't have the package
+**Only use `web operation=search` when:**
+- Code library operations don't have the package
 - You need blog posts, tutorials, or Stack Overflow answers
 - You need documentation not in package registries
 
@@ -987,10 +1196,10 @@ The `library` tool caches package docs locally and now searches external package
 ```json
 // Search the web
 {
-  "tool": "search",
+  "tool": "web",
   "arguments": {
+    "operation": "search",
     "query": "Next.js 14 app router best practices",
-    "operation": "web",
     "num_results": 5
   }
 }
@@ -1090,7 +1299,7 @@ For complex reasoning:
 
 ```json
 {
-  "tool": "graph",
+  "tool": "knowledge",
   "arguments": {"operation": "stats"}
 }
 ```
@@ -1099,8 +1308,8 @@ For complex reasoning:
 
 ```json
 {
-  "tool": "library",
-  "arguments": {"operation": "stats"}
+  "tool": "code",
+  "arguments": {"operation": "library_stats"}
 }
 ```
 
@@ -1134,40 +1343,41 @@ file operation=multi_replace replacements=[{path, old, new}, ...]
 file operation=diff path1="/old.txt" path2="/new.txt"
 
 # Code Navigation (USE INSTEAD OF file search for code!)
-code_symbols operation=definition name="functionName"
-code_symbols operation=references name="className"
-code_symbols operation=symbols path="src/module.ex"
-code_symbols operation=call_graph name="handler"
-code_symbols operation=search pattern="auth*" kind=function
+code operation=definition name="functionName"
+code operation=references name="className"
+code operation=symbols path="src/module.ex"
+code operation=call_graph name="handler"
+code operation=search pattern="auth*" kind=function
 
 # Terminal (with new options)
 terminal command="npm test" cwd="/app/frontend"
 terminal command="echo $VAR" env={"VAR": "value"} shell="bash"
 
-# Diagnostics (BETTER THAN terminal for errors!)
-diagnostics operation=all path="/app/src"
-diagnostics operation=lint path="..." language=python
+# Diagnostics (via code tool - BETTER THAN terminal for errors!)
+code operation=diagnose path="/app/src"
+code operation=lint path="..."
+code operation=typecheck path="..."
 
-# Composite Tools (ONE CALL = multiple operations)
-analyze_file path="src/module.ex"           # File + symbols + diagnostics + knowledge
-debug_error message="undefined function"     # Memory + symbols + diagnostics
-suggest_next_tool task="implement auth"      # Workflow guidance
+# Composite Tools (via meta tool - ONE CALL = multiple operations)
+meta operation=analyze_file path="src/module.ex"           # File + symbols + diagnostics + knowledge
+meta operation=debug_error message="undefined function"     # Memory + symbols + diagnostics
+meta operation=suggest_next_tool task="implement auth"      # Workflow guidance
 
-# Emergence (SPEC-044 Pattern Detection)
-emergence operation=dashboard              # Full metrics and status
-emergence operation=detect                 # Run pattern detection
-emergence operation=cycle                  # Full emergence cycle (detect → evaluate → alert)
-emergence operation=alerts                 # Patterns needing attention
-emergence operation=suggest task="..."     # Pattern suggestions for task
-emergence operation=promote pattern_id="..." # Promote validated pattern to capability
-emergence operation=list status=emerging   # List patterns by status
-emergence operation=search query="..."     # Search patterns
+# Emergence (via cognitive tool - SPEC-044 Pattern Detection)
+cognitive operation=emergence_dashboard              # Full metrics and status
+cognitive operation=emergence_detect                 # Run pattern detection
+cognitive operation=emergence_cycle                  # Full emergence cycle (detect → evaluate → alert)
+cognitive operation=emergence_alerts                 # Patterns needing attention
+cognitive operation=emergence_suggest topic="..."   # Pattern suggestions for task
+cognitive operation=emergence_promote pattern_id="..." # Promote validated pattern to capability
+cognitive operation=emergence_list                   # List patterns by status
+cognitive operation=emergence_search query="..."     # Search patterns
 
-# Reflector (SPEC-043 Metacognitive Self-Reflection)
-reflector operation=reflect content="..." task="..."  # Deep reflection on response
-reflector operation=evaluate content="..."            # Quick quality evaluation
-reflector operation=confidence content="..."          # Calibrated confidence assessment
-reflector operation=errors content="..."              # Analyze potential errors/biases
+# Reflector (via cognitive tool - SPEC-043 Metacognitive Self-Reflection)
+cognitive operation=reflector_reflect content="..." task="..."  # Deep reflection on response
+cognitive operation=reflector_evaluate content="..."            # Quick quality evaluation
+cognitive operation=reflector_confidence content="..."          # Calibrated confidence assessment
+cognitive operation=reflector_errors content="..."              # Analyze potential errors/biases
 
 # Reasoning (SPEC-035 Unified Reasoning Engine)
 reason operation=guided problem="..." strategy=auto  # Start session
@@ -1178,15 +1388,15 @@ reason operation=verify thoughts=["...", "..."]      # Check logic
 reason operation=conclude session_id="..."           # Finish
 reason operation=reflect session_id="..." success=true result="..."
 
-# Library (USE FIRST for package docs!)
-library operation=discover path="/app"
-library operation=get name="phoenix" ecosystem=hex
-library operation=search query="json parser" ecosystem=npm
+# Library (via code tool - USE FIRST for package docs!)
+code operation=library_discover path="/app"
+code operation=library_get name="phoenix" ecosystem=hex
+code operation=library_search query="json parser" ecosystem=npm
 
 # Web (only after library lookup)
-search query="..." operation=web
-fetch url="..." format=markdown
-blink url="..." operation=smart
+web operation=search query="..."
+web operation=fetch url="..." format=markdown
+web operation=blink url="..."
 
 # Knowledge Graph
 knowledge operation=query query="..."

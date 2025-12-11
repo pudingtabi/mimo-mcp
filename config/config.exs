@@ -3,6 +3,9 @@ import Config
 # Ecto repos
 config :mimo_mcp, ecto_repos: [Mimo.Repo]
 
+# Phoenix JSON library
+config :phoenix, :json_library, Jason
+
 # =============================================================================
 # Auto-Memory Configuration
 # =============================================================================
@@ -89,7 +92,31 @@ config :mimo_mcp, :feature_flags,
   # HNSW Index for O(log n) vector search (SPEC-033)
   hnsw_index: {:system, "HNSW_INDEX_ENABLED", false},
   # Temporal Memory Chains for brain-inspired memory reconsolidation (SPEC-034)
-  temporal_memory_chains: {:system, "TMC_ENABLED", true}
+  temporal_memory_chains: {:system, "TMC_ENABLED", true},
+  # Reasoning-Memory Integration for enhanced ingestion and retrieval (SPEC-058)
+  reasoning_memory_integration: {:system, "REASONING_MEMORY_ENABLED", false}
+
+# =============================================================================
+# Reasoning-Memory Integration Configuration (SPEC-058)
+# =============================================================================
+# Fine-grained controls for reasoning-enhanced memory operations
+
+config :mimo_mcp,
+  # Master switch for reasoning-memory integration
+  reasoning_memory_enabled: false
+
+config :mimo_mcp, :reasoning_memory,
+  # Ingestion path
+  analyze_on_store: true,
+  score_importance: true,
+  detect_relationships: true,
+  generate_tags: true,
+  # Retrieval path (disabled by default, enable after validation)
+  analyze_queries: false,
+  rerank_results: false,
+  # Performance
+  max_reasoning_timeout_ms: 10_000,
+  fallback_on_timeout: true
 
 # =============================================================================
 # Vector Search V3.0 Configuration (SPEC-033)
@@ -118,6 +145,25 @@ config :mimo_mcp, :vector_search,
   hnsw_threshold: 1000,
   # Use binary pre-filter above this memory count (when HNSW unavailable)
   binary_threshold: 500
+
+# =============================================================================
+# Autonomous Task Execution Configuration (SPEC-071)
+# =============================================================================
+# Configuration for the autonomous task runner
+
+config :mimo_mcp, :autonomous,
+  # Enable autonomous task execution
+  enabled: true,
+  # How often to check for queued tasks (10 seconds)
+  check_interval: 10_000,
+  # Maximum concurrent task executions
+  max_concurrent: 3,
+  # Task execution timeout (5 minutes)
+  task_timeout: 300_000,
+  # Circuit breaker: max consecutive failures before opening
+  max_failures: 3,
+  # Circuit breaker: cooldown period after opening (30 seconds)
+  cooldown_ms: 30_000
 
 # Import environment specific config
 import_config "#{config_env()}.exs"

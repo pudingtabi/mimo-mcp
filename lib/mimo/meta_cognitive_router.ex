@@ -7,9 +7,13 @@ defmodule Mimo.MetaCognitiveRouter do
   - Semantic Store (graph): Logic, relationship queries  
   - Procedural Store (rules): Code, procedure queries
 
+  SPEC-053: Also provides workflow prediction and suggestion.
+
   Ref: Universal Aperture TDD - preserves the routing layer while enabling multi-protocol access.
   """
   require Logger
+
+  alias Mimo.Workflow.{Predictor, Pattern}
 
   @type store :: :episodic | :semantic | :procedural
   @type decision :: %{
@@ -18,6 +22,15 @@ defmodule Mimo.MetaCognitiveRouter do
           confidence: float(),
           reasoning: String.t(),
           requires_synthesis: boolean()
+        }
+
+  @type workflow_suggestion :: %{
+          type: :auto_execute | :suggest | :manual,
+          pattern: Pattern.t() | nil,
+          patterns: [Pattern.t()],
+          confidence: float(),
+          bindings: map(),
+          reason: String.t() | nil
         }
 
   # Keyword patterns for classification
@@ -177,5 +190,147 @@ defmodule Mimo.MetaCognitiveRouter do
     if duration_ms > 10 do
       Logger.warning("Router classification slow: #{Float.round(duration_ms, 2)}ms")
     end
+  end
+
+  # =============================================================================
+  # SPEC-053: Workflow Prediction & Suggestion
+  # =============================================================================
+
+  @doc """
+  Suggest a workflow pattern for a task description.
+
+  Uses the Workflow Predictor to find matching patterns and returns
+  a suggestion with confidence and resolved bindings.
+
+  ## Options
+  - `:context` - Additional context map for binding resolution
+  - `:auto_threshold` - Confidence threshold for auto-execution (default: 0.85)
+  - `:suggest_threshold` - Confidence threshold for suggestions (default: 0.5)
+
+  ## Returns
+  - `{:ok, suggestion}` with workflow_suggestion() type
+  - `{:error, reason}` if prediction fails
+
+  ## Examples
+
+      iex> Mimo.MetaCognitiveRouter.suggest_workflow("Fix the undefined function error in auth.ex")
+      {:ok, %{
+        type: :auto_execute,
+        pattern: %Pattern{name: "debug_error", ...},
+        confidence: 0.92,
+        bindings: %{"error_message" => "undefined function", "file" => "auth.ex"},
+        ...
+      }}
+
+  """
+  @spec suggest_workflow(String.t(), keyword()) :: {:ok, workflow_suggestion()}
+  def suggest_workflow(task_description, opts \\ []) when is_binary(task_description) do
+    start_time = System.monotonic_time(:microsecond)
+    
+    context = Keyword.get(opts, :context, %{})
+    auto_threshold = Keyword.get(opts, :auto_threshold, 0.85)
+    suggest_threshold = Keyword.get(opts, :suggest_threshold, 0.5)
+
+    result = case Predictor.predict_workflow(task_description, context) do
+      {:ok, pattern, confidence, bindings} ->
+        suggestion = build_suggestion(:auto_execute, pattern, confidence, bindings, auto_threshold)
+        {:ok, suggestion}
+
+      {:suggest, patterns} when is_list(patterns) ->
+        # Multiple pattern candidates (list of Pattern structs)
+        top_pattern = List.first(patterns)
+        suggestion = %{
+          type: :suggest,
+          pattern: top_pattern,
+          patterns: patterns,
+          confidence: suggest_threshold,
+          bindings: %{},
+          reason: "Multiple matching patterns found; user selection recommended"
+        }
+        {:ok, suggestion}
+
+      {:manual, reason} ->
+        suggestion = %{
+          type: :manual,
+          pattern: nil,
+          patterns: [],
+          confidence: 0.0,
+          bindings: %{},
+          reason: reason
+        }
+        {:ok, suggestion}
+    end
+
+    # Emit telemetry
+    duration_us = System.monotonic_time(:microsecond) - start_time
+    emit_workflow_telemetry(duration_us, result)
+
+    result
+  end
+
+  defp build_suggestion(_base_type, pattern, confidence, bindings, auto_threshold) do
+    # Determine if confidence is high enough for auto-execution
+    actual_type = if confidence >= auto_threshold, do: :auto_execute, else: :suggest
+
+    %{
+      type: actual_type,
+      pattern: pattern,
+      patterns: [pattern],
+      confidence: Float.round(confidence, 3),
+      bindings: bindings,
+      reason: if(actual_type == :suggest, 
+        do: "Confidence below auto-execute threshold (#{auto_threshold})",
+        else: nil
+      )
+    }
+  end
+
+  defp emit_workflow_telemetry(duration_us, result) do
+    {suggestion_type, confidence} = case result do
+      {:ok, %{type: t, confidence: c}} -> {t, c}
+      _ -> {:error, 0.0}
+    end
+
+    :telemetry.execute(
+      [:mimo, :router, :suggest_workflow],
+      %{duration_us: duration_us, confidence: confidence},
+      %{suggestion_type: suggestion_type}
+    )
+
+    duration_ms = duration_us / 1000
+    if duration_ms > 50 do
+      Logger.warning("Workflow suggestion slow: #{Float.round(duration_ms, 2)}ms")
+    end
+  end
+
+  @doc """
+  Classify a query and optionally suggest a workflow.
+
+  This is a combined operation that first classifies the query for
+  store routing, then if it's procedural, also suggests a workflow.
+
+  ## Returns
+  Map with :classification and optionally :workflow_suggestion keys.
+  """
+  @spec classify_and_suggest(String.t(), keyword()) :: %{
+          classification: decision(),
+          workflow_suggestion: workflow_suggestion() | nil
+        }
+  def classify_and_suggest(query, opts \\ []) when is_binary(query) do
+    classification = classify(query)
+    
+    # Only suggest workflow for procedural queries with decent confidence
+    workflow_suggestion = 
+      if classification.primary_store == :procedural and classification.confidence >= 0.5 do
+        {:ok, suggestion} = suggest_workflow(query, opts)
+        suggestion
+      else
+        nil
+      end
+
+    %{
+      classification: classification,
+      workflow_suggestion: workflow_suggestion
+    }
   end
 end

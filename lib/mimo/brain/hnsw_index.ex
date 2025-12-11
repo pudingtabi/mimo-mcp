@@ -378,7 +378,12 @@ defmodule Mimo.Brain.HnswIndex do
 
         case Math.hnsw_load(state.index_path) do
           {:ok, index} ->
-            {:ok, size} = Math.hnsw_size(index)
+            size =
+              case Math.hnsw_size(index) do
+                {:ok, s} -> s
+                {:error, _} -> 0
+              end
+
             Logger.info("HNSW index loaded with #{size} vectors")
 
             %{

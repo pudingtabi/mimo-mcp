@@ -9,6 +9,8 @@ defmodule Mimo.SemanticStore.Repository do
   alias Mimo.SemanticStore.Triple
   alias Mimo.Repo
   alias Mimo.Awakening.Hooks, as: AwakeningHooks
+  alias Mimo.TaskHelper
+  alias Mimo.NeuroSymbolic.Inference, as: NeuroSymbolicInference
 
   import Ecto.Query
   require Logger
@@ -32,7 +34,7 @@ defmodule Mimo.SemanticStore.Repository do
   ## Returns
 
     - `{:ok, triple}` - Successfully created triple
-    - `{:error, changeset}` - Validation errors
+    - `{:error, changeset}` - Validation failed
   """
   @spec create(map()) :: {:ok, Triple.t()} | {:error, Ecto.Changeset.t()}
   def create(attrs) do
@@ -76,7 +78,7 @@ defmodule Mimo.SemanticStore.Repository do
       %Triple{}
       |> Triple.changeset(attrs)
       |> Repo.insert(
-        on_conflict: {:replace, [:confidence, :source, :ttl, :metadata, :updated_at]},
+        on_conflict: {:replace, [:confidence, :source, :ttl, :metadata, :context, :updated_at]},
         conflict_target: [:subject_hash, :predicate, :object_id, :object_type]
       )
 
@@ -275,7 +277,21 @@ defmodule Mimo.SemanticStore.Repository do
       metadata: Keyword.get(opts, :metadata, %{})
     }
 
-    upsert(attrs)
+    res = upsert(attrs)
+
+    # Optionally trigger neuro-symbolic processing for this triple
+    if Keyword.get(opts, :trigger_neuro_symbolic, false) do
+      case res do
+        {:ok, triple} ->
+          # Fire-and-forget trigger; internal trigger will run tasks as needed
+          TaskHelper.safe_start_child(fn -> NeuroSymbolicInference.trigger_on_new_triple(triple) end)
+
+        _ ->
+          :ok
+      end
+    end
+
+    res
   end
 
   defp normalize_entity({id, type}), do: {id, type}

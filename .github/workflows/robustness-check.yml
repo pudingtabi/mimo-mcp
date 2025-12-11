@@ -1,0 +1,123 @@
+name: Robustness Check
+
+on:
+  pull_request:
+    paths:
+      - 'lib/**/*.ex'
+      - 'lib/**/*.exs'
+      - 'bin/**/*.js'
+      - 'bin/**/*.ts'
+      - 'priv/**/*.js'
+
+jobs:
+  robustness-check:
+    name: Implementation Robustness
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need history for diff
+      
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: '1.18'
+          otp-version: '27'
+      
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: deps
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-
+      
+      - name: Install dependencies
+        run: mix deps.get
+      
+      - name: Get changed files
+        id: changed-files
+        run: |
+          # Get files changed in this PR
+          FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '\.(ex|exs|js|ts)$' | tr '\n' ' ')
+          echo "files=$FILES" >> $GITHUB_OUTPUT
+          echo "Changed files: $FILES"
+      
+      - name: Run Robustness Check
+        id: robustness
+        if: steps.changed-files.outputs.files != ''
+        run: |
+          # Run robustness check on changed files
+          mix robustness.check --pr-comment ${{ steps.changed-files.outputs.files }} > robustness-report.md 2>&1 || true
+          
+          # Extract score for status
+          SCORE=$(grep -oP 'Overall Score:\s*\K[\d.]+' robustness-report.md || echo "0")
+          echo "score=$SCORE" >> $GITHUB_OUTPUT
+          
+          # Determine status
+          if (( $(echo "$SCORE < 40" | bc -l) )); then
+            echo "status=failure" >> $GITHUB_OUTPUT
+          elif (( $(echo "$SCORE < 60" | bc -l) )); then
+            echo "status=warning" >> $GITHUB_OUTPUT
+          else
+            echo "status=success" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Post PR Comment
+        if: steps.changed-files.outputs.files != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('robustness-report.md', 'utf8');
+            
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('🛡️ Robustness Analysis')
+            );
+            
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: report
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: report
+              });
+            }
+      
+      - name: Set Status
+        if: steps.changed-files.outputs.files != ''
+        run: |
+          STATUS=${{ steps.robustness.outputs.status }}
+          SCORE=${{ steps.robustness.outputs.score }}
+          
+          if [ "$STATUS" = "failure" ]; then
+            echo "::error::Robustness check failed: Score $SCORE/100 (threshold: 40)"
+            exit 1
+          elif [ "$STATUS" = "warning" ]; then
+            echo "::warning::Robustness check warning: Score $SCORE/100 (threshold: 60)"
+          else
+            echo "::notice::Robustness check passed: Score $SCORE/100"
+          fi
+      
+      - name: No files to check
+        if: steps.changed-files.outputs.files == ''
+        run: echo "No Elixir/JavaScript files changed, skipping robustness check"

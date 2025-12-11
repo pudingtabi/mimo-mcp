@@ -6,7 +6,9 @@ defmodule MimoWeb.Router do
   - /v1/mimo/ask    - Natural language queries through Meta-Cognitive Router
   - /v1/mimo/tool   - Direct tool execution
   - /v1/chat/completions - OpenAI-compatible endpoint
-  - /health         - Health check endpoint
+  - /health         - Full health check endpoint
+  - /health/ready   - Kubernetes readiness probe
+  - /health/live    - Kubernetes liveness probe
   """
   use MimoWeb, :router
 
@@ -21,10 +23,13 @@ defmodule MimoWeb.Router do
     plug(MimoWeb.Plugs.LatencyGuard)
   end
 
-  # Health check - no auth required
-  scope "/", MimoWeb do
+  # Health checks - no auth required (SPEC-061)
+  scope "/health", MimoWeb do
     pipe_through(:api)
-    get("/health", HealthController, :check)
+    get("/", HealthController, :check)
+    get("/ready", HealthController, :ready)
+    get("/live", HealthController, :live)
+    get("/startup", HealthController, :startup)  # TASK 3: Startup health dashboard
   end
 
   # Mimo API v1 - requires authentication

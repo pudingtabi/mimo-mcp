@@ -155,12 +155,21 @@ defmodule Mimo.Brain.Emergence.Detector do
 
   defp extract_sequences(interactions, min_length) do
     # Use sliding window to extract all sequences
+    total_length = length(interactions)
+
     interactions
     |> Enum.with_index()
     |> Enum.flat_map(fn {_interaction, idx} ->
       # Extract sequences starting at this position
-      for length <- min_length..min(min_length + 5, length(interactions) - idx) do
-        Enum.slice(interactions, idx, length)
+      max_length = min(min_length + 5, total_length - idx)
+
+      # Only generate range if min_length <= max_length
+      if min_length <= max_length do
+        for seq_length <- min_length..max_length do
+          Enum.slice(interactions, idx, seq_length)
+        end
+      else
+        []
       end
     end)
     |> Enum.filter(&(length(&1) >= min_length))
@@ -236,7 +245,8 @@ defmodule Mimo.Brain.Emergence.Detector do
         |> Enum.count(fn sequence ->
           Enum.all?(sequence, fn interaction ->
             # Check if result_summary indicates success (no error keywords)
-            result = interaction.result_summary || ""
+            # Use Map.get for safe access since some records may not have :result_summary
+            result = Map.get(interaction, :result_summary) || ""
 
             not String.contains?(String.downcase(result), [
               "error",

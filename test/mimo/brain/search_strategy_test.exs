@@ -155,6 +155,48 @@ defmodule Mimo.Brain.Memory.SearchStrategyTest do
     end
   end
 
+  describe "utf8 handling" do
+    setup do
+      Repo.delete_all(Engram)
+      :ok
+    end
+
+    test "search_with_embedding handles Unicode content" do
+      embedding = Enum.map(1..@dimensions, fn _ -> 0.01 end)
+      embedding_int8 = quantize_to_int8(embedding)
+      embedding_binary = quantize_to_binary(embedding_int8)
+      unicode_content = "Q1 plan – draft — ready"
+
+      {:ok, engram} =
+        Repo.insert(%Engram{
+          content: unicode_content,
+          category: "fact",
+          importance: 0.7,
+          embedding: embedding,
+          embedding_int8: embedding_int8,
+          embedding_binary: embedding_binary,
+          inserted_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second),
+          updated_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+        })
+
+      # Verify the unicode content was stored correctly
+      assert engram.content == unicode_content
+      
+      # Verify search doesn't crash with Unicode content in database
+      {:ok, results} = Memory.search_with_embedding(embedding, limit: 5)
+      
+      # Main assertion: search works without crashing
+      assert is_list(results)
+      
+      # If results found, verify they have valid content (may include Unicode)
+      Enum.each(results, fn r ->
+        assert is_binary(r.content)
+      end)
+
+      Repo.delete!(engram)
+    end
+  end
+
   describe "category filtering" do
     setup do
       Repo.delete_all(Engram)

@@ -142,13 +142,15 @@ Where other systems add features, Mimo adds **cognitive depth**. Where other too
 - [x] Unified reasoning engine (CoT, ToT, ReAct, Reflexion)
 - [x] Code intelligence (symbols, references, call graphs)
 - [x] Tool adoption optimization (SPEC-041)
-- [ ] Cognitive lifecycle tracking (planning/executing/evaluating/learning)
+- [x] Reflective Intelligence (SPEC-043) - Self-evaluation systems
+- [x] Cognitive lifecycle tracking (SPEC-042) - Phase classification & anti-pattern detection
 - [ ] Evaluator-Optimizer pattern (self-critique loop)
 - [ ] Context window awareness and management
 
-### Phase 3: Emergent Capabilities 🎯 (Next)
+### Phase 3: Emergent Capabilities 🔄 (In Progress)
 *"The awakened mind discovers"*
 
+- [x] Emergent Capabilities Framework (SPEC-044) - Pattern detection & promotion
 - [ ] Autonomous goal decomposition
 - [ ] Cross-domain knowledge transfer
 - [ ] Pattern recognition across memory stores
@@ -212,12 +214,15 @@ Where other systems add features, Mimo adds **cognitive depth**. Where other too
 
 ### Awakening & Enhancement
 | Spec | Name | Status | Purpose |
-|------|------|--------|---------|
+|------|------|--------|---------
 | SPEC-040 | Awakening Protocol | ✅ Complete | AI enhancement on connection |
-| SPEC-041 | Tool Definition Enhancement | 🔄 Active | Workflow-aware tool descriptions |
-| SPEC-042 | Cognitive Patterns | 📋 Planned | Universal mental models |
-| SPEC-043 | Reflective Intelligence | 📋 Planned | Self-evaluation systems |
-| SPEC-044 | Emergent Capabilities | 📋 Planned | Cross-system pattern recognition |
+| SPEC-041 | Tool Definition Enhancement | ✅ Complete | Workflow-aware tool descriptions |
+| SPEC-042 | Cognitive Patterns | ✅ Complete | Universal mental models, Lifecycle tracking |
+| SPEC-043 | Reflective Intelligence | ✅ Complete | Self-evaluation systems |
+| SPEC-044 | Emergent Capabilities | ✅ Complete | Cross-system pattern recognition |
+| SPEC-056 | Token Optimization | ✅ Complete | Memory context opt-in, symbol-based reading |
+| SPEC-064 | Structural Token Optimization | ✅ Complete | 40% token reduction via skip_memory_context |
+| SPEC-065 | Proactive Knowledge Injection | ✅ Complete | Memory surfacing before tool execution |
 
 ---
 

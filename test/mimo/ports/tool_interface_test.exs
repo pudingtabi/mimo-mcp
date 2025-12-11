@@ -453,9 +453,13 @@ defmodule Mimo.ToolInterfaceTest do
       tools = ToolInterface.list_tools()
       tool_names = Enum.map(tools, &(&1["name"] || &1[:name]))
 
-      # Deprecated but still available for backward compatibility
-      assert "search_vibes" in tool_names
-      assert "store_fact" in tool_names
+      # Deprecated tools (search_vibes, store_fact) were replaced by 'memory'
+      # They still work when called directly but are NOT listed to encourage
+      # migration to the unified 'memory' tool
+      assert "memory" in tool_names
+      
+      # The legacy tools are still executable (tested in deprecated tools tests above)
+      # but intentionally hidden from list_tools() to guide users to new API
     end
 
     test "includes SPEC-011 tools" do

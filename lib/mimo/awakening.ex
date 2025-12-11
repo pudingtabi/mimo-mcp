@@ -106,11 +106,15 @@ defmodule Mimo.Awakening do
           Logger.info("🚀 [Awakening] Library cache empty - triggering auto-discover")
           project_path = System.get_env("MIMO_ROOT", ".")
 
-          {:ok, results} = Mimo.Library.cache_project_deps(project_path)
+          case Mimo.Library.cache_project_deps(project_path) do
+            {:ok, results} ->
+              Logger.info(
+                "✅ [Awakening] Library auto-discover complete: #{length(results.success)} packages cached"
+              )
 
-          Logger.info(
-            "✅ [Awakening] Library auto-discover complete: #{length(results.success)} packages cached"
-          )
+            _ ->
+              Logger.warning("[Awakening] Library auto-discover returned unexpected result")
+          end
 
         stats when is_map(stats) ->
           Logger.debug(
@@ -173,7 +177,11 @@ defmodule Mimo.Awakening do
 
       {:ok, session_state, :awakened} ->
         # First tool call - build and inject awakening context
-        {:ok, stats} = Stats.get_or_create(session_state.user_id, session_state.project_id)
+        stats =
+          case Stats.get_or_create(session_state.user_id, session_state.project_id) do
+            {:ok, s} -> s
+            {:error, _} -> Stats.create_stats()
+          end
 
         # Fetch recent memories for personalization
         recent_memories = fetch_recent_memories(5)

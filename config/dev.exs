@@ -5,16 +5,17 @@ config :logger, :console,
   metadata: [:request_id]
 
 config :mimo_mcp, Mimo.Repo,
-  database: "priv/mimo_mcp_dev.db",
+  database: System.get_env("MIMO_DB_PATH") || "priv/mimo_mcp.db",
   pool_size: 5,
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
-  # SQLite concurrency settings to prevent "Database busy" errors
-  # Increased timeout significantly for heavy startup operations
-  busy_timeout: 60_000,
+  # SQLite concurrency settings for concurrent access
+  busy_timeout: 120_000,
   journal_mode: :wal,
   cache_size: -64_000,
-  temp_store: :memory
+  temp_store: :memory,
+  # Enable shared cache for better concurrent reads
+  mode: :readwrite
 
 # =============================================================================
 # Universal Aperture: Development Configuration
@@ -46,3 +47,24 @@ config :mimo_mcp, :feature_flags,
   websocket_synapse: true,
   hnsw_index: true,
   temporal_memory_chains: true
+
+# =============================================================================
+# CRITICAL: Memory Retention Overrides for Development
+# =============================================================================
+# The default TTL settings are too aggressive for development/learning.
+# This preserves memories much longer to enable actual cognitive capabilities.
+
+# Disable aggressive Cleanup in dev - keep memories for 365 days
+config :mimo_mcp, Mimo.Brain.Cleanup,
+  default_ttl_days: 365,          # Keep all memories for 1 year (was 30 days)
+  low_importance_ttl_days: 90,    # Keep low-importance for 90 days (was 7 days)
+  max_memory_count: 500_000,      # Allow more memories (was 100,000)
+  cleanup_interval_ms: 86_400_000 # Run only once per day, not hourly
+
+# Adjust Forgetting to be less aggressive
+config :mimo_mcp, :forgetting,
+  enabled: true,
+  interval_ms: 86_400_000,        # Daily instead of hourly
+  threshold: 0.05,                # Lower threshold - only forget truly decayed memories
+  batch_size: 100,                # Smaller batches
+  dry_run: false

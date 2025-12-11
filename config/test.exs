@@ -4,7 +4,8 @@ import Config
 config :mimo_mcp, Mimo.Repo,
   database: Path.expand("../priv/mimo_mcp_test.db", __DIR__),
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: 10
+  pool_size: 10,
+  show_sensitive_data_on_connection_error: true
 
 # Disable external API calls in tests
 config :mimo_mcp,

@@ -61,6 +61,7 @@ defmodule Mimo.Brain.Memory do
   alias Mimo.Vector.Math
   alias Mimo.Brain.NoveltyDetector
   alias Mimo.Brain.MemoryIntegrator
+  alias Mimo.Brain.ReasoningBridge
   alias Mimo.Awakening.Hooks, as: AwakeningHooks
 
   # Configuration constants
@@ -328,8 +329,12 @@ defmodule Mimo.Brain.Memory do
       persist_memory("API key rotated", "action", importance: 0.9)
   """
   def persist_memory(content, category, importance \\ 0.5) do
+    persist_memory(content, category, importance, [])
+  end
+
+  def persist_memory(content, category, importance, opts) when is_list(opts) do
     RetryStrategies.with_sqlite_retry(
-      fn -> do_persist_memory_with_tmc(content, category, importance) end,
+      fn -> do_persist_memory_with_tmc(content, category, importance, opts) end,
       max_retries: 5,
       base_delay: 500,
       on_retry: fn attempt, reason ->
@@ -339,15 +344,21 @@ defmodule Mimo.Brain.Memory do
   end
 
   # SPEC-034: TMC-aware persistence
+  # SPEC-058: Enhanced with optional reasoning-memory integration
   # Routes through NoveltyDetector to handle contradictions and updates
-  defp do_persist_memory_with_tmc(content, category, importance) do
+  defp do_persist_memory_with_tmc(content, category, importance, opts) do
     category_str = to_string(category)
 
     # Classify the content using NoveltyDetector
     case NoveltyDetector.classify(content, category_str) do
       {:new, []} ->
         # No similar memories (or TMC disabled) - proceed with normal persistence
-        do_persist_memory(content, category, importance)
+        # SPEC-058: Optionally enhance with reasoning
+        do_persist_memory_with_reasoning(content, category, importance, [], opts)
+
+      {:new, similar} ->
+        # Treat loosely related memories as context for reasoning, but store as new
+        do_persist_memory_with_reasoning(content, category, importance, similar, opts)
 
       {:redundant, existing} ->
         # Near-duplicate found - reinforce existing memory
@@ -366,6 +377,9 @@ defmodule Mimo.Brain.Memory do
           "TMC: Ambiguous case with #{length(similar_memories)} similar memories, deciding for ##{target.id}"
         )
 
+        # SPEC-058: Pass similar memories for relationship detection
+        similar_engrams = Enum.map(similar_memories, & &1.engram)
+
         # decide/3 always returns {:ok, %{decision: ...}} (fallback on errors)
         {:ok, %{decision: decision}} =
           MemoryIntegrator.decide(content, target, category: category_str, importance: importance)
@@ -378,20 +392,104 @@ defmodule Mimo.Brain.Memory do
              ) do
           {:ok, :skipped} -> {:ok, target.id}
           {:ok, %Engram{id: id}} -> {:ok, id}
+          # For :new decisions, use reasoning-enhanced persistence
+          {:ok, :new} ->
+            do_persist_memory_with_reasoning(content, category, importance, similar_engrams, opts)
           {:error, _} = error -> error
         end
     end
   end
 
-  defp do_persist_memory(content, category, importance) do
+  # SPEC-058: Reasoning-enhanced persistence
+  # Optionally enhances memory with reasoning context when enabled
+  defp do_persist_memory_with_reasoning(content, category, importance, similar_memories, opts) do
+    if reasoning_memory_enabled?() do
+      category_str = to_string(category)
+      
+      # Get reasoning-enhanced metadata
+      reasoning_result = 
+        case ReasoningBridge.analyze_for_storage(content, 
+               category: category_str, 
+               similar_memories: similar_memories) do
+          {:ok, ctx} -> ctx
+          {:skip, :disabled} -> nil
+        end
+
+      # Score importance using reasoning (may adjust the provided importance)
+      final_importance = 
+        if reasoning_result do
+          ReasoningBridge.score_importance(content, category_str, base_importance: importance)
+        else
+          importance
+        end
+
+      # Generate reasoning-enhanced tags
+      reasoning_tags = 
+        if reasoning_result do
+          ReasoningBridge.generate_tags(content, category_str)
+        else
+          []
+        end
+
+      # Persist with enhanced metadata
+      do_persist_memory_enhanced(
+        content,
+        category,
+        final_importance,
+        reasoning_result,
+        reasoning_tags,
+        opts
+      )
+    else
+      do_persist_memory(content, category, importance, opts)
+    end
+  end
+
+  defp reasoning_memory_enabled? do
+    Application.get_env(:mimo, :reasoning_memory_enabled, false)
+  end
+
+  # SPEC-058: Enhanced persistence with reasoning context in metadata
+  defp do_persist_memory_enhanced(content, category, importance, reasoning_context, reasoning_tags, opts) do
     Repo.transaction(fn ->
       with :ok <- validate_content_size(content),
+           :ok <- validate_content_quality(content),
            :unique <- check_duplicate(content),
            {:ok, embedding} <- generate_embedding(content),
            :ok <- validate_embedding_dimension(embedding) do
         # Auto-detect project and generate tags
         project_id = Mimo.Brain.LLM.detect_project(content)
-        tags = auto_generate_tags(content)
+        auto_tags = auto_generate_tags(content)
+        
+        # Merge auto-generated tags with reasoning-enhanced tags
+        all_tags = Enum.uniq(auto_tags ++ reasoning_tags)
+
+        valid_from = Keyword.get(opts, :valid_from)
+        valid_until = Keyword.get(opts, :valid_until)
+        validity_source = Keyword.get(opts, :validity_source)
+
+        # Build metadata with reasoning context
+        metadata = 
+          if reasoning_context do
+            %{
+              "reasoning_context" => %{
+                "session_id" => reasoning_context.session_id,
+                "strategy" => to_string(reasoning_context.strategy),
+                "decomposition" => reasoning_context.decomposition,
+                "importance_reasoning" => reasoning_context.importance_reasoning,
+                "detected_relationships" => Enum.map(reasoning_context.detected_relationships, fn rel ->
+                  %{
+                    "type" => to_string(rel.type),
+                    "target_id" => rel.target_id,
+                    "confidence" => rel.confidence
+                  }
+                end),
+                "confidence" => reasoning_context.confidence
+              }
+            }
+          else
+            %{}
+          end
 
         # SPEC-031: Quantize to int8 for efficient storage
         # SPEC-033: Also generate binary embedding for fast pre-filtering
@@ -432,7 +530,103 @@ defmodule Mimo.Brain.Memory do
                 importance: importance,
                 embedding: embedding_to_store,
                 project_id: project_id,
-                tags: tags
+                tags: all_tags,
+                metadata: metadata,
+                valid_from: valid_from,
+                valid_until: valid_until,
+                validity_source: validity_source
+              },
+              quantized_attrs
+            )
+          )
+
+        case Repo.insert(changeset) do
+          {:ok, engram} ->
+            log_memory_event(:stored, engram.id, category, project_id, all_tags)
+            # SPEC-025: Notify Orchestrator for Synapse graph linking
+            notify_memory_stored(engram)
+            # SPEC-040: Award XP for memory storage
+            AwakeningHooks.memory_stored(engram)
+            # SPEC-032: Auto-protect high-importance memories
+            maybe_auto_protect(engram, importance)
+            # Log reasoning enhancement
+            if reasoning_context do
+              Logger.debug("SPEC-058: Memory stored with reasoning context (confidence: #{reasoning_context.confidence})")
+            end
+            {:ok, engram.id}
+
+          {:error, changeset} ->
+            Repo.rollback(changeset.errors)
+        end
+      else
+        {:duplicate, id} ->
+          # Return duplicate info instead of rolling back
+          {:duplicate, id}
+
+        {:error, reason} ->
+          Repo.rollback(reason)
+      end
+    end)
+    |> unwrap_transaction_result()
+  end
+
+  defp do_persist_memory(content, category, importance, opts) do
+    Repo.transaction(fn ->
+      with :ok <- validate_content_size(content),
+           :ok <- validate_content_quality(content),
+           :unique <- check_duplicate(content),
+           {:ok, embedding} <- generate_embedding(content),
+           :ok <- validate_embedding_dimension(embedding) do
+        # Auto-detect project and generate tags
+        project_id = Mimo.Brain.LLM.detect_project(content)
+        tags = auto_generate_tags(content)
+        valid_from = Keyword.get(opts, :valid_from)
+        valid_until = Keyword.get(opts, :valid_until)
+        validity_source = Keyword.get(opts, :validity_source)
+
+        # SPEC-031: Quantize to int8 for efficient storage
+        # SPEC-033: Also generate binary embedding for fast pre-filtering
+        {embedding_to_store, quantized_attrs} =
+          case Math.quantize_int8(embedding) do
+            {:ok, {int8_binary, scale, offset}} ->
+              # Generate binary embedding from int8
+              binary_attrs =
+                case Math.int8_to_binary(int8_binary) do
+                  {:ok, binary} -> %{embedding_binary: binary}
+                  {:error, _} -> %{}
+                end
+
+              # Successfully quantized - store int8 and binary
+              {[],
+               Map.merge(
+                 %{
+                   embedding_int8: int8_binary,
+                   embedding_scale: scale,
+                   embedding_offset: offset
+                 },
+                 binary_attrs
+               )}
+
+            {:error, reason} ->
+              # Quantization failed - fall back to float32
+              Logger.warning("Int8 quantization failed: #{inspect(reason)}, storing float32")
+              {embedding, %{}}
+          end
+
+        changeset =
+          Engram.changeset(
+            %Engram{},
+            Map.merge(
+              %{
+                content: content,
+                category: category,
+                importance: importance,
+                embedding: embedding_to_store,
+                project_id: project_id,
+                tags: tags,
+                valid_from: valid_from,
+                valid_until: valid_until,
+                validity_source: validity_source
               },
               quantized_attrs
             )
@@ -560,13 +754,60 @@ defmodule Mimo.Brain.Memory do
     type = attrs[:type] || attrs["type"] || "fact"
     ref = attrs[:ref] || attrs["ref"]
     metadata = attrs[:metadata] || attrs["metadata"] || %{}
+    importance = attrs[:importance] || attrs["importance"] || 0.8
 
-    persist_memory_with_metadata(content, type, ref, metadata)
+    # Q1 2026 Phase 3: Auto-inject session tagging from process context
+    # This enables multi-agent session isolation and filtering
+    enhanced_metadata = inject_session_context(metadata)
+
+    persist_memory_with_metadata(content, type, ref, enhanced_metadata, importance)
   end
 
-  defp persist_memory_with_metadata(content, type, ref, metadata) do
+  # Inject session context into memory metadata.
+  # Automatically captures agent type, session ID, and other context
+  # from the process dictionary. This enables:
+  # - Session-level memory isolation
+  # - Agent-specific memory filtering
+  # - Multi-agent collaboration tracking
+  #
+  # The process dictionary keys used:
+  # - :mimo_session_id - Unique session identifier
+  # - :mimo_agent_type - Agent type (e.g., "mimo-cognitive-agent")
+  # - :mimo_model_id - Model identifier (e.g., "claude-opus-4")
+  defp inject_session_context(metadata) when is_map(metadata) do
+    session_context = %{}
+    
+    # Capture session ID if present
+    session_context = 
+      case Process.get(:mimo_session_id) do
+        nil -> session_context
+        session_id -> Map.put(session_context, "session_id", session_id)
+      end
+
+    # Capture agent type if present
+    session_context = 
+      case Process.get(:mimo_agent_type) do
+        nil -> session_context
+        agent_type -> Map.put(session_context, "agent_type", agent_type)
+      end
+
+    # Capture model ID if present
+    session_context = 
+      case Process.get(:mimo_model_id) do
+        nil -> session_context
+        model_id -> Map.put(session_context, "model_id", model_id)
+      end
+
+    # Merge with existing metadata (existing metadata takes precedence)
+    Map.merge(session_context, metadata)
+  end
+
+  defp inject_session_context(metadata), do: metadata
+
+  defp persist_memory_with_metadata(content, type, ref, metadata, importance) do
     Repo.transaction(fn ->
       with :ok <- validate_content_size(content),
+           :ok <- validate_content_quality(content),
            {:ok, embedding} <- generate_embedding(content),
            :ok <- validate_embedding_dimension(embedding) do
         # SPEC-031 + SPEC-033: Quantize to int8 and binary
@@ -600,7 +841,7 @@ defmodule Mimo.Brain.Memory do
               %{
                 content: content,
                 category: type,
-                importance: 0.8,
+                importance: importance,
                 embedding: embedding_to_store,
                 metadata: Map.merge(metadata, %{"ref" => ref, "type" => type})
               },
@@ -621,13 +862,54 @@ defmodule Mimo.Brain.Memory do
 
   @doc """
   Search with type filter - used by SemanticStore.Resolver.
+  
+  ## SPEC-058 Options
+  
+    * `:enable_reasoning` - Use ReasoningBridge for query analysis (default: false)
+    * `:rerank` - Rerank results using reasoning (default: false)
   """
   def search(query, opts \\ []) do
     limit = Keyword.get(opts, :limit, 10)
     type_filter = Keyword.get(opts, :type)
     min_similarity = Keyword.get(opts, :min_similarity, 0.3)
+    enable_reasoning = Keyword.get(opts, :enable_reasoning, false)
+    rerank = Keyword.get(opts, :rerank, false)
 
-    results = search_memories(query, limit: limit * 2, min_similarity: min_similarity)
+    # SPEC-058: Optional query analysis with reasoning
+    {search_query, query_analysis, enhanced_opts} = 
+      if enable_reasoning and reasoning_memory_enabled?() do
+        case ReasoningBridge.analyze_query(query) do
+          {:ok, analysis} ->
+            # Expand query with synonyms
+            expanded_query = 
+              case analysis["expanded_terms"] do
+                terms when is_list(terms) and terms != [] ->
+                  [query | terms] |> Enum.join(" ")
+                _ ->
+                  query
+              end
+            
+            # Apply time filter if detected
+            enhanced_opts = 
+              case analysis["time_context"] do
+                nil -> opts
+                time_ctx -> Keyword.put(opts, :time_filter, time_ctx)
+              end
+            
+            {expanded_query, analysis, enhanced_opts}
+          
+          _ ->
+            {query, %{}, opts}
+        end
+      else
+        {query, %{}, opts}
+      end
+
+    results = search_memories(search_query, 
+      limit: limit * 2, 
+      min_similarity: min_similarity,
+      time_filter: Keyword.get(enhanced_opts, :time_filter)
+    )
 
     filtered =
       if type_filter do
@@ -639,7 +921,29 @@ defmodule Mimo.Brain.Memory do
         results
       end
 
-    {:ok, Enum.take(filtered, limit) |> Enum.map(&add_score_field/1)}
+    # SPEC-058: Optional reranking with reasoning
+    final_results = 
+      if rerank and reasoning_memory_enabled?() and length(filtered) > 3 do
+        # Convert results to Engram-like maps for reranking
+        engram_like = Enum.map(filtered, fn r ->
+          %Engram{id: r[:id], content: r[:content]}
+        end)
+        
+        reranked = ReasoningBridge.rerank(query, engram_like, query_analysis)
+        
+        # Map back to original results
+        reranked_ids = Enum.map(reranked, & &1.id)
+        Enum.sort_by(filtered, fn r -> 
+          case Enum.find_index(reranked_ids, &(&1 == r[:id])) do
+            nil -> 999
+            idx -> idx
+          end
+        end)
+      else
+        filtered
+      end
+
+    {:ok, Enum.take(final_results, limit) |> Enum.map(&add_score_field/1)}
   end
 
   defp add_score_field(result) do
@@ -1017,6 +1321,7 @@ defmodule Mimo.Brain.Memory do
         category: engram.category,
         importance: engram.importance,
         metadata: engram.metadata || %{},
+        inserted_at: engram.inserted_at,
         similarity: similarity,
         recency_score: recency_score,
         score: score
@@ -1247,6 +1552,7 @@ defmodule Mimo.Brain.Memory do
         category: engram.category,
         importance: engram.importance,
         metadata: engram.metadata || %{},
+        inserted_at: engram.inserted_at,
         similarity: similarity,
         recency_score: recency_score,
         score: score
@@ -1313,6 +1619,7 @@ defmodule Mimo.Brain.Memory do
         category: engram.category,
         importance: engram.importance,
         metadata: engram.metadata || %{},
+        inserted_at: engram.inserted_at,
         similarity: similarity,
         recency_score: recency_score,
         score: score
@@ -1411,6 +1718,7 @@ defmodule Mimo.Brain.Memory do
       category: engram.category,
       importance: engram.importance,
       metadata: engram.metadata || %{},
+      inserted_at: engram.inserted_at,
       similarity: similarity,
       recency_score: recency_score,
       score: score
@@ -1461,6 +1769,56 @@ defmodule Mimo.Brain.Memory do
   # ==========================================================================
   # Private Functions - Validation
   # ==========================================================================
+
+  # SPEC-065 FIX: Content quality filter to prevent test data pollution
+  @test_patterns ~w(test Test TEST unique123 placeholder dummy sample example lorem ipsum)
+  @min_content_length 10
+
+  defp validate_content_quality(content) when is_binary(content) do
+    content_lower = String.downcase(content)
+    
+    cond do
+      # Reject very short content
+      String.length(content) < @min_content_length ->
+        {:error, {:content_too_short, String.length(content), @min_content_length}}
+      
+      # Reject obvious test patterns in production
+      Mix.env() == :prod and contains_test_pattern?(content_lower) ->
+        {:error, :test_data_in_production}
+      
+      # Check for generic/low-value content
+      is_generic_content?(content_lower) ->
+        {:error, :content_too_generic}
+      
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_content_quality(_), do: {:error, :invalid_content_type}
+
+  defp contains_test_pattern?(content) do
+    Enum.any?(@test_patterns, fn pattern ->
+      # Only match whole words, not substrings
+      String.contains?(content, pattern) and 
+        (String.starts_with?(content, pattern) or 
+         String.contains?(content, " #{pattern}") or
+         String.ends_with?(content, pattern))
+    end)
+  end
+
+  defp is_generic_content?(content) do
+    # Content that's too generic to be useful
+    generic_patterns = [
+      ~r/^user\s+(frequently\s+)?interacts?\s+with/i,
+      ~r/^tagged\s+content\.?$/i,
+      ~r/^[a-z]+\s+content\.?$/i
+    ]
+    
+    Enum.any?(generic_patterns, fn pattern ->
+      Regex.match?(pattern, content)
+    end)
+  end
 
   defp validate_content_size(content) when is_binary(content) do
     if byte_size(content) > @max_content_size do

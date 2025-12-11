@@ -60,6 +60,9 @@ defmodule Mimo.QueryInterface do
 
           case synthesis_result do
             {:ok, response} ->
+              # SPEC-065: Check synthesis for contradictions with stored knowledge
+              contradiction_check = check_for_contradictions(response)
+
               # Record the conversation in memory (async, don't block response)
               record_conversation(query, response, context_id)
 
@@ -69,6 +72,8 @@ defmodule Mimo.QueryInterface do
                  router_decision: router_decision,
                  results: memories,
                  synthesis: response,
+                 # Add contradiction check results
+                 contradiction_check: contradiction_check,
                  proactive_suggestions: proactive_suggestions,
                  context_id: context_id
                }}
@@ -279,8 +284,8 @@ defmodule Mimo.QueryInterface do
         # Determine importance based on query characteristics
         importance = calculate_conversation_importance(query)
 
-        # Route through WorkingMemory for consolidation pipeline
-        case Mimo.Brain.WorkingMemory.store(
+        # Route through SafeMemory for resilient consolidation pipeline
+        case Mimo.Brain.SafeMemory.store(
                String.trim(content),
                category: "observation",
                importance: importance,
@@ -288,7 +293,7 @@ defmodule Mimo.QueryInterface do
              ) do
           {:ok, id} ->
             # Mark for consolidation since conversations are valuable
-            Mimo.Brain.WorkingMemory.mark_for_consolidation(id)
+            Mimo.Brain.SafeMemory.mark_for_consolidation(id)
 
           {:error, reason} ->
             Logger.warning("Failed to store conversation: #{inspect(reason)}")
@@ -324,6 +329,32 @@ defmodule Mimo.QueryInterface do
 
     min(base + length_boost + topic_boost, 0.85)
   end
+
+  # SPEC-065: Check synthesis for contradictions with stored knowledge
+  # Integrated with ContradictionGuard for fail-closed validation
+  defp check_for_contradictions(response) when is_binary(response) do
+    try do
+      case Mimo.Brain.ContradictionGuard.check(response, max_claims: 3) do
+        {:ok, []} ->
+          %{status: :passed, warnings: []}
+
+        {:ok, warnings} when is_list(warnings) ->
+          Logger.info("[QueryInterface] ContradictionGuard found #{length(warnings)} potential conflicts")
+          %{status: :warnings, warnings: warnings}
+
+        {:error, reason} ->
+          # Fail-closed: report that check couldn't be performed
+          Logger.warning("[QueryInterface] ContradictionGuard check failed: #{inspect(reason)}")
+          %{status: :check_failed, reason: inspect(reason), warnings: []}
+      end
+    catch
+      :exit, _ ->
+        # ContradictionGuard not available (startup, test mode)
+        %{status: :unavailable, warnings: []}
+    end
+  end
+
+  defp check_for_contradictions(_), do: %{status: :skipped, warnings: []}
 
   # Extract entity-like patterns from query for Observer
   defp extract_entities_from_query(query) do

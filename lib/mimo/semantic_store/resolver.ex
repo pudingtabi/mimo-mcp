@@ -40,9 +40,17 @@ defmodule Mimo.SemanticStore.Resolver do
 
     normalized_text = normalize_text(text)
 
-    # Search for existing entity anchors
+    # Check if text is already a canonical ID (e.g., "entity:foo", "concept:bar")
+    # If so, skip fuzzy matching and use/create directly
     result =
-      case search_entity_anchors(normalized_text, expected_type, graph_id, min_score) do
+      if canonical_id?(normalized_text) do
+        if create_anchor do
+          ensure_entity_anchor(normalized_text, text, graph_id)
+        end
+        {:ok, normalized_text}
+      else
+        # Search for existing entity anchors (fuzzy matching)
+        case search_entity_anchors(normalized_text, expected_type, graph_id, min_score) do
         {:ok, []} ->
           # No matches - create new entity
           create_new_entity(normalized_text, expected_type, graph_id)
@@ -74,6 +82,7 @@ defmodule Mimo.SemanticStore.Resolver do
             # Ambiguous
             {:error, :ambiguous, Enum.map(candidates, &elem(&1, 0))}
           end
+        end
       end
 
     # Emit telemetry
@@ -152,6 +161,8 @@ defmodule Mimo.SemanticStore.Resolver do
               (expected_type == :auto or r.metadata["entity_type"] == to_string(expected_type))
           end)
           |> Enum.map(fn r -> {r.metadata["ref"], r.score} end)
+          # Deduplicate by ref (entity_id) - keep highest score for each unique ref
+          |> Enum.uniq_by(&elem(&1, 0))
           |> Enum.sort_by(&elem(&1, 1), :desc)
 
         {:ok, candidates}
@@ -206,15 +217,33 @@ defmodule Mimo.SemanticStore.Resolver do
   end
 
   defp generate_canonical_id(text, type) do
-    slug =
+    # If text is already a canonical ID (like "entity:foo" or "concept:bar"), use it directly
+    if canonical_id?(text) do
       text
-      |> String.downcase()
-      |> String.replace(~r/[^a-z0-9]+/, "_")
-      |> String.trim("_")
-      |> String.slice(0, 50)
+    else
+      slug =
+        text
+        |> String.downcase()
+        |> String.replace(~r/[^a-z0-9]+/, "_")
+        |> String.trim("_")
+        |> String.slice(0, 50)
 
-    type_prefix = if type == :auto, do: "entity", else: to_string(type)
-    "#{type_prefix}:#{slug}"
+      type_prefix = if type == :auto, do: "entity", else: to_string(type)
+      "#{type_prefix}:#{slug}"
+    end
+  end
+
+  # Check if text is already a valid canonical entity ID (type:name format)
+  defp canonical_id?(text) do
+    case String.split(text, ":", parts: 2) do
+      [prefix, name] when byte_size(prefix) > 0 and byte_size(name) > 0 ->
+        # Valid prefixes we recognize
+        valid_prefixes = ~w(entity concept service person file function module memory external_lib)
+        String.downcase(prefix) in valid_prefixes
+
+      _ ->
+        false
+    end
   end
 
   defp extract_type_from_id(entity_id) do

@@ -366,38 +366,170 @@ defmodule Mimo.Skills.Verify do
   defp relation_symbol("greater_equal"), do: ">="
   defp relation_symbol("less_equal"), do: "<="
 
+  # Rate limit tracking for self_check (per-process)
+  @self_check_rate_limit 3
+  @self_check_window_seconds 60
+  @self_check_timeout_ms 30_000
+
   # ==========================================================================
-  # SELF-CHECK VERIFICATION
+  # SELF-CHECK VERIFICATION (SPEC-062 Enhanced)
   # ==========================================================================
 
   defp verify_self_check(%{problem: problem, claimed_answer: claimed}) do
-    # This operation delegates to reasoning system to independently derive answer
-    # In a full implementation, this would call Mimo.Cognitive.Reasoner
-    # For now, we provide a framework
+    # Check rate limit
+    case check_rate_limit(:self_check) do
+      :ok ->
+        execute_self_check(problem, claimed)
 
-    Logger.info("Self-check requested for problem: #{inspect(problem)}")
-
-    {:ok,
-     %{
-       operation: "self_check",
-       problem: problem,
-       claimed_answer: claimed,
-       independent_derivation: "pending",
-       verified: false,
-       method: "independent_reasoning",
-       note:
-         "Self-check requires independent reasoning session. Use 'reason operation=guided problem=...' to derive independently, then compare results.",
-       recommended_workflow: [
-         "1. Call: reason operation=guided problem='#{problem}' strategy=cot",
-         "2. Work through reasoning steps",
-         "3. Call: reason operation=conclude session_id=...",
-         "4. Compare conclusion with claimed_answer: #{claimed}"
-       ]
-     }}
+      {:error, :rate_limited} ->
+        {:error, "Rate limited: max #{@self_check_rate_limit} self_checks per minute"}
+    end
   end
 
   defp verify_self_check(params) do
     {:error,
      "Invalid self_check parameters. Required: problem, claimed_answer. Got: #{inspect(params)}"}
+  end
+
+  defp execute_self_check(problem, claimed) do
+    Logger.info("[Verify.self_check] Starting independent reasoning for: #{inspect(problem)}")
+
+    # Start independent reasoning session
+    task =
+      Task.async(fn ->
+        with {:ok, session} <- Mimo.Cognitive.Reasoner.guided(problem, strategy: :cot),
+             # Add a single thought step to trigger reasoning
+             {:ok, _step} <-
+               Mimo.Cognitive.Reasoner.step(session.session_id, "Analyzing: #{problem}"),
+             {:ok, conclusion} <- Mimo.Cognitive.Reasoner.conclude(session.session_id) do
+          {:ok, conclusion}
+        else
+          error -> error
+        end
+      end)
+
+    # Wait with timeout
+    case Task.yield(task, @self_check_timeout_ms) || Task.shutdown(task) do
+      {:ok, {:ok, conclusion}} ->
+        independent_answer = conclusion.conclusion
+        match = normalize_and_compare(independent_answer, claimed)
+
+        # Emit telemetry
+        emit_self_check_result(match)
+
+        {:ok,
+         %{
+           operation: "self_check",
+           problem: problem,
+           claimed_answer: claimed,
+           independent_answer: independent_answer,
+           match: match,
+           verified: true,
+           method: "executable_reasoning",
+           confidence: conclusion.confidence,
+           recommendation:
+             if(match,
+               do: "✓ CONFIRMED: Independent reasoning matches claimed answer",
+               else: "⚠️ DISCREPANCY: Review both answers - independent: #{independent_answer}"
+             ),
+           reasoning_summary: conclusion.reasoning_summary
+         }}
+
+      {:ok, {:error, reason}} ->
+        Logger.warning("[Verify.self_check] Reasoning failed: #{inspect(reason)}")
+
+        {:ok,
+         %{
+           operation: "self_check",
+           problem: problem,
+           claimed_answer: claimed,
+           independent_answer: nil,
+           match: nil,
+           verified: false,
+           method: "executable_reasoning",
+           error: "Reasoning failed: #{inspect(reason)}",
+           fallback_workflow: [
+             "1. Call: reason operation=guided problem='#{problem}' strategy=cot",
+             "2. Work through reasoning steps",
+             "3. Call: reason operation=conclude session_id=...",
+             "4. Compare conclusion with claimed_answer: #{claimed}"
+           ]
+         }}
+
+      nil ->
+        Logger.warning("[Verify.self_check] Timed out after #{@self_check_timeout_ms}ms")
+
+        {:ok,
+         %{
+           operation: "self_check",
+           problem: problem,
+           claimed_answer: claimed,
+           independent_answer: nil,
+           match: nil,
+           verified: false,
+           method: "executable_reasoning",
+           error: "Self-check timed out after #{div(@self_check_timeout_ms, 1000)}s",
+           fallback_workflow: [
+             "1. Call: reason operation=guided problem='#{problem}' strategy=cot",
+             "2. Work through reasoning steps manually",
+             "3. Call: reason operation=conclude session_id=...",
+             "4. Compare conclusion with claimed_answer: #{claimed}"
+           ]
+         }}
+    end
+  end
+
+  # Rate limiting for self_check to prevent abuse
+  defp check_rate_limit(operation) do
+    key = {operation, self()}
+    now = System.monotonic_time(:second)
+
+    case Process.get(key) do
+      nil ->
+        Process.put(key, {1, now})
+        :ok
+
+      {_count, start} when now - start > @self_check_window_seconds ->
+        Process.put(key, {1, now})
+        :ok
+
+      {count, _start} when count < @self_check_rate_limit ->
+        Process.put(key, {count + 1, now})
+        :ok
+
+      _ ->
+        {:error, :rate_limited}
+    end
+  end
+
+  # Normalize and compare answers for matching
+  defp normalize_and_compare(a, b) when is_binary(a) and is_binary(b) do
+    normalize(a) == normalize(b)
+  end
+
+  defp normalize_and_compare(a, b) when is_number(a) and is_number(b) do
+    compare_numbers(a, b)
+  end
+
+  defp normalize_and_compare(a, b) do
+    to_string(a) |> normalize() == to_string(b) |> normalize()
+  end
+
+  defp normalize(val) when is_binary(val) do
+    val
+    |> String.downcase()
+    |> String.trim()
+    |> String.replace(~r/\s+/, " ")
+  end
+
+  defp normalize(val), do: val
+
+  # Telemetry for self_check results
+  defp emit_self_check_result(match) do
+    :telemetry.execute(
+      [:mimo, :verification, :self_check],
+      %{match: if(match, do: 1, else: 0)},
+      %{operation: :self_check}
+    )
   end
 end

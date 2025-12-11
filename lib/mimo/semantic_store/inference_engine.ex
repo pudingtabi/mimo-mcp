@@ -56,8 +56,8 @@ defmodule Mimo.SemanticStore.InferenceEngine do
     # Build in-memory graph
     graph = build_digraph(predicate, min_confidence)
 
-    # Find all transitive closures
-    inferred =
+    # Find all transitive closures (symbolic inference)
+    symbolic_inferred =
       :digraph.vertices(graph)
       |> Enum.flat_map(fn vertex ->
         find_transitive_paths(graph, vertex, max_depth)
@@ -78,6 +78,25 @@ defmodule Mimo.SemanticStore.InferenceEngine do
       end)
       |> filter_existing_triples()
 
+    # Neuro-symbolic extension (LLM rules + GNN predictions)
+    neuro_symbolic_inferred =
+      if Keyword.get(opts, :neuro_symbolic, true) do
+        try do
+          forward_chain_neuro_symbolic(predicate, opts)
+        rescue
+          e ->
+            Logger.error("Neuro-symbolic forward chain failed: #{inspect(e)}")
+            []
+        end
+      else
+        []
+      end
+
+    # Merge and deduplicate
+    # Prefer neuro-symbolic inferences over purely symbolic ones when deduplicating
+    inferred = (neuro_symbolic_inferred ++ symbolic_inferred)
+    |> Enum.uniq_by(fn t -> {t.subject_id, t.predicate, t.object_id} end)
+
     # Cleanup graph
     :digraph.delete(graph)
 
@@ -89,6 +108,122 @@ defmodule Mimo.SemanticStore.InferenceEngine do
 
     {:ok, inferred}
   end
+
+  defp forward_chain_neuro_symbolic(predicate, opts) do
+    max_depth = Keyword.get(opts, :max_depth, 3)
+    min_confidence = Keyword.get(opts, :min_confidence, 0.5)
+
+    # STEP 1: Query existing validated rules from the database for this predicate
+    existing_rules = query_existing_rules_for_predicate(predicate)
+
+    # STEP 2: Apply existing rules first
+    inferred_from_existing =
+      existing_rules
+      |> Enum.flat_map(fn rule ->
+        apply_rule_for_inference(rule, predicate, max_depth, min_confidence, opts)
+      end)
+
+    # STEP 3: If we have results from existing rules, return them
+    # Otherwise, try LLM rule generation as fallback
+    if length(inferred_from_existing) > 0 do
+      inferred_from_existing
+    else
+      # Try to discover LLM rules for this predicate (best-effort)
+      # Use generate_and_persist_rules so we get back persisted Rule structs when requested
+      rs_opts = [max_rules: 3, persist_validated: Keyword.get(opts, :persist_rules, false)]
+
+      case Mimo.NeuroSymbolic.RuleGenerator.generate_and_persist_rules("Infer rules for '#{predicate}'", rs_opts) do
+        {:ok, %{persisted: persisted, candidates: _candidates, others: _others}} ->
+          relevant_rules = persisted
+
+          relevant_rules
+          |> Enum.filter(fn r -> (r.confidence || 0.0) >= 0.0 end)
+          |> Enum.flat_map(fn rule ->
+            apply_rule_for_inference(rule, predicate, max_depth, min_confidence, opts)
+          end)
+
+        {:ok, %{candidates: candidates}} ->
+          # If nothing was persisted, use candidates list (no persisted id)
+          candidates
+          |> Enum.filter(&(&1.confidence >= 0.0))
+          |> Enum.flat_map(fn rule ->
+            apply_rule_for_inference(rule, predicate, max_depth, min_confidence, opts)
+          end)
+
+        {:error, _} ->
+          []
+      end
+    end
+  end
+
+  # Query existing validated rules from the database that match this predicate
+  defp query_existing_rules_for_predicate(predicate) do
+    alias Mimo.NeuroSymbolic.Rule
+
+    # Query rules with validated status and conclusion matching the predicate
+    # The conclusion can be either the predicate string directly or a JSON object with "predicate" key
+    predicate_str = to_string(predicate)
+    predicate_pattern = "%\"predicate\":\"#{predicate_str}\"%"
+
+    from(r in Rule,
+      where: r.validation_status == "validated" and
+             (r.conclusion == ^predicate_str or like(r.conclusion, ^predicate_pattern)),
+      order_by: [desc: r.confidence]
+    )
+    |> Mimo.Repo.all()
+  end
+
+  # Apply a rule to infer transitive triples, returning results with inferred_by_rule_id
+  defp apply_rule_for_inference(rule, predicate, max_depth, min_confidence, opts) do
+    # Support both persisted Ecto struct and raw maps
+    rule_id = if is_map(rule), do: Map.get(rule, :id) || Map.get(rule, "id"), else: rule.id
+    rule_conf = if is_map(rule), do: Map.get(rule, :confidence) || 0.5, else: rule.confidence
+    conclusion_field = if is_map(rule), do: Map.get(rule, :conclusion), else: rule.conclusion
+
+    conclusion_pred =
+      cond do
+        is_map(conclusion_field) -> Map.get(conclusion_field, "predicate") || Map.get(conclusion_field, :predicate)
+        is_binary(conclusion_field) ->
+          case Jason.decode(conclusion_field) do
+            {:ok, m} when is_map(m) -> Map.get(m, "predicate") || Map.get(m, :predicate)
+            _ -> conclusion_field
+          end
+        true -> conclusion_field
+      end
+
+    if to_string(conclusion_pred) == to_string(predicate) do
+      graph = build_digraph(predicate, min_confidence)
+
+      inferred =
+        :digraph.vertices(graph)
+        |> Enum.flat_map(fn vertex ->
+          find_transitive_paths(graph, vertex, max_depth)
+        end)
+        |> Enum.map(fn {from, to, depth} ->
+          confidence = max(0.0, (rule_conf || 0.5) * (1.0 - depth * Keyword.get(opts, :confidence_decay, 0.1)))
+
+          %{
+            subject_id: elem(from, 0),
+            subject_type: elem(from, 1),
+            predicate: predicate,
+            object_id: elem(to, 0),
+            object_type: elem(to, 1),
+            confidence: confidence,
+            source: "neuro_symbolic:rule:#{rule_id}",
+            metadata: %{inferred: true, depth: depth, rule_id: rule_id},
+            inferred_by_rule_id: rule_id
+          }
+        end)
+        |> filter_existing_triples()
+
+      :digraph.delete(graph)
+      inferred
+    else
+      []
+    end
+  end
+
+  # End of file
 
   @doc """
   Backward chaining: given a goal, find supporting facts.

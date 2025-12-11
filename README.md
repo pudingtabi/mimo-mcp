@@ -2,7 +2,7 @@
 
 **Give your AI agents a brain that remembers.**
 
-Mimo is a Memory Operating System for AI agents. It provides persistent memory, knowledge graphs, and 17 native tools — so your AI actually learns from conversations and remembers context across sessions.
+Mimo is a Memory Operating System for AI agents. It provides persistent memory, knowledge graphs, and 18 unified tools — so your AI actually learns from conversations and remembers context across sessions.
 
 [![Elixir](https://img.shields.io/badge/Elixir-1.19+-purple.svg)](https://elixir-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -103,16 +103,18 @@ Add to `~/.vscode/mcp.json`:
 
 ## Core Tools
 
-Mimo provides 17 primary tools (with 12 deprecated aliases for backward compatibility). Here are the most used:
+Mimo exposes 18 unified tools via MCP (with 21 deprecated aliases hidden but working for backward compatibility). Here are the most used:
 
 | Tool | Example | Purpose |
 |------|---------|---------|
 | `memory` | `memory operation=store content="User likes TypeScript"` | Store/search memories |
 | `file` | `file operation=edit path="app.ts" old_str="x" new_str="y"` | Read, write, edit files |
 | `terminal` | `terminal command="npm test"` | Run shell commands |
-| `web` | `web operation=search query="React hooks best practices"` | **Unified web operations** |
-| `code` | `code operation=symbols path="src/"` | **Unified code intelligence** |
+| `web` | `web operation=search query="React hooks best practices"` | All web/network operations |
+| `code` | `code operation=symbols path="src/"` | Code symbols, library docs, diagnostics |
 | `knowledge` | `knowledge operation=teach text="Auth depends on DB"` | Build knowledge graph |
+| `cognitive` | `cognitive operation=assess topic="decision"` | Meta-cognition & verification |
+| `meta` | `meta operation=prepare_context query="task"` | Composite operations |
 | `onboard` | `onboard path="."` | Index project at session start |
 
 See [full tool reference →](docs/API_REFERENCE.md)

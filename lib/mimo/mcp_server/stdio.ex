@@ -18,20 +18,42 @@ defmodule Mimo.McpServer.Stdio do
   @method_not_found -32_601
   @internal_error -32_603
 
-  # Timeout for tool execution (30 seconds)
-  @tool_timeout 30_000
+  # Timeout for tool execution (60 seconds)
+  @tool_timeout 60_000
 
   @doc """
   Starts the Stdio server loop.
   This function blocks until EOF is received on stdin.
   """
   def start do
-    # 1. Silence all logger output to stdout to prevent protocol corruption
-    :logger.set_primary_config(:level, :none)
+    # 1. CRITICAL: Completely silence ALL logger output to prevent protocol corruption
+    # Setting level to :none is not enough - we must remove all handlers
+
+    # Remove ALL OTP :logger handlers
+    for handler_id <- :logger.get_handler_ids() do
+      :logger.remove_handler(handler_id)
+    end
+
+    # Set primary config to emergency only (no output)
+    :logger.set_primary_config(:level, :emergency)
+
+    # Also set Elixir Logger level and remove console backend
     Application.put_env(:logger, :level, :none)
+
+    # Remove Elixir Logger console backend if present
+    try do
+      Logger.remove_backend(:console)
+    rescue
+      _ -> :ok
+    catch
+      _, _ -> :ok
+    end
 
     # 2. Configure IO for raw binary mode with immediate flushing
     :io.setopts(:standard_io, [:binary, {:encoding, :utf8}, {:buffer, 1024}])
+
+    # Note: No startup health check needed - defensive error handling in
+    # Mimo.ToolRegistry.active_skill_tools() handles the race condition gracefully
 
     loop()
   end
@@ -100,7 +122,20 @@ defmodule Mimo.McpServer.Stdio do
 
   defp handle_request(%{"method" => "tools/list", "id" => id}) do
     # Use ToolRegistry for complete tool list (internal + core + catalog + skills)
-    tools = Mimo.ToolRegistry.list_all_tools()
+    # Direct function call - not a GenServer message
+    tools =
+      try do
+        Mimo.ToolRegistry.list_all_tools()
+      rescue
+        error ->
+          # Log to stderr (logger is silenced in stdio mode)
+          Mimo.Defensive.warn_stderr(
+            "ToolRegistry error: #{inspect(error)} - returning empty tools list"
+          )
+
+          []
+      end
+
     send_response(id, %{"tools" => tools})
   end
 
@@ -301,7 +336,8 @@ defmodule Mimo.McpServer.Stdio do
   # Execute a tool function with timeout protection
   # SPEC-040: Includes awakening context injection on first tool call
   defp execute_with_timeout(fun, id, awakening_already_triggered) do
-    task = TaskHelper.async_with_callers(fun)
+    # Use supervised task if TaskSupervisor is available, otherwise fallback to unsupervised
+    task = spawn_tool_task(fun)
 
     case Task.yield(task, @tool_timeout) || Task.shutdown(task) do
       {:ok, {:ok, result}} ->
@@ -327,6 +363,30 @@ defmodule Mimo.McpServer.Stdio do
   rescue
     e ->
       send_error(id, @internal_error, "Tool execution error: #{Exception.message(e)}")
+  end
+
+  # Spawn a task for tool execution with fallback when TaskSupervisor is unavailable
+  defp spawn_tool_task(fun) do
+    if task_supervisor_available?() do
+      TaskHelper.async_with_callers(fun)
+    else
+      # Fallback: spawn unsupervised task with $callers propagation
+      caller = self()
+      callers = Process.get(:"$callers", [])
+
+      Task.async(fn ->
+        Process.put(:"$callers", [caller | callers])
+        fun.()
+      end)
+    end
+  end
+
+  # Check if Mimo.TaskSupervisor is running
+  defp task_supervisor_available? do
+    case Process.whereis(Mimo.TaskSupervisor) do
+      nil -> false
+      pid when is_pid(pid) -> Process.alive?(pid)
+    end
   end
 
   # SPEC-040: Inject awakening context before tool result

@@ -267,15 +267,15 @@ defmodule Mimo.AutoMemory do
   end
 
   defp store_process_memory(_, _, _), do: :ok
-  # Actually store the memory via WorkingMemory for proper consolidation
+  # Actually store the memory via SafeMemory for proper consolidation
   defp store_memory(content, category, importance) do
     min_importance = Application.get_env(:mimo_mcp, :auto_memory_min_importance, 0.3)
 
     if importance >= min_importance do
       Logger.debug("AutoMemory storing: #{category} (importance: #{importance})")
 
-      # Route through WorkingMemory for consolidation pipeline
-      Mimo.Brain.WorkingMemory.store(content,
+      # Route through SafeMemory for resilient consolidation pipeline
+      Mimo.Brain.SafeMemory.store(content,
         category: category,
         importance: importance,
         source: "auto_memory"

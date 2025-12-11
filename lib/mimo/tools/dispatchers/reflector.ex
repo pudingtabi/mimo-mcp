@@ -75,11 +75,27 @@ defmodule Mimo.Tools.Dispatchers.Reflector do
            %{
              operation: :reflect,
              original: output,
-             refined: result.refined_output,
-             iterations: result.iterations,
-             final_score: result.final_score,
-             passed_threshold: result.passed_threshold,
+             refined: result.refined_output || result[:output] || output,
+             iterations: result.iterations || result[:iterations] || 0,
+             final_score: result.final_score || result[:evaluation][:aggregate_score] || 0.0,
+             passed_threshold: result.passed_threshold || false,
              improvements: result.improvements || []
+           }}
+
+        {:uncertain, result} ->
+          # Handle uncertain results - still return success but with warning
+          {:ok,
+           %{
+             operation: :reflect,
+             status: :uncertain,
+             original: output,
+             refined: result[:output] || output,
+             iterations: result[:iterations] || 0,
+             final_score: result[:evaluation][:aggregate_score] || result[:confidence][:score] || 0.0,
+             passed_threshold: false,
+             warning: result[:warning] || "Response quality is uncertain - verification recommended",
+             confidence: result[:confidence],
+             improvements: []
            }}
 
         {:error, reason} ->

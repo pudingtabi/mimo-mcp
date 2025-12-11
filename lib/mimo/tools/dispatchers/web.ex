@@ -47,6 +47,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
   require Logger
 
   alias Mimo.Tools.Helpers
+  alias Mimo.Utils.InputValidation
 
   # ==========================================================================
   # UNIFIED DISPATCHER
@@ -225,7 +226,9 @@ defmodule Mimo.Tools.Dispatchers.Web do
       "raw" ->
         method = if args["method"] == "post", do: :post, else: :get
         opts = [method: method]
-        opts = if args["timeout"], do: Keyword.put(opts, :timeout, args["timeout"]), else: opts
+        # Validate timeout (default 30s, max 5min)
+        timeout = InputValidation.validate_timeout(args["timeout"], default: 30_000, max: 300_000)
+        opts = Keyword.put(opts, :timeout, timeout)
         opts = if args["json"], do: Keyword.put(opts, :json, args["json"]), else: opts
 
         opts =
@@ -250,7 +253,9 @@ defmodule Mimo.Tools.Dispatchers.Web do
   """
   def dispatch_search(args) do
     query = args["query"] || ""
-    op = args["operation"] || "web"
+    # Normalize operation: "search" and "web" both mean web search
+    raw_op = args["operation"] || "web"
+    op = if raw_op == "search", do: "web", else: raw_op
     analyze_images = args["analyze_images"] || false
     max_analyze = args["max_analyze"] || 3
 
@@ -638,7 +643,8 @@ defmodule Mimo.Tools.Dispatchers.Web do
     url = args["url"]
     op = args["operation"] || "fetch"
     profile = args["profile"] || "chrome"
-    timeout = args["timeout"] || 60_000
+    # Validate timeout (default 60s, max 5min)
+    timeout = InputValidation.validate_timeout(args["timeout"], default: 60_000, max: 300_000)
     force_browser = Map.get(args, "force_browser", false)
 
     if is_nil(url) or url == "" do

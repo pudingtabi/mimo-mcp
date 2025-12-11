@@ -33,6 +33,7 @@ defmodule Mimo.Brain.Cleanup do
   require Logger
   alias Mimo.Repo
   alias Mimo.Brain.Engram
+  alias Mimo.SafeCall
 
   # Default configuration
   @default_ttl_days 30
@@ -53,31 +54,44 @@ defmodule Mimo.Brain.Cleanup do
 
   @doc """
   Force an immediate cleanup cycle.
-  Returns cleanup statistics.
+  Returns cleanup statistics or empty stats if unavailable.
   """
   def force_cleanup do
-    GenServer.call(__MODULE__, :force_cleanup, 60_000)
+    SafeCall.genserver(__MODULE__, :force_cleanup,
+      timeout: 60_000,
+      raw: true,
+      fallback: %{status: :unavailable, cleaned: 0}
+    )
   end
 
   @doc """
   Get current cleanup statistics without running cleanup.
   """
   def cleanup_stats do
-    GenServer.call(__MODULE__, :stats)
+    SafeCall.genserver(__MODULE__, :stats,
+      raw: true,
+      fallback: %{status: :unavailable, total_cleaned: 0}
+    )
   end
 
   @doc """
   Check if cleanup is currently running.
   """
   def cleaning? do
-    GenServer.call(__MODULE__, :cleaning?)
+    SafeCall.genserver(__MODULE__, :cleaning?,
+      raw: true,
+      fallback: false
+    )
   end
 
   @doc """
   Update cleanup configuration at runtime.
   """
   def configure(opts) do
-    GenServer.call(__MODULE__, {:configure, opts})
+    SafeCall.genserver(__MODULE__, {:configure, opts},
+      raw: true,
+      fallback: {:error, :unavailable}
+    )
   end
 
   # ==========================================================================

@@ -36,6 +36,8 @@ defmodule Mimo.Brain.MemoryLinker do
 
   require Logger
 
+  import Ecto.Query
+
   alias Mimo.Synapse.Graph
   alias Mimo.Repo
   alias Mimo.Brain.Engram
@@ -122,7 +124,26 @@ defmodule Mimo.Brain.MemoryLinker do
     "HTTP" => ~r/\b(?:http|request|response|client|server|fetch|post|get)\b/i,
     "WebSocket" => ~r/\b(?:websocket|socket|channel|pubsub|realtime)\b/i,
     "Background Jobs" => ~r/\b(?:worker|job|queue|async|task|background|cron)\b/i,
-    "Deployment" => ~r/\b(?:deploy|release|build|docker|kubernetes|k8s|ci|cd)\b/i
+    "Deployment" => ~r/\b(?:deploy|release|build|docker|kubernetes|k8s|ci|cd)\b/i,
+    # ==========================================================================
+    # Mimo-Specific Concepts (SPEC-025 Enhancement)
+    # ==========================================================================
+    "Memory System" =>
+      ~r/\b(?:memory|engram|episodic|working[_\s]?memory|consolidat|forgett|decay|store_fact|search_vibes)\b/i,
+    "Knowledge Graph" =>
+      ~r/\b(?:knowledge[_\s]?graph|synapse|triple|entity|relationship|graph[_\s]?node|graph[_\s]?edge|semantic[_\s]?store)\b/i,
+    "Cognitive" =>
+      ~r/\b(?:cogniti|metacogniti|reason|reflect|emerge|awakening|calibrat)\b/i,
+    "Code Intelligence" =>
+      ~r/\b(?:symbol|definition|reference|call[_\s]?graph|diagnos|typecheck|lint)\b/i,
+    "Brain" =>
+      ~r/\b(?:brain|cleanup|linker|router|hybrid|retriev)\b/i,
+    "Tools" =>
+      ~r/\b(?:tool|skill|mcp|protocol|dispatch|orchestrat)\b/i,
+    "Embedding" =>
+      ~r/\b(?:embed|vector|ollama|similarity|semantic[_\s]?search)\b/i,
+    "Specification" =>
+      ~r/\b(?:spec[-_]?\d+|specification|implementation)\b/i
   }
 
   # ==========================================================================
@@ -165,8 +186,17 @@ defmodule Mimo.Brain.MemoryLinker do
     library_refs = extract_library_refs(content)
     concept_refs = extract_concept_refs(content)
 
-    # Create/find memory node
-    {:ok, memory_node} = find_or_create_memory_node(engram_id, content)
+    # Create/find memory node (graceful on failure)
+    case find_or_create_memory_node(engram_id, content) do
+      {:ok, memory_node} ->
+        do_link_memory(memory_node, file_refs, function_refs, library_refs, concept_refs, engram_id)
+      {:error, reason} ->
+        Logger.warning("[MemoryLinker] Failed to create memory node for #{engram_id}: #{inspect(reason)}")
+        {:ok, %{files: 0, functions: 0, libraries: 0, concepts: 0, total: 0, error: reason}}
+    end
+  end
+
+  defp do_link_memory(memory_node, file_refs, function_refs, library_refs, concept_refs, engram_id) do
 
     # Create edges to referenced entities
     file_edges = create_file_edges(memory_node, file_refs)
@@ -212,20 +242,147 @@ defmodule Mimo.Brain.MemoryLinker do
   def extract_references(_), do: %{files: [], functions: [], libraries: [], concepts: []}
 
   @doc """
+  Bulk re-link all memories to the knowledge graph.
+
+  This function is useful after updating extraction patterns or when
+  graph connectivity is low. It processes all memories and creates/updates
+  their links to the Synapse graph.
+
+  ## Options
+
+    - `:limit` - Maximum number of memories to process (default: all)
+    - `:min_importance` - Only process memories with importance >= this (default: 0.0)
+    - `:force` - Re-link even if already linked (default: false)
+
+  ## Returns
+
+    - `{:ok, %{processed: n, linked: n, failed: n, edges_created: n}}`
+
+  ## Example
+
+      # Re-link all memories
+      MemoryLinker.bulk_relink_all()
+
+      # Re-link only high-importance memories
+      MemoryLinker.bulk_relink_all(min_importance: 0.7)
+
+      # Re-link with limit
+      MemoryLinker.bulk_relink_all(limit: 100)
+  """
+  @spec bulk_relink_all(keyword()) :: {:ok, map()}
+  def bulk_relink_all(opts \\ []) do
+    limit = Keyword.get(opts, :limit, nil)
+    min_importance = Keyword.get(opts, :min_importance, 0.0)
+    force = Keyword.get(opts, :force, false)
+
+    Logger.info("[MemoryLinker] Starting bulk re-link (min_importance: #{min_importance}, force: #{force})")
+
+    # Query all engrams
+    query = from(e in Engram,
+      where: e.importance >= ^min_importance,
+      order_by: [desc: e.importance],
+      select: %{id: e.id, content: e.content, importance: e.importance}
+    )
+
+    query = if limit, do: limit(query, ^limit), else: query
+
+    engrams = Repo.all(query)
+
+    Logger.info("[MemoryLinker] Found #{length(engrams)} memories to process")
+
+    # Process each memory
+    results = engrams
+    |> Enum.map(fn engram ->
+      case link_memory(engram.id, engram.content) do
+        {:ok, stats} ->
+          {:ok, stats}
+        {:error, reason} ->
+          Logger.warning("[MemoryLinker] Failed to link memory #{engram.id}: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end)
+
+    # Aggregate stats
+    successful = Enum.filter(results, fn
+      {:ok, %{total: total}} when total > 0 -> true
+      _ -> false
+    end)
+
+    failed = Enum.count(results, fn
+      {:error, _} -> true
+      _ -> false
+    end)
+
+    total_edges = results
+    |> Enum.map(fn
+      {:ok, %{total: total}} -> total
+      _ -> 0
+    end)
+    |> Enum.sum()
+
+    stats = %{
+      processed: length(engrams),
+      linked: length(successful),
+      failed: failed,
+      edges_created: total_edges
+    }
+
+    Logger.info("[MemoryLinker] Bulk re-link complete: #{inspect(stats)}")
+
+    {:ok, stats}
+  end
+
+  @doc """
+  Get connectivity statistics for the memory-graph bridge.
+
+  Returns information about how many memories are linked to the graph
+  and overall connectivity metrics.
+  """
+  @spec get_connectivity_stats() :: {:ok, map()}
+  def get_connectivity_stats do
+    # Count total memories
+    total_memories = Repo.aggregate(Engram, :count)
+
+    # Count memory nodes in graph using find_by_type
+    memory_nodes_list = Graph.find_by_type(:memory, limit: 10_000)
+    memory_node_count = length(memory_nodes_list)
+
+    # Count edges from memory nodes
+    memory_edges = memory_nodes_list
+    |> Enum.map(fn node ->
+      length(Graph.outgoing_edges(node.id, preload: false))
+    end)
+    |> Enum.sum()
+
+    # Calculate connectivity ratio
+    connectivity = if total_memories > 0 do
+      Float.round(memory_node_count / total_memories * 100, 1)
+    else
+      0.0
+    end
+
+    {:ok, %{
+      total_memories: total_memories,
+      linked_memories: memory_node_count,
+      unlinked_memories: total_memories - memory_node_count,
+      total_memory_edges: memory_edges,
+      connectivity_percent: connectivity,
+      avg_edges_per_memory: if(memory_node_count > 0, do: Float.round(memory_edges / memory_node_count, 2), else: 0.0)
+    }}
+  end
+
+  @doc """
   Link a memory to a specific node by ID.
 
   Creates a :mentions edge from the memory to the target node.
   """
   @spec link_to_node(integer() | binary(), String.t()) :: {:ok, map()} | {:error, term()}
   def link_to_node(engram_id, node_id) do
-    {:ok, memory_node} = find_or_create_memory_node(engram_id, nil)
-
-    case Graph.ensure_edge(memory_node.id, node_id, :mentions, %{source: "manual_link"}) do
-      {:ok, edge} ->
-        {:ok, %{edge_id: edge.id, memory_node_id: memory_node.id, target_node_id: node_id}}
-
-      {:error, reason} ->
-        {:error, reason}
+    with {:ok, memory_node} <- find_or_create_memory_node(engram_id, nil),
+         {:ok, edge} <- Graph.ensure_edge(memory_node.id, node_id, :mentions, %{source: "manual_link"}) do
+      {:ok, %{edge_id: edge.id, memory_node_id: memory_node.id, target_node_id: node_id}}
+    else
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -236,15 +393,12 @@ defmodule Mimo.Brain.MemoryLinker do
   """
   @spec link_to_concept(integer() | binary(), String.t()) :: {:ok, map()} | {:error, term()}
   def link_to_concept(engram_id, concept_name) do
-    {:ok, memory_node} = find_or_create_memory_node(engram_id, nil)
-    {:ok, concept_node} = Graph.find_or_create_node(:concept, concept_name)
-
-    case Graph.ensure_edge(memory_node.id, concept_node.id, :relates_to, %{source: "manual_link"}) do
-      {:ok, edge} ->
-        {:ok, %{edge_id: edge.id, concept: concept_name}}
-
-      {:error, reason} ->
-        {:error, reason}
+    with {:ok, memory_node} <- find_or_create_memory_node(engram_id, nil),
+         {:ok, concept_node} <- Graph.find_or_create_node(:concept, concept_name),
+         {:ok, edge} <- Graph.ensure_edge(memory_node.id, concept_node.id, :relates_to, %{source: "manual_link"}) do
+      {:ok, %{edge_id: edge.id, concept: concept_name}}
+    else
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -340,13 +494,15 @@ defmodule Mimo.Brain.MemoryLinker do
       case Graph.get_node(:file, path) do
         nil ->
           # File not in graph - create it with minimal info
-          {:ok, file_node} =
-            Graph.find_or_create_node(:file, path, %{
-              inferred: true,
-              linked_from_memory: true
-            })
-
-          create_edge(memory_node.id, file_node.id, :mentions, "memory_linker")
+          case Graph.find_or_create_node(:file, path, %{
+            inferred: true,
+            linked_from_memory: true
+          }) do
+            {:ok, file_node} ->
+              create_edge(memory_node.id, file_node.id, :mentions, "memory_linker")
+            {:error, _reason} ->
+              0
+          end
 
         file_node ->
           create_edge(memory_node.id, file_node.id, :mentions, "memory_linker")
@@ -364,13 +520,15 @@ defmodule Mimo.Brain.MemoryLinker do
       case find_function_node(func_name) do
         nil ->
           # Function not in graph - create placeholder
-          {:ok, func_node} =
-            Graph.find_or_create_node(:function, func_name, %{
-              inferred: true,
-              linked_from_memory: true
-            })
-
-          create_edge(memory_node.id, func_node.id, :mentions, "memory_linker")
+          case Graph.find_or_create_node(:function, func_name, %{
+            inferred: true,
+            linked_from_memory: true
+          }) do
+            {:ok, func_node} ->
+              create_edge(memory_node.id, func_node.id, :mentions, "memory_linker")
+            {:error, _reason} ->
+              0
+          end
 
         func_node ->
           create_edge(memory_node.id, func_node.id, :mentions, "memory_linker")
@@ -384,12 +542,14 @@ defmodule Mimo.Brain.MemoryLinker do
   defp create_library_edges(memory_node, library_refs) do
     library_refs
     |> Enum.map(fn lib_name ->
-      {:ok, lib_node} =
-        Graph.find_or_create_node(:external_lib, lib_name, %{
-          linked_from_memory: true
-        })
-
-      create_edge(memory_node.id, lib_node.id, :mentions, "memory_linker")
+      case Graph.find_or_create_node(:external_lib, lib_name, %{
+        linked_from_memory: true
+      }) do
+        {:ok, lib_node} ->
+          create_edge(memory_node.id, lib_node.id, :mentions, "memory_linker")
+        {:error, _reason} ->
+          0
+      end
     end)
     |> Enum.sum()
   end
@@ -399,8 +559,12 @@ defmodule Mimo.Brain.MemoryLinker do
   defp create_concept_edges(memory_node, concept_refs) do
     concept_refs
     |> Enum.map(fn concept_name ->
-      {:ok, concept_node} = Graph.find_or_create_node(:concept, concept_name, %{})
-      create_edge(memory_node.id, concept_node.id, :relates_to, "memory_linker")
+      case Graph.find_or_create_node(:concept, concept_name, %{}) do
+        {:ok, concept_node} ->
+          create_edge(memory_node.id, concept_node.id, :relates_to, "memory_linker")
+        {:error, _reason} ->
+          0
+      end
     end)
     |> Enum.sum()
   end

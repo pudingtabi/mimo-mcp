@@ -24,53 +24,11 @@ This aggregates memory + knowledge + code + library docs in parallel, giving you
 
 ---
 
-## 🚦 BALANCED TOOL WORKFLOW (MANDATORY)
+## BALANCED TOOL WORKFLOW (MANDATORY)
 
-**To leverage Mimo's full intelligence, follow this workflow for EVERY task:**
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  PHASE 1: CONTEXT (Do this FIRST - before any file/terminal)   │
-│  ─────────────────────────────────────────────────────────────  │
-│  prepare_context query="[task description]"  ← BEST FOR COMPLEX │
-│  memory operation=search query="[topic]"                        │
-│  ask_mimo query="What do I know about [topic]?"                 │
-│  knowledge operation=query query="[relationships]"              │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  PHASE 2: INTELLIGENCE (Use smart tools, not brute force)      │
-│  ─────────────────────────────────────────────────────────────  │
-│  code_symbols operation=definition name="functionName"          │
-│  code_symbols operation=references name="className"             │
-│  diagnostics operation=all path="/project"                      │
-│  library operation=get name="package" ecosystem=hex             │
-│  cognitive operation=assess topic="[decision to make]"          │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  PHASE 3: ACTION (Now you can use file/terminal)               │
-│  ─────────────────────────────────────────────────────────────  │
-│  file operation=read/edit/write ...                             │
-│  terminal command="..."                                         │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  PHASE 4: LEARNING (Store what you discovered)                 │
-│  ─────────────────────────────────────────────────────────────  │
-│  memory operation=store content="[insight]" category=fact       │
-│  knowledge operation=teach text="[relationship found]"          │
-└─────────────────────────────────────────────────────────────────┘
-```
+See the detailed workflow below under **BALANCED TOOL WORKFLOW (MANDATORY)** for full guidance and examples.
 
-### 🎯 Target Tool Distribution
-
-| Phase | Tools | Target % | Purpose |
-|-------|-------|----------|---------|
-| Context | prepare_context, memory, ask_mimo, knowledge | 15-20% | Check what you already know |
-| Intelligence | code_symbols, diagnostics, library, cognitive | 15-20% | Smart analysis |
-| Action | file, terminal | 45-55% | Execute changes |
-| Learning | memory store, knowledge teach | 10-15% | Capture insights |
 
 ---
 
@@ -103,16 +61,16 @@ knowledge operation=query query="[architecture/dependencies]"
 
 ```bash
 # For code navigation (NOT file search!)
-code_symbols operation=definition name="functionName"
-code_symbols operation=references name="className"
-code_symbols operation=symbols path="src/module.ex"
+code operation=definition name="functionName"
+code operation=references name="className"
+code operation=symbols path="src/module.ex"
 
 # For errors (NOT terminal!)
-diagnostics operation=all path="/project/lib"
+code operation=diagnose path="/project/lib"
 
 # For package docs (NOT web search!)
-library operation=get name="phoenix" ecosystem=hex
-library operation=discover path="/project"
+code operation=library_get name="phoenix" ecosystem=hex
+code operation=library_discover path="/project"
 
 # For decisions
 cognitive operation=assess topic="[decision to make]"
@@ -141,9 +99,9 @@ knowledge operation=teach text="[relationship discovered]"
 
 | Phase | Target % | Tools |
 |-------|----------|-------|
-| Context | 15-20% | memory, ask_mimo, knowledge |
-| Intelligence | 15-20% | code_symbols, diagnostics, library, cognitive |
-| Action | 45-55% | file, terminal |
+| Context | 15-20% | memory, ask_mimo, knowledge, meta |
+| Intelligence | 15-20% | code, cognitive |
+| Action | 45-55% | file, terminal, web |
 | Learning | 10-15% | memory store, knowledge teach |
 
 ### ⚠️ Mandatory Checkpoints
@@ -158,19 +116,19 @@ knowledge operation=teach text="[relationship discovered]"
 **CHECKPOINT 2: Before searching for code**
 ```
 ❌ WRONG: file operation=search pattern="functionName"
-✅ RIGHT: code_symbols operation=definition name="functionName"
+✅ RIGHT: code operation=definition name="functionName"
 ```
 
 **CHECKPOINT 3: Before checking errors**
 ```
 ❌ WRONG: terminal command="mix compile"
-✅ RIGHT: diagnostics operation=all path="/project"
+✅ RIGHT: code operation=diagnose path="/project"
 ```
 
 **CHECKPOINT 4: Before package documentation**
 ```
-❌ WRONG: search query="phoenix docs"
-✅ RIGHT: library operation=get name="phoenix" ecosystem=hex
+❌ WRONG: web operation=search query="phoenix docs"
+✅ RIGHT: code operation=library_get name="phoenix" ecosystem=hex
 ```
 
 **CHECKPOINT 5: After discoveries**
@@ -195,6 +153,39 @@ onboard path="." force=false
 
 ---
 
+## 🧠 MANDATORY: Think Before You Act
+
+**DO NOT jump to conclusions or immediately start editing files!**
+
+For ANY non-trivial task, you MUST reason first:
+
+```bash
+# For complex problems - use the full reasoning engine
+reason operation=guided problem="[describe what you're trying to solve]" strategy=auto
+
+# For simpler decisions - use think
+think operation=plan steps=["step 1", "step 2", "step 3"]
+
+# For uncertainty - assess your confidence
+cognitive operation=assess topic="[the decision you're about to make]"
+```
+
+### When to Use Each
+
+| Situation | Tool | Example |
+|-----------|------|---------|
+| Multi-step implementation | `reason operation=guided` | Architecture changes, refactoring |
+| Debugging complex issues | `reason operation=guided strategy=reflexion` | Intermittent bugs, race conditions |
+| Planning a task | `think operation=plan` | Breaking down user request |
+| Quick decision check | `cognitive operation=assess` | "Should I use pattern A or B?" |
+| Exploring alternatives | `reason operation=branch` | When first approach might not work |
+
+### The Rule
+
+> **If you're about to make a change and you haven't used `reason`, `think`, or `cognitive`... STOP and think first.**
+
+---
+
 ## ❌ ANTI-PATTERNS (Don't Do This)
 
 | ❌ Bad Pattern | ✅ Better Approach |
@@ -202,9 +193,9 @@ onboard path="." force=false
 | Jump to editing immediately | `reason` or `think` first → avoid wrong conclusions |
 | Skip problem analysis | `reason operation=guided` → understand before acting |
 | `file operation=read` immediately | `memory operation=search` first → may already know |
-| `file operation=search pattern="func"` for code | `code_symbols operation=definition` → semantic, faster |
-| `terminal command="mix compile"` for errors | `diagnostics operation=all` → structured output |
-| `search query="phoenix docs"` | `library operation=get name="phoenix"` → cached |
+| `file operation=search pattern="func"` for code | `code operation=definition` → semantic, faster |
+| `terminal command="mix compile"` for errors | `code operation=diagnose` → structured output |
+| `web operation=search query="phoenix docs"` | `code operation=library_get name="phoenix"` → cached |
 | Skip after discoveries | `memory operation=store` → compounds knowledge |
 | Reading same file repeatedly | Store key facts in memory after first read |
 | Describing changes in prose | `file operation=edit` immediately → you have the tools! |
@@ -266,6 +257,54 @@ cognitive operation=assess topic="[the decision you're about to make]"
 
 ---
 
+## 🎯 Token-Efficient Patterns
+
+### Use Symbol-Based Reading (10x savings)
+
+Instead of reading entire files (~2000 tokens), read just the function you need (~200 tokens):
+
+```bash
+# DON'T: Read entire file (~2000 tokens)
+file operation=read path="src/auth.ex"
+
+# DO: Read just the function (~200 tokens)
+file operation=read_symbol path="src/auth.ex" symbol_name="authenticate"
+
+# DO: Get overview first (~100 tokens)
+file operation=list_symbols path="src/auth.ex"
+```
+
+### Memory Context is Now Opt-In
+
+As of v2.7, `skip_memory_context` defaults to `true` for file and terminal operations. This saves ~300-500 tokens per call.
+
+**Request memory context explicitly when:**
+- Debugging (past errors and solutions help)
+- Architecture decisions (past patterns matter)
+- User preference context is needed
+
+```bash
+# Memory context is now skipped by default (saves tokens)
+file operation=read path="config.ex"
+
+# Request it explicitly when you need it
+file operation=read path="config.ex" skip_memory_context=false
+```
+
+### Batch Operations for Bulk Work
+
+```bash
+# For reading multiple files, skip context entirely
+file operation=read_multiple paths=["file1.ex", "file2.ex", "file3.ex"]
+
+# Use list_symbols to get overview before diving deep
+file operation=list_symbols path="src/"
+```
+
+---
+
+
+
 ## 🎯 Tool Selection Decision Trees
 
 ### Before Reading a File
@@ -283,10 +322,10 @@ Want to read a file?
 ```
 Looking for code?
         │
-        ├─► Function/class DEFINITION → code_symbols operation=definition
-        ├─► All USAGES of a symbol   → code_symbols operation=references  
-        ├─► List symbols in file     → code_symbols operation=symbols
-        ├─► Call relationships       → code_symbols operation=call_graph
+        ├─► Function/class DEFINITION → code operation=definition
+        ├─► All USAGES of a symbol   → code operation=references  
+        ├─► List symbols in file     → code operation=symbols
+        ├─► Call relationships       → code operation=call_graph
         └─► Text/comments/TODOs      → file operation=search
 ```
 
@@ -294,7 +333,7 @@ Looking for code?
 ```
 Need to check errors?
         │
-        ├─► Compiler + lint + types → diagnostics operation=all (PREFERRED)
+        ├─► Compiler + lint + types → code operation=diagnose (PREFERRED)
         └─► Specific test run       → terminal command="mix test"
 ```
 
@@ -302,8 +341,8 @@ Need to check errors?
 ```
 Need package docs?
         │
-        ├─► FIRST: library operation=get name="pkg" ecosystem=hex (cached!)
-        └─► ONLY IF NOT FOUND: search query="pkg documentation"
+        ├─► FIRST: code operation=library_get name="pkg" ecosystem=hex (cached!)
+        └─► ONLY IF NOT FOUND: web operation=search query="pkg documentation"
 ```
 
 ---
@@ -322,31 +361,32 @@ memory operation=search query="[relevant terms]"
 knowledge operation=query query="[relationships]"
 
 # === PHASE 2: INTELLIGENCE ===
-code_symbols operation=definition name="functionName"
-code_symbols operation=references name="className"
-code_symbols operation=symbols path="src/module.ex"
-diagnostics operation=all path="/project/lib"
-library operation=get name="phoenix" ecosystem=hex
+code operation=definition name="functionName"
+code operation=references name="className"
+code operation=symbols path="src/module.ex"
+code operation=diagnose path="/project/lib"
+code operation=library_get name="phoenix" ecosystem=hex
 cognitive operation=assess topic="[decision]"
 
-# === COMPOSITE TOOLS (one call = multiple operations) ===
-analyze_file path="src/module.ex"  # File + symbols + diagnostics + knowledge
-debug_error message="undefined function foo/2"  # Memory + symbols + diagnostics
-suggest_next_tool task="implement auth"  # Workflow guidance
+# === COMPOSITE TOOLS (via meta tool) ===
+meta operation=analyze_file path="src/module.ex"  # File + symbols + diagnostics + knowledge
+meta operation=debug_error message="undefined function foo/2"  # Memory + symbols + diagnostics
+meta operation=suggest_next_tool task="implement auth"  # Workflow guidance
+meta operation=prepare_context query="complex task"  # Aggregates all context
 
-# === EMERGENCE (SPEC-044 Pattern Detection) ===
-emergence operation=dashboard              # Full metrics and status
-emergence operation=detect                 # Run pattern detection
-emergence operation=cycle                  # Full emergence cycle
-emergence operation=alerts                 # Patterns needing attention
-emergence operation=suggest task="..."     # Pattern suggestions for task
-emergence operation=promote pattern_id="..." # Promote to capability
+# === EMERGENCE (via cognitive tool - SPEC-044 Pattern Detection) ===
+cognitive operation=emergence_dashboard              # Full metrics and status
+cognitive operation=emergence_detect                 # Run pattern detection
+cognitive operation=emergence_cycle                  # Full emergence cycle
+cognitive operation=emergence_alerts                 # Patterns needing attention
+cognitive operation=emergence_suggest topic="..."   # Pattern suggestions for task
+cognitive operation=emergence_promote pattern_id="..." # Promote to capability
 
-# === REFLECTOR (SPEC-043 Metacognitive Self-Reflection) ===
-reflector operation=reflect content="..." task="..."  # Deep reflection
-reflector operation=evaluate content="..."            # Quick evaluation
-reflector operation=confidence content="..."          # Calibrated confidence
-reflector operation=errors content="..."              # Error analysis
+# === REFLECTOR (via cognitive tool - SPEC-043 Self-Reflection) ===
+cognitive operation=reflector_reflect content="..." task="..."  # Deep reflection
+cognitive operation=reflector_evaluate content="..."            # Quick evaluation
+cognitive operation=reflector_confidence content="..."          # Calibrated confidence
+cognitive operation=reflector_errors content="..."              # Error analysis
 
 # === REASONING (SPEC-035 Unified Reasoning Engine) ===
 reason operation=guided problem="..." strategy=auto  # Start session
@@ -450,3 +490,53 @@ mix test --trace                    # Verbose output
 - File ops sandboxed to `MIMO_ROOT` - use absolute paths
 - Embeddings require Ollama running (`ollama pull qwen3-embedding:0.6b`)
 - MCP stdio mode needs `LOGGER_LEVEL=none` for clean output
+
+---
+
+## 🎯 Development Philosophy: Keep It Simple
+
+**We value simplicity, readability, and maintainability above all else.**
+
+### Core Principles
+
+1. **Simple, Readable Code**
+   - Write code that's easy to understand at first glance
+   - Avoid over-engineering or unnecessary complexity
+   - Prefer straightforward solutions over clever ones
+
+2. **Inline Documentation**
+   - Add comments explaining WHY, not just WHAT
+   - Document complex logic inline where it happens
+   - Make it easy for humans to follow the flow
+
+3. **Robust Without Complexity**
+   - Handle errors gracefully with simple patterns
+   - Use explicit checks over implicit assumptions
+   - Return clear error messages
+
+4. **No Test Running Required**
+   - We don't need to run tests after every change
+   - Instead: Read through changes CAREFULLY
+   - Verify logic by understanding, not just testing
+
+5. **Careful Review Process**
+   - After making changes, re-read your code thoroughly
+   - Check associated parts of the codebase that depend on your changes
+   - For complex features, use subagents to validate your work
+
+### When to Use Subagents
+
+For slightly complex features or changes:
+- Create subagents with clear instructions on what to evaluate
+- Let subagents review and report findings
+- Create multiple subagents for different aspects of a change
+
+**Example:**
+```
+"Review the memory storage changes and verify:
+1. No breaking changes to existing API
+2. Error handling covers edge cases
+3. Inline documentation is clear"
+```
+
+This ensures quality without over-complicating the development process.

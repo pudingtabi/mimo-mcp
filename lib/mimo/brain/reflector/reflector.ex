@@ -46,7 +46,7 @@ defmodule Mimo.Brain.Reflector do
 
   require Logger
 
-  alias Mimo.Brain.Reflector.{Evaluator, ConfidenceEstimator, ErrorDetector, ConfidenceOutput}
+  alias Mimo.Brain.Reflector.{Evaluator, ConfidenceEstimator, ErrorDetector, ConfidenceOutput, Optimizer}
   alias Mimo.Brain.Memory
   alias Mimo.Cognitive.Reasoner
   alias Mimo.Skills.Verify
@@ -384,6 +384,12 @@ defmodule Mimo.Brain.Reflector do
     iterations = result.iterations
     _issues = length(result.evaluation.issues)
 
+    # Generate context hash for matching outcomes later
+    context_hash = generate_context_hash(query, context)
+
+    # Record prediction to Optimizer for feedback loop
+    record_to_optimizer(result.evaluation, context_hash, iterations)
+
     content =
       case status do
         :ok ->
@@ -413,6 +419,31 @@ defmodule Mimo.Brain.Reflector do
     :ok
   rescue
     _ -> :ok
+  end
+
+  defp generate_context_hash(query, context) do
+    # Create a hash from query and key context elements for matching
+    content = [
+      query,
+      context[:thread_id] || "",
+      context[:tool] || ""
+    ] |> Enum.join("::")
+
+    :crypto.hash(:sha256, content)
+    |> Base.encode16(case: :lower)
+    |> String.slice(0, 16)
+  end
+
+  defp record_to_optimizer(evaluation, context_hash, iterations) do
+    Task.start(fn ->
+      try do
+        Optimizer.record_prediction(evaluation, context_hash, iterations: iterations)
+      rescue
+        _ -> :ok
+      catch
+        :exit, _ -> :ok
+      end
+    end)
   end
 
   defp generate_warning(result) do

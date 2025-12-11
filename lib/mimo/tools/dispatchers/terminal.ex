@@ -18,6 +18,7 @@ defmodule Mimo.Tools.Dispatchers.Terminal do
   """
 
   alias Mimo.Tools.{Helpers, Suggestions}
+  alias Mimo.Utils.InputValidation
 
   @doc """
   Dispatch terminal operation based on args.
@@ -25,7 +26,7 @@ defmodule Mimo.Tools.Dispatchers.Terminal do
   def dispatch(args) do
     op = args["operation"] || "execute"
     command = args["command"] || ""
-    skip_context = Map.get(args, "skip_memory_context", false)
+    skip_context = Map.get(args, "skip_memory_context", true)
 
     result =
       case op do
@@ -37,7 +38,8 @@ defmodule Mimo.Tools.Dispatchers.Terminal do
 
         "read_output" ->
           # CORRECT: Terminal.read_process_output (NOT read_output!)
-          Mimo.Skills.Terminal.read_process_output(args["pid"], timeout_ms: args["timeout"] || 1000)
+          timeout = InputValidation.validate_timeout(args["timeout"], default: 1000)
+          Mimo.Skills.Terminal.read_process_output(args["pid"], timeout_ms: timeout)
 
         "interact" ->
           # CORRECT: Terminal.interact_with_process (NOT interact!)
@@ -69,7 +71,8 @@ defmodule Mimo.Tools.Dispatchers.Terminal do
   # ==========================================================================
 
   defp dispatch_execute(command, args, skip_context) do
-    timeout = args["timeout"] || 30_000
+    # Validate timeout (default 30s, max 5min)
+    timeout = InputValidation.validate_timeout(args["timeout"], default: 30_000, max: 300_000)
     yolo = Map.get(args, "yolo", false)
     confirm = Map.get(args, "confirm", false) || yolo
     cwd = args["cwd"]
@@ -96,7 +99,8 @@ defmodule Mimo.Tools.Dispatchers.Terminal do
 
   defp dispatch_start_process(command, args) do
     name = args["name"]
-    opts = [timeout_ms: args["timeout"] || 5000]
+    timeout = InputValidation.validate_timeout(args["timeout"], default: 5000)
+    opts = [timeout_ms: timeout]
     opts = if name, do: Keyword.put(opts, :name, name), else: opts
     Mimo.Skills.Terminal.start_process(command, opts)
   end

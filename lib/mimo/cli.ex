@@ -34,16 +34,24 @@ defmodule Mimo.CLI do
     :logger.set_primary_config(:level, :none)
     Application.put_env(:logger, :level, :none)
 
-    # Start the application in a minimal mode if possible, 
-    # or full mode but silence output.
-    # For now, we assume the normal application start is fine, 
-    # but we need to trigger the specific MCP loop.
-
-    # We don't need to start the app manually if Burrito/release handling does it,
-    # but to be safe and explicit:
     {:ok, _} = Application.ensure_all_started(:mimo_mcp)
 
+    # Wait for ToolRegistry to be ready before accepting MCP requests
+    wait_for_tool_registry()
+
     Mimo.McpServer.Stdio.start()
+  end
+
+  defp wait_for_tool_registry(retries \\ 50) do
+    case Process.whereis(Mimo.ToolRegistry) do
+      nil when retries > 0 ->
+        Process.sleep(100)
+        wait_for_tool_registry(retries - 1)
+      nil ->
+        :ok  # Give up after 5 seconds, stdio will handle gracefully
+      _pid ->
+        :ok
+    end
   end
 
   defp start_server(args) do

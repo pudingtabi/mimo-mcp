@@ -77,11 +77,25 @@ defmodule Mimo.Cognitive.ReasoningSession do
 
   @impl true
   def init(_opts) do
-    # Create ETS table owned by this long-lived process
-    :ets.new(@table, [:named_table, :set, :public, read_concurrency: true])
-    Logger.info("✅ ReasoningSession initialized with ETS table")
+    # Try to reclaim ETS table from heir (if we crashed and restarted)
+    # Otherwise create new table with heir for crash recovery
+    table = case Mimo.EtsHeirManager.reclaim_table(@table, self()) do
+      {:ok, reclaimed_table} ->
+        Logger.info("✅ ReasoningSession recovered ETS table after crash")
+        reclaimed_table
+
+      :not_found ->
+        # First start or table was cleaned up - create new with heir
+        Mimo.EtsHeirManager.create_table(
+          @table,
+          [:named_table, :set, :public, read_concurrency: true],
+          self()
+        )
+    end
+
+    Logger.info("✅ ReasoningSession initialized with ETS table (heir-protected)")
     schedule_cleanup()
-    {:ok, %{}}
+    {:ok, %{table: table}}
   end
 
   @impl true
@@ -420,6 +434,17 @@ defmodule Mimo.Cognitive.ReasoningSession do
     :ets.tab2list(@table)
     |> Enum.map(fn {_id, session} -> session end)
     |> Enum.filter(&(&1.status == :active))
+  end
+
+  @doc """
+  List all completed sessions.
+  Used by AutoGenerator to find candidates for procedure generation.
+  """
+  @spec list_completed() :: [session()]
+  def list_completed do
+    :ets.tab2list(@table)
+    |> Enum.map(fn {_id, session} -> session end)
+    |> Enum.filter(&(&1.status == :completed))
   end
 
   @doc """

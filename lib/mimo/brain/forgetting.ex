@@ -30,6 +30,7 @@ defmodule Mimo.Brain.Forgetting do
 
   import Ecto.Query
   alias Mimo.{Repo, Brain.Engram, Brain.DecayScorer}
+  alias Mimo.SafeCall
 
   @default_interval 3_600_000
   @default_threshold 0.1
@@ -55,34 +56,49 @@ defmodule Mimo.Brain.Forgetting do
   ## Returns
 
     * `{:ok, count}` - Number of memories forgotten/would forget
+    * `{:error, :unavailable}` - Forgetting service not running
   """
-  @spec run_now(keyword()) :: {:ok, non_neg_integer()}
+  @spec run_now(keyword()) :: {:ok, non_neg_integer()} | {:error, atom()}
   def run_now(opts \\ []) do
-    GenServer.call(__MODULE__, {:run_now, opts}, 60_000)
+    SafeCall.genserver(__MODULE__, {:run_now, opts},
+      timeout: 60_000,
+      raw: true,
+      fallback: {:ok, 0}
+    )
   end
 
   @doc """
   Get forgetting statistics.
+  Returns empty stats if service unavailable.
   """
   @spec stats() :: map()
   def stats do
-    GenServer.call(__MODULE__, :stats)
+    SafeCall.genserver(__MODULE__, :stats,
+      raw: true,
+      fallback: %{status: :unavailable, total_forgotten: 0}
+    )
   end
 
   @doc """
   Protect a memory from forgetting.
   """
-  @spec protect(integer() | String.t()) :: :ok | {:error, :not_found}
+  @spec protect(integer() | String.t()) :: :ok | {:error, :not_found | :unavailable}
   def protect(id) do
-    GenServer.call(__MODULE__, {:protect, id})
+    SafeCall.genserver(__MODULE__, {:protect, id},
+      raw: true,
+      fallback: {:error, :unavailable}
+    )
   end
 
   @doc """
   Remove protection from a memory.
   """
-  @spec unprotect(integer() | String.t()) :: :ok | {:error, :not_found}
+  @spec unprotect(integer() | String.t()) :: :ok | {:error, :not_found | :unavailable}
   def unprotect(id) do
-    GenServer.call(__MODULE__, {:unprotect, id})
+    SafeCall.genserver(__MODULE__, {:unprotect, id},
+      raw: true,
+      fallback: {:error, :unavailable}
+    )
   end
 
   # ==========================================================================

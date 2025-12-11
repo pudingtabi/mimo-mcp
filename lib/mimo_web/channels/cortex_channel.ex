@@ -78,12 +78,18 @@ defmodule MimoWeb.CortexChannel do
 
     Logger.debug("Query from #{agent_id}: #{String.slice(query, 0, 50)}...")
 
-    # Spawn async cognition process
-    Task.Supervisor.async_nolink(Mimo.TaskSupervisor, fn ->
-      process_query(query, agent_id, ref, priority, timeout)
-    end)
-
-    {:reply, {:ok, %{ref: ref, status: "processing"}}, socket}
+    # Spawn async cognition process (with graceful degradation)
+    case Mimo.TaskHelper.supervisor_available?(Mimo.TaskSupervisor) do
+      true ->
+        Task.Supervisor.async_nolink(Mimo.TaskSupervisor, fn ->
+          process_query(query, agent_id, ref, priority, timeout)
+        end)
+        {:reply, {:ok, %{ref: ref, status: "processing"}}, socket}
+        
+      false ->
+        Logger.warning("[CortexChannel] TaskSupervisor unavailable, rejecting query")
+        {:reply, {:error, %{reason: "server shutting down"}}, socket}
+    end
   end
 
   def handle_in("query", _params, socket) do
@@ -157,12 +163,17 @@ defmodule MimoWeb.CortexChannel do
     # Subscribe to agent-specific PubSub topic
     PubSub.subscribe(Mimo.PubSub, "agent:#{agent_id}")
 
-    # Track presence
-    {:ok, _} =
-      MimoWeb.Presence.track(socket, agent_id, %{
-        online_at: System.system_time(:second),
-        status: "active"
-      })
+    # Track presence - handle potential failures gracefully
+    case MimoWeb.Presence.track(socket, agent_id, %{
+           online_at: System.system_time(:second),
+           status: "active"
+         }) do
+      {:ok, _} ->
+        Logger.debug("Presence tracked for agent #{agent_id}")
+
+      {:error, reason} ->
+        Logger.warning("Failed to track presence for #{agent_id}: #{inspect(reason)}")
+    end
 
     {:noreply, socket}
   end

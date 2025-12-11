@@ -198,6 +198,11 @@ defmodule Mimo.Awakening.SessionTracker do
     # Load or create stats
     {:ok, stats} = Stats.get_or_create(user_id, project_id)
 
+    # Check if this is a quick reconnect (within 5 minutes) to suppress duplicate awakening
+    is_reconnect =
+      stats.last_session &&
+        DateTime.diff(DateTime.utc_now(), stats.last_session, :minute) < 5
+
     session_state = %__MODULE__{
       session_id: session_id,
       started_at: DateTime.utc_now(),
@@ -206,7 +211,7 @@ defmodule Mimo.Awakening.SessionTracker do
       user_id: user_id,
       project_id: project_id,
       is_first_session: stats.total_sessions == 0,
-      awakening_sent: false
+      awakening_sent: is_reconnect
     }
 
     # Store in ETS

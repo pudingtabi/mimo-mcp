@@ -1,0 +1,12 @@
+#!/bin/bash
+# Mimo Wrapper - Sets locale before executing main script
+# This prevents bash locale warnings that confuse MCP clients
+
+# Set locale BEFORE any bash operations
+export LC_ALL=C.UTF-8
+export LANG=C.UTF-8
+export LC_CTYPE=C.UTF-8
+export ELIXIR_ERL_OPTIONS="+fnu"
+
+# Execute the actual mimo script
+exec "$(dirname "$0")/mimo" "$@"

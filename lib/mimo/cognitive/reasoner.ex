@@ -49,8 +49,13 @@ defmodule Mimo.Cognitive.Reasoner do
     Reflexion
   }
 
+  alias Mimo.Cognitive.MetaTaskDetector
+  alias Mimo.Cognitive.MetaTaskHandler
+  alias Mimo.Cognitive.VerificationTelemetry
   alias Mimo.Brain.Memory
   alias Mimo.TaskHelper
+  alias Mimo.Tools.Dispatchers.PrepareContext
+  alias Mimo.Brain.WisdomInjector
 
   @type strategy :: :auto | :cot | :tot | :react | :reflexion
 
@@ -71,17 +76,62 @@ defmodule Mimo.Cognitive.Reasoner do
 
   - `:strategy` - Force a specific strategy (:cot, :tot, :react, :reflexion)
                   Default is :auto which analyzes the problem
+
+  ## SPEC-062 Meta-Task Detection
+
+  Automatically detects meta-tasks (tasks requiring self-generated content)
+  and enhances the problem with explicit guidance to prevent literal
+  interpretation failures.
   """
   @spec guided(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def guided(problem, opts \\ []) do
     if problem == "" or is_nil(problem) do
       {:error, "Problem is required for guided reasoning"}
     else
+      # Check if we're in a fallback from MetaTaskHandler (prevent recursive loop)
+      skip_meta_handler = Keyword.get(opts, :skip_meta_handler, false)
+      
+      # SPEC-062: Check for meta-task FIRST
+      {enhanced_problem, meta_task_info} = detect_and_enhance_meta_task(problem)
+
+      # SPEC-063: If technique is specified or auto, use MetaTaskHandler for meta-tasks
+      # BUT skip if we're already falling back from MetaTaskHandler to prevent infinite loop
+      technique = Keyword.get(opts, :technique, :auto)
+      requested_strategy = Keyword.get(opts, :strategy, :auto)
+      use_advanced = technique != :none and meta_task_info != nil and not skip_meta_handler
+
+      if use_advanced and requested_strategy == :auto and
+           technique in [:auto, :self_discover, :rephrase, :self_ask, :combined] do
+        # Use MetaTaskHandler for advanced techniques
+        case MetaTaskHandler.handle(problem, strategy: technique) do
+          {:ok, handler_result} ->
+            {:ok,
+             %{
+               session_id: nil,
+               strategy: technique,
+               strategy_reason: "SPEC-063 advanced technique",
+               meta_task: true,
+               handler_result: handler_result
+             }}
+
+          {:error, _} ->
+            # Fall through to standard reasoning if handler fails
+            do_guided_reasoning(enhanced_problem, meta_task_info, opts)
+        end
+      else
+        do_guided_reasoning(enhanced_problem, meta_task_info, opts)
+      end
+    end
+  end
+
+
+  # Standard guided reasoning logic (extracted for SPEC-063 fallback)
+  defp do_guided_reasoning(enhanced_problem, meta_task_info, opts) do
       # Step 1: Search memory for similar past problems (async with timeout)
-      similar_problems = search_similar_problems(problem)
+      similar_problems = search_similar_problems(enhanced_problem)
 
       # Step 2: Assess initial confidence (async with timeout to avoid hanging)
-      uncertainty = assess_with_timeout(problem)
+      uncertainty = assess_with_timeout(enhanced_problem)
 
       # Step 3: Detect knowledge gaps
       gaps = GapDetector.analyze_uncertainty(uncertainty)
@@ -94,23 +144,44 @@ defmodule Mimo.Cognitive.Reasoner do
 
       {analysis, strategy, strategy_reason} =
         if requested_strategy == :auto do
-          ProblemAnalyzer.analyze_and_recommend(problem)
+          ProblemAnalyzer.analyze_and_recommend(enhanced_problem)
         else
-          {ProblemAnalyzer.analyze(problem), requested_strategy, "Explicitly requested"}
+          {ProblemAnalyzer.analyze(enhanced_problem), requested_strategy, "Explicitly requested"}
         end
 
       # Step 6: Generate initial decomposition
-      decomposition = ProblemAnalyzer.decompose(problem)
+      decomposition = ProblemAnalyzer.decompose(enhanced_problem)
 
-      # Step 7: Create session
+      # Step 7: Create session with meta-task context
       session =
-        ReasoningSession.create(problem, strategy,
+        ReasoningSession.create(enhanced_problem, strategy,
           decomposition: decomposition,
-          similar_problems: similar_problems
+          similar_problems: similar_problems,
+          meta_task: meta_task_info
         )
 
-      # Step 8: Generate initial guidance
+      # Step 8: Generate initial guidance (enhanced for meta-tasks)
       guidance = generate_initial_guidance(strategy, decomposition, uncertainty, similar_problems)
+
+      # SPEC-062: Add meta-task specific guidance if detected
+      enhanced_guidance =
+        if meta_task_info do
+          guidance <>
+            "\n\n⚠️ META-TASK DETECTED: " <>
+            meta_task_info.instruction <>
+            if(meta_task_info.example, do: "\nExample: #{meta_task_info.example}", else: "")
+        else
+          guidance
+        end
+
+      # Emit telemetry for meta-task integration
+      if meta_task_info do
+        VerificationTelemetry.emit_reasoner_meta_task(
+          session.id,
+          meta_task_info.type,
+          meta_task_info
+        )
+      end
 
       {:ok,
        %{
@@ -121,7 +192,9 @@ defmodule Mimo.Cognitive.Reasoner do
            complexity: analysis.complexity,
            involves_tools: analysis.involves_tools,
            programming_task: analysis.programming_task,
-           ambiguous: analysis.ambiguous
+           ambiguous: analysis.ambiguous,
+           meta_task: meta_task_info != nil,
+           meta_task_type: if(meta_task_info, do: meta_task_info.type, else: nil)
          },
          confidence: %{
            level: uncertainty.confidence,
@@ -131,8 +204,26 @@ defmodule Mimo.Cognitive.Reasoner do
          },
          similar_problems: format_similar_problems(similar_problems),
          decomposition: decomposition,
-         guidance: guidance
+         guidance: enhanced_guidance
        }}
+  end
+
+  # SPEC-062: Detect and enhance meta-tasks
+  defp detect_and_enhance_meta_task(problem) do
+    case MetaTaskDetector.detect(problem) do
+      {:meta_task, guidance} ->
+        Logger.info("[Reasoner] Meta-task detected: #{guidance.type}")
+        
+        enhanced = """
+        #{problem}
+
+        ⚠️ META-TASK (#{guidance.type}): #{guidance.instruction}
+        """
+        
+        {enhanced, guidance}
+
+      {:standard, _} ->
+        {problem, nil}
     end
   end
 
@@ -207,31 +298,35 @@ defmodule Mimo.Cognitive.Reasoner do
       }
 
       # Update session
-      {:ok, updated_session} = ReasoningSession.add_thought(session_id, new_thought)
+      case ReasoningSession.add_thought(session_id, new_thought) do
+        {:ok, updated_session} ->
+          # Calculate progress
+          progress = calculate_progress(updated_session)
 
-      # Calculate progress
-      progress = calculate_progress(updated_session)
+          {:ok,
+           %{
+             session_id: session_id,
+             step_number: new_thought.step,
+             evaluation: %{
+               quality: evaluation.quality,
+               score: evaluation.score,
+               feedback: evaluation.feedback,
+               issues: evaluation.issues,
+               suggestions: evaluation.suggestions
+             },
+             confidence: %{
+               level: step_confidence,
+               score: new_thought.confidence
+             },
+             progress: progress,
+             should_continue: evaluation.quality != :bad,
+             hint:
+               "Use 'reason operation=enrich session_id=#{session_id} step_number=#{new_thought.step}' for deep context"
+           }}
 
-      {:ok,
-       %{
-         session_id: session_id,
-         step_number: new_thought.step,
-         evaluation: %{
-           quality: evaluation.quality,
-           score: evaluation.score,
-           feedback: evaluation.feedback,
-           issues: evaluation.issues,
-           suggestions: evaluation.suggestions
-         },
-         confidence: %{
-           level: step_confidence,
-           score: new_thought.confidence
-         },
-         progress: progress,
-         should_continue: evaluation.quality != :bad,
-         hint:
-           "Use 'reason operation=enrich session_id=#{session_id} step_number=#{new_thought.step}' for deep context"
-       }}
+        {:error, reason} ->
+          {:error, "Failed to add thought: #{inspect(reason)}"}
+      end
     end
   end
 
@@ -307,8 +402,8 @@ defmodule Mimo.Cognitive.Reasoner do
           Reflexion.reflect_on_failure(trajectory, error || "Unknown error", session.problem)
         end
 
-      # Store reflection in memory
-      {:ok, _} = Reflexion.store_reflection(reflection, session.problem, success)
+      # Store reflection in memory (best-effort, don't crash if fails)
+      _ = Reflexion.store_reflection(reflection, session.problem, success)
 
       {:ok,
        %{
@@ -360,20 +455,24 @@ defmodule Mimo.Cognitive.Reasoner do
         }
 
         # Add branch to session
-        {:ok, updated_session} = ReasoningSession.add_branch(session_id, new_branch)
+        case ReasoningSession.add_branch(session_id, new_branch) do
+          {:ok, updated_session} ->
+            # Get the created branch
+            created_branch = List.last(updated_session.branches)
 
-        # Get the created branch
-        created_branch = List.last(updated_session.branches)
+            {:ok,
+             %{
+               session_id: session_id,
+               branch_id: created_branch.id,
+               branch_thought: branch_thought,
+               total_branches: length(updated_session.branches),
+               current_exploration_depth:
+                 TreeOfThoughts.calculate_depth(created_branch, updated_session.branches)
+             }}
 
-        {:ok,
-         %{
-           session_id: session_id,
-           branch_id: created_branch.id,
-           branch_thought: branch_thought,
-           total_branches: length(updated_session.branches),
-           current_exploration_depth:
-             TreeOfThoughts.calculate_depth(created_branch, updated_session.branches)
-         }}
+          {:error, reason} ->
+            {:error, "Failed to add branch: #{inspect(reason)}"}
+        end
       end
     end
   end
@@ -395,35 +494,43 @@ defmodule Mimo.Cognitive.Reasoner do
         end
 
         # Find next branch
-        {:ok, updated_session} = ReasoningSession.get(session_id)
+        case ReasoningSession.get(session_id) do
+          {:ok, updated_session} ->
+            next_branch =
+              if target_branch_id do
+                Enum.find(updated_session.branches, &(&1.id == target_branch_id))
+              else
+                ReasoningSession.find_best_unexplored_branch(updated_session)
+              end
 
-        next_branch =
-          if target_branch_id do
-            Enum.find(updated_session.branches, &(&1.id == target_branch_id))
-          else
-            ReasoningSession.find_best_unexplored_branch(updated_session)
-          end
+            if next_branch do
+              case ReasoningSession.switch_branch(session_id, next_branch.id) do
+                {:ok, final_session} ->
+                  {:ok,
+                   %{
+                     session_id: session_id,
+                     backtracked_from: session.current_branch_id,
+                     now_on_branch: next_branch.id,
+                     branch_status: next_branch.evaluation,
+                     remaining_unexplored: count_unexplored_branches(final_session.branches)
+                   }}
 
-        if next_branch do
-          {:ok, final_session} = ReasoningSession.switch_branch(session_id, next_branch.id)
+                {:error, reason} ->
+                  {:error, "Failed to switch branch: #{inspect(reason)}"}
+              end
+            else
+              # No more branches to explore
+              {:ok,
+               %{
+                 session_id: session_id,
+                 no_more_branches: true,
+                 all_explored: true,
+                 suggestion: "All branches explored. Use 'conclude' to synthesize the best answer."
+               }}
+            end
 
-          {:ok,
-           %{
-             session_id: session_id,
-             backtracked_from: session.current_branch_id,
-             now_on_branch: next_branch.id,
-             branch_status: next_branch.evaluation,
-             remaining_unexplored: count_unexplored_branches(final_session.branches)
-           }}
-        else
-          # No more branches to explore
-          {:ok,
-           %{
-             session_id: session_id,
-             no_more_branches: true,
-             all_explored: true,
-             suggestion: "All branches explored. Use 'conclude' to synthesize the best answer."
-           }}
+          {:error, reason} ->
+            {:error, "Failed to get session: #{inspect(reason)}"}
         end
       end
     end
@@ -527,7 +634,7 @@ defmodule Mimo.Cognitive.Reasoner do
       {:error, "At least one thought required"}
     else
       with {:ok, session} <- ReasoningSession.get(session_id) do
-        results =
+        {results, _last_session} =
           Enum.map_reduce(thoughts, session, fn thought, current_session ->
             evaluation =
               ThoughtEvaluator.evaluate(thought, %{
@@ -553,7 +660,11 @@ defmodule Mimo.Cognitive.Reasoner do
             end
           end)
 
-        {:ok, final_session} = ReasoningSession.get(session_id)
+        final_session =
+          case ReasoningSession.get(session_id) do
+            {:ok, s} -> s
+            {:error, _} -> session
+          end
 
         {:ok,
          %{
@@ -586,20 +697,75 @@ defmodule Mimo.Cognitive.Reasoner do
   end
 
   defp enrich_with_context(thought, session) do
-    {:ok,
-     %{
-       session_id: session.id,
-       step_content: thought,
-       enrichment: %{
-         memory_context: [],
-         knowledge_connections: [],
-         code_references: []
-       },
-       status: "enriched"
-     }}
+    content = Map.get(thought, :content, thought)
+
+    # Prepare a rich context using the dedicated PrepareContext dispatcher
+    prepared_context =
+      case PrepareContext.dispatch(%{"query" => content, "include_scores" => true}) do
+        {:ok, prepared} -> prepared
+        _ -> %{}
+      end
+
+    # Assess confidence (timeout-protected)
+    uncertainty = assess_with_timeout(content)
+    score = Map.get(uncertainty, :score, 0.0)
+
+    # Trigger wisdom injector if needed (may return :skip or {:inject, wisdom})
+    wisdom_injection =
+      case WisdomInjector.inject_if_uncertain(content, score) do
+        {:inject, w} -> w
+        :skip -> %{}
+      end
+
+    # Prepare merged wisdom (combine PrepareContext's wisdom and injected wisdom)
+    prepared_wisdom = get_in(prepared_context, [:context, :wisdom]) || %{}
+    merged_wisdom = merge_wisdom(prepared_wisdom, wisdom_injection)
+
+    # Build enrichment structure with sections from prepared context
+    memory_context = get_in(prepared_context, [:context, :memory, :items]) || []
+    knowledge_connections =
+      (get_in(prepared_context, [:context, :knowledge, :relationships]) || []) ++
+        (get_in(prepared_context, [:context, :knowledge, :nodes]) || [])
+    code_references = get_in(prepared_context, [:context, :code, :items]) || []
+    patterns = get_in(prepared_context, [:context, :patterns, :items]) || []
+    formatted_context = prepared_context[:formatted_context] || ""
+
+    # Small model boost indicators
+    sm_boost = Map.get(prepared_context, :small_model_boost, %{})
+
+    wisdom_injected_flag =
+      (length(merged_wisdom[:failures] || []) > 0) or
+        (length(merged_wisdom[:warnings] || []) > 0) or
+        Map.get(sm_boost, :wisdom_injected, false)
+
+    enrichment = %{
+      memory_context: memory_context,
+      knowledge_connections: knowledge_connections,
+      code_references: code_references,
+      patterns: patterns,
+      wisdom: merged_wisdom,
+      formatted_context: formatted_context,
+      confidence: %{
+        level: Map.get(uncertainty, :confidence),
+        score: Map.get(uncertainty, :score, 0.0)
+      }
+    }
+
+    # Add small model boost metadata to enrichment
+    enrichment = Map.put(enrichment, :small_model_boost, %{
+      patterns_matched: Map.get(sm_boost, :patterns_matched, false),
+      wisdom_injected: wisdom_injected_flag
+    })
+
+    %{
+      session_id: session.id,
+      step_content: thought,
+      enrichment: enrichment,
+      status: "enriched"
+    }
   rescue
     _error ->
-      {:ok, %{status: "enrichment_failed", note: "Error during enrichment, step is still recorded"}}
+      %{status: "enrichment_failed", note: "Error during enrichment, step is still recorded"}
   end
 
   defp format_similar_problems(memories) do
@@ -833,6 +999,27 @@ defmodule Mimo.Cognitive.Reasoner do
 
   defp count_unexplored_branches(branches) do
     Enum.count(branches, fn b -> not b.explored and b.evaluation != :dead_end end)
+  end
+
+  defp merge_wisdom(prepared_wisdom, injected_wisdom) do
+    prepared_wisdom = prepared_wisdom || %{}
+    injected_wisdom = injected_wisdom || %{}
+
+    failures = (prepared_wisdom[:failures] || []) ++ (injected_wisdom[:failures] || [])
+    warnings = (prepared_wisdom[:warnings] || []) ++ (injected_wisdom[:warnings] || [])
+    patterns = (prepared_wisdom[:patterns] || []) ++ (injected_wisdom[:patterns] || [])
+
+    %{
+      failures: Enum.uniq_by(failures, &(&1.content || inspect(&1))),
+      warnings: Enum.uniq_by(warnings, &(&1.message || inspect(&1))),
+      patterns: Enum.uniq_by(patterns, &(&1.id || inspect(&1))),
+      formatted:
+        Enum.reject([
+          prepared_wisdom[:formatted] || "",
+          injected_wisdom[:formatted] || ""
+        ], &(&1 == ""))
+        |> Enum.join("\n\n")
+    }
   end
 
   defp confidence_to_float(level) do

@@ -145,29 +145,34 @@ defmodule Mimo.Skills.Terminal do
               {:error, _} -> String.split(cmd_str)
             end
 
-          # Start process with Exile
-          {:ok, process} = Exile.Process.start_link(cmd_args)
-          pid = Exile.Process.os_pid(process)
+          # Start process with Exile - handle potential failures
+          case Exile.Process.start_link(cmd_args) do
+            {:ok, process} ->
+              pid = Exile.Process.os_pid(process)
 
-          # Register for tracking
-          ensure_registry_started()
+              # Register for tracking
+              ensure_registry_started()
 
-          Registry.register(pid, %{
-            command: cmd_str,
-            started_at: DateTime.utc_now(),
-            process: process,
-            output: ""
-          })
+              Registry.register(pid, %{
+                command: cmd_str,
+                started_at: DateTime.utc_now(),
+                process: process,
+                output: ""
+              })
 
-          # Collect initial output
-          initial_output = collect_output(process, timeout_ms)
+              # Collect initial output
+              initial_output = collect_output(process, timeout_ms)
 
-          {:ok,
-           %{
-             pid: pid,
-             command: cmd_str,
-             initial_output: initial_output
-           }}
+              {:ok,
+               %{
+                 pid: pid,
+                 command: cmd_str,
+                 initial_output: initial_output
+               }}
+
+            {:error, reason} ->
+              {:error, "Failed to start process: #{inspect(reason)}"}
+          end
         rescue
           e -> {:error, "Failed to start process: #{Exception.message(e)}"}
         end

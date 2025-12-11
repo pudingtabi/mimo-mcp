@@ -75,36 +75,40 @@ defmodule Mimo.Synapse.DependencySync do
       # Create project node
       project_name = Path.basename(project_root)
 
-      {:ok, project_node} =
-        Graph.find_or_create_node(:module, project_name, %{
-          type: "project",
-          is_root: true,
-          path: project_root,
-          synced_at: DateTime.utc_now() |> DateTime.to_iso8601()
-        })
+      case Graph.find_or_create_node(:module, project_name, %{
+             type: "project",
+             is_root: true,
+             path: project_root,
+             synced_at: DateTime.utc_now() |> DateTime.to_iso8601()
+           }) do
+        {:ok, project_node} ->
+          # Create nodes and edges for each dependency
+          results =
+            deps
+            |> Enum.map(fn dep ->
+              sync_single_dependency(project_node, dep, fetch_docs)
+            end)
 
-      # Create nodes and edges for each dependency
-      results =
-        deps
-        |> Enum.map(fn dep ->
-          sync_single_dependency(project_node, dep, fetch_docs)
-        end)
+          # Group results by ecosystem
+          by_ecosystem =
+            results
+            |> Enum.group_by(fn {ecosystem, _, _} -> ecosystem end)
+            |> Map.new(fn {eco, items} -> {eco, length(items)} end)
 
-      # Group results by ecosystem
-      by_ecosystem =
-        results
-        |> Enum.group_by(fn {ecosystem, _, _} -> ecosystem end)
-        |> Map.new(fn {eco, items} -> {eco, length(items)} end)
+          total = length(results)
+          Logger.info("[DependencySync] Synced #{total} dependencies: #{inspect(by_ecosystem)}")
 
-      total = length(results)
-      Logger.info("[DependencySync] Synced #{total} dependencies: #{inspect(by_ecosystem)}")
+          {:ok,
+           %{
+             total: total,
+             by_ecosystem: by_ecosystem,
+             project_node_id: project_node.id
+           }}
 
-      {:ok,
-       %{
-         total: total,
-         by_ecosystem: by_ecosystem,
-         project_node_id: project_node.id
-       }}
+        {:error, reason} ->
+          Logger.error("[DependencySync] Failed to create project node: #{inspect(reason)}")
+          {:error, reason}
+      end
     end
   rescue
     e ->
@@ -460,32 +464,36 @@ defmodule Mimo.Synapse.DependencySync do
     version = dep.version
 
     # Create external_lib node
-    {:ok, lib_node} =
-      Graph.find_or_create_node(:external_lib, name, %{
-        ecosystem: to_string(ecosystem),
-        version: version,
-        dependency: true,
-        synced_at: DateTime.utc_now() |> DateTime.to_iso8601()
-      })
+    case Graph.find_or_create_node(:external_lib, name, %{
+           ecosystem: to_string(ecosystem),
+           version: version,
+           dependency: true,
+           synced_at: DateTime.utc_now() |> DateTime.to_iso8601()
+         }) do
+      {:ok, lib_node} ->
+        # Create uses edge from project to library
+        Graph.ensure_edge(project_node.id, lib_node.id, :uses, %{
+          source: "dependency_sync",
+          version: version,
+          ecosystem: to_string(ecosystem)
+        })
 
-    # Create uses edge from project to library
-    Graph.ensure_edge(project_node.id, lib_node.id, :uses, %{
-      source: "dependency_sync",
-      version: version,
-      ecosystem: to_string(ecosystem)
-    })
+        # Notify orchestrator of the dependency
+        if Process.whereis(Orchestrator) do
+          Orchestrator.on_dependency_detected(name, version, ecosystem)
+        end
 
-    # Notify orchestrator of the dependency
-    if Process.whereis(Orchestrator) do
-      Orchestrator.on_dependency_detected(name, version, ecosystem)
+        # Optionally fetch library docs
+        if fetch_docs do
+          fetch_library_docs(name, ecosystem, version)
+        end
+
+        {ecosystem, name, version}
+
+      {:error, reason} ->
+        Logger.warning("[DependencySync] Failed to create node for #{name}: #{inspect(reason)}")
+        {ecosystem, name, nil}
     end
-
-    # Optionally fetch library docs
-    if fetch_docs do
-      fetch_library_docs(name, ecosystem, version)
-    end
-
-    {ecosystem, name, version}
   rescue
     e ->
       Logger.warning("[DependencySync] Failed to sync #{dep.name}: #{Exception.message(e)}")

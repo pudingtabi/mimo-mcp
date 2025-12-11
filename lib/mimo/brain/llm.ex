@@ -544,8 +544,16 @@ defmodule Mimo.Brain.LLM do
     - `{:ok, embedding}` - List of floats
     - `{:error, reason}` - Error
   """
+  # Maximum text length for embedding (prevents OOM/timeout with huge texts)
+  @max_embedding_text_length 8_000
+  # Maximum combining characters per base character (prevents zalgo text DoS)
+  @max_combining_chars_per_base 3
+
   @spec get_embedding(String.t(), keyword()) :: {:ok, [float()]} | {:error, term()}
   def get_embedding(text, opts \\ []) do
+    # Sanitize text first to prevent zalgo/unicode attacks
+    sanitized = sanitize_text_for_embedding(text)
+
     # Check if we're in test mode
     if Application.get_env(:mimo_mcp, :skip_external_apis, false) do
       # Return a test embedding with the requested dimensions
@@ -554,8 +562,82 @@ defmodule Mimo.Brain.LLM do
       {:ok, List.duplicate(0.1, dim)}
     else
       CircuitBreaker.call(:ollama_service, fn ->
-        do_get_embedding(text, opts)
+        do_get_embedding(sanitized, opts)
       end)
+    end
+  end
+
+  @doc """
+  Sanitize text for embedding to prevent DoS attacks.
+
+  - Strips excessive combining characters (zalgo text)
+  - Truncates to max length
+  - Normalizes to NFC form
+  - Removes invalid UTF-8 sequences
+  """
+  @spec sanitize_text_for_embedding(String.t()) :: String.t()
+  def sanitize_text_for_embedding(text) when is_binary(text) do
+    text
+    |> ensure_valid_utf8()
+    |> String.normalize(:nfc)
+    |> strip_excessive_combining_chars()
+    |> String.slice(0, @max_embedding_text_length)
+    |> String.trim()
+  end
+
+  def sanitize_text_for_embedding(_), do: ""
+
+  # Ensure text is valid UTF-8, replacing invalid sequences
+  defp ensure_valid_utf8(text) do
+    if String.valid?(text) do
+      text
+    else
+      # Replace invalid bytes with replacement character or strip them
+      text
+      |> :unicode.characters_to_binary(:utf8, :utf8)
+      |> case do
+        {:error, valid_part, _rest} -> valid_part
+        {:incomplete, valid_part, _rest} -> valid_part
+        valid when is_binary(valid) -> valid
+      end
+    end
+  end
+
+  # Strip excessive combining characters (zalgo text protection)
+  defp strip_excessive_combining_chars(text) do
+    # Unicode combining characters are in ranges:
+    # U+0300-U+036F (Combining Diacritical Marks)
+    # U+1AB0-U+1AFF (Combining Diacritical Marks Extended)
+    # U+1DC0-U+1DFF (Combining Diacritical Marks Supplement)
+    # U+20D0-U+20FF (Combining Diacritical Marks for Symbols)
+    # U+FE20-U+FE2F (Combining Half Marks)
+
+    text
+    |> String.graphemes()
+    |> Enum.map(&limit_combining_chars/1)
+    |> Enum.join()
+  end
+
+  defp limit_combining_chars(grapheme) do
+    # A grapheme is a base character + combining characters
+    # We limit the number of combining chars to prevent zalgo
+    # Guard against invalid UTF-8 that can crash String.to_charlist
+    try do
+      codepoints = String.to_charlist(grapheme)
+
+      case codepoints do
+        [base | combiners] when length(combiners) > @max_combining_chars_per_base ->
+          # Keep base + limited combiners
+          limited = Enum.take(combiners, @max_combining_chars_per_base)
+          List.to_string([base | limited])
+
+        _ ->
+          grapheme
+      end
+    rescue
+      UnicodeConversionError ->
+        # Invalid UTF-8 sequence - replace with empty or placeholder
+        ""
     end
   end
 
@@ -607,13 +689,16 @@ defmodule Mimo.Brain.LLM do
   """
   @spec get_embeddings([String.t()], keyword()) :: {:ok, [[float()]]} | {:error, term()}
   def get_embeddings(texts, opts \\ []) when is_list(texts) do
+    # Sanitize all texts first
+    sanitized = Enum.map(texts, &sanitize_text_for_embedding/1)
+
     if Application.get_env(:mimo_mcp, :skip_external_apis, false) do
       dim = Keyword.get(opts, :dimensions, @default_embedding_dim)
       dim = min(dim, @max_embedding_dim)
-      {:ok, Enum.map(texts, fn _ -> List.duplicate(0.1, dim) end)}
+      {:ok, Enum.map(sanitized, fn _ -> List.duplicate(0.1, dim) end)}
     else
       CircuitBreaker.call(:ollama_service, fn ->
-        do_get_embeddings(texts, opts)
+        do_get_embeddings(sanitized, opts)
       end)
     end
   end

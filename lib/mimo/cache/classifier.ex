@@ -221,6 +221,20 @@ defmodule Mimo.Cache.Classifier do
     :exit, {:noproc, _} ->
       # Cache not started, compute directly
       compute_fn.()
+
+    :exit, {:shutdown, _} ->
+      # Cache shutting down, compute directly
+      compute_fn.()
+
+    :exit, {:timeout, _} ->
+      # Timeout waiting for cache, compute directly
+      compute_fn.()
+
+    :exit, reason ->
+      # Any other exit reason, log and compute directly
+      require Logger
+      Logger.warning("Classifier cache exited with reason: #{inspect(reason)}, computing directly")
+      compute_fn.()
   end
 
   defp hash_text(text) do

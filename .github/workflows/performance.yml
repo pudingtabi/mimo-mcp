@@ -1,0 +1,276 @@
+name: Performance Tests (SPEC-061)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'Number of benchmark iterations'
+        required: false
+        default: '500'
+      concurrency:
+        description: 'Number of concurrent workers'
+        required: false
+        default: '50'
+
+env:
+  MIX_ENV: test
+  MIMO_API_KEY: "test-api-key-for-ci-32-chars-minimum"
+  MIMO_SECRET_KEY_BASE: "test-secret-key-base-for-ci-tests-needs-to-be-at-least-64-characters-long-for-phoenix"
+
+jobs:
+  benchmark:
+    name: Production Benchmarks
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "26.0"
+          elixir-version: "1.19"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Mix Deps
+        uses: actions/cache@v3
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-perf-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-perf-
+
+      - name: Cache Cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/vector_math/target
+          key: ${{ runner.os }}-cargo-perf-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-perf-
+
+      - name: Install Dependencies
+        run: mix deps.get
+
+      - name: Compile
+        run: |
+          mix deps.compile
+          mix compile --force
+
+      - name: Setup Database
+        run: |
+          mix ecto.create
+          mix ecto.migrate
+
+      - name: Run Performance Benchmarks
+        id: benchmark
+        run: |
+          mix benchmark.performance \
+            --iterations ${{ github.event.inputs.iterations || '500' }} \
+            --concurrency ${{ github.event.inputs.concurrency || '50' }} \
+            --output bench/results/ci_results.json \
+            --quick
+        continue-on-error: true
+
+      - name: Parse Benchmark Results
+        id: results
+        run: |
+          if [ -f bench/results/ci_results.json ]; then
+            P95=$(jq '.memory_search.p95' bench/results/ci_results.json)
+            P99=$(jq '.memory_search.p99' bench/results/ci_results.json)
+            THROUGHPUT=$(jq '.concurrent_load.throughput_rps' bench/results/ci_results.json)
+            P95_PASS=$(jq '.targets.p95_pass' bench/results/ci_results.json)
+            
+            echo "p95_latency=$P95" >> $GITHUB_OUTPUT
+            echo "p99_latency=$P99" >> $GITHUB_OUTPUT
+            echo "throughput=$THROUGHPUT" >> $GITHUB_OUTPUT
+            echo "p95_pass=$P95_PASS" >> $GITHUB_OUTPUT
+            
+            echo "### Performance Results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Metric | Value | Target | Status |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|--------|--------|" >> $GITHUB_STEP_SUMMARY
+            
+            if [ "$P95_PASS" = "true" ]; then
+              echo "| p95 Latency | ${P95}ms | <1500ms | ✅ PASS |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| p95 Latency | ${P95}ms | <1500ms | ❌ FAIL |" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            echo "| p99 Latency | ${P99}ms | <3000ms | - |" >> $GITHUB_STEP_SUMMARY
+            echo "| Throughput | ${THROUGHPUT} req/s | >100 | - |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No results file found"
+            echo "p95_pass=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload Benchmark Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: bench/results/
+          retention-days: 30
+
+      - name: Check Performance Thresholds
+        if: steps.results.outputs.p95_pass == 'false'
+        run: |
+          echo "::error::Performance threshold exceeded! p95 latency must be < 1500ms"
+          exit 1
+
+  # Only run k6 load tests on schedule or manual trigger
+  load-test:
+    name: k6 Load Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    
+    services:
+      ollama:
+        image: ollama/ollama:latest
+        ports:
+          - 11434:11434
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "26.0"
+          elixir-version: "1.19"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Install Dependencies
+        run: mix deps.get
+
+      - name: Compile
+        run: mix compile --force
+
+      - name: Setup Database
+        run: |
+          mix ecto.create
+          mix ecto.migrate
+
+      - name: Start Mimo Server
+        run: |
+          mix phx.server &
+          sleep 10
+          curl -f http://localhost:4000/health || exit 1
+        env:
+          MIMO_HTTP_PORT: 4000
+          OLLAMA_URL: http://localhost:11434
+
+      - name: Run k6 Load Test
+        run: |
+          k6 run bench/load_test.js \
+            --env MIMO_URL=http://localhost:4000 \
+            --duration 2m \
+            --vus 50
+        continue-on-error: true
+
+      - name: Upload k6 Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-results
+          path: bench/results/spec061_results.json
+          retention-days: 30
+
+  # Performance regression check on PRs
+  regression-check:
+    name: Performance Regression Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "26.0"
+          elixir-version: "1.19"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Dependencies
+        run: mix deps.get
+
+      - name: Compile
+        run: mix compile --force
+
+      - name: Setup Database
+        run: |
+          mix ecto.create
+          mix ecto.migrate
+
+      - name: Run Quick Benchmark
+        run: |
+          mix benchmark.performance --quick --output bench/results/pr_results.json
+
+      - name: Comment PR with Results
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            try {
+              const results = JSON.parse(fs.readFileSync('bench/results/pr_results.json', 'utf8'));
+              const p95 = results.memory_search?.p95 || 'N/A';
+              const p99 = results.memory_search?.p99 || 'N/A';
+              const throughput = results.concurrent_load?.throughput_rps || 'N/A';
+              const pass = results.targets?.p95_pass ? '✅' : '❌';
+              
+              const body = `## 📊 Performance Benchmark Results
+              
+              | Metric | Value | Target | Status |
+              |--------|-------|--------|--------|
+              | p95 Latency | ${p95}ms | <1500ms | ${pass} |
+              | p99 Latency | ${p99}ms | <3000ms | - |
+              | Throughput | ${throughput} req/s | >100 | - |
+              
+              <details>
+              <summary>Full Results</summary>
+              
+              \`\`\`json
+              ${JSON.stringify(results, null, 2)}
+              \`\`\`
+              </details>
+              
+              > SPEC-061 Production Hardening Targets`;
+              
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+            } catch (e) {
+              console.log('Could not parse results:', e);
+            }

@@ -35,17 +35,18 @@ defmodule Mimo.MixProject do
   def releases do
     [
       mimo: [
-        steps: [:assemble, &Burrito.wrap/1],
-        burrito: [
-          targets: [
-            macos_x86_64: [os: :darwin, cpu: :x86_64],
-            macos_aarch64: [os: :darwin, cpu: :aarch64],
-            linux_x86_64: [os: :linux, cpu: :x86_64],
-            linux_aarch64: [os: :linux, cpu: :aarch64],
-            windows_x86_64: [os: :windows, cpu: :x86_64]
-          ],
-          debug: Mix.env() != :prod
-        ]
+        # , &Burrito.wrap/1],
+        steps: [:assemble]
+        # burrito: [
+        #   targets: [
+        #     macos_x86_64: [os: :darwin, cpu: :x86_64],
+        #     macos_aarch64: [os: :darwin, cpu: :aarch64],
+        #     linux_x86_64: [os: :linux, cpu: :x86_64],
+        #     linux_aarch64: [os: :linux, cpu: :aarch64],
+        #     windows_x86_64: [os: :windows, cpu: :x86_64]
+        #   ],
+        #   debug: Mix.env() != :prod
+        # ]
       ]
     ]
   end
@@ -53,7 +54,7 @@ defmodule Mimo.MixProject do
   defp deps do
     [
       # --- Packaging ---
-      {:burrito, "~> 1.0"},
+      {:burrito, "~> 1.0", optional: true, runtime: false},
 
       # --- Goldilocks Stack: Production-hardened dependencies ---
       # HTTP client (replaces HTTPoison)
@@ -98,6 +99,7 @@ defmodule Mimo.MixProject do
 
       # Dev/Test
       {:ex_doc, "~> 0.30", only: :dev, runtime: false},
+      # {:burrito, "~> 1.0", optional: true, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:excoveralls, "~> 0.18", only: :test},

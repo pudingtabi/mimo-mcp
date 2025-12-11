@@ -32,6 +32,7 @@ defmodule Mimo.Tools.Dispatchers.Code do
   """
 
   alias Mimo.Tools.Helpers
+  alias Mimo.Utils.InputValidation
 
   @doc """
   Dispatch code operation based on args.
@@ -178,7 +179,9 @@ defmodule Mimo.Tools.Dispatchers.Code do
     if name == "" do
       {:error, "Symbol name is required for references lookup"}
     else
-      refs = Mimo.Code.SymbolIndex.find_references(name, limit: args["limit"] || 50)
+      # Validate limit to prevent excessive results
+      limit = InputValidation.validate_limit(args["limit"], default: 50, max: 500)
+      refs = Mimo.Code.SymbolIndex.find_references(name, limit: limit)
 
       {:ok,
        %{
@@ -197,7 +200,9 @@ defmodule Mimo.Tools.Dispatchers.Code do
     else
       opts = []
       opts = if args["kind"], do: Keyword.put(opts, :kind, args["kind"]), else: opts
-      opts = if args["limit"], do: Keyword.put(opts, :limit, args["limit"]), else: opts
+      # Validate limit
+      limit = InputValidation.validate_limit(args["limit"], default: 50, max: 500)
+      opts = Keyword.put(opts, :limit, limit)
 
       symbols = Mimo.Code.SymbolIndex.search(pattern, opts)
 
@@ -295,7 +300,8 @@ defmodule Mimo.Tools.Dispatchers.Code do
   defp dispatch_library_search(args) do
     query = args["query"] || args["name"] || ""
     ecosystem = Helpers.parse_ecosystem(args["ecosystem"] || "hex")
-    limit = args["limit"] || 10
+    # Validate limit
+    limit = InputValidation.validate_limit(args["limit"], default: 10, max: 100)
 
     if query == "" do
       {:error, "Search query is required"}

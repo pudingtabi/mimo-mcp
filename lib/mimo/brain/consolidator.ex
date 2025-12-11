@@ -38,7 +38,8 @@ defmodule Mimo.Brain.Consolidator do
   use GenServer
   require Logger
 
-  alias Mimo.Brain.{WorkingMemory, Memory, LLM}
+  alias Mimo.Brain.{Memory, LLM}
+  alias Mimo.SafeCall
 
   @default_interval 60_000
   @default_score_threshold 0.3
@@ -63,18 +64,27 @@ defmodule Mimo.Brain.Consolidator do
   ## Returns
 
     * `{:ok, count}` - Number of memories consolidated
+    * `{:error, :unavailable}` - Consolidator not running
   """
-  @spec consolidate_now(keyword()) :: {:ok, non_neg_integer()}
+  @spec consolidate_now(keyword()) :: {:ok, non_neg_integer()} | {:error, atom()}
   def consolidate_now(opts \\ []) do
-    GenServer.call(__MODULE__, {:consolidate, opts}, 120_000)
+    SafeCall.genserver(__MODULE__, {:consolidate, opts},
+      timeout: 120_000,
+      raw: true,
+      fallback: {:ok, 0}
+    )
   end
 
   @doc """
   Get consolidation statistics.
+  Returns empty stats if consolidator is unavailable.
   """
   @spec stats() :: map()
   def stats do
-    GenServer.call(__MODULE__, :stats)
+    SafeCall.genserver(__MODULE__, :stats,
+      raw: true,
+      fallback: %{status: :unavailable, consolidated: 0}
+    )
   end
 
   @doc """
@@ -159,8 +169,8 @@ defmodule Mimo.Brain.Consolidator do
 
     :telemetry.execute([:mimo, :memory, :consolidation, :started], %{}, %{force: force})
 
-    # Get candidates from working memory
-    candidates = WorkingMemory.get_consolidation_candidates()
+    # Get candidates from working memory (via SafeMemory for resilience)
+    candidates = Mimo.Brain.SafeMemory.get_consolidation_candidates()
 
     # Filter by age and score
     now = DateTime.utc_now()
@@ -234,8 +244,8 @@ defmodule Mimo.Brain.Consolidator do
              metadata
            ) do
         {:ok, _engram} ->
-          # Remove from working memory
-          WorkingMemory.delete(item.id)
+          # Remove from working memory (via SafeMemory for resilience)
+          Mimo.Brain.SafeMemory.delete(item.id)
 
           :telemetry.execute(
             [:mimo, :memory, :consolidated],

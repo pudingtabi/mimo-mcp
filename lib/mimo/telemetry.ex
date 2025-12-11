@@ -23,6 +23,11 @@ defmodule Mimo.Telemetry do
   def init(_arg) do
     # Attach telemetry handlers
     attach_handlers()
+    
+    # SPEC-061: Attach profiler handlers for performance monitoring
+    if Application.get_env(:mimo_mcp, :profiling_enabled, false) do
+      Mimo.Telemetry.Profiler.attach()
+    end
 
     # Check if Prometheus should be disabled (for stdio MCP mode)
     prometheus_disabled = System.get_env("PROMETHEUS_DISABLED") == "true"

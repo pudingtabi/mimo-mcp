@@ -3,7 +3,14 @@
     "mimo": {
       "type": "stdio",
       "command": "/workspace/mrc-server/mimo-mcp/bin/mimo",
-      "args": ["stdio"]
+      "args": ["stdio"],
+      "env": {
+        "PATH": "/root/.asdf/shims:/root/.asdf/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "ASDF_DIR": "/root/.asdf",
+        "LC_ALL": "C.UTF-8",
+        "LANG": "C.UTF-8",
+        "ELIXIR_ERL_OPTIONS": "+fnu"
+      }
     }
   }
 }

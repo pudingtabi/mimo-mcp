@@ -22,12 +22,22 @@ defmodule Mimo.Application do
   def start(_type, _args) do
     children =
       [
-        # Start Repo first
+        # Start Repo
         Mimo.Repo,
         # Elixir Registry for via_tuple skill lookups
         {Registry, keys: :unique, name: Mimo.Skills.Registry},
         # Circuit breaker registry for error handling
         {Registry, keys: :unique, name: Mimo.CircuitBreaker.Registry},
+        # PG starter - ensures :pg process group is available for ToolRegistry
+        %{
+          id: :pg_starter,
+          start: {__MODULE__, :start_pg, []},
+          type: :worker
+        },
+        # ===== GRACEFUL DEGRADATION FRAMEWORK (TASK 5 - Dec 6 2025) =====
+        # ServiceRegistry: Tracks service initialization status and dependencies
+        # Must start before other services so they can register
+        {Mimo.Fallback.ServiceRegistry, []},
         # Circuit breakers for external services (must start after Registry)
         # Use explicit IDs to avoid duplicate_child_name errors
         Supervisor.child_spec(
@@ -50,8 +60,22 @@ defmodule Mimo.Application do
         {Mimo.Skills.HotReload, []},
         # Classifier cache for LLM embedding/classification results
         {Mimo.Cache.Classifier, []},
+        # SPEC-061: Embedding cache for production performance
+        {Mimo.Cache.Embedding, []},
+        # SPEC-064: File read LRU cache for token optimization
+        {Mimo.Skills.FileReadCache, []},
+        # SPEC-061: Telemetry profiler for bottleneck identification
+        {Mimo.Telemetry.Profiler, []},
         # Memory cleanup service with TTL management
         {Mimo.Brain.Cleanup, []},
+        # ===== System Health Monitoring (Q1 2026 Phase 1) =====
+        # SystemHealth: Tracks memory corpus size, query latency, ETS usage
+        # Provides early warning before performance degradation
+        {Mimo.SystemHealth, []},
+        # ===== ETS Crash Recovery (SPEC-045) =====
+        # EtsHeirManager: Must start FIRST - acts as heir for ETS tables
+        # When a GenServer crashes, its ETS table transfers here, not destroyed
+        {Mimo.EtsHeirManager, []},
         # Telemetry supervisor for metrics
         Mimo.Telemetry,
         # Resource monitor for operational visibility
@@ -80,18 +104,30 @@ defmodule Mimo.Application do
         {Mimo.Brain.ThreadManager, []},
         # Interaction Consolidator: Periodic consolidation of interactions → engrams via LLM curation
         {Mimo.Brain.InteractionConsolidator, []},
+        # ===== Autonomous Synthesis (Intelligence Enhancement) =====
+        # Synthesizer: Clusters memories and generates synthesis facts autonomously
+        {Mimo.Brain.Synthesizer, []},
+        # UsageFeedback: Tracks memory retrieval and learns which memories are useful
+        {Mimo.Brain.UsageFeedback, []},
+        # InferenceScheduler: Smart LLM orchestration with priority queue and batching
+        {Mimo.Brain.InferenceScheduler, []},
         # ===== Living Codebase System (SPEC-021) =====
         # File watcher for real-time code indexing
         {Mimo.Code.FileWatcher, []},
         # ===== Cognitive Codebase Integration (SPEC-025) =====
         # Synapse Orchestrator - coordinates graph updates from code/memory changes
         {Mimo.Synapse.Orchestrator, []},
+        # Graph Cache - ETS-backed caching layer for batch SQLite operations (Discord pattern)
+        {Mimo.Synapse.GraphCache, []},
         # ===== Universal Library System (SPEC-022) =====
         # Cache manager for package documentation
         {Mimo.Library.CacheManager, []},
         # ===== Cognitive Mechanisms System (SPEC-024) =====
         # Uncertainty tracker for meta-learning
         {Mimo.Cognitive.UncertaintyTracker, []},
+        # ===== AUTO-REASONING Adoption Metrics =====
+        # Tracks when cognitive assess is used as first tool (Dec 6 2025)
+        {Mimo.AdoptionMetrics, []},
         # ===== AI Intelligence Test (SPEC-AI-TEST) =====
         # Verification tracker for ceremonial vs genuine verification detection
         {Mimo.Brain.VerificationTracker, []},
@@ -103,11 +139,60 @@ defmodule Mimo.Application do
         {Mimo.Awakening.SessionTracker, []},
         # ===== Emergent Capabilities Framework (SPEC-044) =====
         # Emergence Scheduler: Periodic pattern detection and promotion
-        {Mimo.Brain.Emergence.Scheduler, []}
+        {Mimo.Brain.Emergence.Scheduler, []},
+        # Emergence Usage Tracker: Pattern usage and impact tracking (Q1 2026 Phase 2)
+        {Mimo.Brain.Emergence.UsageTracker, []},
+        # ===== Cognitive Lifecycle Pattern (SPEC-042) =====
+        # CognitiveLifecycle: Tracks phase transitions (context → deliberate → action → learn)
+        {Mimo.Brain.CognitiveLifecycle, []},
+        # ===== Evaluator-Optimizer Pattern (Phase 2 Cognitive Enhancement) =====
+        # Optimizer: Self-improving evaluation with outcome tracking and feedback loop
+        {Mimo.Brain.Reflector.Optimizer, []},
+        # ===== Knowledge Auto-Learning System =====
+        # KnowledgeSyncer: Periodic memory → knowledge graph synchronization
+        {Mimo.Brain.KnowledgeSyncer, []},
+        # ===== Autonomous Task Execution (SPEC-071) =====
+        # TaskRunner: Autonomous task queue with cognitive enhancement
+        {Mimo.Autonomous.TaskRunner, []},
+        # Onboard Tracker: Manages async onboarding state
+        {Mimo.Tools.Dispatchers.Onboard.Tracker, []}
       ] ++ synthetic_cortex_children()
 
     opts = [strategy: :one_for_one, name: Mimo.Supervisor]
-    {:ok, sup} = Supervisor.start_link(children, opts)
+
+    # Gracefully handle supervisor start - allow partial degradation
+    case Supervisor.start_link(children, opts) do
+      {:ok, sup} ->
+        # Successfully started supervisor
+        start_post_init_tasks(sup)
+        {:ok, sup}
+
+      {:error, {:shutdown, {:failed_to_start_child, child_name, reason}}} ->
+        Logger.error("""
+        \u274C Failed to start critical child process: #{inspect(child_name)}
+        Reason: #{inspect(reason)}
+
+        This may be due to:
+        - Missing dependencies (e.g., Ollama not running, HNSW NIF not compiled)
+        - Database connection issues
+        - Port conflicts
+
+        Attempting graceful degradation...
+        """)
+
+        # Try to start with minimal children for degraded mode
+        start_minimal_supervisor()
+
+      {:error, reason} ->
+        Logger.error("""
+        \u274C Failed to start Mimo supervisor
+        Reason: #{inspect(reason)}
+        """)
+        {:error, reason}
+    end
+  end
+
+  defp start_post_init_tasks(sup) do
 
     # Start the graceful degradation retry processor (after TaskSupervisor is available)
     spawn(fn ->
@@ -204,6 +289,40 @@ defmodule Mimo.Application do
 
   defp mcp_port do
     Application.fetch_env!(:mimo_mcp, :mcp_port)
+  end
+
+  # Minimal supervisor for degraded mode when full startup fails
+  defp start_minimal_supervisor do
+    Logger.warning("\u26A0\uFE0F Starting in minimal/degraded mode...")
+
+    # Only essential children needed for basic operation
+    minimal_children = [
+      # Process groups for distributed coordination (required by ToolRegistry)
+      %{id: :pg, start: {:pg, :start_link, []}},
+      Mimo.Repo,
+      {Registry, keys: :unique, name: Mimo.Skills.Registry},
+      {Mimo.ToolRegistry, []},
+      {Task.Supervisor, name: Mimo.TaskSupervisor}
+    ]
+
+    opts = [strategy: :one_for_one, name: Mimo.Supervisor.Minimal]
+
+    case Supervisor.start_link(minimal_children, opts) do
+      {:ok, sup} ->
+        Logger.info("\u2705 Minimal supervisor started successfully")
+
+        # Try to start MCP server at least
+        start_mcp_server(sup)
+
+        Logger.warning("Mimo-MCP Gateway v2.4.0 started (MINIMAL/DEGRADED MODE)")
+        Logger.warning("  Some features may not be available")
+
+        {:ok, sup}
+
+      {:error, reason} ->
+        Logger.error("\u274C Even minimal supervisor failed to start: #{inspect(reason)}")
+        {:error, reason}
+    end
   end
 
   # ============================================================================
@@ -338,6 +457,25 @@ defmodule Mimo.Application do
       end
     else
       %{available: false, reason: :disabled}
+    end
+  end
+
+  @doc """
+  Start :pg process group server (called as part of supervision tree).
+  """
+  def start_pg do
+    case :pg.start_link() do
+      {:ok, pid} ->
+        Logger.info("Started :pg process group server")
+        {:ok, pid}
+
+      {:error, {:already_started, pid}} ->
+        Logger.debug(":pg already started")
+        {:ok, pid}
+
+      {:error, reason} = error ->
+        Logger.error("Failed to start :pg: #{inspect(reason)}")
+        error
     end
   end
 end

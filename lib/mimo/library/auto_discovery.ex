@@ -5,6 +5,11 @@ defmodule Mimo.Library.AutoDiscovery do
   Scans project files (mix.exs, package.json, requirements.txt, Cargo.toml) to detect
   dependencies and pre-cache their documentation for faster lookups.
 
+  ## Parallel Execution
+  
+  Dependencies are cached in parallel with a concurrency limit of 4 to avoid
+  overwhelming external APIs while still being fast.
+
   ## Usage
 
       # Discover all dependencies in a project
@@ -18,12 +23,19 @@ defmodule Mimo.Library.AutoDiscovery do
   """
 
   alias Mimo.Library.Index
+  alias Mimo.TaskHelper
   require Logger
+
+  # Maximum concurrent HTTP requests to package registries
+  @max_concurrency 4
+  # Timeout per dependency (10 seconds)
+  @dep_timeout 10_000
 
   @doc """
   Scan a project and pre-cache documentation for all dependencies.
 
   Returns a list of results for each dependency caching attempt.
+  Dependencies are cached in PARALLEL with a concurrency limit.
   """
   @spec discover_and_cache(String.t()) :: {:ok, list(map())}
   def discover_and_cache(project_path) do
@@ -34,15 +46,30 @@ defmodule Mimo.Library.AutoDiscovery do
 
       Logger.info("[AutoDiscovery] Found #{length(ecosystems)} ecosystems: #{inspect(ecosystems)}")
 
-      results =
+      # Collect all dependencies first
+      all_deps =
         Enum.flat_map(ecosystems, fn ecosystem ->
           deps = extract_dependencies(project_path, ecosystem)
-
           Logger.info("[AutoDiscovery] Found #{length(deps)} #{ecosystem} dependencies")
+          Enum.map(deps, fn {name, version} -> {ecosystem, name, version} end)
+        end)
 
-          Enum.map(deps, fn {name, version} ->
+      Logger.info("[AutoDiscovery] Caching #{length(all_deps)} dependencies in parallel (max #{@max_concurrency} concurrent)")
+
+      # Cache dependencies IN PARALLEL with concurrency limit
+      results =
+        all_deps
+        |> TaskHelper.async_stream_with_callers(
+          fn {ecosystem, name, version} ->
             cache_dependency(ecosystem, name, version)
-          end)
+          end,
+          max_concurrency: @max_concurrency,
+          timeout: @dep_timeout,
+          on_timeout: :kill_task
+        )
+        |> Enum.map(fn
+          {:ok, result} -> result
+          {:exit, reason} -> {:error, %{error: inspect(reason), timed_out: true}}
         end)
 
       {:ok,

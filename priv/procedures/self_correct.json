@@ -1,0 +1,18 @@
+{
+  "name": "self_correct",
+  "description": "Auto-diagnose and reasoning about errors",
+  "steps": [
+    {
+      "tool": "diagnostics",
+      "args": { "operation": "all", "path": "." }
+    },
+    {
+      "tool": "reason",
+      "args": {
+        "operation": "guided",
+        "problem": "Analyze these diagnostics and suggest a fix",
+        "strategy": "auto"
+      }
+    }
+  ]
+}

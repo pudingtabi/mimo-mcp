@@ -46,6 +46,7 @@ defmodule Mimo.Tools do
   require Logger
 
   alias Mimo.Tools.{Definitions, Dispatchers}
+  alias Mimo.Knowledge.InjectionMiddleware
 
   @doc """
   Returns all MCP tool definitions.
@@ -54,8 +55,135 @@ defmodule Mimo.Tools do
 
   @doc """
   Dispatch a tool call to the appropriate handler.
+
+  SPEC-065: Wraps dispatch with knowledge injection middleware.
+  Returns the tool result enriched with any relevant injected knowledge.
+
+  A/B Testing: For sessions in the test group, pattern suggestions from
+  promoted emergence patterns are injected into the result.
   """
   def dispatch(tool_name, arguments \\ %{}) do
+    # Track tool usage for adoption metrics (measures AUTO-REASONING workflow adoption)
+    Mimo.AdoptionMetrics.track_tool_call(tool_name)
+
+    # A/B Testing: Get pattern suggestions for test group sessions
+    ab_suggestions = get_ab_suggestions(tool_name, arguments)
+
+    # SPEC-065: Wrap with knowledge injection middleware
+    {result, injection} =
+      InjectionMiddleware.wrap_dispatch(tool_name, arguments, fn ->
+        do_dispatch(tool_name, arguments)
+      end)
+
+    # Determine if the result indicates success (for A/B testing outcome tracking)
+    track_ab_outcome(result)
+
+    # If there's injection data, enrich the result
+    case {result, injection} do
+      {result, nil} ->
+        maybe_add_ab_suggestions(result, ab_suggestions)
+
+      {{:ok, data}, injection} when is_map(data) and is_map(injection) ->
+        # Add injection as metadata the AI can see
+        enriched = Map.put(data, :_mimo_knowledge_injection, format_injection(injection))
+        maybe_add_ab_suggestions({:ok, enriched}, ab_suggestions)
+
+      {result, _injection} ->
+        maybe_add_ab_suggestions(result, ab_suggestions)
+    end
+  end
+
+  @doc """
+  Dispatch without injection middleware (for internal use or testing).
+  """
+  def dispatch_raw(tool_name, arguments \\ %{}) do
+    do_dispatch(tool_name, arguments)
+  end
+
+  # Format injection for response
+  defp format_injection(injection) do
+    %{
+      memories: Map.get(injection, :memories, []),
+      source: Map.get(injection, :source, "SPEC-065"),
+      hint: "💡 Mimo surfaced this knowledge proactively based on your action"
+    }
+  end
+
+  # ============================================================================
+  # A/B Testing Helpers
+  # ============================================================================
+
+  # Get A/B testing pattern suggestions for test group sessions
+  defp get_ab_suggestions(tool_name, arguments) do
+    alias Mimo.Brain.Emergence.ABTesting
+
+    # Only run A/B testing for certain "action" tools where patterns apply
+    if ab_testing_applicable?(tool_name) do
+      context = build_ab_context(tool_name, arguments)
+      ABTesting.get_suggestions(tool_name, context)
+    else
+      {:control, nil}
+    end
+  rescue
+    # Don't let A/B testing failures break normal dispatch
+    _ -> {:control, nil}
+  end
+
+  # Track outcome for A/B testing
+  defp track_ab_outcome(result) do
+    alias Mimo.Brain.Emergence.ABTesting
+
+    success? = case result do
+      {:ok, _} -> true
+      :ok -> true
+      {:error, _} -> false
+      _ -> true  # Assume success for ambiguous results
+    end
+
+    ABTesting.track_outcome(success?)
+  rescue
+    _ -> :ok
+  end
+
+  # Add A/B test suggestions to result if applicable
+  defp maybe_add_ab_suggestions(result, {:test, suggestions}) when suggestions != [] do
+    case result do
+      {:ok, data} when is_map(data) ->
+        {:ok, Map.put(data, :_mimo_pattern_suggestions, %{
+          source: "emergence_ab_test",
+          group: :test,
+          suggestions: suggestions,
+          hint: "💡 These patterns have been promoted from observed agent behaviors"
+        })}
+
+      other ->
+        other
+    end
+  end
+
+  defp maybe_add_ab_suggestions(result, _), do: result
+
+  # Determine which tools are applicable for A/B testing pattern injection
+  defp ab_testing_applicable?(tool_name) do
+    # Apply to "action" tools where patterns might help
+    tool_name in ["file", "terminal", "code", "web", "knowledge"]
+  end
+
+  # Build context for pattern suggestion matching
+  defp build_ab_context(tool_name, arguments) do
+    operation = arguments["operation"] || "default"
+    
+    %{
+      tool: tool_name,
+      operation: operation,
+      has_path: Map.has_key?(arguments, "path"),
+      has_query: Map.has_key?(arguments, "query"),
+      has_command: Map.has_key?(arguments, "command")
+    }
+  end
+
+  # The actual dispatch logic
+  defp do_dispatch(tool_name, arguments) do
     case tool_name do
       # File operations
       "file" ->
@@ -228,6 +356,10 @@ defmodule Mimo.Tools do
       "reflector" ->
         Dispatchers.Reflector.dispatch(arguments)
 
+      # Autonomous Task Execution (SPEC-071)
+      "autonomous" ->
+        Dispatchers.Autonomous.dispatch(arguments)
+
       # Legacy aliases for backward compatibility
       "http_request" ->
         Dispatchers.Web.dispatch_fetch(Map.put(arguments, "format", "raw"))
@@ -253,7 +385,7 @@ defmodule Mimo.Tools do
 
       _ ->
         {:error,
-         "Unknown tool: #{tool_name}. Available: file, terminal, web, fetch, search, blink, browser, vision, sonar, web_extract, web_parse, think, cognitive, reason, knowledge, code, code_symbols, library, diagnostics, verify, graph, onboard, meta, analyze_file, debug_error, prepare_context, suggest_next_tool, emergence, reflector"}
+         "Unknown tool: #{tool_name}. Available: file, terminal, web, code, knowledge, cognitive, reason, think, onboard, meta, autonomous, emergence, reflector, verify. Deprecated but working: fetch, search, blink, browser, vision, sonar, web_extract, web_parse, code_symbols, library, diagnostics, graph, analyze_file, debug_error, prepare_context, suggest_next_tool"}
     end
   end
 end

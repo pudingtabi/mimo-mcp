@@ -19,9 +19,41 @@ defmodule Mimo.SemanticStore.Ingestor do
 
   Use simple predicates like: depends_on, contains, reports_to, owns, uses, is_a, located_in.
 
-  Text: \"""
+  Text: 
+  """
 
-  @doc \"""
+  # Regex patterns for LLM-free relationship extraction
+  @doc false
+  def relationship_patterns do
+    [
+      # "X depends on Y", "X depends_on Y"
+      {~r/(\w+[\w\s]*?)\s+depends[\s_]on\s+(\w+[\w\s]*)/i, "depends_on"},
+      # "X uses Y"
+      {~r/(\w+[\w\s]*?)\s+uses\s+(\w+[\w\s]*)/i, "uses"},
+      # "X is a Y", "X is an Y"
+      {~r/(\w+[\w\s]*?)\s+is\s+an?\s+(\w+[\w\s]*)/i, "is_a"},
+      # "X contains Y"
+      {~r/(\w+[\w\s]*?)\s+contains\s+(\w+[\w\s]*)/i, "contains"},
+      # "X reports to Y"
+      {~r/(\w+[\w\s]*?)\s+reports[\s_]to\s+(\w+[\w\s]*)/i, "reports_to"},
+      # "X implements Y"
+      {~r/(\w+[\w\s]*?)\s+implements\s+(\w+[\w\s]*)/i, "implements"},
+      # "X replaces Y"
+      {~r/(\w+[\w\s]*?)\s+replaces\s+(\w+[\w\s]*)/i, "replaces"},
+      # "X introduces Y"
+      {~r/(\w+[\w\s]*?)\s+introduces\s+(\w+[\w\s]*)/i, "introduces"},
+      # "X requires Y"
+      {~r/(\w+[\w\s]*?)\s+requires\s+(\w+[\w\s]*)/i, "requires"},
+      # "X extends Y"
+      {~r/(\w+[\w\s]*?)\s+extends\s+(\w+[\w\s]*)/i, "extends"},
+      # "X calls Y"
+      {~r/(\w+[\w\s]*?)\s+calls\s+(\w+[\w\s]*)/i, "calls"},
+      # "X imports Y"
+      {~r/(\w+[\w\s]*?)\s+imports\s+(\w+[\w\s]*)/i, "imports"}
+    ]
+  end
+
+  @doc """
   Ingests natural language text and creates semantic triples.
 
   ## Parameters
@@ -47,7 +79,6 @@ defmodule Mimo.SemanticStore.Ingestor do
         # Trigger async operations
         schedule_async_tasks(triples, graph_id)
 
-        # Emit telemetry
         duration_ms = System.monotonic_time(:millisecond) - start_time
 
         :telemetry.execute(
@@ -96,10 +127,22 @@ defmodule Mimo.SemanticStore.Ingestor do
         }
       }
 
-      case Repository.create_triple(structured) do
+      # Use upsert to handle duplicate triples gracefully
+      # This prevents Ecto.ConstraintError from crashing the MCP server
+      case Repository.upsert(structured) do
         {:ok, record} ->
           Dreamer.schedule_inference(graph_id)
           {:ok, record.id}
+
+        {:error, changeset} when is_struct(changeset, Ecto.Changeset) ->
+          # Extract error message from changeset
+          errors = Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
+            Enum.reduce(opts, msg, fn {key, value}, acc ->
+              String.replace(acc, "%{#{key}}", to_string(value))
+            end)
+          end)
+
+          {:error, "Validation failed: #{inspect(errors)}"}
 
         error ->
           error
@@ -136,6 +179,46 @@ defmodule Mimo.SemanticStore.Ingestor do
   # ==========================================================================
 
   defp extract_relationships(text) do
+    # First, try regex-based extraction (fast, no API needed)
+    case extract_with_regex(text) do
+      {:ok, [_ | _] = triples} ->
+        Logger.debug("Extracted #{length(triples)} relationships using regex patterns")
+        {:ok, triples}
+
+      _ ->
+        # Fallback to LLM extraction
+        extract_with_llm(text)
+    end
+  end
+
+  @doc """
+  Extract relationships from text using regex patterns.
+  Public API for use by KnowledgeSyncer and tests.
+  """
+  def extract_with_regex(text) do
+    triples =
+      relationship_patterns()
+      |> Enum.flat_map(fn {pattern, predicate} ->
+        Regex.scan(pattern, text)
+        |> Enum.map(fn
+          [_, subject, object] ->
+            %{
+              "subject" => String.trim(subject),
+              "predicate" => predicate,
+              "object" => String.trim(object)
+            }
+
+          _ ->
+            nil
+        end)
+        |> Enum.reject(&is_nil/1)
+      end)
+      |> Enum.uniq_by(fn t -> {t["subject"], t["predicate"], t["object"]} end)
+
+    {:ok, triples}
+  end
+
+  defp extract_with_llm(text) do
     prompt = @extraction_prompt <> text
 
     case LLM.complete(prompt, format: :json) do
@@ -143,14 +226,13 @@ defmodule Mimo.SemanticStore.Ingestor do
         parse_extraction_response(response)
 
       {:error, :no_api_key} ->
-        Logger.warning("No LLM API key configured - cannot extract relationships from text")
-
-        {:error,
-         "LLM extraction requires an API key. Use subject+predicate+object instead of text."}
+        Logger.warning("No LLM API key configured - using regex-only extraction")
+        # Return empty list to allow graceful degradation
+        {:ok, []}
 
       {:error, reason} ->
         Logger.warning("LLM extraction failed: #{inspect(reason)}")
-        {:error, "LLM extraction failed: #{inspect(reason)}"}
+        {:error, "LLM extraction failed: #{inspect(reason)}. Try using subject+predicate+object format."}
     end
   end
 
@@ -250,10 +332,13 @@ defmodule Mimo.SemanticStore.Ingestor do
   end
 
   defp resolve_single(item, source, graph_id) do
+    subject_original = Map.get(item, "subject") || Map.get(item, :subject) || Map.get(item, "subject_id") || Map.get(item, :subject_id)
+    object_original = Map.get(item, "object") || Map.get(item, :object) || Map.get(item, "object_id") || Map.get(item, :object_id)
+
     with {:ok, subject_id} <-
-           Resolver.resolve_entity(item["subject"], :auto, graph_id: graph_id, create_anchor: true),
+           Resolver.resolve_entity(subject_original, :auto, graph_id: graph_id, create_anchor: true),
          {:ok, object_id} <-
-           Resolver.resolve_entity(item["object"], :auto, graph_id: graph_id, create_anchor: true) do
+           Resolver.resolve_entity(object_original, :auto, graph_id: graph_id, create_anchor: true) do
       # Extract types from canonical IDs
       {subject_type, _} = extract_type_from_id(subject_id)
       {object_type, _} = extract_type_from_id(object_id)
@@ -262,15 +347,15 @@ defmodule Mimo.SemanticStore.Ingestor do
        %{
          subject_id: subject_id,
          subject_type: subject_type,
-         predicate: normalize_predicate(item["predicate"]),
+         predicate: normalize_predicate(Map.get(item, "predicate") || Map.get(item, :predicate) || Map.get(item, "pred") || Map.get(item, :pred)),
          object_id: object_id,
          object_type: object_type,
          graph_id: graph_id,
          context: %{
            "source" => source,
            "method" => "llm_extraction",
-           "original_subject" => item["subject"],
-           "original_object" => item["object"],
+           "original_subject" => subject_original,
+           "original_object" => object_original,
            "created_at" => DateTime.utc_now() |> DateTime.to_iso8601()
          }
        }}

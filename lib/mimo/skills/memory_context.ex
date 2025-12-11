@@ -134,16 +134,30 @@ defmodule Mimo.Skills.MemoryContext do
     # Memory.search_memories returns a list directly, not {:ok, list}
     results = Memory.search_memories(query, limit: limit * 2, min_similarity: threshold)
 
-    # Take top results and format them
+    # Take top results, format them, and filter for quality
     memories =
       results
       |> Enum.take(limit)
       |> Enum.map(&format_memory/1)
+      |> filter_quality_memories()
 
     {:ok, memories}
   rescue
     e ->
       {:error, Exception.message(e)}
+  end
+
+  # Filter out low-quality memories: entity_anchors, short content, low similarity
+  defp filter_quality_memories(memories) do
+    Enum.filter(memories, fn m ->
+      category = to_string(m.category || "")
+      content = to_string(m.content || "")
+      relevance = m.relevance || 0.0
+
+      category != "entity_anchor" and
+        String.length(content) > 20 and
+        relevance >= 0.5
+    end)
   end
 
   defp format_memory(memory) when is_map(memory) do
