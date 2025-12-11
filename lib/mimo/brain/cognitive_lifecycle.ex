@@ -73,21 +73,57 @@ defmodule Mimo.Brain.CognitiveLifecycle do
       "think" => :all,
       "cognitive" => ["assess", "gaps", "can_answer", "query"],
       "reflector" => :all,
-      "code" => ["definition", "references", "symbols", "call_graph", "search", "index",
-                 "diagnose", "check", "lint", "typecheck", "diagnostics_all",
-                 "library_get", "library_search", "library_ensure", "library_discover", "library_stats"],
+      "code" => [
+        "definition",
+        "references",
+        "symbols",
+        "call_graph",
+        "search",
+        "index",
+        "diagnose",
+        "check",
+        "lint",
+        "typecheck",
+        "diagnostics_all",
+        "library_get",
+        "library_search",
+        "library_ensure",
+        "library_discover",
+        "library_stats"
+      ],
       # Deprecated aliases that map to code
       "code_symbols" => :all,
       "diagnostics" => :all,
       "library" => :all,
       # Emergence for pattern analysis
-      "emergence" => ["dashboard", "detect", "alerts", "search", "suggest", "list", "status", "pattern"]
+      "emergence" => [
+        "dashboard",
+        "detect",
+        "alerts",
+        "search",
+        "suggest",
+        "list",
+        "status",
+        "pattern"
+      ]
     },
     # ACTION phase tools - executing changes
     action: %{
-      "file" => ["read", "write", "edit", "delete_lines", "replace_lines", "insert_after",
-                 "insert_before", "replace_string", "move", "create_directory",
-                 "read_multiple", "glob", "multi_replace"],
+      "file" => [
+        "read",
+        "write",
+        "edit",
+        "delete_lines",
+        "replace_lines",
+        "insert_after",
+        "insert_before",
+        "replace_string",
+        "move",
+        "create_directory",
+        "read_multiple",
+        "glob",
+        "multi_replace"
+      ],
       "terminal" => :all,
       "web" => :all,
       # Deprecated web aliases
@@ -135,17 +171,18 @@ defmodule Mimo.Brain.CognitiveLifecycle do
     ]
 
     @type t :: %__MODULE__{
-      thread_id: String.t(),
-      current_phase: atom() | nil,
-      phase_history: [{atom(), DateTime.t()}],
-      phase_counts: %{atom() => non_neg_integer()},
-      warnings: [map()],
-      last_activity: DateTime.t(),
-      session_start: DateTime.t()
-    }
+            thread_id: String.t(),
+            current_phase: atom() | nil,
+            phase_history: [{atom(), DateTime.t()}],
+            phase_counts: %{atom() => non_neg_integer()},
+            warnings: [map()],
+            last_activity: DateTime.t(),
+            session_start: DateTime.t()
+          }
 
     def new(thread_id) do
       now = DateTime.utc_now()
+
       %__MODULE__{
         thread_id: thread_id,
         current_phase: nil,
@@ -199,7 +236,7 @@ defmodule Mimo.Brain.CognitiveLifecycle do
   Returns the new phase and any warnings detected.
   """
   @spec track_transition(String.t(), String.t(), String.t() | nil) ::
-    {:ok, %{phase: atom(), warnings: [map()]}} | {:error, term()}
+          {:ok, %{phase: atom(), warnings: [map()]}} | {:error, term()}
   def track_transition(thread_id, tool_name, operation \\ nil) do
     GenServer.call(__MODULE__, {:track_transition, thread_id, tool_name, operation})
   end
@@ -275,12 +312,13 @@ defmodule Mimo.Brain.CognitiveLifecycle do
     new_warnings = detect_transition_warnings(thread_state, phase)
 
     # Update thread state
-    updated_state = %{thread_state |
-      current_phase: phase,
-      phase_history: [{phase, now} | Enum.take(thread_state.phase_history, 99)],
-      phase_counts: Map.update!(thread_state.phase_counts, phase, &(&1 + 1)),
-      warnings: new_warnings ++ Enum.take(thread_state.warnings, 49),
-      last_activity: now
+    updated_state = %{
+      thread_state
+      | current_phase: phase,
+        phase_history: [{phase, now} | Enum.take(thread_state.phase_history, 99)],
+        phase_counts: Map.update!(thread_state.phase_counts, phase, &(&1 + 1)),
+        warnings: new_warnings ++ Enum.take(thread_state.warnings, 49),
+        last_activity: now
     }
 
     :ets.insert(:cognitive_lifecycle_threads, {thread_id, updated_state})
@@ -299,25 +337,27 @@ defmodule Mimo.Brain.CognitiveLifecycle do
     thread_state = get_or_create_thread_state(thread_id)
     total = Enum.sum(Map.values(thread_state.phase_counts))
 
-    distribution = if total > 0 do
-      %{
-        counts: thread_state.phase_counts,
-        percentages: Map.new(thread_state.phase_counts, fn {phase, count} ->
-          {phase, Float.round(count / total * 100, 1)}
-        end),
-        total: total,
-        target_ranges: @target_ranges,
-        health: calculate_health(thread_state.phase_counts, total)
-      }
-    else
-      %{
-        counts: thread_state.phase_counts,
-        percentages: %{context: 0.0, deliberate: 0.0, action: 0.0, learn: 0.0},
-        total: 0,
-        target_ranges: @target_ranges,
-        health: :insufficient_data
-      }
-    end
+    distribution =
+      if total > 0 do
+        %{
+          counts: thread_state.phase_counts,
+          percentages:
+            Map.new(thread_state.phase_counts, fn {phase, count} ->
+              {phase, Float.round(count / total * 100, 1)}
+            end),
+          total: total,
+          target_ranges: @target_ranges,
+          health: calculate_health(thread_state.phase_counts, total)
+        }
+      else
+        %{
+          counts: thread_state.phase_counts,
+          percentages: %{context: 0.0, deliberate: 0.0, action: 0.0, learn: 0.0},
+          total: 0,
+          target_ranges: @target_ranges,
+          health: :insufficient_data
+        }
+      end
 
     {:reply, distribution, state}
   end
@@ -330,10 +370,12 @@ defmodule Mimo.Brain.CognitiveLifecycle do
 
   @impl true
   def handle_call({:get_thread_state, thread_id}, _from, state) do
-    result = case :ets.lookup(:cognitive_lifecycle_threads, thread_id) do
-      [{^thread_id, thread_state}] -> thread_state
-      [] -> nil
-    end
+    result =
+      case :ets.lookup(:cognitive_lifecycle_threads, thread_id) do
+        [{^thread_id, thread_state}] -> thread_state
+        [] -> nil
+      end
+
     {:reply, result, state}
   end
 
@@ -341,33 +383,44 @@ defmodule Mimo.Brain.CognitiveLifecycle do
   def handle_call(:stats, _from, state) do
     all_threads = :ets.tab2list(:cognitive_lifecycle_threads)
 
-    aggregate = Enum.reduce(all_threads, %{
-      total_threads: 0,
-      total_interactions: 0,
-      phase_counts: %{context: 0, deliberate: 0, action: 0, learn: 0},
-      warning_counts: %{action_without_context: 0, no_learning: 0, imbalanced_phases: 0},
-      active_threads: 0
-    }, fn {_id, thread_state}, acc ->
-      cutoff = DateTime.add(DateTime.utc_now(), -300, :second)  # 5 min
-      is_active = DateTime.compare(thread_state.last_activity, cutoff) == :gt
+    aggregate =
+      Enum.reduce(
+        all_threads,
+        %{
+          total_threads: 0,
+          total_interactions: 0,
+          phase_counts: %{context: 0, deliberate: 0, action: 0, learn: 0},
+          warning_counts: %{action_without_context: 0, no_learning: 0, imbalanced_phases: 0},
+          active_threads: 0
+        },
+        fn {_id, thread_state}, acc ->
+          # 5 min
+          cutoff = DateTime.add(DateTime.utc_now(), -300, :second)
+          is_active = DateTime.compare(thread_state.last_activity, cutoff) == :gt
 
-      %{acc |
-        total_threads: acc.total_threads + 1,
-        total_interactions: acc.total_interactions + Enum.sum(Map.values(thread_state.phase_counts)),
-        phase_counts: Map.merge(acc.phase_counts, thread_state.phase_counts, fn _, a, b -> a + b end),
-        warning_counts: count_warnings(acc.warning_counts, thread_state.warnings),
-        active_threads: acc.active_threads + if(is_active, do: 1, else: 0)
-      }
-    end)
+          %{
+            acc
+            | total_threads: acc.total_threads + 1,
+              total_interactions:
+                acc.total_interactions + Enum.sum(Map.values(thread_state.phase_counts)),
+              phase_counts:
+                Map.merge(acc.phase_counts, thread_state.phase_counts, fn _, a, b -> a + b end),
+              warning_counts: count_warnings(acc.warning_counts, thread_state.warnings),
+              active_threads: acc.active_threads + if(is_active, do: 1, else: 0)
+          }
+        end
+      )
 
     total = Enum.sum(Map.values(aggregate.phase_counts))
-    percentages = if total > 0 do
-      Map.new(aggregate.phase_counts, fn {phase, count} ->
-        {phase, Float.round(count / total * 100, 1)}
-      end)
-    else
-      %{context: 0.0, deliberate: 0.0, action: 0.0, learn: 0.0}
-    end
+
+    percentages =
+      if total > 0 do
+        Map.new(aggregate.phase_counts, fn {phase, count} ->
+          {phase, Float.round(count / total * 100, 1)}
+        end)
+      else
+        %{context: 0.0, deliberate: 0.0, action: 0.0, learn: 0.0}
+      end
 
     stats = %{
       started_at: state.started_at,
@@ -400,8 +453,12 @@ defmodule Mimo.Brain.CognitiveLifecycle do
   defp find_phase(tool, operation) do
     Enum.find_value(@phase_classifications, :unknown, fn {phase, tools} ->
       case Map.get(tools, tool) do
-        nil -> nil
-        :all -> phase
+        nil ->
+          nil
+
+        :all ->
+          phase
+
         operations when is_list(operations) ->
           if operation in operations, do: phase, else: nil
       end
@@ -410,7 +467,9 @@ defmodule Mimo.Brain.CognitiveLifecycle do
 
   defp get_or_create_thread_state(thread_id) do
     case :ets.lookup(:cognitive_lifecycle_threads, thread_id) do
-      [{^thread_id, state}] -> state
+      [{^thread_id, state}] ->
+        state
+
       [] ->
         new_state = ThreadState.new(thread_id)
         :ets.insert(:cognitive_lifecycle_threads, {thread_id, new_state})
@@ -422,32 +481,40 @@ defmodule Mimo.Brain.CognitiveLifecycle do
     warnings = []
 
     # Anti-pattern: Jumping to action without context
-    warnings = if new_phase == :action and
-                  thread_state.current_phase == nil and
-                  thread_state.phase_counts.context == 0 do
-      [%{
-        type: :action_without_context,
-        message: "Jumped to action phase without gathering context first",
-        timestamp: DateTime.utc_now(),
-        severity: :warning
-      } | warnings]
-    else
-      warnings
-    end
+    warnings =
+      if new_phase == :action and
+           thread_state.current_phase == nil and
+           thread_state.phase_counts.context == 0 do
+        [
+          %{
+            type: :action_without_context,
+            message: "Jumped to action phase without gathering context first",
+            timestamp: DateTime.utc_now(),
+            severity: :warning
+          }
+          | warnings
+        ]
+      else
+        warnings
+      end
 
     # Anti-pattern: Extended action without learning
-    warnings = if new_phase == :action and
-                  thread_state.phase_counts.action > 5 and
-                  thread_state.phase_counts.learn == 0 do
-      [%{
-        type: :no_learning,
-        message: "Multiple actions without any learning/storage phase",
-        timestamp: DateTime.utc_now(),
-        severity: :info
-      } | warnings]
-    else
-      warnings
-    end
+    warnings =
+      if new_phase == :action and
+           thread_state.phase_counts.action > 5 and
+           thread_state.phase_counts.learn == 0 do
+        [
+          %{
+            type: :no_learning,
+            message: "Multiple actions without any learning/storage phase",
+            timestamp: DateTime.utc_now(),
+            severity: :info
+          }
+          | warnings
+        ]
+      else
+        warnings
+      end
 
     warnings
   end
@@ -455,17 +522,18 @@ defmodule Mimo.Brain.CognitiveLifecycle do
   defp calculate_health(_phase_counts, total) when total < 5, do: :insufficient_data
 
   defp calculate_health(phase_counts, total) do
-    issues = Enum.reduce(@target_ranges, [], fn {phase, {min, max}}, acc ->
-      actual = Map.get(phase_counts, phase, 0) / total
+    issues =
+      Enum.reduce(@target_ranges, [], fn {phase, {min, max}}, acc ->
+        actual = Map.get(phase_counts, phase, 0) / total
 
-      cond do
-        actual < min * 0.5 -> [{:severely_low, phase} | acc]
-        actual < min -> [{:low, phase} | acc]
-        actual > max * 1.5 -> [{:severely_high, phase} | acc]
-        actual > max -> [{:high, phase} | acc]
-        true -> acc
-      end
-    end)
+        cond do
+          actual < min * 0.5 -> [{:severely_low, phase} | acc]
+          actual < min -> [{:low, phase} | acc]
+          actual > max * 1.5 -> [{:severely_high, phase} | acc]
+          actual > max -> [{:high, phase} | acc]
+          true -> acc
+        end
+      end)
 
     case issues do
       [] -> :healthy

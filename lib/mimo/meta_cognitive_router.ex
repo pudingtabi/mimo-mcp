@@ -226,40 +226,46 @@ defmodule Mimo.MetaCognitiveRouter do
   @spec suggest_workflow(String.t(), keyword()) :: {:ok, workflow_suggestion()}
   def suggest_workflow(task_description, opts \\ []) when is_binary(task_description) do
     start_time = System.monotonic_time(:microsecond)
-    
+
     context = Keyword.get(opts, :context, %{})
     auto_threshold = Keyword.get(opts, :auto_threshold, 0.85)
     suggest_threshold = Keyword.get(opts, :suggest_threshold, 0.5)
 
-    result = case Predictor.predict_workflow(task_description, context) do
-      {:ok, pattern, confidence, bindings} ->
-        suggestion = build_suggestion(:auto_execute, pattern, confidence, bindings, auto_threshold)
-        {:ok, suggestion}
+    result =
+      case Predictor.predict_workflow(task_description, context) do
+        {:ok, pattern, confidence, bindings} ->
+          suggestion =
+            build_suggestion(:auto_execute, pattern, confidence, bindings, auto_threshold)
 
-      {:suggest, patterns} when is_list(patterns) ->
-        # Multiple pattern candidates (list of Pattern structs)
-        top_pattern = List.first(patterns)
-        suggestion = %{
-          type: :suggest,
-          pattern: top_pattern,
-          patterns: patterns,
-          confidence: suggest_threshold,
-          bindings: %{},
-          reason: "Multiple matching patterns found; user selection recommended"
-        }
-        {:ok, suggestion}
+          {:ok, suggestion}
 
-      {:manual, reason} ->
-        suggestion = %{
-          type: :manual,
-          pattern: nil,
-          patterns: [],
-          confidence: 0.0,
-          bindings: %{},
-          reason: reason
-        }
-        {:ok, suggestion}
-    end
+        {:suggest, patterns} when is_list(patterns) ->
+          # Multiple pattern candidates (list of Pattern structs)
+          top_pattern = List.first(patterns)
+
+          suggestion = %{
+            type: :suggest,
+            pattern: top_pattern,
+            patterns: patterns,
+            confidence: suggest_threshold,
+            bindings: %{},
+            reason: "Multiple matching patterns found; user selection recommended"
+          }
+
+          {:ok, suggestion}
+
+        {:manual, reason} ->
+          suggestion = %{
+            type: :manual,
+            pattern: nil,
+            patterns: [],
+            confidence: 0.0,
+            bindings: %{},
+            reason: reason
+          }
+
+          {:ok, suggestion}
+      end
 
     # Emit telemetry
     duration_us = System.monotonic_time(:microsecond) - start_time
@@ -278,18 +284,20 @@ defmodule Mimo.MetaCognitiveRouter do
       patterns: [pattern],
       confidence: Float.round(confidence, 3),
       bindings: bindings,
-      reason: if(actual_type == :suggest, 
-        do: "Confidence below auto-execute threshold (#{auto_threshold})",
-        else: nil
-      )
+      reason:
+        if(actual_type == :suggest,
+          do: "Confidence below auto-execute threshold (#{auto_threshold})",
+          else: nil
+        )
     }
   end
 
   defp emit_workflow_telemetry(duration_us, result) do
-    {suggestion_type, confidence} = case result do
-      {:ok, %{type: t, confidence: c}} -> {t, c}
-      _ -> {:error, 0.0}
-    end
+    {suggestion_type, confidence} =
+      case result do
+        {:ok, %{type: t, confidence: c}} -> {t, c}
+        _ -> {:error, 0.0}
+      end
 
     :telemetry.execute(
       [:mimo, :router, :suggest_workflow],
@@ -298,6 +306,7 @@ defmodule Mimo.MetaCognitiveRouter do
     )
 
     duration_ms = duration_us / 1000
+
     if duration_ms > 50 do
       Logger.warning("Workflow suggestion slow: #{Float.round(duration_ms, 2)}ms")
     end
@@ -318,9 +327,9 @@ defmodule Mimo.MetaCognitiveRouter do
         }
   def classify_and_suggest(query, opts \\ []) when is_binary(query) do
     classification = classify(query)
-    
+
     # Only suggest workflow for procedural queries with decent confidence
-    workflow_suggestion = 
+    workflow_suggestion =
       if classification.primary_store == :procedural and classification.confidence >= 0.5 do
         {:ok, suggestion} = suggest_workflow(query, opts)
         suggestion

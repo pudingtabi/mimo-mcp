@@ -57,7 +57,9 @@ defmodule Mimo.Fallback.GracefulDegradation do
     init_retry_queue()
 
     case Mimo.TaskHelper.safe_start_child(fn -> retry_loop() end) do
-      {:ok, pid} -> {:ok, pid}
+      {:ok, pid} ->
+        {:ok, pid}
+
       {:error, reason} ->
         require Logger
         Logger.warning("[GracefulDegradation] Failed to start retry processor: #{inspect(reason)}")

@@ -171,7 +171,9 @@ defmodule Mimo.Cache.Embedding do
     # Schedule periodic cleanup
     schedule_cleanup()
 
-    Logger.info("[EmbeddingCache] Started with max_size=#{@cache_size}, ttl=#{div(@ttl_ms, 60_000)}min")
+    Logger.info(
+      "[EmbeddingCache] Started with max_size=#{@cache_size}, ttl=#{div(@ttl_ms, 60_000)}min"
+    )
 
     {:ok, %{}}
   end

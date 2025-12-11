@@ -226,7 +226,7 @@ defmodule Mimo.Workflow.BindingsResolver do
       rescue
         ArgumentError -> nil
       end
-    
+
     navigate_path(result, rest)
   end
 

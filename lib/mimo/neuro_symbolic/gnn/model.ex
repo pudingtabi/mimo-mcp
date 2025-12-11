@@ -7,14 +7,15 @@ defmodule Mimo.NeuroSymbolic.GnnModel do
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
-  @derive {Jason.Encoder, only: [:id, :version, :trained_at, :embedding_dim, :accuracy, :path, :inserted_at]}
+  @derive {Jason.Encoder,
+           only: [:id, :version, :trained_at, :embedding_dim, :accuracy, :path, :inserted_at]}
 
   schema "gnn_models" do
-    field :version, :integer
-    field :trained_at, :utc_datetime
-    field :embedding_dim, :integer
-    field :accuracy, :float
-    field :path, :string
+    field(:version, :integer)
+    field(:trained_at, :utc_datetime)
+    field(:embedding_dim, :integer)
+    field(:accuracy, :float)
+    field(:path, :string)
 
     timestamps(type: :naive_datetime_usec)
   end

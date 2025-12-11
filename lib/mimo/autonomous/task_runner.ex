@@ -68,9 +68,12 @@ defmodule Mimo.Autonomous.TaskRunner do
   alias Mimo.Synapse.Graph
 
   # Configuration defaults
-  @default_check_interval 10_000      # 10 seconds
-  @default_max_concurrent 3           # Max parallel tasks
-  @default_task_timeout 300_000       # 5 minutes
+  # 10 seconds
+  @default_check_interval 10_000
+  # Max parallel tasks
+  @default_max_concurrent 3
+  # 5 minutes
+  @default_task_timeout 300_000
 
   # Task states
   @type task_status :: :queued | :running | :completed | :failed
@@ -235,10 +238,11 @@ defmodule Mimo.Autonomous.TaskRunner do
       running: %{},
       completed: [],
       failed: [],
-      circuit: CircuitBreaker.new(
-        max_failures: Keyword.get(opts, :max_failures, 3),
-        cooldown_ms: Keyword.get(opts, :cooldown_ms, 30_000)
-      ),
+      circuit:
+        CircuitBreaker.new(
+          max_failures: Keyword.get(opts, :max_failures, 3),
+          cooldown_ms: Keyword.get(opts, :cooldown_ms, 30_000)
+        ),
       config: parse_config(opts)
     }
 
@@ -413,7 +417,10 @@ defmodule Mimo.Autonomous.TaskRunner do
         {:noreply, state}
 
       task_info ->
-        Logger.warning("[TaskRunner] Task #{task_id} timed out after #{state.config.task_timeout}ms")
+        Logger.warning(
+          "[TaskRunner] Task #{task_id} timed out after #{state.config.task_timeout}ms"
+        )
+
         Process.exit(task_info.pid, :kill)
 
         running = Map.delete(state.running, task_id)
@@ -507,29 +514,33 @@ defmodule Mimo.Autonomous.TaskRunner do
 
   defp gather_cognitive_context(task) do
     # SPEC-071: Populate cognitive context from Knowledge Graph and ContradictionGuard
-    related_knowledge = try do
-      path = Map.get(task, :path) || Map.get(task, "path")
-      if path do
-        case Graph.get_node(:file, path) do
-          nil -> []
-          node -> Graph.neighbors(node.id, types: [:uses, :relates_to]) |> Enum.take(5)
-        end
-      else
-        []
-      end
-    catch
-      _, _ -> []
-    end
+    related_knowledge =
+      try do
+        path = Map.get(task, :path) || Map.get(task, "path")
 
-    contradictions = try do
-      desc = task.description || ""
-      case ContradictionGuard.check(desc) do
-        {:ok, warnings} -> warnings
-        _ -> []
+        if path do
+          case Graph.get_node(:file, path) do
+            nil -> []
+            node -> Graph.neighbors(node.id, types: [:uses, :relates_to]) |> Enum.take(5)
+          end
+        else
+          []
+        end
+      catch
+        _, _ -> []
       end
-    catch
-      _, _ -> []
-    end
+
+    contradictions =
+      try do
+        desc = task.description || ""
+
+        case ContradictionGuard.check(desc) do
+          {:ok, warnings} -> warnings
+          _ -> []
+        end
+      catch
+        _, _ -> []
+      end
 
     %{
       similar_tasks: task.hints || [],
@@ -538,7 +549,8 @@ defmodule Mimo.Autonomous.TaskRunner do
     }
   end
 
-  defp execute_task(%{command: command} = _task, context) when is_binary(command) and command != "" do
+  defp execute_task(%{command: command} = _task, context)
+       when is_binary(command) and command != "" do
     # Inject hints into command context if available
     hint_text =
       context.similar_tasks
@@ -653,10 +665,14 @@ defmodule Mimo.Autonomous.TaskRunner do
     if rem(length(new_completed), 10) == 0 do
       spawn(fn ->
         try do
-          Logger.debug("[TaskRunner] Triggering synthesis after #{length(new_completed)} completions")
+          Logger.debug(
+            "[TaskRunner] Triggering synthesis after #{length(new_completed)} completions"
+          )
+
           Synthesizer.synthesize_now(scope: :autonomous_tasks)
         catch
-          _, _ -> :ok  # Silent failure - synthesis is best-effort
+          # Silent failure - synthesis is best-effort
+          _, _ -> :ok
         end
       end)
     end
@@ -664,10 +680,7 @@ defmodule Mimo.Autonomous.TaskRunner do
     # SPEC-071: Track task in knowledge graph
     track_in_knowledge_graph(task)
 
-    %{state |
-      completed: new_completed,
-      circuit: circuit
-    }
+    %{state | completed: new_completed, circuit: circuit}
   end
 
   defp handle_task_result(task, {:error, reason} = result, state) do
@@ -682,19 +695,17 @@ defmodule Mimo.Autonomous.TaskRunner do
     # Record failure with circuit breaker
     circuit = CircuitBreaker.record_failure(state.circuit, reason)
 
-    %{state |
-      failed: [{task.id, result} | state.failed],
-      circuit: circuit
-    }
+    %{state | failed: [{task.id, result} | state.failed], circuit: circuit}
   end
 
   defp record_failure(task, reason, state) do
     circuit = CircuitBreaker.record_failure(state.circuit, reason)
 
-    %{state |
-      failed: [{task.id, {:error, reason}} | state.failed],
-      queue: Enum.reject(state.queue, &(&1.id == task.id)),
-      circuit: circuit
+    %{
+      state
+      | failed: [{task.id, {:error, reason}} | state.failed],
+        queue: Enum.reject(state.queue, &(&1.id == task.id)),
+        circuit: circuit
     }
   end
 
@@ -718,14 +729,16 @@ defmodule Mimo.Autonomous.TaskRunner do
   defp track_in_knowledge_graph(task) do
     try do
       # Create task node
-      {:ok, task_node} = Graph.find_or_create_node(:concept, "task:#{task.id}", %{
-        type: task.type,
-        description: task.description,
-        created_at: DateTime.to_iso8601(task.created_at)
-      })
+      {:ok, task_node} =
+        Graph.find_or_create_node(:concept, "task:#{task.id}", %{
+          type: task.type,
+          description: task.description,
+          created_at: DateTime.to_iso8601(task.created_at)
+        })
 
       # Track file dependencies if path is specified
       path = Map.get(task, :path) || Map.get(task, "path")
+
       if path do
         case Graph.find_or_create_node(:file, path, %{}) do
           {:ok, file_node} ->
@@ -735,13 +748,16 @@ defmodule Mimo.Autonomous.TaskRunner do
               edge_type: :uses,
               properties: %{source: "autonomous_task"}
             })
-          _ -> :ok
+
+          _ ->
+            :ok
         end
       end
 
       :ok
     catch
-      _, _ -> :ok  # Fire-and-forget - graph tracking is best-effort
+      # Fire-and-forget - graph tracking is best-effort
+      _, _ -> :ok
     end
   end
 

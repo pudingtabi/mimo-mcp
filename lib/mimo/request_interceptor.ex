@@ -94,7 +94,10 @@ defmodule Mimo.RequestInterceptor do
     updated_errors = Enum.take([error_record | errors], 10)
     Process.put(@session_errors_key, updated_errors)
 
-    Logger.info("[RequestInterceptor] Recorded error for #{tool_name}: #{String.slice(message_str, 0, 100)}")
+    Logger.info(
+      "[RequestInterceptor] Recorded error for #{tool_name}: #{String.slice(message_str, 0, 100)}"
+    )
+
     :ok
   rescue
     error ->

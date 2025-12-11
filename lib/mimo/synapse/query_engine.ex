@@ -280,12 +280,17 @@ defmodule Mimo.Synapse.QueryEngine do
     if Enum.any?(vector_results) do
       vector_results
     else
-      # Fall back to text search
+      # Fall back to text search (now searches name + description)
       Graph.search_nodes(query_text, types: node_types, limit: limit)
       |> Enum.map(fn node ->
+        # Score both name and description matches
+        name_score = text_match_score(node.name, query_text)
+        desc_score = text_match_score(node.description || "", query_text)
+        combined_score = name_score + desc_score * 0.5
+
         %{
           node: node,
-          score: text_match_score(node.name, query_text),
+          score: combined_score,
           depth: 0,
           source: :seed
         }

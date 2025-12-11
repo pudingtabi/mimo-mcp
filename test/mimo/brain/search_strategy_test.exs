@@ -181,13 +181,13 @@ defmodule Mimo.Brain.Memory.SearchStrategyTest do
 
       # Verify the unicode content was stored correctly
       assert engram.content == unicode_content
-      
+
       # Verify search doesn't crash with Unicode content in database
       {:ok, results} = Memory.search_with_embedding(embedding, limit: 5)
-      
+
       # Main assertion: search works without crashing
       assert is_list(results)
-      
+
       # If results found, verify they have valid content (may include Unicode)
       Enum.each(results, fn r ->
         assert is_binary(r.content)

@@ -16,7 +16,7 @@ defmodule Mimo.Knowledge.InjectionMiddleware do
 
   require Logger
 
-  @type dispatch_fn :: (() -> {:ok, any()} | {:error, any()})
+  @type dispatch_fn :: (-> {:ok, any()} | {:error, any()})
   @type injection :: map() | nil
   @type enriched_result :: {any(), injection()}
 

@@ -71,7 +71,8 @@ defmodule Mimo.Brain.ReasoningBridge do
       {:ok, ctx} = analyze_for_storage("User prefers TypeScript", category: "observation")
       # ctx.importance_reasoning, ctx.detected_relationships, etc.
   """
-  @spec analyze_for_storage(String.t(), keyword()) :: {:ok, reasoning_context()} | {:skip, :disabled}
+  @spec analyze_for_storage(String.t(), keyword()) ::
+          {:ok, reasoning_context()} | {:skip, :disabled}
   def analyze_for_storage(content, opts \\ []) do
     if reasoning_enabled?() do
       category = Keyword.get(opts, :category, "fact")

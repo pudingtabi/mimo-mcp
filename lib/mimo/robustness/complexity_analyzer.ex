@@ -1,20 +1,20 @@
 defmodule Mimo.Robustness.ComplexityAnalyzer do
   @moduledoc """
   Complexity Reasoning Analyzer (SPEC-070 Task B)
-  
+
   Uses cognitive assessment to evaluate implementation complexity
   and suggest simplifications.
-  
+
   ## Metrics Evaluated
-  
+
   - **Cyclomatic Complexity**: Number of independent paths through code
   - **External Dependencies**: Count of external command/library calls
   - **Nesting Depth**: Maximum nesting level of control structures
   - **Missing Fallbacks**: External operations without error handling
   - **Blocking Operations**: Count of synchronous blocking calls
-  
+
   ## Usage
-  
+
       {:ok, analysis} = ComplexityAnalyzer.analyze(code, :elixir)
       
       # Returns:
@@ -31,15 +31,15 @@ defmodule Mimo.Robustness.ComplexityAnalyzer do
   require Logger
 
   @type language :: :elixir | :javascript | :typescript | :unknown
-  
+
   @type analysis :: %{
-    cyclomatic: non_neg_integer(),
-    external_deps: non_neg_integer(),
-    nesting_depth: non_neg_integer(),
-    missing_fallbacks: non_neg_integer(),
-    blocking_ops: non_neg_integer(),
-    confidence: float()
-  }
+          cyclomatic: non_neg_integer(),
+          external_deps: non_neg_integer(),
+          nesting_depth: non_neg_integer(),
+          missing_fallbacks: non_neg_integer(),
+          blocking_ops: non_neg_integer(),
+          confidence: float()
+        }
 
   # Decision points that increase cyclomatic complexity
   @elixir_decision_points [
@@ -61,10 +61,12 @@ defmodule Mimo.Robustness.ComplexityAnalyzer do
     ~r/\belse\s+if\b/,
     ~r/\bswitch\b/,
     ~r/\bcase\b/,
-    ~r/\?\s*:/,       # ternary
+    # ternary
+    ~r/\?\s*:/,
     ~r/\|\|/,
     ~r/&&/,
-    ~r/\?\?/,         # nullish coalescing
+    # nullish coalescing
+    ~r/\?\?/,
     ~r/\bcatch\b/,
     ~r/\.then\(/,
     ~r/\.catch\(/
@@ -78,7 +80,8 @@ defmodule Mimo.Robustness.ComplexityAnalyzer do
     ~r/HTTPoison\./,
     ~r/Req\./,
     ~r/Mint\./,
-    ~r/File\.\w+!/,  # Bang versions
+    # Bang versions
+    ~r/File\.\w+!/,
     ~r/GenServer\.call\b/
   ]
 
@@ -106,19 +109,20 @@ defmodule Mimo.Robustness.ComplexityAnalyzer do
     ~r/execSync\b/,
     ~r/spawnSync\b/,
     ~r/\bawait\b/,
-    ~r/\.then\([^)]*\)\.then\(/,  # chained then (effectively blocking)
+    # chained then (effectively blocking)
+    ~r/\.then\([^)]*\)\.then\(/,
     ~r/sleep\(/
   ]
 
   @doc """
   Analyze code complexity.
-  
+
   Returns a map of complexity metrics.
   """
   @spec analyze(String.t(), language()) :: {:ok, analysis()} | {:error, term()}
   def analyze(content, language) do
     lines = String.split(content, "\n")
-    
+
     analysis = %{
       cyclomatic: calculate_cyclomatic(content, language),
       external_deps: count_external_deps(content, language),
@@ -126,9 +130,10 @@ defmodule Mimo.Robustness.ComplexityAnalyzer do
       missing_fallbacks: count_missing_fallbacks(content, language),
       blocking_ops: count_blocking_ops(content, language),
       lines_of_code: length(lines),
-      confidence: 0.8  # Static analysis confidence
+      # Static analysis confidence
+      confidence: 0.8
     }
-    
+
     {:ok, analysis}
   rescue
     e -> {:error, {:complexity_analysis_failed, e}}
@@ -136,7 +141,7 @@ defmodule Mimo.Robustness.ComplexityAnalyzer do
 
   @doc """
   Evaluate if code meets robustness thresholds.
-  
+
   Returns true if all metrics are within acceptable ranges.
   """
   @spec meets_thresholds?(analysis(), keyword()) :: boolean()
@@ -145,7 +150,7 @@ defmodule Mimo.Robustness.ComplexityAnalyzer do
     max_external = Keyword.get(opts, :max_external_deps, 3)
     max_nesting = Keyword.get(opts, :max_nesting, 4)
     max_blocking = Keyword.get(opts, :max_blocking, 2)
-    
+
     analysis.cyclomatic <= max_cyclomatic and
       analysis.external_deps <= max_external and
       analysis.nesting_depth <= max_nesting and
@@ -159,43 +164,63 @@ defmodule Mimo.Robustness.ComplexityAnalyzer do
   @spec suggest_simplifications(analysis()) :: [String.t()]
   def suggest_simplifications(analysis) do
     suggestions = []
-    
-    suggestions = if analysis.cyclomatic > 10 do
-      ["Consider extracting complex functions into smaller units (cyclomatic: #{analysis.cyclomatic})" | suggestions]
-    else
-      suggestions
-    end
-    
-    suggestions = if analysis.external_deps > 3 do
-      ["Reduce external dependencies - consider pure language features (count: #{analysis.external_deps})" | suggestions]
-    else
-      suggestions
-    end
-    
-    suggestions = if analysis.nesting_depth > 4 do
-      ["Flatten deeply nested code - consider early returns or with statements (depth: #{analysis.nesting_depth})" | suggestions]
-    else
-      suggestions
-    end
-    
-    suggestions = if analysis.missing_fallbacks > 0 do
-      ["Add error handling/fallbacks for external operations (missing: #{analysis.missing_fallbacks})" | suggestions]
-    else
-      suggestions
-    end
-    
-    suggestions = if analysis.blocking_ops > 2 do
-      ["Consider async operations to reduce blocking (count: #{analysis.blocking_ops})" | suggestions]
-    else
-      suggestions
-    end
-    
+
+    suggestions =
+      if analysis.cyclomatic > 10 do
+        [
+          "Consider extracting complex functions into smaller units (cyclomatic: #{analysis.cyclomatic})"
+          | suggestions
+        ]
+      else
+        suggestions
+      end
+
+    suggestions =
+      if analysis.external_deps > 3 do
+        [
+          "Reduce external dependencies - consider pure language features (count: #{analysis.external_deps})"
+          | suggestions
+        ]
+      else
+        suggestions
+      end
+
+    suggestions =
+      if analysis.nesting_depth > 4 do
+        [
+          "Flatten deeply nested code - consider early returns or with statements (depth: #{analysis.nesting_depth})"
+          | suggestions
+        ]
+      else
+        suggestions
+      end
+
+    suggestions =
+      if analysis.missing_fallbacks > 0 do
+        [
+          "Add error handling/fallbacks for external operations (missing: #{analysis.missing_fallbacks})"
+          | suggestions
+        ]
+      else
+        suggestions
+      end
+
+    suggestions =
+      if analysis.blocking_ops > 2 do
+        [
+          "Consider async operations to reduce blocking (count: #{analysis.blocking_ops})"
+          | suggestions
+        ]
+      else
+        suggestions
+      end
+
     Enum.reverse(suggestions)
   end
 
   @doc """
   Use Mimo's cognitive assessment to evaluate code robustness.
-  
+
   Integrates with the reasoning engine for deeper analysis.
   """
   @spec cognitive_assess(String.t(), language()) :: {:ok, map()} | {:error, term()}
@@ -212,19 +237,22 @@ defmodule Mimo.Robustness.ComplexityAnalyzer do
       - Blocking operations: #{static_analysis.blocking_ops}
       - Lines of code: #{static_analysis.lines_of_code}
       """
-      
+
       # Try to use cognitive assessment if available
       case Code.ensure_loaded(Mimo.Cognitive.ConfidenceAssessor) do
         {:module, _} ->
           case Mimo.Cognitive.ConfidenceAssessor.assess(topic) do
             {:ok, assessment} ->
-              {:ok, Map.merge(static_analysis, %{
-                cognitive_confidence: assessment.score,
-                cognitive_gaps: assessment.gap_indicators
-              })}
+              {:ok,
+               Map.merge(static_analysis, %{
+                 cognitive_confidence: assessment.score,
+                 cognitive_gaps: assessment.gap_indicators
+               })}
+
             _ ->
               {:ok, static_analysis}
           end
+
         _ ->
           {:ok, static_analysis}
       end
@@ -311,23 +339,23 @@ defmodule Mimo.Robustness.ComplexityAnalyzer do
   defp count_missing_fallbacks(content, :elixir) do
     # Count external operations not in try/rescue blocks
     external_count = count_external_deps(content, :elixir)
-    
+
     # Count rescue blocks
     rescue_count = length(Regex.scan(~r/\brescue\b/, content))
     try_count = length(Regex.scan(~r/\btry\b/, content))
     catch_count = length(Regex.scan(~r/\bcatch\b/, content))
-    
+
     # Estimate missing fallbacks
     max(0, external_count - (rescue_count + try_count + catch_count))
   end
 
   defp count_missing_fallbacks(content, :javascript) do
     external_count = count_external_deps(content, :javascript)
-    
+
     # Count try/catch blocks
     try_count = length(Regex.scan(~r/\btry\s*\{/, content))
     catch_count = length(Regex.scan(~r/\.catch\(/, content))
-    
+
     max(0, external_count - (try_count + catch_count))
   end
 

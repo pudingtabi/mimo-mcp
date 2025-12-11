@@ -129,12 +129,12 @@ defmodule Mimo.TaskHelper do
 
   @doc """
   Safely start a child task, returning :ok or {:error, reason} if supervisor unavailable.
-  
+
   Use this when you want to fire-and-forget a task but need graceful degradation
   when the TaskSupervisor is shutting down or not started.
-  
+
   ## Examples
-  
+
       case TaskHelper.safe_start_child(fn -> cleanup_resources() end) do
         {:ok, _pid} -> :ok
         {:error, :supervisor_unavailable} -> 
@@ -146,17 +146,18 @@ defmodule Mimo.TaskHelper do
   def safe_start_child(fun) when is_function(fun, 0) do
     safe_start_child(Mimo.TaskSupervisor, fun)
   end
-  
-  @spec safe_start_child(atom() | pid(), (-> any())) :: {:ok, pid()} | {:error, :supervisor_unavailable | term()}
+
+  @spec safe_start_child(atom() | pid(), (-> any())) ::
+          {:ok, pid()} | {:error, :supervisor_unavailable | term()}
   def safe_start_child(supervisor, fun) when is_function(fun, 0) do
     caller = self()
     callers = Process.get(:"$callers", [])
-    
+
     wrapped_fun = fn ->
       Process.put(:"$callers", [caller | callers])
       fun.()
     end
-    
+
     case supervisor_available?(supervisor) do
       true ->
         try do
@@ -166,12 +167,12 @@ defmodule Mimo.TaskHelper do
           :exit, {:shutdown, _} -> {:error, :supervisor_unavailable}
           :exit, reason -> {:error, reason}
         end
-        
+
       false ->
         {:error, :supervisor_unavailable}
     end
   end
-  
+
   @doc """
   Check if a TaskSupervisor is available and running.
   """
@@ -182,7 +183,7 @@ defmodule Mimo.TaskHelper do
       pid when is_pid(pid) -> Process.alive?(pid)
     end
   end
-  
+
   def supervisor_available?(supervisor) when is_pid(supervisor) do
     Process.alive?(supervisor)
   end

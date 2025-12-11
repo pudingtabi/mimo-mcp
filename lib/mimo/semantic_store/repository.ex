@@ -284,7 +284,9 @@ defmodule Mimo.SemanticStore.Repository do
       case res do
         {:ok, triple} ->
           # Fire-and-forget trigger; internal trigger will run tasks as needed
-          TaskHelper.safe_start_child(fn -> NeuroSymbolicInference.trigger_on_new_triple(triple) end)
+          TaskHelper.safe_start_child(fn ->
+            NeuroSymbolicInference.trigger_on_new_triple(triple)
+          end)
 
         _ ->
           :ok

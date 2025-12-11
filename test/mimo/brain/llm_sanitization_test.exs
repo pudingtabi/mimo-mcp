@@ -15,11 +15,11 @@ defmodule Mimo.Brain.LLMSanitizationTest do
       # Base 'e' followed by many combining chars (60 total)
       zalgo = "e" <> String.duplicate("\u0303\u0304\u0305\u0306\u0307\u0308", 10)
       result = LLM.sanitize_text_for_embedding(zalgo)
-      
+
       # Original has 60 codepoints, result should have only 4 (base + 3 combiners)
       result_codepoints = String.to_charlist(result)
       assert length(result_codepoints) == 4
-      
+
       # Byte size should be much smaller
       assert byte_size(result) < byte_size(zalgo)
     end
@@ -28,7 +28,7 @@ defmodule Mimo.Brain.LLMSanitizationTest do
       # Create text longer than max (8000 chars)
       long_text = String.duplicate("a", 10_000)
       result = LLM.sanitize_text_for_embedding(long_text)
-      
+
       # Should be truncated to max length
       assert String.length(result) == 8_000
     end
@@ -37,11 +37,11 @@ defmodule Mimo.Brain.LLMSanitizationTest do
       # Mix of normal chars and zalgo (20 combining chars after 'z')
       text = "normal " <> "z" <> String.duplicate("\u0303", 20) <> " more normal"
       result = LLM.sanitize_text_for_embedding(text)
-      
+
       # Should contain the normal parts
       assert String.contains?(result, "normal")
       assert String.contains?(result, "more normal")
-      
+
       # The zalgo character should be reduced - check byte size is smaller
       assert byte_size(result) < byte_size(text)
     end
@@ -64,7 +64,7 @@ defmodule Mimo.Brain.LLMSanitizationTest do
       # Family emoji with zero-width joiners
       text = "Hello 👨‍👩‍👧‍👦 World"
       result = LLM.sanitize_text_for_embedding(text)
-      
+
       # Should contain the text parts
       assert String.contains?(result, "Hello")
       assert String.contains?(result, "World")
@@ -74,7 +74,7 @@ defmodule Mimo.Brain.LLMSanitizationTest do
       # Arabic text
       text = "مرحبا Hello"
       result = LLM.sanitize_text_for_embedding(text)
-      
+
       # Should contain both
       assert String.contains?(result, "Hello")
       assert String.contains?(result, "م")
@@ -84,7 +84,7 @@ defmodule Mimo.Brain.LLMSanitizationTest do
       # NFD form: e + combining acute accent
       nfd = "e\u0301"
       result = LLM.sanitize_text_for_embedding(nfd)
-      
+
       # Should be normalized to NFC (single char é)
       assert result == "é"
     end

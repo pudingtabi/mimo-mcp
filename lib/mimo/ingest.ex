@@ -151,22 +151,24 @@ defmodule Mimo.Ingest do
   # These cause memory pollution - chunks appear in search but add no value
   defp check_attached_doc_warning(path) do
     basename = Path.basename(path)
-    
+
     if Enum.any?(@attached_doc_patterns, &Regex.match?(&1, path)) do
       Logger.warning("""
       ⚠️ MEMORY POLLUTION WARNING: Attempting to ingest '#{basename}'
-      
+
       This file is likely already attached to prompts via VS Code/Copilot.
       Ingesting it will create duplicate chunks that pollute memory search results.
-      
+
       Consider:
       1. Using `memory operation=store` for specific insights instead
       2. Using `knowledge operation=teach` for relationships
       3. The content is already available in agent context
       """)
-      
+
       # Return error to block ingestion (can be changed to :ok to just warn)
-      {:error, {:attached_doc_blocked, basename, "Use memory store for specific insights instead of bulk ingestion"}}
+      {:error,
+       {:attached_doc_blocked, basename,
+        "Use memory store for specific insights instead of bulk ingestion"}}
     else
       :ok
     end

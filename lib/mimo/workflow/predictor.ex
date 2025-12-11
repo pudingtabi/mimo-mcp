@@ -146,12 +146,16 @@ defmodule Mimo.Workflow.Predictor do
 
   defp has_onboarding_intent?(tokens, desc) do
     onboard_keywords = ~w(onboard setup initialize new project start)
-    has_any_keyword?(tokens, onboard_keywords) or Regex.match?(~r/\b(onboard|setup|new project)\b/i, desc)
+
+    has_any_keyword?(tokens, onboard_keywords) or
+      Regex.match?(~r/\b(onboard|setup|new project)\b/i, desc)
   end
 
   defp has_context_intent?(tokens, desc) do
     context_keywords = ~w(understand context explain how what architecture)
-    has_any_keyword?(tokens, context_keywords) or Regex.match?(~r/\b(understand|context|explain)\b/i, desc)
+
+    has_any_keyword?(tokens, context_keywords) or
+      Regex.match?(~r/\b(understand|context|explain)\b/i, desc)
   end
 
   defp has_any_keyword?(tokens, keywords) do
@@ -309,11 +313,13 @@ defmodule Mimo.Workflow.Predictor do
       |> Enum.map(fn s -> s["tool"] || s[:tool] end)
       |> Enum.uniq()
 
-    entity_signals = [
-      if(length(entities.file_paths) > 0, do: "file", else: nil),
-      if(length(entities.symbol_names) > 0, do: "code", else: nil),
-      if(length(entities.error_types) > 0, do: "code", else: nil)
-    ] |> Enum.filter(& &1)
+    entity_signals =
+      [
+        if(length(entities.file_paths) > 0, do: "file", else: nil),
+        if(length(entities.symbol_names) > 0, do: "code", else: nil),
+        if(length(entities.error_types) > 0, do: "code", else: nil)
+      ]
+      |> Enum.filter(& &1)
 
     matches = Enum.count(entity_signals, &(&1 in step_tools))
     if length(entity_signals) > 0, do: matches / length(entity_signals), else: 0.5

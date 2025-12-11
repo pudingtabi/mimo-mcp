@@ -5,7 +5,13 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinkerTest do
 
   describe "infer_links/3" do
     test "returns empty list for code_symbol with no matches" do
-      {:ok, links} = CrossModalityLinker.infer_links(:code_symbol, "NonExistentSymbol_#{System.unique_integer()}", [])
+      {:ok, links} =
+        CrossModalityLinker.infer_links(
+          :code_symbol,
+          "NonExistentSymbol_#{System.unique_integer()}",
+          []
+        )
+
       # May return empty or with some links if memories mention it
       assert is_list(links)
     end
@@ -17,7 +23,9 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinkerTest do
     end
 
     test "respects min_confidence option" do
-      {:ok, links} = CrossModalityLinker.infer_links(:code_symbol, "TestModule", min_confidence: 0.9)
+      {:ok, links} =
+        CrossModalityLinker.infer_links(:code_symbol, "TestModule", min_confidence: 0.9)
+
       # All returned links should have confidence >= 0.9
       Enum.each(links, fn link ->
         assert link.confidence >= 0.9
@@ -146,7 +154,11 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinkerTest do
     end
 
     test "returns zero stats for non-existent entity" do
-      stats = CrossModalityLinker.cross_modality_stats(:code_symbol, "NonExistent_#{System.unique_integer()}")
+      stats =
+        CrossModalityLinker.cross_modality_stats(
+          :code_symbol,
+          "NonExistent_#{System.unique_integer()}"
+        )
 
       assert stats.total_connections >= 0
       assert is_map(stats.by_target_type)
@@ -163,10 +175,11 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinkerTest do
 
   describe "link type inference" do
     test "code_symbol links include library hints for Phoenix" do
-      {:ok, links} = CrossModalityLinker.infer_links(:code_symbol, "Phoenix.Controller.Action", limit: 10)
+      {:ok, links} =
+        CrossModalityLinker.infer_links(:code_symbol, "Phoenix.Controller.Action", limit: 10)
 
       library_links = Enum.filter(links, &(&1.target_type == "library"))
-      
+
       if length(library_links) > 0 do
         assert Enum.any?(library_links, &(&1.target_id == "phoenix"))
       end
@@ -176,7 +189,7 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinkerTest do
       {:ok, links} = CrossModalityLinker.infer_links(:code_symbol, "Ecto.Query.Builder", limit: 10)
 
       library_links = Enum.filter(links, &(&1.target_type == "library"))
-      
+
       if length(library_links) > 0 do
         assert Enum.any?(library_links, &(&1.target_id == "ecto"))
       end

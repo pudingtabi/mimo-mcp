@@ -266,6 +266,7 @@ defmodule Mimo.Skills.FileOps do
              start_line: start_line,
              lines_read: chunk.lines_read
            }}
+
         {:error, reason} ->
           {:error, {:read_failed, reason}}
       end

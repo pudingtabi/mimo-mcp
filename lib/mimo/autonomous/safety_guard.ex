@@ -28,8 +28,10 @@ defmodule Mimo.Autonomous.SafetyGuard do
   # Dangerous shell patterns - these are always blocked
   @blocked_command_patterns [
     # Dangerous file operations
-    ~r/rm\s+(-\w+\s+)*-r/i,           # rm -r, rm -rf, rm -Rf, etc.
-    ~r/rm\s+(-\w+\s+)*--recursive/i,  # rm --recursive
+    # rm -r, rm -rf, rm -Rf, etc.
+    ~r/rm\s+(-\w+\s+)*-r/i,
+    # rm --recursive
+    ~r/rm\s+(-\w+\s+)*--recursive/i,
     ~r/rmdir\s+--ignore-fail-on-non-empty/i,
 
     # System control commands
@@ -43,7 +45,8 @@ defmodule Mimo.Autonomous.SafetyGuard do
     # Process/system manipulation
     ~r/\bkillall\b/i,
     ~r/\bpkill\s+-9/i,
-    ~r/\bkill\s+-9\s+(-1|1)\b/i,      # kill -9 -1 or kill -9 1
+    # kill -9 -1 or kill -9 1
+    ~r/\bkill\s+-9\s+(-1|1)\b/i,
 
     # Disk/filesystem manipulation
     ~r/\bmkfs\b/i,
@@ -57,7 +60,8 @@ defmodule Mimo.Autonomous.SafetyGuard do
 
     # Network attacks
     ~r/\bfork\s*bomb\b/i,
-    ~r/:\(\)\s*\{\s*:\|:\s*&\s*\}/,   # Classic fork bomb pattern
+    # Classic fork bomb pattern
+    ~r/:\(\)\s*\{\s*:\|:\s*&\s*\}/,
 
     # Elixir/Erlang dangerous calls
     ~r/:halt\b/,
@@ -70,15 +74,24 @@ defmodule Mimo.Autonomous.SafetyGuard do
 
   # File path patterns that should never be modified
   @protected_paths [
-    ~r{^/$},                          # Root directory
-    ~r{^/etc(/|$)},                   # System configuration
-    ~r{^/boot(/|$)},                  # Boot files
-    ~r{^/sys(/|$)},                   # Kernel interface
-    ~r{^/proc(/|$)},                  # Process info
-    ~r{^/dev(/|$)},                   # Device files
-    ~r{^/usr(/|$)},                   # System programs (read-only)
-    ~r{^~/.ssh(/|$)},                 # SSH keys
-    ~r{^/root(/|$)}                   # Root home
+    # Root directory
+    ~r{^/$},
+    # System configuration
+    ~r{^/etc(/|$)},
+    # Boot files
+    ~r{^/boot(/|$)},
+    # Kernel interface
+    ~r{^/sys(/|$)},
+    # Process info
+    ~r{^/proc(/|$)},
+    # Device files
+    ~r{^/dev(/|$)},
+    # System programs (read-only)
+    ~r{^/usr(/|$)},
+    # SSH keys
+    ~r{^~/.ssh(/|$)},
+    # Root home
+    ~r{^/root(/|$)}
   ]
 
   @doc """
@@ -192,7 +205,8 @@ defmodule Mimo.Autonomous.SafetyGuard do
     validate_command(command)
   end
 
-  defp check_command(_), do: :ok  # No command field is fine
+  # No command field is fine
+  defp check_command(_), do: :ok
 
   defp check_file_paths(%{path: path}) when is_binary(path) do
     validate_path(path)
@@ -215,7 +229,8 @@ defmodule Mimo.Autonomous.SafetyGuard do
     check_file_paths(%{paths: paths})
   end
 
-  defp check_file_paths(_), do: :ok  # No path field is fine
+  # No path field is fine
+  defp check_file_paths(_), do: :ok
 
   defp check_description(%{description: desc}) when is_binary(desc) do
     # Check if the description itself suggests dangerous intent

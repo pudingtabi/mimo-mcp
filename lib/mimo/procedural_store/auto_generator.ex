@@ -309,13 +309,15 @@ defmodule Mimo.ProceduralStore.AutoGenerator do
     |> Enum.take(4)
     |> Enum.join("_")
     |> then(fn name ->
-      if String.length(name) < 3, do: "auto_procedure_#{System.unique_integer([:positive])}", else: name
+      if String.length(name) < 3,
+        do: "auto_procedure_#{System.unique_integer([:positive])}",
+        else: name
     end)
   end
 
   defp register_procedure(procedure) do
     alias Mimo.ProceduralStore.Loader
-    
+
     case Loader.register(procedure) do
       {:ok, registered} ->
         Logger.info("✅ Auto-generated procedure registered: #{procedure.name}")
@@ -334,9 +336,14 @@ defmodule Mimo.ProceduralStore.AutoGenerator do
     extractable_ratio = if total_thoughts > 0, do: length(steps) / total_thoughts, else: 0
 
     reasons = []
-    reasons = if session.status != :completed, do: ["Session not completed" | reasons], else: reasons
+
+    reasons =
+      if session.status != :completed, do: ["Session not completed" | reasons], else: reasons
+
     reasons = if length(steps) < 2, do: ["Too few extractable steps" | reasons], else: reasons
-    reasons = if extractable_ratio < 0.3, do: ["Low extractable step ratio" | reasons], else: reasons
+
+    reasons =
+      if extractable_ratio < 0.3, do: ["Low extractable step ratio" | reasons], else: reasons
 
     suitable = session.status == :completed and length(steps) >= 2 and extractable_ratio >= 0.3
 
@@ -348,8 +355,7 @@ defmodule Mimo.ProceduralStore.AutoGenerator do
        total_thoughts: total_thoughts,
        extractable_ratio: Float.round(extractable_ratio, 2),
        strategy: session.strategy,
-       suggested_improvements:
-         if(not suitable, do: suggest_improvements(reasons), else: [])
+       suggested_improvements: if(not suitable, do: suggest_improvements(reasons), else: [])
      }}
   end
 

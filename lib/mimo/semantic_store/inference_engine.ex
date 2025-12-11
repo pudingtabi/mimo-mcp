@@ -94,8 +94,9 @@ defmodule Mimo.SemanticStore.InferenceEngine do
 
     # Merge and deduplicate
     # Prefer neuro-symbolic inferences over purely symbolic ones when deduplicating
-    inferred = (neuro_symbolic_inferred ++ symbolic_inferred)
-    |> Enum.uniq_by(fn t -> {t.subject_id, t.predicate, t.object_id} end)
+    inferred =
+      (neuro_symbolic_inferred ++ symbolic_inferred)
+      |> Enum.uniq_by(fn t -> {t.subject_id, t.predicate, t.object_id} end)
 
     # Cleanup graph
     :digraph.delete(graph)
@@ -132,7 +133,10 @@ defmodule Mimo.SemanticStore.InferenceEngine do
       # Use generate_and_persist_rules so we get back persisted Rule structs when requested
       rs_opts = [max_rules: 3, persist_validated: Keyword.get(opts, :persist_rules, false)]
 
-      case Mimo.NeuroSymbolic.RuleGenerator.generate_and_persist_rules("Infer rules for '#{predicate}'", rs_opts) do
+      case Mimo.NeuroSymbolic.RuleGenerator.generate_and_persist_rules(
+             "Infer rules for '#{predicate}'",
+             rs_opts
+           ) do
         {:ok, %{persisted: persisted, candidates: _candidates, others: _others}} ->
           relevant_rules = persisted
 
@@ -166,8 +170,9 @@ defmodule Mimo.SemanticStore.InferenceEngine do
     predicate_pattern = "%\"predicate\":\"#{predicate_str}\"%"
 
     from(r in Rule,
-      where: r.validation_status == "validated" and
-             (r.conclusion == ^predicate_str or like(r.conclusion, ^predicate_pattern)),
+      where:
+        r.validation_status == "validated" and
+          (r.conclusion == ^predicate_str or like(r.conclusion, ^predicate_pattern)),
       order_by: [desc: r.confidence]
     )
     |> Mimo.Repo.all()
@@ -182,13 +187,17 @@ defmodule Mimo.SemanticStore.InferenceEngine do
 
     conclusion_pred =
       cond do
-        is_map(conclusion_field) -> Map.get(conclusion_field, "predicate") || Map.get(conclusion_field, :predicate)
+        is_map(conclusion_field) ->
+          Map.get(conclusion_field, "predicate") || Map.get(conclusion_field, :predicate)
+
         is_binary(conclusion_field) ->
           case Jason.decode(conclusion_field) do
             {:ok, m} when is_map(m) -> Map.get(m, "predicate") || Map.get(m, :predicate)
             _ -> conclusion_field
           end
-        true -> conclusion_field
+
+        true ->
+          conclusion_field
       end
 
     if to_string(conclusion_pred) == to_string(predicate) do
@@ -200,7 +209,8 @@ defmodule Mimo.SemanticStore.InferenceEngine do
           find_transitive_paths(graph, vertex, max_depth)
         end)
         |> Enum.map(fn {from, to, depth} ->
-          confidence = max(0.0, (rule_conf || 0.5) * (1.0 - depth * Keyword.get(opts, :confidence_decay, 0.1)))
+          confidence =
+            max(0.0, (rule_conf || 0.5) * (1.0 - depth * Keyword.get(opts, :confidence_decay, 0.1)))
 
           %{
             subject_id: elem(from, 0),

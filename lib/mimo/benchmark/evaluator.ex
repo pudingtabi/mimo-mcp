@@ -25,7 +25,9 @@ defmodule Mimo.Benchmark.Evaluator do
 
   def evaluate(predicted, expected, :exact, _opts) do
     match? = normalize(predicted) == normalize(expected)
-    {match?, if(match?, do: 1.0, else: 0.0), %{similarity: if(match?, do: 1.0, else: 0.0), mode: :exact}}
+
+    {match?, if(match?, do: 1.0, else: 0.0),
+     %{similarity: if(match?, do: 1.0, else: 0.0), mode: :exact}}
   end
 
   def evaluate(predicted, expected, :semantic, opts) do
@@ -39,7 +41,9 @@ defmodule Mimo.Benchmark.Evaluator do
     threshold = Keyword.get(opts, :threshold, 0.7)
 
     case llm_judge(predicted, expected, opts) do
-      {:ok, score} -> {score >= threshold, score, %{similarity: score, mode: :llm}}
+      {:ok, score} ->
+        {score >= threshold, score, %{similarity: score, mode: :llm}}
+
       {:error, reason} ->
         Logger.warning("LLM judge unavailable, falling back to semantic: #{inspect(reason)}")
         evaluate(predicted, expected, :semantic, opts)
@@ -86,7 +90,8 @@ defmodule Mimo.Benchmark.Evaluator do
           _ -> {:error, :invalid_llm_response}
         end
 
-      {:error, reason} -> {:error, reason}
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

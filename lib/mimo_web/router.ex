@@ -29,7 +29,8 @@ defmodule MimoWeb.Router do
     get("/", HealthController, :check)
     get("/ready", HealthController, :ready)
     get("/live", HealthController, :live)
-    get("/startup", HealthController, :startup)  # TASK 3: Startup health dashboard
+    # TASK 3: Startup health dashboard
+    get("/startup", HealthController, :startup)
   end
 
   # Mimo API v1 - requires authentication

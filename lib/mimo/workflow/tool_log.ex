@@ -22,15 +22,15 @@ defmodule Mimo.Workflow.ToolLog do
         }
 
   schema "workflow_tool_logs" do
-    field :session_id, :string
-    field :tool, :string
-    field :operation, :string
-    field :params, :map
-    field :success, :boolean
-    field :duration_ms, :integer
-    field :token_usage, :integer
-    field :context_snapshot, :map
-    field :timestamp, :utc_datetime_usec
+    field(:session_id, :string)
+    field(:tool, :string)
+    field(:operation, :string)
+    field(:params, :map)
+    field(:success, :boolean)
+    field(:duration_ms, :integer)
+    field(:token_usage, :integer)
+    field(:context_snapshot, :map)
+    field(:timestamp, :utc_datetime_usec)
   end
 
   @required_fields [:session_id, :tool, :operation, :timestamp]

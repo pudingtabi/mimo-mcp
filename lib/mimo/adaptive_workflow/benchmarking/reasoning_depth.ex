@@ -44,19 +44,19 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ReasoningDepth do
     # Level 1: Single-step inference
     %{depth: 1, type: :deduction, difficulty: :easy},
     %{depth: 1, type: :pattern, difficulty: :easy},
-    
+
     # Level 2: Two-step reasoning
     %{depth: 2, type: :deduction, difficulty: :medium},
     %{depth: 2, type: :planning, difficulty: :medium},
-    
+
     # Level 3: Three-step chains
     %{depth: 3, type: :deduction, difficulty: :medium},
     %{depth: 3, type: :abstraction, difficulty: :medium},
-    
+
     # Level 4-5: Complex multi-step
     %{depth: 4, type: :planning, difficulty: :hard},
     %{depth: 5, type: :abstraction, difficulty: :hard},
-    
+
     # Level 6+: Deep reasoning
     %{depth: 6, type: :synthesis, difficulty: :hard},
     %{depth: 7, type: :synthesis, difficulty: :very_hard}
@@ -80,7 +80,8 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ReasoningDepth do
     * `{:ok, benchmark_result}` on success
     * `{:error, reason}` on failure
   """
-  @spec run_benchmark(ModelProfiler.model_id(), keyword()) :: {:ok, benchmark_result()} | {:error, term()}
+  @spec run_benchmark(ModelProfiler.model_id(), keyword()) ::
+          {:ok, benchmark_result()} | {:error, term()}
   def run_benchmark(model_id, opts \\ []) do
     max_depth = Keyword.get(opts, :max_depth, 7)
     min_accuracy = Keyword.get(opts, :min_accuracy, 0.7)
@@ -90,7 +91,8 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ReasoningDepth do
 
     with {:ok, accuracy_by_depth} <- measure_depth_accuracy(model_id, max_depth),
          {:ok, abstraction_score} <- measure_abstraction(model_id),
-         {:ok, self_correction_rate} <- maybe_measure_self_correction(model_id, include_self_correction) do
+         {:ok, self_correction_rate} <-
+           maybe_measure_self_correction(model_id, include_self_correction) do
       chain_depth = find_max_reliable_depth(accuracy_by_depth, min_accuracy)
       level = classify_reasoning_level(chain_depth, abstraction_score)
 

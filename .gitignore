@@ -44,8 +44,14 @@ erl_crash.dump
 # Test
 /cover/
 /doc/
+_test_*/
 _test_diagnostics_*/
+_test_autodiscovery_*/
+_test_terminal_*/
 test_mcp.json
+*.log
+verification_run*.log
+test_failures.log
 
 # Temporary
 /tmp/

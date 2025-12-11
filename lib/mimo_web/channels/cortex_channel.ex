@@ -84,8 +84,9 @@ defmodule MimoWeb.CortexChannel do
         Task.Supervisor.async_nolink(Mimo.TaskSupervisor, fn ->
           process_query(query, agent_id, ref, priority, timeout)
         end)
+
         {:reply, {:ok, %{ref: ref, status: "processing"}}, socket}
-        
+
       false ->
         Logger.warning("[CortexChannel] TaskSupervisor unavailable, rejecting query")
         {:reply, {:error, %{reason: "server shutting down"}}, socket}

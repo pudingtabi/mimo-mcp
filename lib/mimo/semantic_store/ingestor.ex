@@ -136,11 +136,12 @@ defmodule Mimo.SemanticStore.Ingestor do
 
         {:error, changeset} when is_struct(changeset, Ecto.Changeset) ->
           # Extract error message from changeset
-          errors = Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-            Enum.reduce(opts, msg, fn {key, value}, acc ->
-              String.replace(acc, "%{#{key}}", to_string(value))
+          errors =
+            Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
+              Enum.reduce(opts, msg, fn {key, value}, acc ->
+                String.replace(acc, "%{#{key}}", to_string(value))
+              end)
             end)
-          end)
 
           {:error, "Validation failed: #{inspect(errors)}"}
 
@@ -232,7 +233,9 @@ defmodule Mimo.SemanticStore.Ingestor do
 
       {:error, reason} ->
         Logger.warning("LLM extraction failed: #{inspect(reason)}")
-        {:error, "LLM extraction failed: #{inspect(reason)}. Try using subject+predicate+object format."}
+
+        {:error,
+         "LLM extraction failed: #{inspect(reason)}. Try using subject+predicate+object format."}
     end
   end
 
@@ -332,8 +335,13 @@ defmodule Mimo.SemanticStore.Ingestor do
   end
 
   defp resolve_single(item, source, graph_id) do
-    subject_original = Map.get(item, "subject") || Map.get(item, :subject) || Map.get(item, "subject_id") || Map.get(item, :subject_id)
-    object_original = Map.get(item, "object") || Map.get(item, :object) || Map.get(item, "object_id") || Map.get(item, :object_id)
+    subject_original =
+      Map.get(item, "subject") || Map.get(item, :subject) || Map.get(item, "subject_id") ||
+        Map.get(item, :subject_id)
+
+    object_original =
+      Map.get(item, "object") || Map.get(item, :object) || Map.get(item, "object_id") ||
+        Map.get(item, :object_id)
 
     with {:ok, subject_id} <-
            Resolver.resolve_entity(subject_original, :auto, graph_id: graph_id, create_anchor: true),
@@ -347,7 +355,11 @@ defmodule Mimo.SemanticStore.Ingestor do
        %{
          subject_id: subject_id,
          subject_type: subject_type,
-         predicate: normalize_predicate(Map.get(item, "predicate") || Map.get(item, :predicate) || Map.get(item, "pred") || Map.get(item, :pred)),
+         predicate:
+           normalize_predicate(
+             Map.get(item, "predicate") || Map.get(item, :predicate) || Map.get(item, "pred") ||
+               Map.get(item, :pred)
+           ),
          object_id: object_id,
          object_type: object_type,
          graph_id: graph_id,

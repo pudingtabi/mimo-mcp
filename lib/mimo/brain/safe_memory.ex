@@ -42,12 +42,14 @@ defmodule Mimo.Brain.SafeMemory do
     # Pre-sanitize content to prevent UTF-8 crashes
     safe_content = sanitize_content(content)
 
-    case SafeCall.genserver(WorkingMemory, {:store, safe_content, opts}, fallback: fn ->
-           # Generate temporary ID when GenServer is down
-           temp_id = "temp_#{:erlang.unique_integer([:positive])}"
-           Logger.warning("[SafeMemory] WorkingMemory down, using temp ID: #{temp_id}")
-           {:ok, temp_id}
-         end) do
+    case SafeCall.genserver(WorkingMemory, {:store, safe_content, opts},
+           fallback: fn ->
+             # Generate temporary ID when GenServer is down
+             temp_id = "temp_#{:erlang.unique_integer([:positive])}"
+             Logger.warning("[SafeMemory] WorkingMemory down, using temp ID: #{temp_id}")
+             {:ok, temp_id}
+           end
+         ) do
       {:ok, id} -> {:ok, id}
       {:error, reason} -> {:error, reason}
     end
@@ -58,10 +60,12 @@ defmodule Mimo.Brain.SafeMemory do
   """
   @spec get(String.t()) :: {:ok, map()} | {:error, :not_found | :unavailable}
   def get(id) when is_binary(id) do
-    SafeCall.genserver(WorkingMemory, {:get, id}, fallback: fn ->
-      Logger.debug("[SafeMemory] WorkingMemory unavailable for get(#{id})")
-      {:error, :unavailable}
-    end)
+    SafeCall.genserver(WorkingMemory, {:get, id},
+      fallback: fn ->
+        Logger.debug("[SafeMemory] WorkingMemory unavailable for get(#{id})")
+        {:error, :unavailable}
+      end
+    )
   end
 
   @doc """
@@ -139,7 +143,8 @@ defmodule Mimo.Brain.SafeMemory do
   defp sanitize_content(content) when is_binary(content) do
     content
     |> ensure_utf8()
-    |> String.replace(~r/[\x00-\x08\x0B\x0C\x0E-\x1F]/, "")  # Remove control chars
+    # Remove control chars
+    |> String.replace(~r/[\x00-\x08\x0B\x0C\x0E-\x1F]/, "")
   end
 
   defp sanitize_content(content), do: to_string(content)

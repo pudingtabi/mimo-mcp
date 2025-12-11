@@ -54,10 +54,14 @@ defmodule Mimo.AdoptionMetrics do
 
   # Target percentages for healthy workflow
   @healthy_distribution %{
-    context: {0.15, 0.20},       # 15-20%
-    intelligence: {0.15, 0.20},   # 15-20%
-    action: {0.45, 0.55},         # 45-55%
-    learning: {0.10, 0.15}        # 10-15%
+    # 15-20%
+    context: {0.15, 0.20},
+    # 15-20%
+    intelligence: {0.15, 0.20},
+    # 45-55%
+    action: {0.45, 0.55},
+    # 10-15%
+    learning: {0.10, 0.15}
   }
 
   # Client API
@@ -134,10 +138,17 @@ defmodule Mimo.AdoptionMetrics do
     case :ets.lookup(@table_name, {@session_key, session}) do
       [] ->
         :ets.insert(@table_name, {{@session_key, session}, tool_name})
-        :ets.update_counter(@table_name, {:first_tool, tool_name}, {2, 1}, {{:first_tool, tool_name}, 0})
 
-        is_assess = tool_name == "cognitive" or
-                   (is_map(tool_name) and Map.get(tool_name, "operation") == "assess")
+        :ets.update_counter(
+          @table_name,
+          {:first_tool, tool_name},
+          {2, 1},
+          {{:first_tool, tool_name}, 0}
+        )
+
+        is_assess =
+          tool_name == "cognitive" or
+            (is_map(tool_name) and Map.get(tool_name, "operation") == "assess")
 
         if is_assess do
           Logger.debug("[AdoptionMetrics] ✓ Session #{session} started with cognitive assess")
@@ -171,7 +182,13 @@ defmodule Mimo.AdoptionMetrics do
 
   @impl true
   def handle_cast({:track_learning, event_type, session}, state) do
-    :ets.update_counter(@table_name, {:learning_events, event_type}, {2, 1}, {{:learning_events, event_type}, 0})
+    :ets.update_counter(
+      @table_name,
+      {:learning_events, event_type},
+      {2, 1},
+      {{:learning_events, event_type}, 0}
+    )
+
     :ets.insert(@table_name, {{:session_has_learning, session}, true})
     {:noreply, state}
   end
@@ -181,20 +198,22 @@ defmodule Mimo.AdoptionMetrics do
     sessions = :ets.match(@table_name, {{@session_key, :"$1"}, :"$2"})
     total_sessions = length(sessions)
 
-    assess_first_count = Enum.count(sessions, fn [_session, first_tool] ->
-      first_tool == "cognitive" or
-      (is_map(first_tool) and Map.get(first_tool, "operation") == "assess")
-    end)
+    assess_first_count =
+      Enum.count(sessions, fn [_session, first_tool] ->
+        first_tool == "cognitive" or
+          (is_map(first_tool) and Map.get(first_tool, "operation") == "assess")
+      end)
 
     first_tool_breakdown =
       :ets.match(@table_name, {{:first_tool, :"$1"}, :"$2"})
       |> Enum.map(fn [tool, count] -> {tool, count} end)
       |> Map.new()
 
-    total_tool_calls = case :ets.lookup(@table_name, :total_tool_calls) do
-      [{_, c}] -> c
-      [] -> 0
-    end
+    total_tool_calls =
+      case :ets.lookup(@table_name, :total_tool_calls) do
+        [{_, c}] -> c
+        [] -> 0
+      end
 
     stats = %{
       total_sessions: total_sessions,
@@ -234,27 +253,39 @@ defmodule Mimo.AdoptionMetrics do
     distribution_health =
       Enum.map(@healthy_distribution, fn {phase, {min, max}} ->
         actual = Map.get(phase_distribution, phase, 0.0)
-        health = cond do
-          actual >= min and actual <= max -> 1.0
-          actual < min -> actual / min
-          actual > max -> max / actual
-        end
+
+        health =
+          cond do
+            actual >= min and actual <= max -> 1.0
+            actual < min -> actual / min
+            actual > max -> max / actual
+          end
+
         {phase, Float.round(health, 2)}
       end)
       |> Map.new()
 
-    overall_health = distribution_health |> Map.values() |> Enum.sum() |> Kernel./(4) |> Float.round(2)
+    overall_health =
+      distribution_health |> Map.values() |> Enum.sum() |> Kernel./(4) |> Float.round(2)
 
     sessions = :ets.match(@table_name, {{@session_key, :"$1"}, :"$2"})
-    context_first_count = Enum.count(sessions, fn [_, first_tool] ->
-      classify_tool_phase(first_tool) == :context
-    end)
-    context_first_rate = if length(sessions) > 0, do: context_first_count / length(sessions), else: 0.0
 
-    sessions_with_learning = :ets.match(@table_name, {{:session_has_learning, :"$1"}, true}) |> length()
-    learning_completion_rate = if length(sessions) > 0, do: sessions_with_learning / length(sessions), else: 0.0
+    context_first_count =
+      Enum.count(sessions, fn [_, first_tool] ->
+        classify_tool_phase(first_tool) == :context
+      end)
 
-    recommendations = generate_recommendations(phase_distribution, context_first_rate, learning_completion_rate)
+    context_first_rate =
+      if length(sessions) > 0, do: context_first_count / length(sessions), else: 0.0
+
+    sessions_with_learning =
+      :ets.match(@table_name, {{:session_has_learning, :"$1"}, true}) |> length()
+
+    learning_completion_rate =
+      if length(sessions) > 0, do: sessions_with_learning / length(sessions), else: 0.0
+
+    recommendations =
+      generate_recommendations(phase_distribution, context_first_rate, learning_completion_rate)
 
     health = %{
       phase_distribution: phase_distribution,
@@ -302,39 +333,59 @@ defmodule Mimo.AdoptionMetrics do
   defp generate_recommendations(distribution, context_first_rate, learning_rate) do
     recommendations = []
 
-    recommendations = if context_first_rate < 0.5 do
-      ["Consider starting more sessions with context gathering (memory/ask_mimo)" | recommendations]
-    else
-      recommendations
-    end
+    recommendations =
+      if context_first_rate < 0.5 do
+        [
+          "Consider starting more sessions with context gathering (memory/ask_mimo)"
+          | recommendations
+        ]
+      else
+        recommendations
+      end
 
-    recommendations = if learning_rate < 0.5 do
-      ["Increase learning phase usage - store discoveries with memory operation=store" | recommendations]
-    else
-      recommendations
-    end
+    recommendations =
+      if learning_rate < 0.5 do
+        [
+          "Increase learning phase usage - store discoveries with memory operation=store"
+          | recommendations
+        ]
+      else
+        recommendations
+      end
 
     context = Map.get(distribution, :context, 0.0)
     intelligence = Map.get(distribution, :intelligence, 0.0)
     action = Map.get(distribution, :action, 0.0)
 
-    recommendations = if context < 0.10 do
-      ["Context gathering is low (#{Float.round(context * 100, 1)}%) - use memory/knowledge before file reads" | recommendations]
-    else
-      recommendations
-    end
+    recommendations =
+      if context < 0.10 do
+        [
+          "Context gathering is low (#{Float.round(context * 100, 1)}%) - use memory/knowledge before file reads"
+          | recommendations
+        ]
+      else
+        recommendations
+      end
 
-    recommendations = if intelligence < 0.10 do
-      ["Intelligence tools underused (#{Float.round(intelligence * 100, 1)}%) - use code/cognitive before action" | recommendations]
-    else
-      recommendations
-    end
+    recommendations =
+      if intelligence < 0.10 do
+        [
+          "Intelligence tools underused (#{Float.round(intelligence * 100, 1)}%) - use code/cognitive before action"
+          | recommendations
+        ]
+      else
+        recommendations
+      end
 
-    recommendations = if action > 0.70 do
-      ["Action phase dominant (#{Float.round(action * 100, 1)}%) - balance with context and intelligence" | recommendations]
-    else
-      recommendations
-    end
+    recommendations =
+      if action > 0.70 do
+        [
+          "Action phase dominant (#{Float.round(action * 100, 1)}%) - balance with context and intelligence"
+          | recommendations
+        ]
+      else
+        recommendations
+      end
 
     if Enum.empty?(recommendations) do
       ["Workflow health is good! Keep up the balanced approach."]

@@ -18,15 +18,16 @@ defmodule Mimo do
             Logger.info("Bootstrapping #{map_size(skills)} skills...")
 
             Enum.each(skills, fn {name, config} ->
-              _ = Mimo.TaskHelper.safe_start_child(fn ->
-                case start_skill(name, config) do
-                  {:ok, _pid} ->
-                    Logger.info("✓ Skill '#{name}' started")
+              _ =
+                Mimo.TaskHelper.safe_start_child(fn ->
+                  case start_skill(name, config) do
+                    {:ok, _pid} ->
+                      Logger.info("✓ Skill '#{name}' started")
 
-                  {:error, error} ->
-                    Logger.warning("✗ Skill '#{name}' failed: #{inspect(error)}")
-                end
-              end)
+                    {:error, error} ->
+                      Logger.warning("✗ Skill '#{name}' failed: #{inspect(error)}")
+                  end
+                end)
             end)
 
           {:ok, _} ->

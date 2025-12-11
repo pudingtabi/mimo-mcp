@@ -37,10 +37,14 @@ defmodule Mimo.Brain.InferenceScheduler do
 
   alias Mimo.Brain.LLM
 
-  @idle_threshold_ms 30_000  # 30 seconds of no high-priority activity = idle
-  @batch_timeout_ms 1_000    # Wait up to 1 second to batch requests
-  @max_batch_size 5          # Maximum requests per batch
-  @rate_limit_backoff_ms 60_000  # Wait 1 minute after rate limit
+  # 30 seconds of no high-priority activity = idle
+  @idle_threshold_ms 30_000
+  # Wait up to 1 second to batch requests
+  @batch_timeout_ms 1_000
+  # Maximum requests per batch
+  @max_batch_size 5
+  # Wait 1 minute after rate limit
+  @rate_limit_backoff_ms 60_000
 
   # =============================================================================
   # Public API
@@ -143,15 +147,16 @@ defmodule Mimo.Brain.InferenceScheduler do
       # Add to appropriate queue
       request = %{from: from, prompt: prompt, opts: opts, priority: priority}
 
-      new_state = case priority do
-        :high ->
-          # Process high priority immediately
-          process_single_request(request, state)
+      new_state =
+        case priority do
+          :high ->
+            # Process high priority immediately
+            process_single_request(request, state)
 
-        :low ->
-          # Add to batch
-          add_to_batch(request, state)
-      end
+          :low ->
+            # Add to batch
+            add_to_batch(request, state)
+        end
 
       {:noreply, new_state}
     end
@@ -165,15 +170,17 @@ defmodule Mimo.Brain.InferenceScheduler do
 
   @impl true
   def handle_call(:stats, _from, state) do
-    stats = Map.merge(state.stats, %{
-      queue_sizes: %{
-        high: :queue.len(state.high_queue),
-        low: :queue.len(state.low_queue)
-      },
-      pending_batch: length(state.pending_batch),
-      rate_limited: rate_limited?(state),
-      idle: is_idle?(state)
-    })
+    stats =
+      Map.merge(state.stats, %{
+        queue_sizes: %{
+          high: :queue.len(state.high_queue),
+          low: :queue.len(state.low_queue)
+        },
+        pending_batch: length(state.pending_batch),
+        rate_limited: rate_limited?(state),
+        idle: is_idle?(state)
+      })
+
     {:reply, stats, state}
   end
 
@@ -222,13 +229,18 @@ defmodule Mimo.Brain.InferenceScheduler do
   defp process_single_request(request, state) do
     result = do_llm_request(request.prompt, request.opts)
 
-    new_state = case result do
-      {:error, {:cerebras_rate_limited, _}} ->
-        %{state | rate_limited_until: DateTime.add(DateTime.utc_now(), @rate_limit_backoff_ms, :millisecond)}
+    new_state =
+      case result do
+        {:error, {:cerebras_rate_limited, _}} ->
+          %{
+            state
+            | rate_limited_until:
+                DateTime.add(DateTime.utc_now(), @rate_limit_backoff_ms, :millisecond)
+          }
 
-      _ ->
-        state
-    end
+        _ ->
+          state
+      end
 
     GenServer.reply(request.from, result)
     new_state
@@ -249,6 +261,7 @@ defmodule Mimo.Brain.InferenceScheduler do
   end
 
   defp process_batch(%{pending_batch: []} = state), do: state
+
   defp process_batch(state) do
     batch = state.pending_batch
 
@@ -261,10 +274,11 @@ defmodule Mimo.Brain.InferenceScheduler do
       GenServer.reply(request.from, result)
     end)
 
-    %{state |
-      pending_batch: [],
-      batch_timer: nil,
-      stats: Map.update!(state.stats, :batched_requests, & &1 + length(batch))
+    %{
+      state
+      | pending_batch: [],
+        batch_timer: nil,
+        stats: Map.update!(state.stats, :batched_requests, &(&1 + length(batch)))
     }
   end
 
@@ -302,10 +316,11 @@ defmodule Mimo.Brain.InferenceScheduler do
   end
 
   defp update_stat(state, key) do
-    %{state | stats: Map.update!(state.stats, key, & &1 + 1)}
+    %{state | stats: Map.update!(state.stats, key, &(&1 + 1))}
   end
 
   defp schedule_process do
-    Process.send_after(self(), :process, 5_000)  # Check every 5 seconds
+    # Check every 5 seconds
+    Process.send_after(self(), :process, 5_000)
   end
 end

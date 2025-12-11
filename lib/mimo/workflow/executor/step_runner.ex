@@ -44,19 +44,19 @@ defmodule Mimo.Workflow.Executor.StepRunner do
   def run_step(tool_name, args, options \\ %{}, context \\ %{}) do
     start_time = System.monotonic_time(:microsecond)
     session_id = context[:session_id] || generate_session_id()
-    
+
     Logger.debug("Running step: #{tool_name} with args: #{inspect(args)}")
-    
+
     # Log tool usage
     log_tool_usage(tool_name, args, session_id)
-    
+
     # Execute the tool
     result = execute_tool(tool_name, args)
-    
+
     # Emit telemetry
     duration_us = System.monotonic_time(:microsecond) - start_time
     emit_telemetry(tool_name, duration_us, result)
-    
+
     # Process result
     case result do
       {:ok, output} ->
@@ -66,11 +66,11 @@ defmodule Mimo.Workflow.Executor.StepRunner do
             # Convert output to context update
             context_update = normalize_output(tool_name, output, args)
             {:ok, Map.put(context_update, :_last_tool, tool_name)}
-          
+
           {:error, validation_error} ->
             {:error, {:validation_failed, validation_error}}
         end
-      
+
       {:error, reason} ->
         # Check if retryable
         if should_retry?(reason, options[:retry_policy]) do
@@ -107,18 +107,31 @@ defmodule Mimo.Workflow.Executor.StepRunner do
   defp get_tool_handler(tool_name) do
     # Map tool names to their handlers using Mimo.Tools.dispatch/2
     # This integrates with Mimo.Tools (SPEC-051)
-    supported_tools = MapSet.new([
-      # Core tools
-      "file", "terminal", "memory", "code", "web", "knowledge",
-      # Cognitive tools
-      "reason", "think", "cognitive",
-      # Composite tools (via meta)
-      "meta", "onboard", "ask_mimo",
-      # Procedures
-      "run_procedure",
-      # Legacy aliases - will map to unified tools
-      "search", "fetch", "analyze_file", "prepare_context"
-    ])
+    supported_tools =
+      MapSet.new([
+        # Core tools
+        "file",
+        "terminal",
+        "memory",
+        "code",
+        "web",
+        "knowledge",
+        # Cognitive tools
+        "reason",
+        "think",
+        "cognitive",
+        # Composite tools (via meta)
+        "meta",
+        "onboard",
+        "ask_mimo",
+        # Procedures
+        "run_procedure",
+        # Legacy aliases - will map to unified tools
+        "search",
+        "fetch",
+        "analyze_file",
+        "prepare_context"
+      ])
 
     if MapSet.member?(supported_tools, tool_name) do
       # Return a function that calls Mimo.Tools.dispatch
@@ -127,6 +140,7 @@ defmodule Mimo.Workflow.Executor.StepRunner do
         {mapped_tool, mapped_args} = map_legacy_tool(tool_name, args)
         Mimo.Tools.dispatch(mapped_tool, mapped_args)
       end
+
       {:ok, handler}
     else
       {:error, :not_found}
@@ -196,19 +210,19 @@ defmodule Mimo.Workflow.Executor.StepRunner do
   defp normalize_output(tool_name, output, args) do
     # Create a context key based on tool name or explicit output_key
     output_key = args[:output_key] || default_output_key(tool_name)
-    
+
     case output do
       map when is_map(map) ->
         # If output has a "data" key, unwrap it
         data = Map.get(map, :data, Map.get(map, "data", map))
         %{output_key => data, :_raw_output => output}
-      
+
       list when is_list(list) ->
         %{output_key => list}
-      
+
       binary when is_binary(binary) ->
         %{output_key => binary}
-      
+
       other ->
         %{output_key => other}
     end
@@ -233,25 +247,27 @@ defmodule Mimo.Workflow.Executor.StepRunner do
   # =============================================================================
 
   defp validate_output(_output, nil), do: :ok
+
   defp validate_output(output, validation) do
     required_keys = validation[:required_keys] || validation["required_keys"]
     non_empty = validation[:non_empty] || validation["non_empty"]
     success_status = validation[:success_status] || validation["success_status"]
     custom = validation[:custom] || validation["custom"]
-    
+
     cond do
       # Check for required keys
       required_keys != nil ->
-        missing = Enum.filter(required_keys, fn key ->
-          not (Map.has_key?(output, key) or Map.has_key?(output, to_string(key)))
-        end)
-        
+        missing =
+          Enum.filter(required_keys, fn key ->
+            not (Map.has_key?(output, key) or Map.has_key?(output, to_string(key)))
+          end)
+
         if Enum.empty?(missing) do
           :ok
         else
           {:error, {:missing_keys, missing}}
         end
-      
+
       # Check for non-empty result
       non_empty == true ->
         if empty_result?(output) do
@@ -259,7 +275,7 @@ defmodule Mimo.Workflow.Executor.StepRunner do
         else
           :ok
         end
-      
+
       # Check for success status
       success_status == true ->
         if output[:status] == "success" or output["status"] == "success" do
@@ -267,16 +283,17 @@ defmodule Mimo.Workflow.Executor.StepRunner do
         else
           {:error, {:unexpected_status, output[:status] || output["status"]}}
         end
-      
+
       # Custom validation function
       is_tuple(custom) and tuple_size(custom) == 2 ->
         {mod, fun} = custom
+
         case apply(mod, fun, [output]) do
           true -> :ok
           false -> {:error, :custom_validation_failed}
           {:error, _} = err -> err
         end
-      
+
       true ->
         :ok
     end
@@ -293,11 +310,13 @@ defmodule Mimo.Workflow.Executor.StepRunner do
   # =============================================================================
 
   defp should_retry?(_reason, nil), do: false
+
   defp should_retry?(reason, retry_policy) do
-    retryable_errors = retry_policy[:retryable_errors] || 
-                       retry_policy["retryable_errors"] ||
-                       [:timeout, :connection_error, :rate_limited]
-    
+    retryable_errors =
+      retry_policy[:retryable_errors] ||
+        retry_policy["retryable_errors"] ||
+        [:timeout, :connection_error, :rate_limited]
+
     # Check if this error type is retryable
     error_type = extract_error_type(reason)
     error_type in retryable_errors
@@ -327,7 +346,17 @@ defmodule Mimo.Workflow.Executor.StepRunner do
     _ -> :ok
   end
 
-  @sensitive_keys [:password, :token, :secret, :api_key, :content, "password", "token", "secret", "api_key"]
+  @sensitive_keys [
+    :password,
+    :token,
+    :secret,
+    :api_key,
+    :content,
+    "password",
+    "token",
+    "secret",
+    "api_key"
+  ]
 
   defp sanitize_args_for_logging(args) do
     # Remove sensitive data from logs
@@ -349,11 +378,12 @@ defmodule Mimo.Workflow.Executor.StepRunner do
   # =============================================================================
 
   defp emit_telemetry(tool_name, duration_us, result) do
-    status = case result do
-      {:ok, _} -> :success
-      {:error, _} -> :error
-    end
-    
+    status =
+      case result do
+        {:ok, _} -> :success
+        {:error, _} -> :error
+      end
+
     :telemetry.execute(
       [:mimo, :workflow, :step],
       %{duration_us: duration_us},

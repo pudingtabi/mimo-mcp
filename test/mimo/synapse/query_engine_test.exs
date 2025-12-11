@@ -47,6 +47,28 @@ defmodule Mimo.Synapse.QueryEngineTest do
       assert results.nodes == []
     end
 
+    test "finds nodes by description match" do
+      {:ok, _fn1} =
+        Graph.create_node(%{
+          node_type: :function,
+          name: "process_auth",
+          description: "Handles user authentication and session management"
+        })
+
+      {:ok, _fn2} =
+        Graph.create_node(%{
+          node_type: :function,
+          name: "unrelated_function",
+          description: "Does something unrelated"
+        })
+
+      # Query for term in description, not in name
+      {:ok, results} = QueryEngine.query("session management")
+
+      assert length(results.nodes) >= 1
+      assert Enum.any?(results.nodes, fn n -> n.name == "process_auth" end)
+    end
+
     test "expands results with graph traversal" do
       # Create connected graph
       {:ok, fn1} =

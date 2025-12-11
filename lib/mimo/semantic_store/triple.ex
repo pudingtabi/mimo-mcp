@@ -75,7 +75,16 @@ defmodule Mimo.SemanticStore.Triple do
   end
 
   @required_fields [:subject_id, :subject_type, :predicate, :object_id, :object_type]
-  @optional_fields [:confidence, :source, :ttl, :metadata, :context, :graph_id, :expires_at, :inferred_by_rule_id]
+  @optional_fields [
+    :confidence,
+    :source,
+    :ttl,
+    :metadata,
+    :context,
+    :graph_id,
+    :expires_at,
+    :inferred_by_rule_id
+  ]
 
   @doc """
   Creates a changeset for a triple.

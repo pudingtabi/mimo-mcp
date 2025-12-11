@@ -74,7 +74,8 @@ defmodule Mimo.Benchmark.LOCOMO do
     * `:importance` - importance score (default: 0.6)
     * `:concurrency` - max parallel store operations (default: 10)
   """
-  @spec ingest_conversation(map(), String.t(), keyword()) :: {:ok, %{count: non_neg_integer(), tokens: non_neg_integer()}} | {:error, term()}
+  @spec ingest_conversation(map(), String.t(), keyword()) ::
+          {:ok, %{count: non_neg_integer(), tokens: non_neg_integer()}} | {:error, term()}
   def ingest_conversation(conversation, run_id, opts \\ []) do
     base_context = Keyword.get(opts, :context_id)
     importance = Keyword.get(opts, :importance, 0.6)
@@ -113,7 +114,9 @@ defmodule Mimo.Benchmark.LOCOMO do
           }
 
           case Memory.store(attrs) do
-            {:ok, _id} -> {:ok, token_estimate(text)}
+            {:ok, _id} ->
+              {:ok, token_estimate(text)}
+
             {:error, reason} ->
               Logger.error("Failed to store turn #{turn_no} (#{conv_id}): #{inspect(reason)}")
               {:error, reason}
@@ -153,7 +156,9 @@ defmodule Mimo.Benchmark.LOCOMO do
 
     memories =
       case Memory.search(question["text"], limit: limit) do
-        {:ok, list} when is_list(list) -> list
+        {:ok, list} when is_list(list) ->
+          list
+
         {:error, reason} ->
           Logger.error("Memory search failed: #{inspect(reason)}")
           []
@@ -168,7 +173,8 @@ defmodule Mimo.Benchmark.LOCOMO do
 
     expected = question["answer"] || ""
 
-    {correct, score, _details} = Evaluator.evaluate(predicted, expected, strategy, threshold: threshold)
+    {correct, score, _details} =
+      Evaluator.evaluate(predicted, expected, strategy, threshold: threshold)
 
     similarity =
       memories
@@ -225,7 +231,10 @@ defmodule Mimo.Benchmark.LOCOMO do
         |> Enum.map_reduce(%{memories: 0, tokens: 0}, fn {conv, idx}, acc ->
           if show_progress?, do: IO.write("\r  Processing conversation #{idx}/#{total}...")
 
-          case ingest_conversation(conv, run_id, context_id: conv["conversation_id"], concurrency: concurrency) do
+          case ingest_conversation(conv, run_id,
+                 context_id: conv["conversation_id"],
+                 concurrency: concurrency
+               ) do
             {:ok, ingest_info} ->
               question_results =
                 conv["questions"]
@@ -235,20 +244,28 @@ defmodule Mimo.Benchmark.LOCOMO do
                   item when is_map(item) -> [item]
                   _ -> []
                 end)
-                |> Enum.map(&evaluate_question(&1, limit: limit, strategy: strategy, threshold: threshold))
+                |> Enum.map(
+                  &evaluate_question(&1, limit: limit, strategy: strategy, threshold: threshold)
+                )
 
               {%{conversation_id: conv["conversation_id"], results: question_results},
-               %{memories: acc.memories + ingest_info.count, tokens: acc.tokens + ingest_info.tokens}}
+               %{
+                 memories: acc.memories + ingest_info.count,
+                 tokens: acc.tokens + ingest_info.tokens
+               }}
 
             {:error, reason} ->
-              Logger.error("Failed to ingest conversation #{conv["conversation_id"]}: #{inspect(reason)}")
+              Logger.error(
+                "Failed to ingest conversation #{conv["conversation_id"]}: #{inspect(reason)}"
+              )
+
               {%{conversation_id: conv["conversation_id"], results: [], error: reason}, acc}
           end
         end)
 
       if show_progress?, do: IO.puts("\r  Processing complete.                    ")
 
-      flat_results = results |> Enum.flat_map(& &1[:results] || [])
+      flat_results = results |> Enum.flat_map(&(&1[:results] || []))
 
       summary = %{
         run_id: run_id,
@@ -330,7 +347,7 @@ defmodule Mimo.Benchmark.LOCOMO do
       hd(sorted)
     else
       # Linear interpolation method (numpy default)
-      rank = (p / 100) * (n - 1)
+      rank = p / 100 * (n - 1)
       lower = trunc(rank)
       upper = min(lower + 1, n - 1)
       weight = rank - lower

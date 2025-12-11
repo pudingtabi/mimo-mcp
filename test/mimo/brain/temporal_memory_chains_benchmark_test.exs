@@ -1,16 +1,16 @@
 defmodule Mimo.Brain.TemporalMemoryChainsBenchmarkTest do
   @moduledoc """
   Performance benchmarks for SPEC-034: Temporal Memory Chains.
-  
+
   Verifies that TMC filtering doesn't degrade search performance by more than 10%.
-  
+
   From SPEC-055:
   - Baseline: Search without TMC filtering
   - With TMC: Search with superseded_at IS NULL filter
   - Target: <10% overhead
   """
   use Mimo.DataCase, async: false
-  
+
   @moduletag :benchmark
 
   alias Mimo.Brain.{Memory, Engram}
@@ -39,13 +39,15 @@ defmodule Mimo.Brain.TemporalMemoryChainsBenchmarkTest do
 
     # Mark some as superseded (30%)
     superseded_count = div(@benchmark_size, 3)
-    
+
     memories
     |> Enum.take(superseded_count)
     |> Enum.each(fn engram ->
-      Repo.update!(Engram.changeset(engram, %{
-        superseded_at: DateTime.utc_now()
-      }))
+      Repo.update!(
+        Engram.changeset(engram, %{
+          superseded_at: DateTime.utc_now()
+        })
+      )
     end)
 
     {:ok, %{total: @benchmark_size, superseded: superseded_count}}
@@ -59,7 +61,7 @@ defmodule Mimo.Brain.TemporalMemoryChainsBenchmarkTest do
         importance: :rand.uniform()
       }
 
-      {:ok, engram} = 
+      {:ok, engram} =
         %Engram{}
         |> Engram.changeset(attrs)
         |> Repo.insert()
@@ -76,35 +78,42 @@ defmodule Mimo.Brain.TemporalMemoryChainsBenchmarkTest do
     @tag :benchmark
     test "query with superseded filter has acceptable overhead", context do
       # Baseline: query without any filter
-      baseline_times = for _ <- 1..@iterations do
-        {time, _result} = :timer.tc(fn ->
-          Repo.all(from e in Engram, select: e.id)
-        end)
-        time
-      end
+      baseline_times =
+        for _ <- 1..@iterations do
+          {time, _result} =
+            :timer.tc(fn ->
+              Repo.all(from(e in Engram, select: e.id))
+            end)
+
+          time
+        end
 
       # With filter: query with superseded_at IS NULL
-      filtered_times = for _ <- 1..@iterations do
-        {time, _result} = :timer.tc(fn ->
-          Repo.all(from e in Engram, where: is_nil(e.superseded_at), select: e.id)
-        end)
-        time
-      end
+      filtered_times =
+        for _ <- 1..@iterations do
+          {time, _result} =
+            :timer.tc(fn ->
+              Repo.all(from(e in Engram, where: is_nil(e.superseded_at), select: e.id))
+            end)
+
+          time
+        end
 
       # Calculate averages (remove outliers - first and last)
       baseline_avg = calculate_trimmed_mean(baseline_times)
       filtered_avg = calculate_trimmed_mean(filtered_times)
 
       # Calculate overhead percentage
-      overhead_percent = if baseline_avg > 0 do
-        ((filtered_avg - baseline_avg) / baseline_avg) * 100
-      else
-        0
-      end
+      overhead_percent =
+        if baseline_avg > 0 do
+          (filtered_avg - baseline_avg) / baseline_avg * 100
+        else
+          0
+        end
 
       # Log results for visibility
       IO.puts("""
-      
+
       TMC Filter Benchmark Results:
       =============================
       Total memories: #{context.total}
@@ -118,7 +127,7 @@ defmodule Mimo.Brain.TemporalMemoryChainsBenchmarkTest do
       # Assert overhead is within acceptable limits
       # Note: Overhead can be negative if the filter actually speeds things up
       assert overhead_percent < @max_overhead_percent,
-        "TMC filter overhead (#{Float.round(overhead_percent, 2)}%) exceeds #{@max_overhead_percent}%"
+             "TMC filter overhead (#{Float.round(overhead_percent, 2)}%) exceeds #{@max_overhead_percent}%"
     end
 
     @tag :benchmark
@@ -127,28 +136,32 @@ defmodule Mimo.Brain.TemporalMemoryChainsBenchmarkTest do
       # by checking EXPLAIN output or query time consistency
 
       # Run filtered query multiple times
-      times = for _ <- 1..@iterations do
-        {time, result} = :timer.tc(fn ->
-          Repo.all(
-            from e in Engram,
-            where: is_nil(e.superseded_at) and e.category == "fact",
-            select: e.id
-          )
-        end)
-        {time, length(result)}
-      end
+      times =
+        for _ <- 1..@iterations do
+          {time, result} =
+            :timer.tc(fn ->
+              Repo.all(
+                from(e in Engram,
+                  where: is_nil(e.superseded_at) and e.category == "fact",
+                  select: e.id
+                )
+              )
+            end)
+
+          {time, length(result)}
+        end
 
       # Verify consistent performance (low variance)
       {time_list, _counts} = Enum.unzip(times)
       avg_time = Enum.sum(time_list) / length(time_list)
       variance = calculate_variance(time_list, avg_time)
       std_dev = :math.sqrt(variance)
-      
+
       # Coefficient of variation should be reasonable (<100% for small datasets)
-      cv = if avg_time > 0, do: (std_dev / avg_time) * 100, else: 0
+      cv = if avg_time > 0, do: std_dev / avg_time * 100, else: 0
 
       IO.puts("""
-      
+
       Query Consistency:
       ==================
       Iterations: #{@iterations}
@@ -167,19 +180,22 @@ defmodule Mimo.Brain.TemporalMemoryChainsBenchmarkTest do
       chain_root = create_chain(10)
 
       # Measure chain traversal time
-      times = for _ <- 1..@iterations do
-        {time, chain} = :timer.tc(fn ->
-          Memory.get_chain(chain_root)
-        end)
-        {time, length(chain)}
-      end
+      times =
+        for _ <- 1..@iterations do
+          {time, chain} =
+            :timer.tc(fn ->
+              Memory.get_chain(chain_root)
+            end)
+
+          {time, length(chain)}
+        end
 
       {time_list, chain_lengths} = Enum.unzip(times)
       avg_time = Enum.sum(time_list) / length(time_list)
       avg_length = Enum.sum(chain_lengths) / length(chain_lengths)
 
       IO.puts("""
-      
+
       Chain Traversal Performance:
       ============================
       Chain length: #{Float.round(avg_length, 1)}
@@ -201,7 +217,7 @@ defmodule Mimo.Brain.TemporalMemoryChainsBenchmarkTest do
     # Remove top and bottom 10%
     trim = max(1, div(length(sorted), 10))
     trimmed = sorted |> Enum.drop(trim) |> Enum.take(length(sorted) - 2 * trim)
-    
+
     if length(trimmed) > 0 do
       Enum.sum(trimmed) / length(trimmed)
     else
@@ -217,7 +233,7 @@ defmodule Mimo.Brain.TemporalMemoryChainsBenchmarkTest do
 
   defp create_chain(length) do
     # Create first node
-    {:ok, first} = 
+    {:ok, first} =
       %Engram{}
       |> Engram.changeset(%{
         content: "Chain node 1",
@@ -239,10 +255,12 @@ defmodule Mimo.Brain.TemporalMemoryChainsBenchmarkTest do
         |> Repo.insert()
 
       # Mark previous as superseded
-      Repo.update!(Engram.changeset(prev, %{
-        superseded_at: DateTime.utc_now(),
-        supersession_type: "update"
-      }))
+      Repo.update!(
+        Engram.changeset(prev, %{
+          superseded_at: DateTime.utc_now(),
+          supersession_type: "update"
+        })
+      )
 
       current
     end)

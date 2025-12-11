@@ -49,20 +49,20 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.TokenEfficiency do
     %{type: :coding, complexity: :low, expected_tokens: 200},
     %{type: :coding, complexity: :medium, expected_tokens: 500},
     %{type: :coding, complexity: :high, expected_tokens: 1200},
-    
+
     # Analysis tasks
     %{type: :analysis, complexity: :low, expected_tokens: 150},
     %{type: :analysis, complexity: :medium, expected_tokens: 400},
     %{type: :analysis, complexity: :high, expected_tokens: 900},
-    
+
     # Refactoring tasks
     %{type: :refactoring, complexity: :low, expected_tokens: 300},
     %{type: :refactoring, complexity: :medium, expected_tokens: 700},
-    
+
     # Debugging tasks
     %{type: :debugging, complexity: :low, expected_tokens: 250},
     %{type: :debugging, complexity: :medium, expected_tokens: 600},
-    
+
     # Documentation tasks
     %{type: :documentation, complexity: :low, expected_tokens: 180},
     %{type: :documentation, complexity: :medium, expected_tokens: 450}
@@ -86,7 +86,8 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.TokenEfficiency do
     * `{:ok, benchmark_result}` on success
     * `{:error, reason}` on failure
   """
-  @spec run_benchmark(ModelProfiler.model_id(), keyword()) :: {:ok, benchmark_result()} | {:error, term()}
+  @spec run_benchmark(ModelProfiler.model_id(), keyword()) ::
+          {:ok, benchmark_result()} | {:error, term()}
   def run_benchmark(model_id, opts \\ []) do
     task_types = Keyword.get(opts, :task_types, nil)
 
@@ -192,9 +193,11 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.TokenEfficiency do
     |> adjust_for_task_type(task_type)
   end
 
-  defp adjust_for_task_type(quality, :documentation), do: quality  # Docs can be longer
+  # Docs can be longer
+  defp adjust_for_task_type(quality, :documentation), do: quality
   defp adjust_for_task_type(quality, :analysis), do: quality
-  defp adjust_for_task_type(quality, _), do: quality * 0.95  # Penalize verbosity slightly for code
+  # Penalize verbosity slightly for code
+  defp adjust_for_task_type(quality, _), do: quality * 0.95
 
   # =============================================================================
   # Benchmark Implementation

@@ -345,6 +345,7 @@ defmodule Mimo.Skills.FileReadInterceptor do
   defp estimate_token_savings(total) do
     hits = get_stat(:memory_hit) + get_stat(:cache_hit)
     avg_tokens_per_file = 1500
+
     %{
       files_avoided: hits,
       tokens_saved: hits * avg_tokens_per_file,

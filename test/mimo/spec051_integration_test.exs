@@ -1,7 +1,7 @@
 defmodule Mimo.SPEC051.IntegrationTest do
   @moduledoc """
   SPEC-051 Integration Tests: End-to-end testing of Tiered Context Delivery.
-  
+
   Tests the complete flow from query → scoring → tiering → delivery.
   """
   use Mimo.DataCase, async: false
@@ -23,7 +23,7 @@ defmodule Mimo.SPEC051.IntegrationTest do
       {:ok, id1} = Memory.store(%{content: "Phoenix authentication uses plugs", type: "fact"})
       {:ok, id2} = Memory.store(%{content: "User prefers TypeScript", type: "observation"})
       {:ok, id3} = Memory.store(%{content: "TODO: fix auth bug", type: "action"})
-      
+
       # Fetch the full memory structs
       {:ok, memory1} = Memory.get_memory(id1)
       {:ok, memory2} = Memory.get_memory(id2)
@@ -43,7 +43,7 @@ defmodule Mimo.SPEC051.IntegrationTest do
       }
 
       score = HybridScorer.score(content, "authentication module")
-      
+
       # Score should be a float between 0 and 1
       assert is_float(score)
       assert score >= 0.0 and score <= 1.0
@@ -64,10 +64,10 @@ defmodule Mimo.SPEC051.IntegrationTest do
       assert Map.has_key?(allocation, :tier2)
       assert Map.has_key?(allocation, :tier3)
       assert Map.has_key?(allocation, :total)
-      
+
       # Total should match input
       assert allocation.total == 2000
-      
+
       # Tier1 + Tier2 + Tier3 should equal total
       assert allocation.tier1 + allocation.tier2 + allocation.tier3 == allocation.total
     end
@@ -138,13 +138,14 @@ defmodule Mimo.SPEC051.IntegrationTest do
       assert predictions.task_type == :coding
 
       # 3. Score the memories (using full Ecto structs)
-      scored = Enum.map(memories, fn memory ->
-        score = HybridScorer.score(memory, query)
-        tier = HybridScorer.classify_tier(memory, query)
-        # Convert Ecto struct to map for merging
-        memory_map = Map.from_struct(memory)
-        Map.merge(memory_map, %{score: score, tier: tier})
-      end)
+      scored =
+        Enum.map(memories, fn memory ->
+          score = HybridScorer.score(memory, query)
+          tier = HybridScorer.classify_tier(memory, query)
+          # Convert Ecto struct to map for merging
+          memory_map = Map.from_struct(memory)
+          Map.merge(memory_map, %{score: score, tier: tier})
+        end)
 
       # All should be classified
       Enum.each(scored, fn item ->
@@ -171,9 +172,12 @@ defmodule Mimo.SPEC051.IntegrationTest do
 
     test "semantic weight is highest at 0.35" do
       # Semantic similarity should be the most important factor
-      assert 0.35 > 0.25  # temporal
-      assert 0.35 > 0.20  # importance
-      assert 0.35 > 0.20  # cross-modal
+      # temporal
+      assert 0.35 > 0.25
+      # importance
+      assert 0.35 > 0.20
+      # cross-modal
+      assert 0.35 > 0.20
     end
   end
 
@@ -214,7 +218,7 @@ defmodule Mimo.SPEC051.IntegrationTest do
     test "HybridScorer includes cross-modality when enabled", %{memory: memory} do
       # Score with cross-modality enabled
       score_with = HybridScorer.score(memory, "test", cross_modality_weight: 0.2)
-      
+
       # Score without (weight = 0)
       score_without = HybridScorer.score(memory, "test", cross_modality_weight: 0.0)
 
@@ -236,6 +240,7 @@ defmodule Mimo.SPEC051.IntegrationTest do
       for _ <- 1..5 do
         AccessPatternTracker.track_access(:memory, Enum.random(1..10), task: "fix bug")
       end
+
       Process.sleep(20)
 
       # Start prefetch for similar task
@@ -258,7 +263,7 @@ defmodule Mimo.SPEC051.IntegrationTest do
       end
 
       stats = Prefetcher.stats()
-      
+
       # Should have more hits than misses for cached items
       assert stats.cache_hits >= 5
     end

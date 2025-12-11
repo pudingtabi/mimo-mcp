@@ -91,9 +91,11 @@ defmodule Mimo.Tools.Dispatchers.Reflector do
              original: output,
              refined: result[:output] || output,
              iterations: result[:iterations] || 0,
-             final_score: result[:evaluation][:aggregate_score] || result[:confidence][:score] || 0.0,
+             final_score:
+               result[:evaluation][:aggregate_score] || result[:confidence][:score] || 0.0,
              passed_threshold: false,
-             warning: result[:warning] || "Response quality is uncertain - verification recommended",
+             warning:
+               result[:warning] || "Response quality is uncertain - verification recommended",
              confidence: result[:confidence],
              improvements: []
            }}

@@ -390,12 +390,18 @@ defmodule Mimo.Brain.Memory do
                category: category_str,
                importance: importance
              ) do
-          {:ok, :skipped} -> {:ok, target.id}
-          {:ok, %Engram{id: id}} -> {:ok, id}
+          {:ok, :skipped} ->
+            {:ok, target.id}
+
+          {:ok, %Engram{id: id}} ->
+            {:ok, id}
+
           # For :new decisions, use reasoning-enhanced persistence
           {:ok, :new} ->
             do_persist_memory_with_reasoning(content, category, importance, similar_engrams, opts)
-          {:error, _} = error -> error
+
+          {:error, _} = error ->
+            error
         end
     end
   end
@@ -405,18 +411,19 @@ defmodule Mimo.Brain.Memory do
   defp do_persist_memory_with_reasoning(content, category, importance, similar_memories, opts) do
     if reasoning_memory_enabled?() do
       category_str = to_string(category)
-      
+
       # Get reasoning-enhanced metadata
-      reasoning_result = 
-        case ReasoningBridge.analyze_for_storage(content, 
-               category: category_str, 
-               similar_memories: similar_memories) do
+      reasoning_result =
+        case ReasoningBridge.analyze_for_storage(content,
+               category: category_str,
+               similar_memories: similar_memories
+             ) do
           {:ok, ctx} -> ctx
           {:skip, :disabled} -> nil
         end
 
       # Score importance using reasoning (may adjust the provided importance)
-      final_importance = 
+      final_importance =
         if reasoning_result do
           ReasoningBridge.score_importance(content, category_str, base_importance: importance)
         else
@@ -424,7 +431,7 @@ defmodule Mimo.Brain.Memory do
         end
 
       # Generate reasoning-enhanced tags
-      reasoning_tags = 
+      reasoning_tags =
         if reasoning_result do
           ReasoningBridge.generate_tags(content, category_str)
         else
@@ -450,7 +457,14 @@ defmodule Mimo.Brain.Memory do
   end
 
   # SPEC-058: Enhanced persistence with reasoning context in metadata
-  defp do_persist_memory_enhanced(content, category, importance, reasoning_context, reasoning_tags, opts) do
+  defp do_persist_memory_enhanced(
+         content,
+         category,
+         importance,
+         reasoning_context,
+         reasoning_tags,
+         opts
+       ) do
     Repo.transaction(fn ->
       with :ok <- validate_content_size(content),
            :ok <- validate_content_quality(content),
@@ -460,7 +474,7 @@ defmodule Mimo.Brain.Memory do
         # Auto-detect project and generate tags
         project_id = Mimo.Brain.LLM.detect_project(content)
         auto_tags = auto_generate_tags(content)
-        
+
         # Merge auto-generated tags with reasoning-enhanced tags
         all_tags = Enum.uniq(auto_tags ++ reasoning_tags)
 
@@ -469,7 +483,7 @@ defmodule Mimo.Brain.Memory do
         validity_source = Keyword.get(opts, :validity_source)
 
         # Build metadata with reasoning context
-        metadata = 
+        metadata =
           if reasoning_context do
             %{
               "reasoning_context" => %{
@@ -477,13 +491,14 @@ defmodule Mimo.Brain.Memory do
                 "strategy" => to_string(reasoning_context.strategy),
                 "decomposition" => reasoning_context.decomposition,
                 "importance_reasoning" => reasoning_context.importance_reasoning,
-                "detected_relationships" => Enum.map(reasoning_context.detected_relationships, fn rel ->
-                  %{
-                    "type" => to_string(rel.type),
-                    "target_id" => rel.target_id,
-                    "confidence" => rel.confidence
-                  }
-                end),
+                "detected_relationships" =>
+                  Enum.map(reasoning_context.detected_relationships, fn rel ->
+                    %{
+                      "type" => to_string(rel.type),
+                      "target_id" => rel.target_id,
+                      "confidence" => rel.confidence
+                    }
+                  end),
                 "confidence" => reasoning_context.confidence
               }
             }
@@ -551,8 +566,11 @@ defmodule Mimo.Brain.Memory do
             maybe_auto_protect(engram, importance)
             # Log reasoning enhancement
             if reasoning_context do
-              Logger.debug("SPEC-058: Memory stored with reasoning context (confidence: #{reasoning_context.confidence})")
+              Logger.debug(
+                "SPEC-058: Memory stored with reasoning context (confidence: #{reasoning_context.confidence})"
+              )
             end
+
             {:ok, engram.id}
 
           {:error, changeset} ->
@@ -776,23 +794,23 @@ defmodule Mimo.Brain.Memory do
   # - :mimo_model_id - Model identifier (e.g., "claude-opus-4")
   defp inject_session_context(metadata) when is_map(metadata) do
     session_context = %{}
-    
+
     # Capture session ID if present
-    session_context = 
+    session_context =
       case Process.get(:mimo_session_id) do
         nil -> session_context
         session_id -> Map.put(session_context, "session_id", session_id)
       end
 
     # Capture agent type if present
-    session_context = 
+    session_context =
       case Process.get(:mimo_agent_type) do
         nil -> session_context
         agent_type -> Map.put(session_context, "agent_type", agent_type)
       end
 
     # Capture model ID if present
-    session_context = 
+    session_context =
       case Process.get(:mimo_model_id) do
         nil -> session_context
         model_id -> Map.put(session_context, "model_id", model_id)
@@ -862,9 +880,9 @@ defmodule Mimo.Brain.Memory do
 
   @doc """
   Search with type filter - used by SemanticStore.Resolver.
-  
+
   ## SPEC-058 Options
-  
+
     * `:enable_reasoning` - Use ReasoningBridge for query analysis (default: false)
     * `:rerank` - Rerank results using reasoning (default: false)
   """
@@ -876,28 +894,29 @@ defmodule Mimo.Brain.Memory do
     rerank = Keyword.get(opts, :rerank, false)
 
     # SPEC-058: Optional query analysis with reasoning
-    {search_query, query_analysis, enhanced_opts} = 
+    {search_query, query_analysis, enhanced_opts} =
       if enable_reasoning and reasoning_memory_enabled?() do
         case ReasoningBridge.analyze_query(query) do
           {:ok, analysis} ->
             # Expand query with synonyms
-            expanded_query = 
+            expanded_query =
               case analysis["expanded_terms"] do
                 terms when is_list(terms) and terms != [] ->
                   [query | terms] |> Enum.join(" ")
+
                 _ ->
                   query
               end
-            
+
             # Apply time filter if detected
-            enhanced_opts = 
+            enhanced_opts =
               case analysis["time_context"] do
                 nil -> opts
                 time_ctx -> Keyword.put(opts, :time_filter, time_ctx)
               end
-            
+
             {expanded_query, analysis, enhanced_opts}
-          
+
           _ ->
             {query, %{}, opts}
         end
@@ -905,11 +924,12 @@ defmodule Mimo.Brain.Memory do
         {query, %{}, opts}
       end
 
-    results = search_memories(search_query, 
-      limit: limit * 2, 
-      min_similarity: min_similarity,
-      time_filter: Keyword.get(enhanced_opts, :time_filter)
-    )
+    results =
+      search_memories(search_query,
+        limit: limit * 2,
+        min_similarity: min_similarity,
+        time_filter: Keyword.get(enhanced_opts, :time_filter)
+      )
 
     filtered =
       if type_filter do
@@ -922,18 +942,20 @@ defmodule Mimo.Brain.Memory do
       end
 
     # SPEC-058: Optional reranking with reasoning
-    final_results = 
+    final_results =
       if rerank and reasoning_memory_enabled?() and length(filtered) > 3 do
         # Convert results to Engram-like maps for reranking
-        engram_like = Enum.map(filtered, fn r ->
-          %Engram{id: r[:id], content: r[:content]}
-        end)
-        
+        engram_like =
+          Enum.map(filtered, fn r ->
+            %Engram{id: r[:id], content: r[:content]}
+          end)
+
         reranked = ReasoningBridge.rerank(query, engram_like, query_analysis)
-        
+
         # Map back to original results
         reranked_ids = Enum.map(reranked, & &1.id)
-        Enum.sort_by(filtered, fn r -> 
+
+        Enum.sort_by(filtered, fn r ->
           case Enum.find_index(reranked_ids, &(&1 == r[:id])) do
             nil -> 999
             idx -> idx
@@ -1776,20 +1798,20 @@ defmodule Mimo.Brain.Memory do
 
   defp validate_content_quality(content) when is_binary(content) do
     content_lower = String.downcase(content)
-    
+
     cond do
       # Reject very short content
       String.length(content) < @min_content_length ->
         {:error, {:content_too_short, String.length(content), @min_content_length}}
-      
+
       # Reject obvious test patterns in production
       Mix.env() == :prod and contains_test_pattern?(content_lower) ->
         {:error, :test_data_in_production}
-      
+
       # Check for generic/low-value content
       is_generic_content?(content_lower) ->
         {:error, :content_too_generic}
-      
+
       true ->
         :ok
     end
@@ -1800,10 +1822,10 @@ defmodule Mimo.Brain.Memory do
   defp contains_test_pattern?(content) do
     Enum.any?(@test_patterns, fn pattern ->
       # Only match whole words, not substrings
-      String.contains?(content, pattern) and 
-        (String.starts_with?(content, pattern) or 
-         String.contains?(content, " #{pattern}") or
-         String.ends_with?(content, pattern))
+      String.contains?(content, pattern) and
+        (String.starts_with?(content, pattern) or
+           String.contains?(content, " #{pattern}") or
+           String.ends_with?(content, pattern))
     end)
   end
 
@@ -1814,7 +1836,7 @@ defmodule Mimo.Brain.Memory do
       ~r/^tagged\s+content\.?$/i,
       ~r/^[a-z]+\s+content\.?$/i
     ]
-    
+
     Enum.any?(generic_patterns, fn pattern ->
       Regex.match?(pattern, content)
     end)

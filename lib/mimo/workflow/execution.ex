@@ -24,15 +24,15 @@ defmodule Mimo.Workflow.Execution do
 
   @primary_key {:id, :string, autogenerate: false}
   schema "workflow_executions" do
-    field :pattern_id, :string
-    field :session_id, :string
-    field :bindings, :map
-    field :status, :string, default: "pending"
-    field :result, :map
-    field :started_at, :utc_datetime_usec
-    field :completed_at, :utc_datetime_usec
-    field :metrics, :map, default: %{}
-    field :error, :string
+    field(:pattern_id, :string)
+    field(:session_id, :string)
+    field(:bindings, :map)
+    field(:status, :string, default: "pending")
+    field(:result, :map)
+    field(:started_at, :utc_datetime_usec)
+    field(:completed_at, :utc_datetime_usec)
+    field(:metrics, :map, default: %{})
+    field(:error, :string)
   end
 
   @valid_statuses ~w(pending running paused completed failed rollback)

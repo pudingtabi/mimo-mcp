@@ -187,7 +187,7 @@ defmodule Mimo.Synapse.GraphCache do
       [] ->
         # Cache miss - check database
         new_state = %{state | cache_misses: state.cache_misses + 1}
-        
+
         case Graph.get_node(type, name) do
           %{id: existing_id} ->
             # Found in DB, cache it
@@ -205,6 +205,7 @@ defmodule Mimo.Synapse.GraphCache do
               name: name,
               properties: properties
             }
+
             :ets.insert(@node_pending, {node_id, node_data})
 
             new_state = %{new_state | nodes_staged: new_state.nodes_staged + 1}
@@ -228,12 +229,15 @@ defmodule Mimo.Synapse.GraphCache do
 
     result =
       case :ets.lookup(@node_id_map, key) do
-        [{^key, id}] -> {:ok, id}
+        [{^key, id}] ->
+          {:ok, id}
+
         [] ->
           case Graph.get_node(type, name) do
             %{id: id} ->
               :ets.insert(@node_id_map, {key, id})
               {:ok, id}
+
             nil ->
               :not_found
           end
@@ -295,6 +299,7 @@ defmodule Mimo.Synapse.GraphCache do
       cache_hits: 0,
       cache_misses: 0
     }
+
     {:reply, :ok, new_state}
   end
 
@@ -315,6 +320,7 @@ defmodule Mimo.Synapse.GraphCache do
           edge_type: edge_type,
           properties: properties
         }
+
         :ets.insert(@edge_pending, {key, edge_data})
 
         new_state = %{state | edges_staged: state.edges_staged + 1}
@@ -369,31 +375,38 @@ defmodule Mimo.Synapse.GraphCache do
       # Batch insert nodes
       if nodes_count > 0 do
         node_attrs = Enum.map(nodes_pending, fn {_id, data} -> data end)
+
         case Graph.batch_create_nodes(node_attrs) do
           {:ok, count} ->
             Logger.debug("[GraphCache] Inserted #{count} nodes")
+
           {:error, reason} ->
             Logger.error("[GraphCache] Failed to insert nodes: #{inspect(reason)}")
         end
+
         :ets.delete_all_objects(@node_pending)
       end
 
       # Batch insert edges
       if edges_count > 0 do
         edge_attrs = Enum.map(edges_pending, fn {_key, data} -> data end)
+
         case Graph.batch_create_edges(edge_attrs) do
           {:ok, count} ->
             Logger.debug("[GraphCache] Inserted #{count} edges")
+
           {:error, reason} ->
             Logger.error("[GraphCache] Failed to insert edges: #{inspect(reason)}")
         end
+
         :ets.delete_all_objects(@edge_pending)
       end
 
-      %{state |
-        nodes_flushed: state.nodes_flushed + nodes_count,
-        edges_flushed: state.edges_flushed + edges_count,
-        flushes: state.flushes + 1
+      %{
+        state
+        | nodes_flushed: state.nodes_flushed + nodes_count,
+          edges_flushed: state.edges_flushed + edges_count,
+          flushes: state.flushes + 1
       }
     else
       state

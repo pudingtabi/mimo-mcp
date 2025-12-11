@@ -59,18 +59,25 @@ defmodule Mimo.NeuroSymbolic.RuleGenerator do
         case RuleValidator.validate_rule(candidate) do
           {:ok, %{validated: true} = v} ->
             if persist_validated do
-              attrs = Map.merge(candidate, %{
-                premise: Jason.encode!(Map.get(candidate, :premise) || Map.get(candidate, "premise")),
-                conclusion: Jason.encode!(Map.get(candidate, :conclusion) || Map.get(candidate, "conclusion")),
-                validation_status: "validated",
-                validation_evidence: v.evidence,
-                confidence: v.precision
-              })
+              attrs =
+                Map.merge(candidate, %{
+                  premise:
+                    Jason.encode!(Map.get(candidate, :premise) || Map.get(candidate, "premise")),
+                  conclusion:
+                    Jason.encode!(
+                      Map.get(candidate, :conclusion) || Map.get(candidate, "conclusion")
+                    ),
+                  validation_status: "validated",
+                  validation_evidence: v.evidence,
+                  confidence: v.precision
+                })
 
               changeset = Rule.changeset(%Rule{}, attrs)
 
               case Repo.insert(changeset) do
-                {:ok, struct} -> {[struct | acc_persisted], acc_other}
+                {:ok, struct} ->
+                  {[struct | acc_persisted], acc_other}
+
                 {:error, cs} ->
                   Logger.error("Failed to persist rule: #{inspect(cs)}")
                   {acc_persisted, [Map.put(candidate, :validation, v) | acc_other]}
@@ -81,18 +88,25 @@ defmodule Mimo.NeuroSymbolic.RuleGenerator do
 
           {:ok, %{validated: false} = v} ->
             if persist_rejected do
-              attrs = Map.merge(candidate, %{
-                premise: Jason.encode!(Map.get(candidate, :premise) || Map.get(candidate, "premise")),
-                conclusion: Jason.encode!(Map.get(candidate, :conclusion) || Map.get(candidate, "conclusion")),
-                validation_status: "rejected",
-                validation_evidence: v.evidence,
-                confidence: v.precision
-              })
+              attrs =
+                Map.merge(candidate, %{
+                  premise:
+                    Jason.encode!(Map.get(candidate, :premise) || Map.get(candidate, "premise")),
+                  conclusion:
+                    Jason.encode!(
+                      Map.get(candidate, :conclusion) || Map.get(candidate, "conclusion")
+                    ),
+                  validation_status: "rejected",
+                  validation_evidence: v.evidence,
+                  confidence: v.precision
+                })
 
               changeset = Rule.changeset(%Rule{}, attrs)
 
               case Repo.insert(changeset) do
-                {:ok, struct} -> {[struct | acc_persisted], acc_other}
+                {:ok, struct} ->
+                  {[struct | acc_persisted], acc_other}
+
                 {:error, cs} ->
                   Logger.error("Failed to persist rejected rule: #{inspect(cs)}")
                   {acc_persisted, [Map.put(candidate, :validation, v) | acc_other]}
@@ -103,12 +117,16 @@ defmodule Mimo.NeuroSymbolic.RuleGenerator do
 
           {:error, reason} ->
             # Validation failed due to invalid structure - log and skip
-            Logger.warning("Rule validation failed: #{inspect(reason)}, candidate: #{inspect(Map.keys(candidate))}")
+            Logger.warning(
+              "Rule validation failed: #{inspect(reason)}, candidate: #{inspect(Map.keys(candidate))}"
+            )
+
             {acc_persisted, [Map.put(candidate, :validation_error, reason) | acc_other]}
         end
       end)
 
-    {:ok, %{candidates: candidates, persisted: Enum.reverse(persisted), others: Enum.reverse(others)}}
+    {:ok,
+     %{candidates: candidates, persisted: Enum.reverse(persisted), others: Enum.reverse(others)}}
   end
 
   defp build_prompt(prompt, max_rules, _opts) do

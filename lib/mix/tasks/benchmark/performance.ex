@@ -182,7 +182,10 @@ defmodule Mix.Tasks.Benchmark.Performance do
 
     Enum.each(results.memory_at_scale, fn {count, latencies} ->
       count_str = format_count(count)
-      IO.puts("  #{count_str} memories: p50=#{latencies.p50}ms, p95=#{latencies.p95}ms, p99=#{latencies.p99}ms")
+
+      IO.puts(
+        "  #{count_str} memories: p50=#{latencies.p50}ms, p95=#{latencies.p95}ms, p99=#{latencies.p99}ms"
+      )
     end)
 
     IO.puts("")
@@ -198,7 +201,10 @@ defmodule Mix.Tasks.Benchmark.Performance do
 
     IO.puts("  #{p95_status} p95 Latency: #{t.p95_latency_ms}ms (target: <#{t.p95_target_ms}ms)")
     IO.puts("  #{p99_status} p99 Latency: #{t.p99_latency_ms}ms (target: <#{t.p99_target_ms}ms)")
-    IO.puts("  #{throughput_status} Throughput: #{t.throughput_rps} req/s (target: >#{t.throughput_target_rps})")
+
+    IO.puts(
+      "  #{throughput_status} Throughput: #{t.throughput_rps} req/s (target: >#{t.throughput_target_rps})"
+    )
 
     IO.puts(String.duplicate("═", 70))
   end

@@ -7,17 +7,27 @@ defmodule Mimo.NeuroSymbolic.Rule do
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
-  @derive {Jason.Encoder, only: [:id, :premise, :conclusion, :confidence, :source, :validation_status, :usage_count, :inserted_at]}
+  @derive {Jason.Encoder,
+           only: [
+             :id,
+             :premise,
+             :conclusion,
+             :confidence,
+             :source,
+             :validation_status,
+             :usage_count,
+             :inserted_at
+           ]}
 
   schema "neuro_symbolic_rules" do
-    field :premise, :string
-    field :conclusion, :string
-    field :logical_form, :map, default: %{}
-    field :confidence, :float, default: 0.5
-    field :source, :string
-    field :validation_status, :string, default: "pending"
-    field :validation_evidence, :map, default: %{}
-    field :usage_count, :integer, default: 0
+    field(:premise, :string)
+    field(:conclusion, :string)
+    field(:logical_form, :map, default: %{})
+    field(:confidence, :float, default: 0.5)
+    field(:source, :string)
+    field(:validation_status, :string, default: "pending")
+    field(:validation_evidence, :map, default: %{})
+    field(:usage_count, :integer, default: 0)
 
     timestamps(type: :naive_datetime_usec)
   end

@@ -8,6 +8,7 @@ defmodule Mimo.Tools.Dispatchers.KnowledgeTest do
     test "returns JSON-serializable result", %{tmp_dir: tmp_dir} do
       # Create a test file
       test_file = Path.join(tmp_dir, "test.ex")
+
       File.write!(test_file, """
       defmodule TestModule do
         def test_function do
@@ -24,12 +25,12 @@ defmodule Mimo.Tools.Dispatchers.KnowledgeTest do
 
       # Should have file_node (formatted as map, not struct)
       assert is_map(data)
-      
+
       # If file_node is present, it should be a plain map
       if Map.has_key?(data, :file_node) && data.file_node do
         assert is_map(data.file_node)
         refute is_struct(data.file_node)
-        
+
         # Should have expected keys from format_graph_node
         assert Map.has_key?(data.file_node, :id)
         assert Map.has_key?(data.file_node, :type)

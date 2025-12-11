@@ -79,19 +79,20 @@ defmodule Mimo.Cognitive.ReasoningSession do
   def init(_opts) do
     # Try to reclaim ETS table from heir (if we crashed and restarted)
     # Otherwise create new table with heir for crash recovery
-    table = case Mimo.EtsHeirManager.reclaim_table(@table, self()) do
-      {:ok, reclaimed_table} ->
-        Logger.info("✅ ReasoningSession recovered ETS table after crash")
-        reclaimed_table
+    table =
+      case Mimo.EtsHeirManager.reclaim_table(@table, self()) do
+        {:ok, reclaimed_table} ->
+          Logger.info("✅ ReasoningSession recovered ETS table after crash")
+          reclaimed_table
 
-      :not_found ->
-        # First start or table was cleaned up - create new with heir
-        Mimo.EtsHeirManager.create_table(
-          @table,
-          [:named_table, :set, :public, read_concurrency: true],
-          self()
-        )
-    end
+        :not_found ->
+          # First start or table was cleaned up - create new with heir
+          Mimo.EtsHeirManager.create_table(
+            @table,
+            [:named_table, :set, :public, read_concurrency: true],
+            self()
+          )
+      end
 
     Logger.info("✅ ReasoningSession initialized with ETS table (heir-protected)")
     schedule_cleanup()

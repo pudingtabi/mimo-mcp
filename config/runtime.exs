@@ -79,7 +79,11 @@ config :mimo_mcp, :api_key, System.get_env("MIMO_API_KEY")
 # Ollama (local embeddings) - SPEC-061: Connection pool settings
 config :mimo_mcp, :ollama_url, System.get_env("OLLAMA_URL") || "http://localhost:11434"
 config :mimo_mcp, :ollama_pool_size, String.to_integer(System.get_env("OLLAMA_POOL_SIZE") || "5")
-config :mimo_mcp, :ollama_pool_overflow, String.to_integer(System.get_env("OLLAMA_POOL_OVERFLOW") || "2")
+
+config :mimo_mcp,
+       :ollama_pool_overflow,
+       String.to_integer(System.get_env("OLLAMA_POOL_OVERFLOW") || "2")
+
 config :mimo_mcp, :ollama_timeout, String.to_integer(System.get_env("OLLAMA_TIMEOUT") || "30000")
 
 # Cerebras (PRIMARY - ultra-fast inference, 3000+ tok/s)
@@ -104,41 +108,53 @@ config :mimo_mcp, :mcp_port, String.to_integer(System.get_env("MCP_PORT") || "90
 # =============================================================================
 
 # Concurrency limits
-config :mimo_mcp, :max_concurrent_requests, 
-  String.to_integer(System.get_env("MAX_CONCURRENT_REQUESTS") || "100")
-config :mimo_mcp, :max_skill_processes, 
-  String.to_integer(System.get_env("MAX_SKILL_PROCESSES") || "20")
+config :mimo_mcp,
+       :max_concurrent_requests,
+       String.to_integer(System.get_env("MAX_CONCURRENT_REQUESTS") || "100")
+
+config :mimo_mcp,
+       :max_skill_processes,
+       String.to_integer(System.get_env("MAX_SKILL_PROCESSES") || "20")
+
 config :mimo_mcp, :memory_cleanup_days, 30
 
 # Embedding configuration
 config :mimo_mcp, :embedding_dim, 1024
 
 # SPEC-061: Embedding cache settings
-config :mimo_mcp, :embedding_cache_size, 
-  String.to_integer(System.get_env("EMBEDDING_CACHE_SIZE") || "10000")
-config :mimo_mcp, :embedding_cache_ttl_hours, 
-  String.to_integer(System.get_env("EMBEDDING_CACHE_TTL_HOURS") || "24")
+config :mimo_mcp,
+       :embedding_cache_size,
+       String.to_integer(System.get_env("EMBEDDING_CACHE_SIZE") || "10000")
+
+config :mimo_mcp,
+       :embedding_cache_ttl_hours,
+       String.to_integer(System.get_env("EMBEDDING_CACHE_TTL_HOURS") || "24")
 
 # Latency targets (Universal Aperture)
 config :mimo_mcp, :latency_target_ms, 50
 config :mimo_mcp, :latency_warn_ms, 40
 
 # SPEC-061: Production latency targets (for monitoring/alerting)
-config :mimo_mcp, :p95_latency_target_ms, 
-  String.to_integer(System.get_env("P95_LATENCY_TARGET_MS") || "1500")
-config :mimo_mcp, :p99_latency_target_ms, 
-  String.to_integer(System.get_env("P99_LATENCY_TARGET_MS") || "3000")
-config :mimo_mcp, :throughput_target_rps, 
-  String.to_integer(System.get_env("THROUGHPUT_TARGET_RPS") || "100")
+config :mimo_mcp,
+       :p95_latency_target_ms,
+       String.to_integer(System.get_env("P95_LATENCY_TARGET_MS") || "1500")
+
+config :mimo_mcp,
+       :p99_latency_target_ms,
+       String.to_integer(System.get_env("P99_LATENCY_TARGET_MS") || "3000")
+
+config :mimo_mcp,
+       :throughput_target_rps,
+       String.to_integer(System.get_env("THROUGHPUT_TARGET_RPS") || "100")
 
 # =============================================================================
 # Feature Flags
 # =============================================================================
 
 # SPEC-058: Reasoning-memory integration
-config :mimo_mcp, :reasoning_memory_enabled, 
-  System.get_env("REASONING_MEMORY_ENABLED", "false") == "true"
+config :mimo_mcp,
+       :reasoning_memory_enabled,
+       System.get_env("REASONING_MEMORY_ENABLED", "false") == "true"
 
 # SPEC-061: Enable profiling in production (for debugging)
-config :mimo_mcp, :profiling_enabled,
-  System.get_env("PROFILING_ENABLED", "false") == "true"
+config :mimo_mcp, :profiling_enabled, System.get_env("PROFILING_ENABLED", "false") == "true"

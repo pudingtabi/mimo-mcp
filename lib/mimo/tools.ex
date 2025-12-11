@@ -133,12 +133,14 @@ defmodule Mimo.Tools do
   defp track_ab_outcome(result) do
     alias Mimo.Brain.Emergence.ABTesting
 
-    success? = case result do
-      {:ok, _} -> true
-      :ok -> true
-      {:error, _} -> false
-      _ -> true  # Assume success for ambiguous results
-    end
+    success? =
+      case result do
+        {:ok, _} -> true
+        :ok -> true
+        {:error, _} -> false
+        # Assume success for ambiguous results
+        _ -> true
+      end
 
     ABTesting.track_outcome(success?)
   rescue
@@ -149,12 +151,13 @@ defmodule Mimo.Tools do
   defp maybe_add_ab_suggestions(result, {:test, suggestions}) when suggestions != [] do
     case result do
       {:ok, data} when is_map(data) ->
-        {:ok, Map.put(data, :_mimo_pattern_suggestions, %{
-          source: "emergence_ab_test",
-          group: :test,
-          suggestions: suggestions,
-          hint: "💡 These patterns have been promoted from observed agent behaviors"
-        })}
+        {:ok,
+         Map.put(data, :_mimo_pattern_suggestions, %{
+           source: "emergence_ab_test",
+           group: :test,
+           suggestions: suggestions,
+           hint: "💡 These patterns have been promoted from observed agent behaviors"
+         })}
 
       other ->
         other
@@ -172,7 +175,7 @@ defmodule Mimo.Tools do
   # Build context for pattern suggestion matching
   defp build_ab_context(tool_name, arguments) do
     operation = arguments["operation"] || "default"
-    
+
     %{
       tool: tool_name,
       operation: operation,

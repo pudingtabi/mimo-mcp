@@ -1,29 +1,29 @@
 defmodule Mimo.SystemHealth do
   @moduledoc """
   System health monitoring for Mimo infrastructure.
-  
+
   Tracks memory corpus size, query latency, ETS table usage.
   Provides visibility into system health before performance degradation.
-  
+
   Part of IMPLEMENTATION_PLAN_Q1_2026 Phase 1: Foundation Hardening.
-  
+
   ## Alert Thresholds
-  
+
   Thresholds are set at ~70% of estimated capacity to give early warning:
   - memory_count: 50,000 (70% of ~70K estimated before degradation)
   - relationship_count: 100,000 (70% of ~140K estimated)
   - ets_table_mb: 500 MB total across all Mimo ETS tables
   - query_latency_ms: 1,000 ms for semantic search
-  
+
   ## Usage
-  
+
       # Get current metrics
       Mimo.SystemHealth.get_metrics()
       
       # Check health status
       Mimo.SystemHealth.healthy?()
   """
-  
+
   use GenServer
   require Logger
 
@@ -34,7 +34,7 @@ defmodule Mimo.SystemHealth do
     ets_table_mb: 500,
     query_latency_ms: 1000
   }
-  
+
   # Known Mimo ETS tables to monitor
   @mimo_ets_tables [
     :adoption_metrics,
@@ -61,7 +61,7 @@ defmodule Mimo.SystemHealth do
 
   @doc """
   Get current health metrics and any active alerts.
-  
+
   Returns a map with:
   - `timestamp` - When metrics were last collected
   - `metrics` - Current metric values
@@ -96,22 +96,23 @@ defmodule Mimo.SystemHealth do
   def init(_opts) do
     # Schedule first check after a short delay to let system stabilize
     Process.send_after(self(), :check_health, :timer.seconds(30))
-    
+
     Logger.info("[SystemHealth] Started health monitoring (check interval: 5 min)")
-    
-    {:ok, %{
-      last_check: nil,
-      alerts: [],
-      metrics: %{},
-      check_count: 0
-    }}
+
+    {:ok,
+     %{
+       last_check: nil,
+       alerts: [],
+       metrics: %{},
+       check_count: 0
+     }}
   end
 
   @impl true
   def handle_info(:check_health, state) do
     metrics = collect_metrics()
     alerts = check_thresholds(metrics)
-    
+
     # Log alerts if any
     if alerts != [] do
       Logger.warning("""
@@ -119,15 +120,17 @@ defmodule Mimo.SystemHealth do
       #{format_alerts(alerts)}
       """)
     end
-    
+
     schedule_check()
-    
-    {:noreply, %{state |
-      last_check: DateTime.utc_now(),
-      alerts: alerts,
-      metrics: metrics,
-      check_count: state.check_count + 1
-    }}
+
+    {:noreply,
+     %{
+       state
+       | last_check: DateTime.utc_now(),
+         alerts: alerts,
+         metrics: metrics,
+         check_count: state.check_count + 1
+     }}
   end
 
   @impl true
@@ -139,6 +142,7 @@ defmodule Mimo.SystemHealth do
       thresholds: @alert_thresholds,
       check_count: state.check_count
     }
+
     {:reply, result, state}
   end
 
@@ -146,14 +150,15 @@ defmodule Mimo.SystemHealth do
   def handle_call(:check_now, _from, state) do
     metrics = collect_metrics()
     alerts = check_thresholds(metrics)
-    
-    new_state = %{state |
-      last_check: DateTime.utc_now(),
-      alerts: alerts,
-      metrics: metrics,
-      check_count: state.check_count + 1
+
+    new_state = %{
+      state
+      | last_check: DateTime.utc_now(),
+        alerts: alerts,
+        metrics: metrics,
+        check_count: state.check_count + 1
     }
-    
+
     result = %{
       timestamp: new_state.last_check,
       metrics: new_state.metrics,
@@ -161,7 +166,7 @@ defmodule Mimo.SystemHealth do
       thresholds: @alert_thresholds,
       check_count: new_state.check_count
     }
-    
+
     {:reply, result, new_state}
   end
 
@@ -203,23 +208,26 @@ defmodule Mimo.SystemHealth do
     # Get info for all known Mimo ETS tables
     @mimo_ets_tables
     |> Enum.map(fn table ->
-      stats = try do
-        case :ets.info(table) do
-          :undefined ->
-            %{size: 0, memory_bytes: 0, status: :not_found}
-          info when is_list(info) ->
-            %{
-              size: Keyword.get(info, :size, 0),
-              memory_bytes: Keyword.get(info, :memory, 0) * :erlang.system_info(:wordsize)
-            }
-          _ ->
+      stats =
+        try do
+          case :ets.info(table) do
+            :undefined ->
+              %{size: 0, memory_bytes: 0, status: :not_found}
+
+            info when is_list(info) ->
+              %{
+                size: Keyword.get(info, :size, 0),
+                memory_bytes: Keyword.get(info, :memory, 0) * :erlang.system_info(:wordsize)
+              }
+
+            _ ->
+              %{size: 0, memory_bytes: 0, status: :not_found}
+          end
+        rescue
+          ArgumentError ->
             %{size: 0, memory_bytes: 0, status: :not_found}
         end
-      rescue
-        ArgumentError ->
-          %{size: 0, memory_bytes: 0, status: :not_found}
-      end
-      
+
       {table, stats}
     end)
     |> Enum.into(%{})
@@ -231,6 +239,7 @@ defmodule Mimo.SystemHealth do
     |> Enum.map(fn table ->
       try do
         info = :ets.info(table)
+
         if info do
           Keyword.get(info, :memory, 0) * :erlang.system_info(:wordsize)
         else
@@ -241,7 +250,8 @@ defmodule Mimo.SystemHealth do
       end
     end)
     |> Enum.sum()
-    |> Kernel./(1024 * 1024)  # Convert to MB
+    # Convert to MB
+    |> Kernel./(1024 * 1024)
     |> Float.round(2)
   end
 
@@ -249,7 +259,7 @@ defmodule Mimo.SystemHealth do
     # Simple semantic search benchmark
     # Uses a common query pattern to measure real-world latency
     start = System.monotonic_time(:millisecond)
-    
+
     try do
       # Use Brain.Memory.search with a simple query
       Mimo.Brain.Memory.search("system health benchmark query", limit: 5)
@@ -263,35 +273,42 @@ defmodule Mimo.SystemHealth do
 
   defp check_thresholds(metrics) do
     alerts = []
-    
+
     # Check memory count
-    alerts = if metrics.memory_count > @alert_thresholds.memory_count do
-      [{:memory_count, metrics.memory_count, @alert_thresholds.memory_count} | alerts]
-    else
-      alerts
-    end
-    
+    alerts =
+      if metrics.memory_count > @alert_thresholds.memory_count do
+        [{:memory_count, metrics.memory_count, @alert_thresholds.memory_count} | alerts]
+      else
+        alerts
+      end
+
     # Check relationship count
-    alerts = if metrics.relationship_count > @alert_thresholds.relationship_count do
-      [{:relationship_count, metrics.relationship_count, @alert_thresholds.relationship_count} | alerts]
-    else
-      alerts
-    end
-    
+    alerts =
+      if metrics.relationship_count > @alert_thresholds.relationship_count do
+        [
+          {:relationship_count, metrics.relationship_count, @alert_thresholds.relationship_count}
+          | alerts
+        ]
+      else
+        alerts
+      end
+
     # Check ETS memory
-    alerts = if metrics.ets_total_mb > @alert_thresholds.ets_table_mb do
-      [{:ets_table_mb, metrics.ets_total_mb, @alert_thresholds.ets_table_mb} | alerts]
-    else
-      alerts
-    end
-    
+    alerts =
+      if metrics.ets_total_mb > @alert_thresholds.ets_table_mb do
+        [{:ets_table_mb, metrics.ets_total_mb, @alert_thresholds.ets_table_mb} | alerts]
+      else
+        alerts
+      end
+
     # Check query latency
-    alerts = if metrics.query_latency_ms > @alert_thresholds.query_latency_ms do
-      [{:query_latency_ms, metrics.query_latency_ms, @alert_thresholds.query_latency_ms} | alerts]
-    else
-      alerts
-    end
-    
+    alerts =
+      if metrics.query_latency_ms > @alert_thresholds.query_latency_ms do
+        [{:query_latency_ms, metrics.query_latency_ms, @alert_thresholds.query_latency_ms} | alerts]
+      else
+        alerts
+      end
+
     alerts
   end
 

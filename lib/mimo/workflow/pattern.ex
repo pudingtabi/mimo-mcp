@@ -26,10 +26,22 @@ defmodule Mimo.Workflow.Pattern do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @type category :: :debugging | :file_operations | :code_navigation | :context_gathering | :project_setup | :custom
+  @type category ::
+          :debugging
+          | :file_operations
+          | :code_navigation
+          | :context_gathering
+          | :project_setup
+          | :custom
 
   @type precondition :: %{
-          type: :file_exists | :memory_contains | :code_symbol_defined | :context_has_key | :project_indexed | :custom,
+          type:
+            :file_exists
+            | :memory_contains
+            | :code_symbol_defined
+            | :context_has_key
+            | :project_indexed
+            | :custom,
           check: atom(),
           key: String.t() | nil,
           params: map(),
@@ -84,25 +96,32 @@ defmodule Mimo.Workflow.Pattern do
           updated_at: DateTime.t()
         }
 
-  @categories [:debugging, :file_operations, :code_navigation, :context_gathering, :project_setup, :custom]
+  @categories [
+    :debugging,
+    :file_operations,
+    :code_navigation,
+    :context_gathering,
+    :project_setup,
+    :custom
+  ]
 
   @primary_key {:id, :string, autogenerate: false}
   schema "workflow_patterns" do
-    field :name, :string
-    field :description, :string
-    field :category, Ecto.Enum, values: @categories, default: :custom
-    field :preconditions, {:array, :map}, default: []
-    field :steps, {:array, :map}, default: []
-    field :bindings, {:array, :map}, default: []
-    field :success_rate, :float, default: 0.0
-    field :avg_token_savings, :integer, default: 0
-    field :usage_count, :integer, default: 0
-    field :last_used, :utc_datetime_usec
-    field :confidence_threshold, :float, default: 0.7
-    field :timeout_ms, :integer
-    field :metadata, :map, default: %{}
-    field :tags, {:array, :string}, default: []
-    field :created_from, {:array, :string}, default: []
+    field(:name, :string)
+    field(:description, :string)
+    field(:category, Ecto.Enum, values: @categories, default: :custom)
+    field(:preconditions, {:array, :map}, default: [])
+    field(:steps, {:array, :map}, default: [])
+    field(:bindings, {:array, :map}, default: [])
+    field(:success_rate, :float, default: 0.0)
+    field(:avg_token_savings, :integer, default: 0)
+    field(:usage_count, :integer, default: 0)
+    field(:last_used, :utc_datetime_usec)
+    field(:confidence_threshold, :float, default: 0.7)
+    field(:timeout_ms, :integer)
+    field(:metadata, :map, default: %{})
+    field(:tags, {:array, :string}, default: [])
+    field(:created_from, {:array, :string}, default: [])
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -160,7 +179,7 @@ defmodule Mimo.Workflow.Pattern do
       if success? do
         (pattern.success_rate * pattern.usage_count + 1.0) / new_usage
       else
-        (pattern.success_rate * pattern.usage_count) / new_usage
+        pattern.success_rate * pattern.usage_count / new_usage
       end
 
     new_avg_savings =

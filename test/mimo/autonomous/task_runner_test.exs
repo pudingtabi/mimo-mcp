@@ -130,11 +130,12 @@ defmodule Mimo.Autonomous.TaskRunnerTest do
       TaskRunner.pause()
 
       # Queue a simple task
-      {:ok, task_id} = TaskRunner.queue_task(%{
-        type: "test",
-        description: "Integration test task #{System.unique_integer([:positive])}",
-        command: "echo 'hello from integration test'"
-      })
+      {:ok, task_id} =
+        TaskRunner.queue_task(%{
+          type: "test",
+          description: "Integration test task #{System.unique_integer([:positive])}",
+          command: "echo 'hello from integration test'"
+        })
 
       # Verify it's in the queue
       queue = TaskRunner.list_queue()

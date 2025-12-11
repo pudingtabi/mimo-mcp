@@ -71,7 +71,8 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ContextWindow do
     * `{:ok, benchmark_result}` on success
     * `{:error, reason}` on failure
   """
-  @spec run_benchmark(ModelProfiler.model_id(), keyword()) :: {:ok, benchmark_result()} | {:error, term()}
+  @spec run_benchmark(ModelProfiler.model_id(), keyword()) ::
+          {:ok, benchmark_result()} | {:error, term()}
   def run_benchmark(model_id, opts \\ []) do
     max_size = Keyword.get(opts, :max_test_size, 200_000)
     min_accuracy = Keyword.get(opts, :min_accuracy, 0.8)
@@ -80,7 +81,8 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ContextWindow do
     Logger.info("[ContextWindow] Starting benchmark for model: #{model_id}")
 
     with {:ok, degradation_point} <- find_degradation_point(model_id, max_size, min_accuracy),
-         {:ok, retrieval_accuracy} <- measure_retrieval_accuracy(model_id, degradation_point, test_depth),
+         {:ok, retrieval_accuracy} <-
+           measure_retrieval_accuracy(model_id, degradation_point, test_depth),
          {:ok, coherence_score} <- measure_coherence(model_id, degradation_point) do
       level = classify_context_level(degradation_point)
 

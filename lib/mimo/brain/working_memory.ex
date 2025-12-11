@@ -155,19 +155,20 @@ defmodule Mimo.Brain.WorkingMemory do
   def init(_opts) do
     # Try to reclaim ETS table from heir (if we crashed and restarted)
     # Otherwise create new table with heir for crash recovery
-    table = case Mimo.EtsHeirManager.reclaim_table(@table_name, self()) do
-      {:ok, reclaimed_table} ->
-        Logger.info("WorkingMemory recovered ETS table after crash")
-        reclaimed_table
+    table =
+      case Mimo.EtsHeirManager.reclaim_table(@table_name, self()) do
+        {:ok, reclaimed_table} ->
+          Logger.info("WorkingMemory recovered ETS table after crash")
+          reclaimed_table
 
-      :not_found ->
-        # First start or table was cleaned up - create new with heir
-        Mimo.EtsHeirManager.create_table(
-          @table_name,
-          [:ordered_set, :public, :named_table, read_concurrency: true, write_concurrency: true],
-          self()
-        )
-    end
+        :not_found ->
+          # First start or table was cleaned up - create new with heir
+          Mimo.EtsHeirManager.create_table(
+            @table_name,
+            [:ordered_set, :public, :named_table, read_concurrency: true, write_concurrency: true],
+            self()
+          )
+      end
 
     state = %{
       table: table,

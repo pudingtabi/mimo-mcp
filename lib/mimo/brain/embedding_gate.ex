@@ -47,12 +47,16 @@ defmodule Mimo.Brain.EmbeddingGate do
   # ETS table for response cache
   @cache_table :embedding_gate_cache
   @max_cache_size 1000
-  @cache_ttl_ms 3600_000  # 1 hour
+  # 1 hour
+  @cache_ttl_ms 3600_000
 
   # Similarity thresholds
-  @duplicate_threshold 0.98   # Nearly identical prompts
-  @cache_hit_threshold 0.95   # Similar enough to reuse response
-  @novelty_threshold 0.85     # Below this = novel enough to process
+  # Nearly identical prompts
+  @duplicate_threshold 0.98
+  # Similar enough to reuse response
+  @cache_hit_threshold 0.95
+  # Below this = novel enough to process
+  @novelty_threshold 0.85
 
   # =============================================================================
   # Public API
@@ -66,6 +70,7 @@ defmodule Mimo.Brain.EmbeddingGate do
     if :ets.whereis(@cache_table) == :undefined do
       :ets.new(@cache_table, [:set, :public, :named_table, read_concurrency: true])
     end
+
     :ok
   end
 
@@ -82,7 +87,8 @@ defmodule Mimo.Brain.EmbeddingGate do
   - `:contradiction` - For ContradictionGuard (check if worth checking)
   - `:general` - Default (duplicate + cache check)
   """
-  @spec should_call_llm?(String.t(), atom()) :: {:pass, atom()} | {:skip, atom()} | {:cached, String.t()}
+  @spec should_call_llm?(String.t(), atom()) ::
+          {:pass, atom()} | {:skip, atom()} | {:cached, String.t()}
   def should_call_llm?(prompt, gate_type \\ :general) do
     # Ensure cache is initialized
     init()
@@ -108,12 +114,14 @@ defmodule Mimo.Brain.EmbeddingGate do
     case get_prompt_embedding(prompt) do
       {:ok, embedding} ->
         key = embedding_to_key(embedding)
+
         entry = %{
           prompt: prompt,
           response: response,
           embedding: embedding,
           timestamp: System.monotonic_time(:millisecond)
         }
+
         :ets.insert(@cache_table, {key, entry})
 
         # Cleanup if needed
@@ -154,6 +162,7 @@ defmodule Mimo.Brain.EmbeddingGate do
     init()
 
     size = :ets.info(@cache_table, :size) || 0
+
     %{
       cache_size: size,
       max_size: @max_cache_size,
@@ -216,18 +225,23 @@ defmodule Mimo.Brain.EmbeddingGate do
 
     # Scan cache for similar embeddings
     result =
-      :ets.foldl(fn {_key, entry}, acc ->
-        if fresh?(entry, now) do
-          similarity = VectorMath.cosine_similarity(embedding, entry.embedding)
-          if similarity >= @cache_hit_threshold and similarity > elem(acc, 0) do
-            {similarity, entry.response}
+      :ets.foldl(
+        fn {_key, entry}, acc ->
+          if fresh?(entry, now) do
+            similarity = VectorMath.cosine_similarity(embedding, entry.embedding)
+
+            if similarity >= @cache_hit_threshold and similarity > elem(acc, 0) do
+              {similarity, entry.response}
+            else
+              acc
+            end
           else
             acc
           end
-        else
-          acc
-        end
-      end, {0.0, nil}, @cache_table)
+        end,
+        {0.0, nil},
+        @cache_table
+      )
 
     case result do
       {sim, response} when sim >= @cache_hit_threshold and not is_nil(response) ->
@@ -261,7 +275,8 @@ defmodule Mimo.Brain.EmbeddingGate do
   defp embedding_to_key(embedding) do
     # Create a hash of the embedding for fast lookup
     embedding
-    |> Enum.take(32)  # Use first 32 dimensions for key
+    # Use first 32 dimensions for key
+    |> Enum.take(32)
     |> Enum.map(&Float.round(&1, 4))
     |> :erlang.phash2()
   end
@@ -280,14 +295,18 @@ defmodule Mimo.Brain.EmbeddingGate do
       cutoff = now - @cache_ttl_ms
 
       # Delete expired entries
-      :ets.foldl(fn {key, entry}, count ->
-        if entry.timestamp < cutoff do
-          :ets.delete(@cache_table, key)
-          count + 1
-        else
-          count
-        end
-      end, 0, @cache_table)
+      :ets.foldl(
+        fn {key, entry}, count ->
+          if entry.timestamp < cutoff do
+            :ets.delete(@cache_table, key)
+            count + 1
+          else
+            count
+          end
+        end,
+        0,
+        @cache_table
+      )
     end
   end
 end

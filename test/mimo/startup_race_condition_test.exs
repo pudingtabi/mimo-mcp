@@ -48,12 +48,13 @@ defmodule Mimo.StartupRaceConditionTest do
     test "safe_call helper handles timeout" do
       # Start a GenServer that will be slow to respond
       # Using a Task wrapper to create a process we can call
-      {:ok, pid} = Task.start_link(fn ->
-        # Keep the process alive
-        receive do
-          _ -> :ok
-        end
-      end)
+      {:ok, pid} =
+        Task.start_link(fn ->
+          # Keep the process alive
+          receive do
+            _ -> :ok
+          end
+        end)
 
       # Call a process that won't respond to :ping with a very short timeout
       # This tests timeout handling in safe_genserver_call
@@ -155,12 +156,16 @@ defmodule Mimo.StartupRaceConditionTest do
     test "warn_stderr writes to stderr" do
       # Capture stderr output
       {output, _exit_code} =
-        System.cmd("elixir", [
-          "-e",
-          """
-          Mimo.Defensive.warn_stderr("test warning")
-          """
-        ], stderr_to_stdout: true)
+        System.cmd(
+          "elixir",
+          [
+            "-e",
+            """
+            Mimo.Defensive.warn_stderr("test warning")
+            """
+          ],
+          stderr_to_stdout: true
+        )
 
       # This is a simplified test - in real scenario we'd capture stderr directly
       assert is_binary(output)
@@ -181,7 +186,8 @@ defmodule Mimo.StartupRaceConditionTest do
       elapsed = System.monotonic_time(:millisecond) - start
 
       assert {:error, :timeout} = result
-      assert elapsed < 500  # Should timeout well before 1000ms
+      # Should timeout well before 1000ms
+      assert elapsed < 500
     end
 
     test "with_timeout returns result when fast enough" do
@@ -216,7 +222,7 @@ defmodule Mimo.StartupRaceConditionTest do
   describe "circular dependency detection" do
     test "calling GenServer during init doesn't hang with defensive pattern" do
       # This test verifies that our defensive patterns prevent the Dec 6 hang
-      
+
       # Start a GenServer that would call ToolRegistry during init
       defmodule TestGenServer do
         use GenServer

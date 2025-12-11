@@ -1,13 +1,13 @@
 defmodule Mimo.Robustness.PatternDetector do
   @moduledoc """
   Pattern Detection Library (SPEC-070 Task A)
-  
+
   Automated detection of red flag patterns that indicate fragile implementations.
-  
+
   ## Red Flags Detected
-  
+
   From IMPLEMENTATION_ROBUSTNESS.md and Dec 6 2025 incidents:
-  
+
   - `execSync` with bash/system commands for logic
   - Synchronous `GenServer.call` during initialization
   - Complex orchestration between layers
@@ -16,22 +16,22 @@ defmodule Mimo.Robustness.PatternDetector do
   - String parsing of command output for logic decisions
   - Blocking operations on critical startup path
   - No graceful degradation when dependencies unavailable
-  
+
   ## Usage
-  
+
       {:ok, patterns} = PatternDetector.detect(code, :elixir)
       # Returns list of detected patterns with locations and fixes
   """
 
   @type language :: :elixir | :javascript | :typescript | :unknown
   @type pattern :: %{
-    id: atom(),
-    severity: :high | :medium | :low,
-    description: String.t(),
-    line: non_neg_integer(),
-    match: String.t(),
-    fix_template: String.t()
-  }
+          id: atom(),
+          severity: :high | :medium | :low,
+          description: String.t(),
+          line: non_neg_integer(),
+          match: String.t(),
+          fix_template: String.t()
+        }
 
   # Pattern definitions extracted from IMPLEMENTATION_ROBUSTNESS.md
   @elixir_patterns [
@@ -49,7 +49,8 @@ defmodule Mimo.Robustness.PatternDetector do
       description: "GenServer.call without try/catch (no fallback on noproc/timeout)",
       # Matches GenServer.call - needs manual verification for try/catch
       regex: ~r/GenServer\.call\([^)]+\)/,
-      fix_template: "Wrap in try/catch with {:exit, {:noproc, _}} and {:exit, {:timeout, _}} handlers"
+      fix_template:
+        "Wrap in try/catch with {:exit, {:noproc, _}} and {:exit, {:timeout, _}} handlers"
     },
     %{
       id: :process_whereis_unguarded,
@@ -129,7 +130,8 @@ defmodule Mimo.Robustness.PatternDetector do
       id: :blocking_on_startup,
       severity: :high,
       description: "Blocking operation before server start",
-      regex: ~r/(?:await\s+|\.then\([^)]*waitFor|ensureReady)\s*\([^)]*\)[;\s]*(?:app\.listen|server\.start)/s,
+      regex:
+        ~r/(?:await\s+|\.then\([^)]*waitFor|ensureReady)\s*\([^)]*\)[;\s]*(?:app\.listen|server\.start)/s,
       fix_template: "Start server first, handle readiness checks on first request"
     },
     %{
@@ -150,14 +152,14 @@ defmodule Mimo.Robustness.PatternDetector do
 
   @doc """
   Detect red flag patterns in source code.
-  
+
   ## Parameters
-  
+
   - `content` - Source code content as string
   - `language` - Programming language (:elixir, :javascript, :typescript, :unknown)
-  
+
   ## Returns
-  
+
   `{:ok, [pattern]}` where each pattern includes:
   - `:id` - Pattern identifier
   - `:severity` - :high, :medium, or :low
@@ -170,14 +172,14 @@ defmodule Mimo.Robustness.PatternDetector do
   def detect(content, language) do
     patterns = get_patterns_for_language(language)
     lines = String.split(content, "\n")
-    
-    detected = 
+
+    detected =
       patterns
       |> Enum.flat_map(fn pattern ->
         find_matches(content, lines, pattern)
       end)
       |> Enum.sort_by(& &1.line)
-    
+
     {:ok, detected}
   rescue
     e -> {:error, {:pattern_detection_failed, e}}
@@ -189,7 +191,8 @@ defmodule Mimo.Robustness.PatternDetector do
   @spec get_patterns_for_language(language()) :: [map()]
   def get_patterns_for_language(:elixir), do: @elixir_patterns
   def get_patterns_for_language(:javascript), do: @javascript_patterns
-  def get_patterns_for_language(:typescript), do: @javascript_patterns  # Same patterns apply
+  # Same patterns apply
+  def get_patterns_for_language(:typescript), do: @javascript_patterns
   def get_patterns_for_language(_), do: []
 
   @doc """
@@ -198,8 +201,8 @@ defmodule Mimo.Robustness.PatternDetector do
   @spec pattern_exists?(String.t(), atom()) :: boolean()
   def pattern_exists?(content, pattern_id) do
     all_patterns = @elixir_patterns ++ @javascript_patterns
-    
-    case Enum.find(all_patterns, & &1.id == pattern_id) do
+
+    case Enum.find(all_patterns, &(&1.id == pattern_id)) do
       nil -> false
       pattern -> Regex.match?(pattern.regex, content)
     end
@@ -211,7 +214,7 @@ defmodule Mimo.Robustness.PatternDetector do
   @spec list_patterns() :: [{atom(), String.t()}]
   def list_patterns do
     (@elixir_patterns ++ @javascript_patterns)
-    |> Enum.map(& {&1.id, &1.description})
+    |> Enum.map(&{&1.id, &1.description})
     |> Enum.uniq_by(fn {id, _} -> id end)
   end
 
@@ -219,15 +222,15 @@ defmodule Mimo.Robustness.PatternDetector do
 
   defp find_matches(content, _lines, pattern) do
     case Regex.scan(pattern.regex, content, return: :index) do
-      [] -> 
+      [] ->
         []
-      
+
       matches ->
         matches
         |> Enum.map(fn [{start_pos, length} | _] ->
           line_number = count_lines_before(content, start_pos)
           matched_text = String.slice(content, start_pos, min(length, 80))
-          
+
           %{
             id: pattern.id,
             severity: pattern.severity,

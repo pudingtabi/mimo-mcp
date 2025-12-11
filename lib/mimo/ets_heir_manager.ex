@@ -136,13 +136,17 @@ defmodule Mimo.EtsHeirManager do
     # Monitor the owner so we know when it dies
     ref = Process.monitor(owner_pid)
 
-    :ets.insert(@table_name, {name, %{
-      owner: owner_pid,
-      monitor_ref: ref,
-      table: table,
-      orphaned_at: nil,
-      created_at: DateTime.utc_now()
-    }})
+    :ets.insert(
+      @table_name,
+      {name,
+       %{
+         owner: owner_pid,
+         monitor_ref: ref,
+         table: table,
+         orphaned_at: nil,
+         created_at: DateTime.utc_now()
+       }}
+    )
 
     {:noreply, state}
   end
@@ -156,11 +160,7 @@ defmodule Mimo.EtsHeirManager do
 
         # Update registry with new owner
         new_ref = Process.monitor(new_owner_pid)
-        updated_entry = %{entry |
-          owner: new_owner_pid,
-          monitor_ref: new_ref,
-          orphaned_at: nil
-        }
+        updated_entry = %{entry | owner: new_owner_pid, monitor_ref: new_ref, orphaned_at: nil}
         :ets.insert(@table_name, {name, updated_entry})
 
         Logger.info("[EtsHeirManager] Table #{name} reclaimed by #{inspect(new_owner_pid)}")
@@ -177,10 +177,12 @@ defmodule Mimo.EtsHeirManager do
   end
 
   def handle_call({:is_orphaned, name}, _from, state) do
-    result = case :ets.lookup(@table_name, name) do
-      [{^name, %{orphaned_at: orphaned_at}}] -> not is_nil(orphaned_at)
-      [] -> false
-    end
+    result =
+      case :ets.lookup(@table_name, name) do
+        [{^name, %{orphaned_at: orphaned_at}}] -> not is_nil(orphaned_at)
+        [] -> false
+      end
+
     {:reply, result, state}
   end
 
@@ -191,14 +193,15 @@ defmodule Mimo.EtsHeirManager do
       total_tables: length(all_entries),
       active_tables: Enum.count(all_entries, fn {_, e} -> is_nil(e.orphaned_at) end),
       orphaned_tables: Enum.count(all_entries, fn {_, e} -> not is_nil(e.orphaned_at) end),
-      tables: Enum.map(all_entries, fn {name, entry} ->
-        %{
-          name: name,
-          owner: inspect(entry.owner),
-          orphaned: not is_nil(entry.orphaned_at),
-          created_at: entry.created_at
-        }
-      end)
+      tables:
+        Enum.map(all_entries, fn {name, entry} ->
+          %{
+            name: name,
+            owner: inspect(entry.owner),
+            orphaned: not is_nil(entry.orphaned_at),
+            created_at: entry.created_at
+          }
+        end)
     }
 
     {:reply, stats, state}
@@ -209,12 +212,11 @@ defmodule Mimo.EtsHeirManager do
     # Owner process died, mark table as orphaned
     case find_by_monitor_ref(ref) do
       {:ok, name, entry} ->
-        Logger.warning("[EtsHeirManager] Owner #{inspect(pid)} died (#{inspect(reason)}), holding table #{name}")
+        Logger.warning(
+          "[EtsHeirManager] Owner #{inspect(pid)} died (#{inspect(reason)}), holding table #{name}"
+        )
 
-        updated_entry = %{entry |
-          orphaned_at: DateTime.utc_now(),
-          monitor_ref: nil
-        }
+        updated_entry = %{entry | orphaned_at: DateTime.utc_now(), monitor_ref: nil}
         :ets.insert(@table_name, {name, updated_entry})
 
       :not_found ->
@@ -234,15 +236,20 @@ defmodule Mimo.EtsHeirManager do
       [{name, entry}] ->
         # Update table reference in case it changed
         :ets.insert(@table_name, {name, %{entry | table: table}})
+
       [] ->
         # Unknown table, just track it
-        :ets.insert(@table_name, {heir_data, %{
-          owner: nil,
-          monitor_ref: nil,
-          table: table,
-          orphaned_at: DateTime.utc_now(),
-          created_at: DateTime.utc_now()
-        }})
+        :ets.insert(
+          @table_name,
+          {heir_data,
+           %{
+             owner: nil,
+             monitor_ref: nil,
+             table: table,
+             orphaned_at: DateTime.utc_now(),
+             created_at: DateTime.utc_now()
+           }}
+        )
     end
 
     {:noreply, state}
@@ -253,10 +260,11 @@ defmodule Mimo.EtsHeirManager do
     cutoff = DateTime.add(now, -@orphan_ttl_ms, :millisecond)
 
     # Find and delete tables orphaned for too long
-    orphaned = :ets.tab2list(@table_name)
-    |> Enum.filter(fn {_, entry} ->
-      entry.orphaned_at && DateTime.compare(entry.orphaned_at, cutoff) == :lt
-    end)
+    orphaned =
+      :ets.tab2list(@table_name)
+      |> Enum.filter(fn {_, entry} ->
+        entry.orphaned_at && DateTime.compare(entry.orphaned_at, cutoff) == :lt
+      end)
 
     Enum.each(orphaned, fn {name, _entry} ->
       Logger.warning("[EtsHeirManager] Cleaning up long-orphaned table #{name}")
@@ -265,6 +273,7 @@ defmodule Mimo.EtsHeirManager do
         :undefined -> :ok
         _tid -> :ets.delete(name)
       end
+
       # Remove from registry
       :ets.delete(@table_name, name)
     end)

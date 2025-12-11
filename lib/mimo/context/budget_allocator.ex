@@ -3,7 +3,7 @@ defmodule Mimo.Context.BudgetAllocator do
   Model-aware token budget allocation for tiered context delivery.
 
   SPEC-051: Allocates token budgets across three tiers based on model capabilities.
-  
+
   Tier 1 (Essential): 5-10% - Critical information needed for immediate task execution
   Tier 2 (Supporting): 15-20% - Important background and related information
   Tier 3 (Background): Remaining - General project context available on-demand
@@ -214,7 +214,7 @@ defmodule Mimo.Context.BudgetAllocator do
 
   @doc """
   Estimate tokens for a string using character count heuristic.
-  
+
   Approximately 4 characters per token for English text.
   """
   @spec estimate_string_tokens(String.t()) :: non_neg_integer()

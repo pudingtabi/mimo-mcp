@@ -89,7 +89,7 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
 
   # Minimum samples before we trust affinity scores
   @min_samples 5
-  
+
   # Decay factor for exponential moving average
   @decay_factor 0.1
 
@@ -116,10 +116,10 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
       # Last aggregation time
       last_aggregation: DateTime.utc_now()
     }
-    
+
     # Schedule periodic aggregation
     schedule_aggregation()
-    
+
     {:ok, state}
   end
 
@@ -154,7 +154,7 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
       context: Keyword.get(opts, :context, %{}),
       timestamp: DateTime.utc_now()
     }
-    
+
     record_event(event)
   end
 
@@ -237,21 +237,22 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
   def handle_cast({:record_event, event}, state) do
     # Buffer the event
     new_buffer = [event | state.event_buffer]
-    
+
     # If buffer is large enough, trigger aggregation
-    new_state = if length(new_buffer) >= 10 do
-      aggregate_events(%{state | event_buffer: new_buffer})
-    else
-      %{state | event_buffer: new_buffer}
-    end
-    
+    new_state =
+      if length(new_buffer) >= 10 do
+        aggregate_events(%{state | event_buffer: new_buffer})
+      else
+        %{state | event_buffer: new_buffer}
+      end
+
     {:noreply, new_state}
   end
 
   @impl true
   def handle_call({:get_affinity, model_id, pattern_name}, _from, state) do
     key = {model_id, pattern_name}
-    
+
     case Map.get(state.affinities, key) do
       nil -> {:reply, {:error, :no_data}, state}
       affinity -> {:reply, {:ok, affinity}, state}
@@ -262,15 +263,16 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
   def handle_call({:get_best_patterns, model_id, opts}, _from, state) do
     limit = Keyword.get(opts, :limit, 10)
     min_confidence = Keyword.get(opts, :min_confidence, 0.3)
-    
-    best = state.affinities
-    |> Enum.filter(fn {{mid, _pn}, aff} -> 
-      mid == model_id and aff.confidence >= min_confidence
-    end)
-    |> Enum.map(fn {_key, aff} -> aff end)
-    |> Enum.sort_by(& &1.score, :desc)
-    |> Enum.take(limit)
-    
+
+    best =
+      state.affinities
+      |> Enum.filter(fn {{mid, _pn}, aff} ->
+        mid == model_id and aff.confidence >= min_confidence
+      end)
+      |> Enum.map(fn {_key, aff} -> aff end)
+      |> Enum.sort_by(& &1.score, :desc)
+      |> Enum.take(limit)
+
     {:reply, best, state}
   end
 
@@ -278,15 +280,16 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
   def handle_call({:get_best_models, pattern_name, opts}, _from, state) do
     limit = Keyword.get(opts, :limit, 10)
     min_confidence = Keyword.get(opts, :min_confidence, 0.3)
-    
-    best = state.affinities
-    |> Enum.filter(fn {{_mid, pn}, aff} -> 
-      pn == pattern_name and aff.confidence >= min_confidence
-    end)
-    |> Enum.map(fn {_key, aff} -> aff end)
-    |> Enum.sort_by(& &1.score, :desc)
-    |> Enum.take(limit)
-    
+
+    best =
+      state.affinities
+      |> Enum.filter(fn {{_mid, pn}, aff} ->
+        pn == pattern_name and aff.confidence >= min_confidence
+      end)
+      |> Enum.map(fn {_key, aff} -> aff end)
+      |> Enum.sort_by(& &1.score, :desc)
+      |> Enum.take(limit)
+
     {:reply, best, state}
   end
 
@@ -301,12 +304,13 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
   @impl true
   def handle_call({:get_failure_hotspots, opts}, _from, state) do
     limit = Keyword.get(opts, :limit, 20)
-    
-    hotspots = state.failure_hotspots
-    |> Enum.map(fn {key, stats} -> Map.put(stats, :key, key) end)
-    |> Enum.sort_by(& &1.failure_count, :desc)
-    |> Enum.take(limit)
-    
+
+    hotspots =
+      state.failure_hotspots
+      |> Enum.map(fn {key, stats} -> Map.put(stats, :key, key) end)
+      |> Enum.sort_by(& &1.failure_count, :desc)
+      |> Enum.take(limit)
+
     {:reply, hotspots, state}
   end
 
@@ -325,7 +329,7 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
       hotspot_count: map_size(state.failure_hotspots),
       last_aggregation: state.last_aggregation
     }
-    
+
     {:reply, stats, state}
   end
 
@@ -342,34 +346,35 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
 
   defp aggregate_events(state) do
     events = state.event_buffer
-    
+
     if Enum.empty?(events) do
       state
     else
       # Update affinities
       new_affinities = update_affinities(state.affinities, events)
-      
+
       # Update pattern stats
       new_pattern_stats = update_pattern_stats(state.pattern_stats, events)
-      
+
       # Update failure hotspots
       new_hotspots = update_failure_hotspots(state.failure_hotspots, events)
-      
+
       # Persist changes
       persist_affinities(new_affinities)
-      
+
       # Notify pattern registry of updates
       notify_pattern_updates(events)
-      
+
       # Notify model profiler of performance data
       notify_model_updates(events)
-      
-      %{state |
-        event_buffer: [],
-        affinities: new_affinities,
-        pattern_stats: new_pattern_stats,
-        failure_hotspots: new_hotspots,
-        last_aggregation: DateTime.utc_now()
+
+      %{
+        state
+        | event_buffer: [],
+          affinities: new_affinities,
+          pattern_stats: new_pattern_stats,
+          failure_hotspots: new_hotspots,
+          last_aggregation: DateTime.utc_now()
       }
     end
   end
@@ -379,35 +384,38 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
       # Skip events without model_id
       if event.model_id do
         key = {event.model_id, event.pattern_name}
-        current = Map.get(acc, key, %{
-          pattern_name: event.pattern_name,
-          model_id: event.model_id,
-          score: 0.5,
-          confidence: 0.0,
-          sample_count: 0,
-          successes: 0,
-          total_duration_ms: 0
-        })
-        
+
+        current =
+          Map.get(acc, key, %{
+            pattern_name: event.pattern_name,
+            model_id: event.model_id,
+            score: 0.5,
+            confidence: 0.0,
+            sample_count: 0,
+            successes: 0,
+            total_duration_ms: 0
+          })
+
         # Update with exponential moving average
         success_val = if event.outcome == :success, do: 1.0, else: 0.0
         new_score = current.score * (1 - @decay_factor) + success_val * @decay_factor
-        
+
         # Update sample count and calculate confidence
         new_sample_count = current.sample_count + 1
         new_confidence = calculate_confidence(new_sample_count)
-        
-        new_successes = current.successes + (if event.outcome == :success, do: 1, else: 0)
+
+        new_successes = current.successes + if event.outcome == :success, do: 1, else: 0
         new_duration = current.total_duration_ms + event.duration_ms
-        
-        updated = %{current |
-          score: Float.round(new_score, 3),
-          confidence: new_confidence,
-          sample_count: new_sample_count,
-          successes: new_successes,
-          total_duration_ms: new_duration
+
+        updated = %{
+          current
+          | score: Float.round(new_score, 3),
+            confidence: new_confidence,
+            sample_count: new_sample_count,
+            successes: new_successes,
+            total_duration_ms: new_duration
         }
-        
+
         Map.put(acc, key, updated)
       else
         acc
@@ -422,78 +430,81 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
 
   defp update_pattern_stats(stats, events) do
     Enum.reduce(events, stats, fn event, acc ->
-      current = Map.get(acc, event.pattern_name, %{
-        pattern_name: event.pattern_name,
-        total_executions: 0,
-        successes: 0,
-        failures: 0,
-        partial: 0,
-        total_duration_ms: 0,
-        avg_duration_ms: 0,
-        last_execution: nil
-      })
-      
-      {successes, failures, partial} = case event.outcome do
-        :success -> {current.successes + 1, current.failures, current.partial}
-        :failure -> {current.successes, current.failures + 1, current.partial}
-        :partial -> {current.successes, current.failures, current.partial + 1}
-      end
-      
+      current =
+        Map.get(acc, event.pattern_name, %{
+          pattern_name: event.pattern_name,
+          total_executions: 0,
+          successes: 0,
+          failures: 0,
+          partial: 0,
+          total_duration_ms: 0,
+          avg_duration_ms: 0,
+          last_execution: nil
+        })
+
+      {successes, failures, partial} =
+        case event.outcome do
+          :success -> {current.successes + 1, current.failures, current.partial}
+          :failure -> {current.successes, current.failures + 1, current.partial}
+          :partial -> {current.successes, current.failures, current.partial + 1}
+        end
+
       total = current.total_executions + 1
       total_duration = current.total_duration_ms + event.duration_ms
       avg_duration = div(total_duration, total)
-      
-      updated = %{current |
-        total_executions: total,
-        successes: successes,
-        failures: failures,
-        partial: partial,
-        total_duration_ms: total_duration,
-        avg_duration_ms: avg_duration,
-        last_execution: event.timestamp
+
+      updated = %{
+        current
+        | total_executions: total,
+          successes: successes,
+          failures: failures,
+          partial: partial,
+          total_duration_ms: total_duration,
+          avg_duration_ms: avg_duration,
+          last_execution: event.timestamp
       }
-      
+
       Map.put(acc, event.pattern_name, updated)
     end)
   end
 
   defp update_failure_hotspots(hotspots, events) do
     # Extract step failures from events
-    step_failures = events
-    |> Enum.flat_map(fn event ->
-      event.step_outcomes
-      |> Enum.filter(fn so -> not so.success end)
-      |> Enum.map(fn so ->
-        %{
-          pattern_name: event.pattern_name,
-          step_name: so.step_name,
-          tool: so.tool,
-          error: so.error
-        }
+    step_failures =
+      events
+      |> Enum.flat_map(fn event ->
+        event.step_outcomes
+        |> Enum.filter(fn so -> not so.success end)
+        |> Enum.map(fn so ->
+          %{
+            pattern_name: event.pattern_name,
+            step_name: so.step_name,
+            tool: so.tool,
+            error: so.error
+          }
+        end)
       end)
-    end)
-    
+
     # Aggregate failures by step
     Enum.reduce(step_failures, hotspots, fn failure, acc ->
       key = {failure.pattern_name, failure.step_name}
-      
-      current = Map.get(acc, key, %{
-        pattern_name: failure.pattern_name,
-        step_name: failure.step_name,
-        tool: failure.tool,
-        failure_count: 0,
-        error_samples: []
-      })
-      
+
+      current =
+        Map.get(acc, key, %{
+          pattern_name: failure.pattern_name,
+          step_name: failure.step_name,
+          tool: failure.tool,
+          failure_count: 0,
+          error_samples: []
+        })
+
       # Keep last 5 error samples
-      error_samples = [failure.error | Enum.take(current.error_samples, 4)]
-      |> Enum.filter(& &1)
-      
-      updated = %{current |
-        failure_count: current.failure_count + 1,
-        error_samples: error_samples
-      }
-      
+      error_samples =
+        [failure.error | Enum.take(current.error_samples, 4)]
+        |> Enum.filter(& &1)
+
+      updated = %{current | failure_count: current.failure_count + 1, error_samples: error_samples}
+
       Map.put(acc, key, updated)
     end)
   end
@@ -521,9 +532,9 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
   defp notify_pattern_updates(events) do
     # Group events by pattern
     by_pattern = Enum.group_by(events, & &1.pattern_name)
-    
+
     Enum.each(by_pattern, fn {pattern_name, pattern_events} ->
-      successes = Enum.count(pattern_events, & &1.outcome == :success)
+      successes = Enum.count(pattern_events, &(&1.outcome == :success))
       total = length(pattern_events)
       success_rate = if total > 0, do: successes / total, else: 0.5
 
@@ -536,17 +547,18 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
 
   defp notify_model_updates(events) do
     # Group events by model
-    by_model = events
-    |> Enum.filter(& &1.model_id)
-    |> Enum.group_by(& &1.model_id)
-    
+    by_model =
+      events
+      |> Enum.filter(& &1.model_id)
+      |> Enum.group_by(& &1.model_id)
+
     Enum.each(by_model, fn {model_id, model_events} ->
       Enum.each(model_events, fn event ->
         metrics = %{
           success: event.outcome == :success,
           latency_ms: event.duration_ms
         }
-        
+
         ModelProfiler.record_performance(model_id, event.pattern_name, metrics)
       end)
     end)

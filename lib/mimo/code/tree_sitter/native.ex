@@ -78,4 +78,3 @@ defmodule Mimo.Code.TreeSitter.Native do
     def language_for_extension(_ext), do: nil
   end
 end
-

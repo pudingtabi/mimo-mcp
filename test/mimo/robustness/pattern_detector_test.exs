@@ -1,13 +1,13 @@
 defmodule Mimo.Robustness.PatternDetectorTest do
   @moduledoc """
   Tests for Pattern Detection Library (SPEC-070 Task A)
-  
+
   Verifies detection of red flag patterns from Dec 6 2025 incidents
   and IMPLEMENTATION_ROBUSTNESS.md patterns.
   """
-  
+
   use ExUnit.Case, async: true
-  
+
   alias Mimo.Robustness.PatternDetector
 
   describe "detect/2 for Elixir patterns" do
@@ -22,12 +22,15 @@ defmodule Mimo.Robustness.PatternDetectorTest do
         end
       end
       """
-      
+
       {:ok, patterns} = PatternDetector.detect(code, :elixir)
-      
+
       assert length(patterns) >= 1
       # Accept either pattern - both indicate the same GenServer.call risk
-      assert Enum.any?(patterns, & &1.id in [:blocking_genserver_init, :blocking_genserver_no_catch])
+      assert Enum.any?(
+               patterns,
+               &(&1.id in [:blocking_genserver_init, :blocking_genserver_no_catch])
+             )
     end
 
     test "detects GenServer.call in start_link function" do
@@ -38,11 +41,14 @@ defmodule Mimo.Robustness.PatternDetectorTest do
         GenServer.start_link(__MODULE__, result, opts)
       end
       """
-      
+
       {:ok, patterns} = PatternDetector.detect(code, :elixir)
-      
+
       # Accept either pattern - both indicate the same GenServer.call risk
-      assert Enum.any?(patterns, & &1.id in [:blocking_genserver_init, :blocking_genserver_no_catch])
+      assert Enum.any?(
+               patterns,
+               &(&1.id in [:blocking_genserver_init, :blocking_genserver_no_catch])
+             )
     end
 
     test "does NOT flag GenServer.call in regular handle_* functions" do
@@ -53,11 +59,11 @@ defmodule Mimo.Robustness.PatternDetectorTest do
         {:reply, result, state}
       end
       """
-      
+
       {:ok, patterns} = PatternDetector.detect(code, :elixir)
-      
+
       # Should not detect blocking_genserver_init (only in init/start)
-      refute Enum.any?(patterns, & &1.id == :blocking_genserver_init)
+      refute Enum.any?(patterns, &(&1.id == :blocking_genserver_init))
     end
 
     test "detects System.cmd for logic decisions" do
@@ -67,11 +73,11 @@ defmodule Mimo.Robustness.PatternDetectorTest do
         output |> String.trim() |> parse_status()
       end
       """
-      
+
       {:ok, patterns} = PatternDetector.detect(code, :elixir)
-      
+
       # Should detect system command usage for logic
-      assert Enum.any?(patterns, & &1.id in [:system_cmd_for_logic, :string_parse_command_output])
+      assert Enum.any?(patterns, &(&1.id in [:system_cmd_for_logic, :string_parse_command_output]))
     end
 
     test "green flag: Process.whereis with case guard is safe" do
@@ -83,11 +89,11 @@ defmodule Mimo.Robustness.PatternDetectorTest do
         end
       end
       """
-      
+
       {:ok, patterns} = PatternDetector.detect(code, :elixir)
-      
+
       # Should not flag Process.whereis when properly guarded
-      refute Enum.any?(patterns, & &1.id == :process_whereis_unguarded)
+      refute Enum.any?(patterns, &(&1.id == :process_whereis_unguarded))
     end
   end
 
@@ -100,21 +106,21 @@ defmodule Mimo.Robustness.PatternDetectorTest do
         return parseInt(result) > 0;
       }
       """
-      
+
       {:ok, patterns} = PatternDetector.detect(code, :javascript)
-      
+
       assert length(patterns) >= 1
-      assert Enum.any?(patterns, & &1.id == :exec_sync_bash)
+      assert Enum.any?(patterns, &(&1.id == :exec_sync_bash))
     end
 
     test "detects execSync with piped commands" do
       code = """
       const output = execSync('find . -name "*.ex" | wc -l');
       """
-      
+
       {:ok, patterns} = PatternDetector.detect(code, :javascript)
-      
-      assert Enum.any?(patterns, & &1.id == :exec_sync_pipe)
+
+      assert Enum.any?(patterns, &(&1.id == :exec_sync_pipe))
     end
 
     test "detects execSync without try/catch" do
@@ -124,13 +130,13 @@ defmodule Mimo.Robustness.PatternDetectorTest do
         return result.toString();
       }
       """
-      
+
       {:ok, patterns} = PatternDetector.detect(code, :javascript)
-      
+
       # Should flag unguarded execSync
-      assert Enum.any?(patterns, fn p -> 
-        p.id in [:exec_sync_no_try, :exec_sync_bash] 
-      end)
+      assert Enum.any?(patterns, fn p ->
+               p.id in [:exec_sync_no_try, :exec_sync_bash]
+             end)
     end
 
     test "green flag: execSync with try/catch is safer" do
@@ -144,9 +150,9 @@ defmodule Mimo.Robustness.PatternDetectorTest do
         }
       }
       """
-      
+
       {:ok, patterns} = PatternDetector.detect(code, :javascript)
-      
+
       # NOTE: Simple regex detection cannot detect try/catch context.
       # This is a known limitation - proper detection requires AST parsing.
       # For now, we accept that the pattern will be detected but it's less severe.
@@ -161,10 +167,10 @@ defmodule Mimo.Robustness.PatternDetectorTest do
         startServer();
       }
       """
-      
+
       {:ok, patterns} = PatternDetector.detect(code, :javascript)
-      
-      assert Enum.any?(patterns, & &1.id == :sync_compile_critical_path)
+
+      assert Enum.any?(patterns, &(&1.id == :sync_compile_critical_path))
     end
 
     test "green flag: async compile is fine" do
@@ -174,20 +180,20 @@ defmodule Mimo.Robustness.PatternDetectorTest do
         asyncCompile('./app'); // Detached, non-blocking
       }
       """
-      
+
       {:ok, patterns} = PatternDetector.detect(code, :javascript)
-      
-      refute Enum.any?(patterns, & &1.id == :sync_compile_critical_path)
+
+      refute Enum.any?(patterns, &(&1.id == :sync_compile_critical_path))
     end
 
     test "detects external command output parsing" do
       code = """
       const files = execSync('find . -type f').toString().split('\\n');
       """
-      
+
       {:ok, patterns} = PatternDetector.detect(code, :javascript)
-      
-      assert Enum.any?(patterns, & &1.id == :external_cmd_for_logic)
+
+      assert Enum.any?(patterns, &(&1.id == :external_cmd_for_logic))
     end
   end
 
@@ -196,7 +202,7 @@ defmodule Mimo.Robustness.PatternDetectorTest do
       code = """
       const x = execSync('bash -c "test"');
       """
-      
+
       assert PatternDetector.pattern_exists?(code, :exec_sync_bash)
     end
 
@@ -204,7 +210,7 @@ defmodule Mimo.Robustness.PatternDetectorTest do
       code = """
       const x = fs.readFileSync('file.txt');
       """
-      
+
       refute PatternDetector.pattern_exists?(code, :exec_sync_bash)
     end
   end
@@ -212,10 +218,10 @@ defmodule Mimo.Robustness.PatternDetectorTest do
   describe "list_patterns/0" do
     test "returns all known patterns" do
       patterns = PatternDetector.list_patterns()
-      
+
       assert is_list(patterns)
       assert length(patterns) > 0
-      
+
       # Check some known patterns exist
       pattern_ids = Enum.map(patterns, fn {id, _desc} -> id end)
       assert :exec_sync_bash in pattern_ids
@@ -226,28 +232,28 @@ defmodule Mimo.Robustness.PatternDetectorTest do
   describe "get_patterns_for_language/1" do
     test "returns elixir patterns" do
       patterns = PatternDetector.get_patterns_for_language(:elixir)
-      
+
       assert is_list(patterns)
-      assert Enum.any?(patterns, & &1.id == :blocking_genserver_init)
+      assert Enum.any?(patterns, &(&1.id == :blocking_genserver_init))
     end
 
     test "returns javascript patterns" do
       patterns = PatternDetector.get_patterns_for_language(:javascript)
-      
+
       assert is_list(patterns)
-      assert Enum.any?(patterns, & &1.id == :exec_sync_bash)
+      assert Enum.any?(patterns, &(&1.id == :exec_sync_bash))
     end
 
     test "typescript uses javascript patterns" do
       js_patterns = PatternDetector.get_patterns_for_language(:javascript)
       ts_patterns = PatternDetector.get_patterns_for_language(:typescript)
-      
+
       assert js_patterns == ts_patterns
     end
 
     test "unknown language returns empty list" do
       patterns = PatternDetector.get_patterns_for_language(:python)
-      
+
       assert patterns == []
     end
   end

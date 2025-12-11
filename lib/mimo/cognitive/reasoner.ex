@@ -90,7 +90,7 @@ defmodule Mimo.Cognitive.Reasoner do
     else
       # Check if we're in a fallback from MetaTaskHandler (prevent recursive loop)
       skip_meta_handler = Keyword.get(opts, :skip_meta_handler, false)
-      
+
       # SPEC-062: Check for meta-task FIRST
       {enhanced_problem, meta_task_info} = detect_and_enhance_meta_task(problem)
 
@@ -124,88 +124,87 @@ defmodule Mimo.Cognitive.Reasoner do
     end
   end
 
-
   # Standard guided reasoning logic (extracted for SPEC-063 fallback)
   defp do_guided_reasoning(enhanced_problem, meta_task_info, opts) do
-      # Step 1: Search memory for similar past problems (async with timeout)
-      similar_problems = search_similar_problems(enhanced_problem)
+    # Step 1: Search memory for similar past problems (async with timeout)
+    similar_problems = search_similar_problems(enhanced_problem)
 
-      # Step 2: Assess initial confidence (async with timeout to avoid hanging)
-      uncertainty = assess_with_timeout(enhanced_problem)
+    # Step 2: Assess initial confidence (async with timeout to avoid hanging)
+    uncertainty = assess_with_timeout(enhanced_problem)
 
-      # Step 3: Detect knowledge gaps
-      gaps = GapDetector.analyze_uncertainty(uncertainty)
+    # Step 3: Detect knowledge gaps
+    gaps = GapDetector.analyze_uncertainty(uncertainty)
 
-      # Step 4: If gaps are critical, note for auto-research
-      research_needed = gaps.severity in [:critical, :moderate]
+    # Step 4: If gaps are critical, note for auto-research
+    research_needed = gaps.severity in [:critical, :moderate]
 
-      # Step 5: Select strategy based on problem characteristics
-      requested_strategy = Keyword.get(opts, :strategy, :auto)
+    # Step 5: Select strategy based on problem characteristics
+    requested_strategy = Keyword.get(opts, :strategy, :auto)
 
-      {analysis, strategy, strategy_reason} =
-        if requested_strategy == :auto do
-          ProblemAnalyzer.analyze_and_recommend(enhanced_problem)
-        else
-          {ProblemAnalyzer.analyze(enhanced_problem), requested_strategy, "Explicitly requested"}
-        end
-
-      # Step 6: Generate initial decomposition
-      decomposition = ProblemAnalyzer.decompose(enhanced_problem)
-
-      # Step 7: Create session with meta-task context
-      session =
-        ReasoningSession.create(enhanced_problem, strategy,
-          decomposition: decomposition,
-          similar_problems: similar_problems,
-          meta_task: meta_task_info
-        )
-
-      # Step 8: Generate initial guidance (enhanced for meta-tasks)
-      guidance = generate_initial_guidance(strategy, decomposition, uncertainty, similar_problems)
-
-      # SPEC-062: Add meta-task specific guidance if detected
-      enhanced_guidance =
-        if meta_task_info do
-          guidance <>
-            "\n\n⚠️ META-TASK DETECTED: " <>
-            meta_task_info.instruction <>
-            if(meta_task_info.example, do: "\nExample: #{meta_task_info.example}", else: "")
-        else
-          guidance
-        end
-
-      # Emit telemetry for meta-task integration
-      if meta_task_info do
-        VerificationTelemetry.emit_reasoner_meta_task(
-          session.id,
-          meta_task_info.type,
-          meta_task_info
-        )
+    {analysis, strategy, strategy_reason} =
+      if requested_strategy == :auto do
+        ProblemAnalyzer.analyze_and_recommend(enhanced_problem)
+      else
+        {ProblemAnalyzer.analyze(enhanced_problem), requested_strategy, "Explicitly requested"}
       end
 
-      {:ok,
-       %{
-         session_id: session.id,
-         strategy: strategy,
-         strategy_reason: strategy_reason,
-         problem_analysis: %{
-           complexity: analysis.complexity,
-           involves_tools: analysis.involves_tools,
-           programming_task: analysis.programming_task,
-           ambiguous: analysis.ambiguous,
-           meta_task: meta_task_info != nil,
-           meta_task_type: if(meta_task_info, do: meta_task_info.type, else: nil)
-         },
-         confidence: %{
-           level: uncertainty.confidence,
-           score: Float.round(uncertainty.score, 3),
-           gaps: gaps.gap_type,
-           research_needed: research_needed
-         },
-         similar_problems: format_similar_problems(similar_problems),
-         decomposition: decomposition,
-         guidance: enhanced_guidance
-       }}
+    # Step 6: Generate initial decomposition
+    decomposition = ProblemAnalyzer.decompose(enhanced_problem)
+
+    # Step 7: Create session with meta-task context
+    session =
+      ReasoningSession.create(enhanced_problem, strategy,
+        decomposition: decomposition,
+        similar_problems: similar_problems,
+        meta_task: meta_task_info
+      )
+
+    # Step 8: Generate initial guidance (enhanced for meta-tasks)
+    guidance = generate_initial_guidance(strategy, decomposition, uncertainty, similar_problems)
+
+    # SPEC-062: Add meta-task specific guidance if detected
+    enhanced_guidance =
+      if meta_task_info do
+        guidance <>
+          "\n\n⚠️ META-TASK DETECTED: " <>
+          meta_task_info.instruction <>
+          if(meta_task_info.example, do: "\nExample: #{meta_task_info.example}", else: "")
+      else
+        guidance
+      end
+
+    # Emit telemetry for meta-task integration
+    if meta_task_info do
+      VerificationTelemetry.emit_reasoner_meta_task(
+        session.id,
+        meta_task_info.type,
+        meta_task_info
+      )
+    end
+
+    {:ok,
+     %{
+       session_id: session.id,
+       strategy: strategy,
+       strategy_reason: strategy_reason,
+       problem_analysis: %{
+         complexity: analysis.complexity,
+         involves_tools: analysis.involves_tools,
+         programming_task: analysis.programming_task,
+         ambiguous: analysis.ambiguous,
+         meta_task: meta_task_info != nil,
+         meta_task_type: if(meta_task_info, do: meta_task_info.type, else: nil)
+       },
+       confidence: %{
+         level: uncertainty.confidence,
+         score: Float.round(uncertainty.score, 3),
+         gaps: gaps.gap_type,
+         research_needed: research_needed
+       },
+       similar_problems: format_similar_problems(similar_problems),
+       decomposition: decomposition,
+       guidance: enhanced_guidance
+     }}
   end
 
   # SPEC-062: Detect and enhance meta-tasks
@@ -213,13 +212,13 @@ defmodule Mimo.Cognitive.Reasoner do
     case MetaTaskDetector.detect(problem) do
       {:meta_task, guidance} ->
         Logger.info("[Reasoner] Meta-task detected: #{guidance.type}")
-        
+
         enhanced = """
         #{problem}
 
         ⚠️ META-TASK (#{guidance.type}): #{guidance.instruction}
         """
-        
+
         {enhanced, guidance}
 
       {:standard, _} ->
@@ -723,9 +722,11 @@ defmodule Mimo.Cognitive.Reasoner do
 
     # Build enrichment structure with sections from prepared context
     memory_context = get_in(prepared_context, [:context, :memory, :items]) || []
+
     knowledge_connections =
       (get_in(prepared_context, [:context, :knowledge, :relationships]) || []) ++
         (get_in(prepared_context, [:context, :knowledge, :nodes]) || [])
+
     code_references = get_in(prepared_context, [:context, :code, :items]) || []
     patterns = get_in(prepared_context, [:context, :patterns, :items]) || []
     formatted_context = prepared_context[:formatted_context] || ""
@@ -734,8 +735,8 @@ defmodule Mimo.Cognitive.Reasoner do
     sm_boost = Map.get(prepared_context, :small_model_boost, %{})
 
     wisdom_injected_flag =
-      (length(merged_wisdom[:failures] || []) > 0) or
-        (length(merged_wisdom[:warnings] || []) > 0) or
+      length(merged_wisdom[:failures] || []) > 0 or
+        length(merged_wisdom[:warnings] || []) > 0 or
         Map.get(sm_boost, :wisdom_injected, false)
 
     enrichment = %{
@@ -752,10 +753,11 @@ defmodule Mimo.Cognitive.Reasoner do
     }
 
     # Add small model boost metadata to enrichment
-    enrichment = Map.put(enrichment, :small_model_boost, %{
-      patterns_matched: Map.get(sm_boost, :patterns_matched, false),
-      wisdom_injected: wisdom_injected_flag
-    })
+    enrichment =
+      Map.put(enrichment, :small_model_boost, %{
+        patterns_matched: Map.get(sm_boost, :patterns_matched, false),
+        wisdom_injected: wisdom_injected_flag
+      })
 
     %{
       session_id: session.id,
@@ -1014,10 +1016,13 @@ defmodule Mimo.Cognitive.Reasoner do
       warnings: Enum.uniq_by(warnings, &(&1.message || inspect(&1))),
       patterns: Enum.uniq_by(patterns, &(&1.id || inspect(&1))),
       formatted:
-        Enum.reject([
-          prepared_wisdom[:formatted] || "",
-          injected_wisdom[:formatted] || ""
-        ], &(&1 == ""))
+        Enum.reject(
+          [
+            prepared_wisdom[:formatted] || "",
+            injected_wisdom[:formatted] || ""
+          ],
+          &(&1 == "")
+        )
         |> Enum.join("\n\n")
     }
   end

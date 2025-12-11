@@ -339,7 +339,10 @@ defmodule Mimo.QueryInterface do
           %{status: :passed, warnings: []}
 
         {:ok, warnings} when is_list(warnings) ->
-          Logger.info("[QueryInterface] ContradictionGuard found #{length(warnings)} potential conflicts")
+          Logger.info(
+            "[QueryInterface] ContradictionGuard found #{length(warnings)} potential conflicts"
+          )
+
           %{status: :warnings, warnings: warnings}
 
         {:error, reason} ->

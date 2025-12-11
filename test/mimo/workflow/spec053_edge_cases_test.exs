@@ -1,13 +1,14 @@
 defmodule Mimo.Workflow.Spec053EdgeCasesTest do
   @moduledoc """
   Edge case tests for SPEC-053: Intelligent Tool Orchestration & Auto-Chaining.
-  
+
   Tests boundary conditions, error handling, and corner cases for workflow
   components: PatternExtractor, Predictor, Executor, Clusterer, etc.
   """
   use Mimo.DataCase, async: false
 
   alias Mimo.Workflow
+
   alias Mimo.Workflow.{
     Pattern,
     PatternRegistry,
@@ -52,13 +53,14 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
         category: :context_gathering,
         steps: []
       }
-      
+
       changeset = Pattern.changeset(%Pattern{}, attrs)
       assert changeset.valid?
     end
 
     test "handles very long pattern names" do
       long_name = String.duplicate("a", 500)
+
       attrs = %{
         id: "long_#{System.unique_integer([:positive])}",
         name: long_name,
@@ -66,7 +68,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
         category: :debugging,
         steps: []
       }
-      
+
       changeset = Pattern.changeset(%Pattern{}, attrs)
       # Should either validate or reject, not crash
       assert is_struct(changeset, Ecto.Changeset)
@@ -80,7 +82,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
         category: :code_navigation,
         steps: [%{tool: "file", args: %{path: "/путь/файл.ex"}}]
       }
-      
+
       changeset = Pattern.changeset(%Pattern{}, attrs)
       assert is_struct(changeset, Ecto.Changeset)
     end
@@ -105,7 +107,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
           }
         ]
       }
-      
+
       changeset = Pattern.changeset(%Pattern{}, attrs)
       assert is_struct(changeset, Ecto.Changeset)
     end
@@ -121,7 +123,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
         bindings: nil,
         metadata: nil
       }
-      
+
       changeset = Pattern.changeset(%Pattern{}, attrs)
       assert is_struct(changeset, Ecto.Changeset)
     end
@@ -133,17 +135,19 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
 
   describe "PatternRegistry edge cases" do
     test "handles concurrent pattern saves" do
-      tasks = for i <- 1..10 do
-        Task.async(fn ->
-          pattern = %Pattern{
-            name: "concurrent_#{i}",
-            description: "Concurrent test #{i}",
-            category: :debugging,
-            steps: []
-          }
-          PatternRegistry.save_pattern(pattern)
-        end)
-      end
+      tasks =
+        for i <- 1..10 do
+          Task.async(fn ->
+            pattern = %Pattern{
+              name: "concurrent_#{i}",
+              description: "Concurrent test #{i}",
+              category: :debugging,
+              steps: []
+            }
+
+            PatternRegistry.save_pattern(pattern)
+          end)
+        end
 
       results = Task.await_many(tasks, 5000)
       assert Enum.all?(results, &match?({:ok, _}, &1))
@@ -156,7 +160,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
         category: :code_navigation,
         steps: []
       }
-      
+
       result = PatternRegistry.save_pattern(pattern)
       assert match?({:ok, _}, result) or match?({:error, _}, result)
     end
@@ -169,6 +173,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
         category: :debugging,
         steps: [%{tool: "memory", args: %{}}]
       }
+
       {:ok, _} = PatternRegistry.save_pattern(pattern1)
 
       # Update with same name
@@ -178,6 +183,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
         category: :debugging,
         steps: [%{tool: "file", args: %{}}]
       }
+
       result = PatternRegistry.save_pattern(pattern2)
       assert match?({:ok, _}, result)
     end
@@ -200,35 +206,47 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
   describe "Predictor edge cases" do
     test "handles empty task string" do
       result = Predictor.predict_workflow("", %{})
-      assert match?({:ok, _, _, _}, result) or match?({:suggest, _}, result) or match?({:manual, _}, result)
+
+      assert match?({:ok, _, _, _}, result) or match?({:suggest, _}, result) or
+               match?({:manual, _}, result)
     end
 
     test "handles very long task description" do
       long_task = String.duplicate("Fix the error in the authentication module. ", 100)
       result = Predictor.predict_workflow(long_task, %{})
-      assert match?({:ok, _, _, _}, result) or match?({:suggest, _}, result) or match?({:manual, _}, result)
+
+      assert match?({:ok, _, _, _}, result) or match?({:suggest, _}, result) or
+               match?({:manual, _}, result)
     end
 
     test "handles task with only special characters" do
       result = Predictor.predict_workflow("!@#$%^&*()", %{})
-      assert match?({:ok, _, _, _}, result) or match?({:suggest, _}, result) or match?({:manual, _}, result)
+
+      assert match?({:ok, _, _, _}, result) or match?({:suggest, _}, result) or
+               match?({:manual, _}, result)
     end
 
     test "handles task with unicode characters" do
       result = Predictor.predict_workflow("修正するバグ в коде 🐛", %{})
-      assert match?({:ok, _, _, _}, result) or match?({:suggest, _}, result) or match?({:manual, _}, result)
+
+      assert match?({:ok, _, _, _}, result) or match?({:suggest, _}, result) or
+               match?({:manual, _}, result)
     end
 
     test "handles nil context" do
       result = Predictor.predict_workflow("Fix the error", nil)
-      assert match?({:ok, _, _, _}, result) or match?({:suggest, _}, result) or match?({:manual, _}, result)
+
+      assert match?({:ok, _, _, _}, result) or match?({:suggest, _}, result) or
+               match?({:manual, _}, result)
     end
 
     test "handles context with circular references" do
       # Create map that references itself (sort of)
       context = %{a: 1, b: 2}
       result = Predictor.predict_workflow("Test task", Map.put(context, :self_ref, context))
-      assert match?({:ok, _, _, _}, result) or match?({:suggest, _}, result) or match?({:manual, _}, result)
+
+      assert match?({:ok, _, _, _}, result) or match?({:suggest, _}, result) or
+               match?({:manual, _}, result)
     end
 
     test "handles context with very large values" do
@@ -236,8 +254,11 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
         huge_string: String.duplicate("x", 100_000),
         large_list: Enum.to_list(1..1000)
       }
+
       result = Predictor.predict_workflow("Test task", large_context)
-      assert match?({:ok, _, _, _}, result) or match?({:suggest, _}, result) or match?({:manual, _}, result)
+
+      assert match?({:ok, _, _, _}, result) or match?({:suggest, _}, result) or
+               match?({:manual, _}, result)
     end
   end
 
@@ -250,7 +271,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
       context = %{
         a: %{b: %{c: %{d: %{e: %{f: "deep_value"}}}}}
       }
-      
+
       value = BindingsResolver.extract_path(context, "a.b.c.d.e.f")
       assert value == "deep_value"
     end
@@ -259,7 +280,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
       context = %{
         items: [%{name: "first"}, %{name: "second"}]
       }
-      
+
       # Depending on implementation, this might extract or return nil
       value = BindingsResolver.extract_path(context, "items.0.name")
       assert value == "first" or value == nil
@@ -278,7 +299,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
 
     test "handles path with special characters" do
       context = %{"key.with.dots" => "value", "key-with-dashes" => "other"}
-      
+
       # These might not work as expected, just ensure no crash
       value = BindingsResolver.extract_path(context, "key.with.dots")
       assert is_nil(value) or is_binary(value)
@@ -302,7 +323,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
           }
         ]
       }
-      
+
       result = BindingsResolver.resolve_step_bindings(step, %{}, nil)
       assert is_map(result)
     end
@@ -320,7 +341,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
           %{tool: "file", args: %{}}
         ]
       }
-      
+
       distance = Clusterer.pattern_distance(pattern, pattern)
       assert distance == 0.0
     end
@@ -328,7 +349,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
     test "calculates distance between completely different patterns" do
       pattern1 = %Pattern{steps: [%{tool: "a", args: %{}}]}
       pattern2 = %Pattern{steps: [%{tool: "z", args: %{}}]}
-      
+
       distance = Clusterer.pattern_distance(pattern1, pattern2)
       assert distance >= 0.0 and distance <= 1.0
     end
@@ -336,7 +357,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
     test "handles empty pattern steps" do
       pattern1 = %Pattern{steps: []}
       pattern2 = %Pattern{steps: [%{tool: "test", args: %{}}]}
-      
+
       distance = Clusterer.pattern_distance(pattern1, pattern2)
       assert is_float(distance)
     end
@@ -344,14 +365,15 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
     test "handles nil pattern steps" do
       pattern1 = %Pattern{steps: nil}
       pattern2 = %Pattern{steps: []}
-      
+
       # Should handle gracefully
-      result = try do
-        Clusterer.pattern_distance(pattern1, pattern2)
-      rescue
-        _ -> :error
-      end
-      
+      result =
+        try do
+          Clusterer.pattern_distance(pattern1, pattern2)
+        rescue
+          _ -> :error
+        end
+
       assert result == :error or is_float(result)
     end
 
@@ -365,7 +387,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
         name: "single",
         steps: [%{tool: "test", args: %{}}]
       }
-      
+
       {:ok, clusters} = Clusterer.cluster_patterns([pattern])
       assert is_list(clusters)
     end
@@ -373,7 +395,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
     test "finds similar with very high threshold" do
       patterns = PatternRegistry.list_patterns()
       test_steps = [%{tool: "impossible_tool", args: %{}}]
-      
+
       result = Clusterer.find_similar_pattern(test_steps, patterns, 0.99)
       # API returns :no_match or {:ok, pattern, distance}
       assert result == :no_match or match?({:ok, _, _}, result)
@@ -382,7 +404,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
     test "finds similar with zero threshold" do
       patterns = PatternRegistry.list_patterns()
       test_steps = [%{tool: "memory", args: %{}}]
-      
+
       result = Clusterer.find_similar_pattern(test_steps, patterns, 0.0)
       # :no_match if patterns is empty or threshold is too strict
       assert result == :no_match or match?({:ok, _, _}, result)
@@ -400,7 +422,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
         steps: [%{tool: "test", args: %{}}],
         bindings: []
       }
-      
+
       procedure = Executor.pattern_to_procedure(pattern, %{})
       assert Map.has_key?(procedure, "states")
     end
@@ -417,7 +439,7 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
           %{name: "file_path", source: "step_0.result.data.path", required: false}
         ]
       }
-      
+
       procedure = Executor.pattern_to_procedure(pattern, %{query: "test"})
       assert Map.has_key?(procedure, "states")
     end
@@ -446,14 +468,15 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
         result: nil,
         duration_ms: nil
       }
-      
+
       # Should handle gracefully
-      result = try do
-        ToolLog.log(entry)
-      rescue
-        _ -> :error
-      end
-      
+      result =
+        try do
+          ToolLog.log(entry)
+        rescue
+          _ -> :error
+        end
+
       assert match?({:ok, _}, result) or match?({:error, _}, result) or result == :error
     end
 
@@ -464,13 +487,14 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
         result: %{data: String.duplicate("x", 1_000_000)},
         duration_ms: 100
       }
-      
-      result = try do
-        ToolLog.log(entry)
-      rescue
-        _ -> :error
-      end
-      
+
+      result =
+        try do
+          ToolLog.log(entry)
+        rescue
+          _ -> :error
+        end
+
       assert match?({:ok, _}, result) or match?({:error, _}, result) or result == :error
     end
   end
@@ -518,10 +542,11 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
     end
 
     test "extracts from very long tool sequence" do
-      log = for i <- 1..100 do
-        %{tool: "tool_#{rem(i, 5)}", args: %{i: i}, duration_ms: 50}
-      end
-      
+      log =
+        for i <- 1..100 do
+          %{tool: "tool_#{rem(i, 5)}", args: %{i: i}, duration_ms: 50}
+        end
+
       result = PatternExtractor.extract_from_tool_log(log)
       assert match?({:ok, _}, result) or match?({:error, _}, result) or is_list(result)
     end

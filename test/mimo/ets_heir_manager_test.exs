@@ -13,6 +13,7 @@ defmodule Mimo.EtsHeirManagerTest do
     case Process.whereis(EtsHeirManager) do
       nil ->
         {:ok, _pid} = EtsHeirManager.start_link([])
+
       _pid ->
         :ok
     end
@@ -28,11 +29,12 @@ defmodule Mimo.EtsHeirManagerTest do
 
   describe "create_table/3" do
     test "creates ETS table with heir" do
-      table = EtsHeirManager.create_table(
-        @test_table,
-        [:named_table, :set, :public],
-        self()
-      )
+      table =
+        EtsHeirManager.create_table(
+          @test_table,
+          [:named_table, :set, :public],
+          self()
+        )
 
       assert :ets.whereis(@test_table) != :undefined
       assert table == @test_table
@@ -63,20 +65,22 @@ defmodule Mimo.EtsHeirManagerTest do
       # Spawn a process that creates the table then dies
       parent = self()
 
-      owner = spawn(fn ->
-        EtsHeirManager.create_table(
-          @test_table,
-          [:named_table, :set, :public],
-          self()
-        )
-        :ets.insert(@test_table, {:data, "important"})
-        send(parent, :table_created)
+      owner =
+        spawn(fn ->
+          EtsHeirManager.create_table(
+            @test_table,
+            [:named_table, :set, :public],
+            self()
+          )
 
-        # Wait for signal to die
-        receive do
-          :die -> :ok
-        end
-      end)
+          :ets.insert(@test_table, {:data, "important"})
+          send(parent, :table_created)
+
+          # Wait for signal to die
+          receive do
+            :die -> :ok
+          end
+        end)
 
       # Wait for table creation
       assert_receive :table_created, 1000
@@ -106,37 +110,40 @@ defmodule Mimo.EtsHeirManagerTest do
       parent = self()
 
       # First owner creates table and dies
-      owner1 = spawn(fn ->
-        EtsHeirManager.create_table(
-          @test_table,
-          [:named_table, :set, :public],
-          self()
-        )
-        :ets.insert(@test_table, {:session_id, "abc123"})
-        :ets.insert(@test_table, {:user_data, %{name: "test"}})
-        send(parent, :created)
+      owner1 =
+        spawn(fn ->
+          EtsHeirManager.create_table(
+            @test_table,
+            [:named_table, :set, :public],
+            self()
+          )
 
-        receive do
-          :die -> :ok
-        end
-      end)
+          :ets.insert(@test_table, {:session_id, "abc123"})
+          :ets.insert(@test_table, {:user_data, %{name: "test"}})
+          send(parent, :created)
+
+          receive do
+            :die -> :ok
+          end
+        end)
 
       assert_receive :created, 1000
       send(owner1, :die)
       Process.sleep(100)
 
       # Second owner reclaims the table
-      new_owner = spawn(fn ->
-        case EtsHeirManager.reclaim_table(@test_table, self()) do
-          {:ok, table} ->
-            send(parent, {:reclaimed, table})
-            # Keep alive for a bit
-            Process.sleep(500)
+      new_owner =
+        spawn(fn ->
+          case EtsHeirManager.reclaim_table(@test_table, self()) do
+            {:ok, table} ->
+              send(parent, {:reclaimed, table})
+              # Keep alive for a bit
+              Process.sleep(500)
 
-          :not_found ->
-            send(parent, :not_found)
-        end
-      end)
+            :not_found ->
+              send(parent, :not_found)
+          end
+        end)
 
       assert_receive {:reclaimed, _table}, 1000
 

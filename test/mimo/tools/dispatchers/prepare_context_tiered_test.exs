@@ -42,10 +42,10 @@ defmodule Mimo.Tools.Dispatchers.PrepareContextTieredTest do
 
       # Should have flat structure (no tiered context with tier1/tier2/tier3)
       # tiered key may be present but false, or response may have flat format
-      refute Map.has_key?(result, :context) and 
-             is_map(result.context) and 
-             Map.has_key?(result.context, :tier1) and
-             Map.has_key?(result.context, :tier2)
+      refute Map.has_key?(result, :context) and
+               is_map(result.context) and
+               Map.has_key?(result.context, :tier1) and
+               Map.has_key?(result.context, :tier2)
     end
 
     test "tier3 is metadata-only by default" do
@@ -62,7 +62,8 @@ defmodule Mimo.Tools.Dispatchers.PrepareContextTieredTest do
 
       # When include_tier3 is false, tier3 contains metadata
       if is_map(tier3) and not is_list(tier3) do
-        assert Map.has_key?(tier3, :available) or Map.has_key?(tier3, :items_count) or Map.has_key?(tier3, :estimated_tokens)
+        assert Map.has_key?(tier3, :available) or Map.has_key?(tier3, :items_count) or
+                 Map.has_key?(tier3, :estimated_tokens)
       end
     end
 
@@ -184,7 +185,11 @@ defmodule Mimo.Tools.Dispatchers.PrepareContextTieredTest do
       items = [
         %{importance: 0.95, access_count: 10, last_accessed_at: NaiveDateTime.utc_now()},
         %{importance: 0.5, access_count: 1, last_accessed_at: NaiveDateTime.utc_now()},
-        %{importance: 0.1, access_count: 0, last_accessed_at: NaiveDateTime.add(NaiveDateTime.utc_now(), -30, :day)}
+        %{
+          importance: 0.1,
+          access_count: 0,
+          last_accessed_at: NaiveDateTime.add(NaiveDateTime.utc_now(), -30, :day)
+        }
       ]
 
       classified = HybridScorer.classify_items(items, nil, model_type: :medium)
@@ -201,9 +206,12 @@ defmodule Mimo.Tools.Dispatchers.PrepareContextTieredTest do
   describe "BudgetAllocator integration" do
     test "fit_to_budget respects budget limits" do
       items = [
-        %{content: String.duplicate("a", 400)},  # ~100 tokens
-        %{content: String.duplicate("b", 400)},  # ~100 tokens
-        %{content: String.duplicate("c", 400)}   # ~100 tokens
+        # ~100 tokens
+        %{content: String.duplicate("a", 400)},
+        # ~100 tokens
+        %{content: String.duplicate("b", 400)},
+        # ~100 tokens
+        %{content: String.duplicate("c", 400)}
       ]
 
       # With budget of 150, only 1 item should fit

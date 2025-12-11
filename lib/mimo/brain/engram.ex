@@ -187,7 +187,14 @@ defmodule Mimo.Brain.Engram do
     |> validate_number(:importance, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
     |> validate_number(:decay_rate, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
     |> validate_inclusion(:supersession_type, ["update", "correction", "refinement", "merge", nil])
-    |> validate_inclusion(:validity_source, ["explicit", "inferred", "superseded", "corrected", "expired", nil])
+    |> validate_inclusion(:validity_source, [
+      "explicit",
+      "inferred",
+      "superseded",
+      "corrected",
+      "expired",
+      nil
+    ])
     |> validate_no_self_supersession()
     |> set_original_importance()
     |> set_decay_rate_from_importance()

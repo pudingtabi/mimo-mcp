@@ -1,7 +1,7 @@
 defmodule Mimo.NeuroSymbolic.Spec052EdgeCasesTest do
   @moduledoc """
   Edge case tests for SPEC-052: Enhanced Knowledge Graph with Neuro-Symbolic Reasoning.
-  
+
   These tests verify boundary conditions, error handling, and corner cases
   not covered by the primary test suites.
   """
@@ -15,6 +15,7 @@ defmodule Mimo.NeuroSymbolic.Spec052EdgeCasesTest do
     GnnPredictor,
     Rule
   }
+
   alias Mimo.SemanticStore.Repository
   alias Mimo.Repo
 
@@ -57,7 +58,7 @@ defmodule Mimo.NeuroSymbolic.Spec052EdgeCasesTest do
 
     test "handles very long predicate names" do
       long_name = String.duplicate("a", 500)
-      
+
       for i <- 1..5 do
         Repository.store_triple("e_#{i}", long_name, "o_#{i}")
       end
@@ -77,7 +78,7 @@ defmodule Mimo.NeuroSymbolic.Spec052EdgeCasesTest do
 
     test "handles unicode predicate names" do
       unicode_pred = "関係_🔗_связь"
-      
+
       for i <- 1..5 do
         Repository.store_triple("u_#{i}", unicode_pred, "t_#{i}")
       end
@@ -97,14 +98,26 @@ defmodule Mimo.NeuroSymbolic.Spec052EdgeCasesTest do
 
     test "handles duplicate candidate IDs gracefully" do
       dup_id = Ecto.UUID.generate()
-      
+
       for i <- 1..10 do
         Repository.store_triple("dup_#{i}", "dup_pred", "dup_obj_#{i}")
       end
 
       candidates = [
-        %{id: dup_id, premise: [%{predicate: "dup_pred"}], conclusion: %{predicate: "dup_pred"}, confidence: 0.8, source: "test"},
-        %{id: dup_id, premise: [%{predicate: "dup_pred"}], conclusion: %{predicate: "dup_pred"}, confidence: 0.9, source: "test"}
+        %{
+          id: dup_id,
+          premise: [%{predicate: "dup_pred"}],
+          conclusion: %{predicate: "dup_pred"},
+          confidence: 0.8,
+          source: "test"
+        },
+        %{
+          id: dup_id,
+          premise: [%{predicate: "dup_pred"}],
+          conclusion: %{predicate: "dup_pred"},
+          confidence: 0.9,
+          source: "test"
+        }
       ]
 
       result = RuleGenerator.validate_and_persist(candidates, persist_validated: true)
@@ -139,7 +152,8 @@ defmodule Mimo.NeuroSymbolic.Spec052EdgeCasesTest do
         premise: [%{predicate: "over_conf"}],
         conclusion: %{predicate: "over_conf"},
         logical_form: %{},
-        confidence: 1.5,  # Should be clamped or rejected
+        # Should be clamped or rejected
+        confidence: 1.5,
         source: "test"
       }
 
@@ -248,15 +262,16 @@ defmodule Mimo.NeuroSymbolic.Spec052EdgeCasesTest do
     test "handles min_confidence at boundary values" do
       {:ok, links_0} = CrossModalityLinker.infer_links(:code_symbol, "Test", min_confidence: 0.0)
       {:ok, links_1} = CrossModalityLinker.infer_links(:code_symbol, "Test", min_confidence: 1.0)
-      
+
       assert is_list(links_0)
       assert is_list(links_1)
     end
 
     test "link_all handles massive batch" do
-      pairs = Enum.map(1..100, fn i -> 
-        {:code_symbol, "Symbol_#{i}"} 
-      end)
+      pairs =
+        Enum.map(1..100, fn i ->
+          {:code_symbol, "Symbol_#{i}"}
+        end)
 
       result = CrossModalityLinker.link_all(pairs)
       assert match?({:ok, _}, result)
@@ -283,7 +298,7 @@ defmodule Mimo.NeuroSymbolic.Spec052EdgeCasesTest do
     test "explains triple with missing optional fields" do
       triple = %{subject_id: "s", predicate: "p", object_id: "o"}
       explanation = ExplanationEngine.explain(triple)
-      
+
       assert Map.has_key?(explanation, :inference_path)
       assert Map.has_key?(explanation, :confidence_breakdown)
     end
@@ -291,15 +306,15 @@ defmodule Mimo.NeuroSymbolic.Spec052EdgeCasesTest do
     test "explains triple with all confidence fields" do
       triple = %{
         subject_id: "s",
-        predicate: "p", 
+        predicate: "p",
         object_id: "o",
         confidence: 0.95,
         rule_confidence: 0.90
       }
-      
+
       explanation = ExplanationEngine.explain(triple)
       breakdown = explanation.confidence_breakdown
-      
+
       assert breakdown.evidence_strength == 0.95
       assert breakdown.rule_confidence == 0.90
     end
@@ -312,7 +327,7 @@ defmodule Mimo.NeuroSymbolic.Spec052EdgeCasesTest do
         confidence: nil,
         rule_confidence: nil
       }
-      
+
       explanation = ExplanationEngine.explain(triple)
       assert is_map(explanation.confidence_breakdown)
     end
@@ -363,7 +378,7 @@ defmodule Mimo.NeuroSymbolic.Spec052EdgeCasesTest do
   describe "cross-module integration edge cases" do
     test "rule creation followed by inference with same predicate" do
       unique_pred = "int_test_#{System.unique_integer([:positive])}"
-      
+
       # Create triples
       Repository.store_triple("a", unique_pred, "b", confidence: 1.0)
       Repository.store_triple("b", unique_pred, "c", confidence: 1.0)
@@ -379,7 +394,7 @@ defmodule Mimo.NeuroSymbolic.Spec052EdgeCasesTest do
       }
 
       {:ok, result} = RuleGenerator.validate_and_persist([candidate], persist_validated: true)
-      
+
       # Validate persisted rule exists
       if length(result.persisted) > 0 do
         rule = hd(result.persisted)
@@ -390,7 +405,7 @@ defmodule Mimo.NeuroSymbolic.Spec052EdgeCasesTest do
     test "cross-modality linking after rule creation" do
       # Create a rule, then link it
       unique_pred = "cross_mod_#{System.unique_integer([:positive])}"
-      
+
       for i <- 1..5 do
         Repository.store_triple("cm_#{i}", unique_pred, "cm_obj_#{i}")
       end

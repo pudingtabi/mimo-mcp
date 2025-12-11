@@ -59,9 +59,10 @@ defmodule Mimo.Autonomous.CircuitBreakerTest do
 
   describe "record_success/1" do
     test "resets consecutive failures in closed state" do
-      circuit = CircuitBreaker.new()
-      |> CircuitBreaker.record_failure(:error)
-      |> CircuitBreaker.record_success()
+      circuit =
+        CircuitBreaker.new()
+        |> CircuitBreaker.record_failure(:error)
+        |> CircuitBreaker.record_success()
 
       assert circuit.consecutive_failures == 0
       assert circuit.state == :closed
@@ -91,8 +92,9 @@ defmodule Mimo.Autonomous.CircuitBreakerTest do
 
   describe "record_failure/2" do
     test "increments consecutive failures" do
-      circuit = CircuitBreaker.new()
-      |> CircuitBreaker.record_failure(:error)
+      circuit =
+        CircuitBreaker.new()
+        |> CircuitBreaker.record_failure(:error)
 
       assert circuit.consecutive_failures == 1
       assert circuit.state == :closed
@@ -134,10 +136,11 @@ defmodule Mimo.Autonomous.CircuitBreakerTest do
 
   describe "reset/1" do
     test "forces circuit to closed state" do
-      circuit = CircuitBreaker.new()
-      |> CircuitBreaker.record_failure(:error1)
-      |> CircuitBreaker.record_failure(:error2)
-      |> CircuitBreaker.record_failure(:error3)
+      circuit =
+        CircuitBreaker.new()
+        |> CircuitBreaker.record_failure(:error1)
+        |> CircuitBreaker.record_failure(:error2)
+        |> CircuitBreaker.record_failure(:error3)
 
       assert circuit.state == :open
 
@@ -161,10 +164,11 @@ defmodule Mimo.Autonomous.CircuitBreakerTest do
     end
 
     test "includes remaining cooldown for open circuit" do
-      circuit = CircuitBreaker.new(cooldown_ms: 60_000)
-      |> CircuitBreaker.record_failure(:error1)
-      |> CircuitBreaker.record_failure(:error2)
-      |> CircuitBreaker.record_failure(:error3)
+      circuit =
+        CircuitBreaker.new(cooldown_ms: 60_000)
+        |> CircuitBreaker.record_failure(:error1)
+        |> CircuitBreaker.record_failure(:error2)
+        |> CircuitBreaker.record_failure(:error3)
 
       status = CircuitBreaker.status(circuit)
 

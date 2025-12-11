@@ -62,9 +62,9 @@ defmodule Mimo.Synapse.Linker do
     # Create file node
     file_node =
       case Graph.find_or_create_node(:file, file_path, %{
-        language: detect_language(file_path),
-        indexed_at: DateTime.utc_now() |> DateTime.to_iso8601()
-      }) do
+             language: detect_language(file_path),
+             indexed_at: DateTime.utc_now() |> DateTime.to_iso8601()
+           }) do
         {:ok, node} -> node
         {:error, _} -> nil
       end
@@ -72,68 +72,67 @@ defmodule Mimo.Synapse.Linker do
     if file_node == nil do
       {:error, "Failed to create file node"}
     else
+      # Create nodes for each symbol
+      symbol_nodes =
+        symbols
+        |> Enum.map(fn symbol ->
+          node_type = symbol_kind_to_node_type(symbol.kind)
+          name = symbol.qualified_name || symbol.name
 
-    # Create nodes for each symbol
-    symbol_nodes =
-      symbols
-      |> Enum.map(fn symbol ->
-        node_type = symbol_kind_to_node_type(symbol.kind)
-        name = symbol.qualified_name || symbol.name
+          node =
+            case Graph.find_or_create_node(node_type, name, %{
+                   language: symbol.language,
+                   visibility: symbol.visibility || "public",
+                   file_path: file_path,
+                   start_line: symbol.start_line,
+                   end_line: symbol.end_line,
+                   signature: symbol.signature,
+                   doc: symbol.doc
+                 }) do
+              {:ok, n} -> n
+              {:error, _} -> nil
+            end
 
-        node =
-          case Graph.find_or_create_node(node_type, name, %{
-            language: symbol.language,
-            visibility: symbol.visibility || "public",
-            file_path: file_path,
-            start_line: symbol.start_line,
-            end_line: symbol.end_line,
-            signature: symbol.signature,
-            doc: symbol.doc
-          }) do
-            {:ok, n} -> n
-            {:error, _} -> nil
+          # Link file -> symbol (defines)
+          Graph.ensure_edge(file_node.id, node.id, :defines, %{source: "static_analysis"})
+
+          {symbol.name, node}
+        end)
+        |> Map.new()
+
+      # Create edges for references (calls, imports)
+      refs_linked =
+        references
+        |> Enum.map(fn ref ->
+          # Handle both struct and map access for reference name
+          # SymbolReference uses :name, TreeSitter output uses :name as well
+          ref_name = get_ref_field(ref, :name) || get_ref_field(ref, :source_name)
+          source_node = Map.get(symbol_nodes, ref_name)
+          target_node = find_or_create_ref_target(ref, symbol_nodes)
+
+          if source_node && target_node do
+            ref_kind = get_ref_field(ref, :kind) || "call"
+            ref_line = get_ref_field(ref, :line) || 0
+            edge_type = reference_kind_to_edge_type(ref_kind)
+
+            Graph.ensure_edge(source_node.id, target_node.id, edge_type, %{
+              source: "static_analysis",
+              line: ref_line
+            })
+
+            1
+          else
+            0
           end
+        end)
+        |> Enum.sum()
 
-        # Link file -> symbol (defines)
-        Graph.ensure_edge(file_node.id, node.id, :defines, %{source: "static_analysis"})
-
-        {symbol.name, node}
-      end)
-      |> Map.new()
-
-    # Create edges for references (calls, imports)
-    refs_linked =
-      references
-      |> Enum.map(fn ref ->
-        # Handle both struct and map access for reference name
-        # SymbolReference uses :name, TreeSitter output uses :name as well
-        ref_name = get_ref_field(ref, :name) || get_ref_field(ref, :source_name)
-        source_node = Map.get(symbol_nodes, ref_name)
-        target_node = find_or_create_ref_target(ref, symbol_nodes)
-
-        if source_node && target_node do
-          ref_kind = get_ref_field(ref, :kind) || "call"
-          ref_line = get_ref_field(ref, :line) || 0
-          edge_type = reference_kind_to_edge_type(ref_kind)
-
-          Graph.ensure_edge(source_node.id, target_node.id, edge_type, %{
-            source: "static_analysis",
-            line: ref_line
-          })
-
-          1
-        else
-          0
-        end
-      end)
-      |> Enum.sum()
-
-    {:ok,
-     %{
-       file_node: file_node,
-       symbols_linked: map_size(symbol_nodes),
-       refs_linked: refs_linked
-     }}
+      {:ok,
+       %{
+         file_node: file_node,
+         symbols_linked: map_size(symbol_nodes),
+         refs_linked: refs_linked
+       }}
     end
   rescue
     e ->
@@ -205,12 +204,12 @@ defmodule Mimo.Synapse.Linker do
       {:ok, engram} ->
         # Create memory node
         case Graph.find_or_create_node(:memory, "engram_#{engram_id}", %{
-          content_preview: String.slice(engram.content || "", 0, 200),
-          category: engram.category,
-          importance: engram.importance,
-          source_ref_type: "engram",
-          source_ref_id: to_string(engram_id)
-        }) do
+               content_preview: String.slice(engram.content || "", 0, 200),
+               category: engram.category,
+               importance: engram.importance,
+               source_ref_type: "engram",
+               source_ref_id: to_string(engram_id)
+             }) do
           {:ok, memory_node} ->
             edges_created =
               if engram.embedding && length(engram.embedding) > 0 do

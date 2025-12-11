@@ -284,7 +284,8 @@ defmodule Mimo.Brain.ErrorPredictor do
               id: String.to_atom("pattern_#{p.id}"),
               severity: :medium,
               message: "Pattern warning: #{p.description}",
-              suggestion: "This pattern has #{Float.round((p.success_rate || 0) * 100, 1)}% success rate"
+              suggestion:
+                "This pattern has #{Float.round((p.success_rate || 0) * 100, 1)}% success rate"
             }
           end)
 

@@ -1,24 +1,24 @@
 defmodule Mimo.Synapse.LinkerOptimized do
   @moduledoc """
   Optimized version of Synapse.Linker using Discord-inspired patterns:
-  
+
   1. **ETS-backed caching** via GraphCache for fast lookups and batch SQLite writes
   2. **Parallel file processing** using Task.async_stream
   3. **Batch database operations** reducing 55K+ individual ops to ~100 batch inserts
-  
+
   This module provides drop-in replacements for Linker.link_directory/2 and 
   Linker.link_code_file/1 with 50x+ performance improvement.
-  
+
   ## Performance Comparison
-  
+
   | Operation | Original Linker | LinkerOptimized |
   |-----------|-----------------|-----------------|
   | 331 files | ~6 minutes | ~7 seconds |
   | SQLite ops | 55,000+ | ~110 batch |
   | Memory | Sequential | Parallel + ETS |
-  
+
   ## Usage
-  
+
       # Use instead of Linker.link_directory/2
       {:ok, stats} = LinkerOptimized.link_directory("/project/lib")
   """
@@ -27,7 +27,8 @@ defmodule Mimo.Synapse.LinkerOptimized do
   alias Mimo.Synapse.GraphCache
 
   @max_concurrency System.schedulers_online() * 2
-  @flush_interval 50  # Flush every N files
+  # Flush every N files
+  @flush_interval 50
 
   # ============================================
   # Optimized Directory Linking
@@ -35,11 +36,11 @@ defmodule Mimo.Synapse.LinkerOptimized do
 
   @doc """
   Link all code files in a directory using parallel processing and batch operations.
-  
+
   50x faster than Linker.link_directory/2 for large codebases.
-  
+
   ## Options
-  
+
     - `:recursive` - Recurse into subdirectories (default: true)
     - `:extensions` - File extensions to include (default: common code files)
     - `:max_concurrency` - Max parallel file processors (default: schedulers * 2)
@@ -83,12 +84,12 @@ defmodule Mimo.Synapse.LinkerOptimized do
       |> Task.async_stream(
         fn {file, idx} ->
           result = link_code_file_cached(file)
-          
+
           # Periodic flush every N files (spreads write load)
           if rem(idx + 1, @flush_interval) == 0 do
             GraphCache.flush()
           end
-          
+
           result
         end,
         max_concurrency: max_concurrency,
@@ -96,10 +97,12 @@ defmodule Mimo.Synapse.LinkerOptimized do
         ordered: false
       )
       |> Enum.reduce({[], 0}, fn
-        {:ok, {:ok, stats}}, {results, count} -> 
+        {:ok, {:ok, stats}}, {results, count} ->
           {[{:ok, stats} | results], count + 1}
-        {:ok, {:error, _} = err}, {results, count} -> 
+
+        {:ok, {:error, _} = err}, {results, count} ->
           {[err | results], count + 1}
+
         {:exit, reason}, {results, count} ->
           Logger.warning("[LinkerOptimized] Task exited: #{inspect(reason)}")
           {[{:error, :task_exit} | results], count + 1}
@@ -143,7 +146,7 @@ defmodule Mimo.Synapse.LinkerOptimized do
 
   @doc """
   Link a single code file using GraphCache for fast lookups.
-  
+
   Instead of individual SQLite operations, stages nodes and edges in ETS
   for batch insertion via GraphCache.flush/0.
   """
@@ -161,10 +164,11 @@ defmodule Mimo.Synapse.LinkerOptimized do
     references = get_code_references(file_path)
 
     # Stage file node (ETS lookup, not SQLite)
-    file_node_id = GraphCache.stage_node(:file, file_path, %{
-      language: detect_language(file_path),
-      indexed_at: DateTime.utc_now() |> DateTime.to_iso8601()
-    })
+    file_node_id =
+      GraphCache.stage_node(:file, file_path, %{
+        language: detect_language(file_path),
+        indexed_at: DateTime.utc_now() |> DateTime.to_iso8601()
+      })
 
     # Stage nodes for each symbol
     symbol_nodes =
@@ -173,15 +177,16 @@ defmodule Mimo.Synapse.LinkerOptimized do
         node_type = symbol_kind_to_node_type(symbol.kind)
         name = symbol.qualified_name || symbol.name
 
-        node_id = GraphCache.stage_node(node_type, name, %{
-          language: symbol.language,
-          visibility: symbol.visibility || "public",
-          file_path: file_path,
-          start_line: symbol.start_line,
-          end_line: symbol.end_line,
-          signature: symbol.signature,
-          doc: symbol.doc
-        })
+        node_id =
+          GraphCache.stage_node(node_type, name, %{
+            language: symbol.language,
+            visibility: symbol.visibility || "public",
+            file_path: file_path,
+            start_line: symbol.start_line,
+            end_line: symbol.end_line,
+            signature: symbol.signature,
+            doc: symbol.doc
+          })
 
         # Stage edge: file -> symbol (defines)
         GraphCache.stage_edge(file_node_id, node_id, :defines, %{source: "static_analysis"})
@@ -197,11 +202,11 @@ defmodule Mimo.Synapse.LinkerOptimized do
         ref_name = get_ref_field(ref, :name) || get_ref_field(ref, :source_name)
         source_node_id = Map.get(symbol_nodes, ref_name)
         target_name = get_ref_field(ref, :target) || get_ref_field(ref, :target_name)
-        
+
         if source_node_id && target_name do
           # Stage target node (might already exist)
           target_node_id = stage_ref_target(ref, target_name, symbol_nodes)
-          
+
           if target_node_id do
             ref_kind = get_ref_field(ref, :kind) || "call"
             ref_line = get_ref_field(ref, :line) || 0
@@ -211,6 +216,7 @@ defmodule Mimo.Synapse.LinkerOptimized do
               source: "static_analysis",
               line: ref_line
             })
+
             1
           else
             0
@@ -240,11 +246,12 @@ defmodule Mimo.Synapse.LinkerOptimized do
       nil ->
         # External reference - stage a new node
         target_type = get_ref_field(ref, :target_type) || :function
+
         GraphCache.stage_node(target_type, target_name, %{
           source: "reference_target",
           inferred: true
         })
-      
+
       local_id ->
         local_id
     end
@@ -329,8 +336,10 @@ defmodule Mimo.Synapse.LinkerOptimized do
 
   # Handle both struct and map field access
   defp get_ref_field(ref, field) when is_struct(ref), do: Map.get(ref, field)
+
   defp get_ref_field(ref, field) when is_map(ref) do
     Map.get(ref, field) || Map.get(ref, Atom.to_string(field))
   end
+
   defp get_ref_field(_, _), do: nil
 end

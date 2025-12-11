@@ -240,6 +240,7 @@ defmodule MimoWeb.HealthController do
   defp get_cache_stats do
     if Mimo.Cache.Embedding.available?() do
       stats = Mimo.Cache.Embedding.stats()
+
       %{
         size: stats.size,
         hit_rate: stats.hit_rate
@@ -280,9 +281,11 @@ defmodule MimoWeb.HealthController do
     end)
   end
 
-  defp calculate_init_time(%{registered_at: reg, ready_at: ready}) when is_integer(reg) and is_integer(ready) do
+  defp calculate_init_time(%{registered_at: reg, ready_at: ready})
+       when is_integer(reg) and is_integer(ready) do
     ready - reg
   end
+
   defp calculate_init_time(_), do: nil
 
   defp get_supervisor_info do
@@ -294,17 +297,19 @@ defmodule MimoWeb.HealthController do
       pid when is_pid(pid) ->
         try do
           children = Supervisor.which_children(pid)
+
           %{
             available: true,
             child_count: length(children),
-            children: Enum.map(children, fn {id, child_pid, type, _modules} ->
-              %{
-                id: format_child_id(id),
-                type: type,
-                alive: is_pid(child_pid) and Process.alive?(child_pid),
-                pid: if(is_pid(child_pid), do: inspect(child_pid), else: nil)
-              }
-            end)
+            children:
+              Enum.map(children, fn {id, child_pid, type, _modules} ->
+                %{
+                  id: format_child_id(id),
+                  type: type,
+                  alive: is_pid(child_pid) and Process.alive?(child_pid),
+                  pid: if(is_pid(child_pid), do: inspect(child_pid), else: nil)
+                }
+              end)
           }
         rescue
           _ -> %{available: false, reason: "error querying supervisor"}
@@ -319,11 +324,13 @@ defmodule MimoWeb.HealthController do
     # Check known circuit breakers
     [:llm_service, :ollama]
     |> Enum.map(fn name ->
-      status = try do
-        Mimo.ErrorHandling.CircuitBreaker.status(name)
-      catch
-        _, _ -> :unknown
-      end
+      status =
+        try do
+          Mimo.ErrorHandling.CircuitBreaker.status(name)
+        catch
+          _, _ -> :unknown
+        end
+
       {name, to_string(status)}
     end)
     |> Map.new()
@@ -332,26 +339,31 @@ defmodule MimoWeb.HealthController do
   defp generate_recommendations(startup_health) do
     recommendations = []
 
-    recommendations = if startup_health.failed > 0 do
-      failed_services = startup_health.services
-        |> Enum.filter(&(&1.status == :failed))
-        |> Enum.map(&inspect(&1.service))
-      recommendations ++ ["Check failed services: #{Enum.join(failed_services, ", ")}"]
-    else
-      recommendations
-    end
+    recommendations =
+      if startup_health.failed > 0 do
+        failed_services =
+          startup_health.services
+          |> Enum.filter(&(&1.status == :failed))
+          |> Enum.map(&inspect(&1.service))
 
-    recommendations = if startup_health.pending > 0 and get_uptime() > 30 do
-      recommendations ++ ["Services still pending after 30s - check for startup issues"]
-    else
-      recommendations
-    end
+        recommendations ++ ["Check failed services: #{Enum.join(failed_services, ", ")}"]
+      else
+        recommendations
+      end
 
-    recommendations = if startup_health.degraded > 0 do
-      recommendations ++ ["Some services running in degraded mode - review dependencies"]
-    else
-      recommendations
-    end
+    recommendations =
+      if startup_health.pending > 0 and get_uptime() > 30 do
+        recommendations ++ ["Services still pending after 30s - check for startup issues"]
+      else
+        recommendations
+      end
+
+    recommendations =
+      if startup_health.degraded > 0 do
+        recommendations ++ ["Some services running in degraded mode - review dependencies"]
+      else
+        recommendations
+      end
 
     if recommendations == [], do: ["All services healthy"], else: recommendations
   end

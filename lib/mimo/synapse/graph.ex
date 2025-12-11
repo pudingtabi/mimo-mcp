@@ -157,7 +157,11 @@ defmodule Mimo.Synapse.Graph do
     search_pattern = "%#{String.downcase(pattern)}%"
 
     GraphNode
-    |> where([n], like(fragment("lower(?)", n.name), ^search_pattern))
+    |> where(
+      [n],
+      like(fragment("lower(?)", n.name), ^search_pattern) or
+        like(fragment("lower(coalesce(?, ''))", n.description), ^search_pattern)
+    )
     |> where([n], n.node_type in ^types)
     |> limit(^limit)
     |> order_by([n], desc: n.access_count, asc: n.name)

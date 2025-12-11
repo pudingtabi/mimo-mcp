@@ -259,10 +259,10 @@ defmodule Mimo.AdaptiveWorkflow.ModelProfiler do
       performance_cache: %{},
       last_cleanup: DateTime.utc_now()
     }
-    
+
     # Schedule periodic cleanup
     schedule_cleanup()
-    
+
     {:ok, state}
   end
 
@@ -411,20 +411,24 @@ defmodule Mimo.AdaptiveWorkflow.ModelProfiler do
 
   @impl true
   def handle_call(:list_profiles, _from, state) do
-    profiles = Enum.map(Map.keys(@known_models), fn model_id ->
-      build_profile(model_id, state)
-    end)
+    profiles =
+      Enum.map(Map.keys(@known_models), fn model_id ->
+        build_profile(model_id, state)
+      end)
+
     {:reply, profiles, state}
   end
 
   @impl true
   def handle_cast({:record_performance, model_id, workflow_type, metrics}, state) do
-    new_cache = update_performance_cache(
-      state.performance_cache,
-      model_id,
-      workflow_type,
-      metrics
-    )
+    new_cache =
+      update_performance_cache(
+        state.performance_cache,
+        model_id,
+        workflow_type,
+        metrics
+      )
+
     {:noreply, %{state | performance_cache: new_cache}}
   end
 
@@ -448,7 +452,7 @@ defmodule Mimo.AdaptiveWorkflow.ModelProfiler do
   defp build_profile(model_id, state) do
     base = find_base_profile(model_id)
     performance = Map.get(state.performance_cache, model_id, [])
-    
+
     %{
       model_id: model_id,
       tier: base.tier,
@@ -462,25 +466,27 @@ defmodule Mimo.AdaptiveWorkflow.ModelProfiler do
 
   defp find_base_profile(model_id) do
     normalized = normalize_model_id(model_id)
-    
+
     # Direct match
     case Map.get(@known_models, normalized) do
       nil ->
         # Fuzzy match
         find_fuzzy_match(normalized)
-      
+
       profile ->
         profile
     end
   end
 
   defp normalize_model_id(nil), do: ""
+
   defp normalize_model_id(model_id) when is_binary(model_id) do
     model_id
     |> String.downcase()
     |> String.replace(~r/[_\s]+/, "-")
     |> String.trim()
   end
+
   defp normalize_model_id(_), do: ""
 
   defp find_fuzzy_match(model_id) do
@@ -488,37 +494,37 @@ defmodule Mimo.AdaptiveWorkflow.ModelProfiler do
     cond do
       String.contains?(model_id, "opus") and String.contains?(model_id, "4") ->
         @known_models["claude-opus-4"]
-      
+
       String.contains?(model_id, "opus") ->
         @known_models["claude-3-opus"]
-      
+
       String.contains?(model_id, "sonnet") and String.contains?(model_id, "3.5") ->
         @known_models["claude-3.5-sonnet"]
-      
+
       String.contains?(model_id, "sonnet") ->
         @known_models["claude-3-sonnet"]
-      
+
       String.contains?(model_id, "haiku") ->
         @known_models["claude-3-haiku"]
-      
+
       String.contains?(model_id, "gpt-4o") ->
         @known_models["gpt-4o"]
-      
+
       String.contains?(model_id, "gpt-4") and String.contains?(model_id, "mini") ->
         @known_models["gpt-4-mini"]
-      
+
       String.contains?(model_id, "gpt-4") ->
         @known_models["gpt-4"]
-      
+
       String.contains?(model_id, "gpt-3.5") ->
         @known_models["gpt-3.5-turbo"]
-      
+
       String.contains?(model_id, "gemini") and String.contains?(model_id, "flash") ->
         @known_models["gemini-flash"]
-      
+
       String.contains?(model_id, "gemini") and String.contains?(model_id, "pro") ->
         @known_models["gemini-pro"]
-      
+
       # Default: assume tier 2 medium capabilities
       true ->
         %{
@@ -554,7 +560,7 @@ defmodule Mimo.AdaptiveWorkflow.ModelProfiler do
 
   defp build_recommendations(model_id, _state) do
     profile = find_base_profile(normalize_model_id(model_id))
-    
+
     base_recommendations = %{
       use_prepare_context: profile.tier == :tier3,
       prefer_structured_workflows: profile.tier != :tier1,
@@ -563,14 +569,14 @@ defmodule Mimo.AdaptiveWorkflow.ModelProfiler do
       add_reasoning_steps: profile.tier == :tier3,
       context_budget_tokens: context_budget(profile.context_window, profile.tier)
     }
-    
+
     # Add capability-specific recommendations
     capability_recommendations = %{
       needs_coding_guidance: Map.get(profile.capabilities, :coding, 0.5) < 0.7,
       needs_reasoning_support: Map.get(profile.capabilities, :reasoning, 0.5) < 0.75,
       can_handle_complex_synthesis: Map.get(profile.capabilities, :synthesis, 0.5) >= 0.8
     }
-    
+
     Map.merge(base_recommendations, capability_recommendations)
   end
 
@@ -581,64 +587,66 @@ defmodule Mimo.AdaptiveWorkflow.ModelProfiler do
   defp context_budget(window_size, tier) do
     # Recommend using a fraction of the context window
     # Smaller models should use less to leave room for reasoning
-    multiplier = case tier do
-      :tier1 -> 0.7
-      :tier2 -> 0.5
-      :tier3 -> 0.3
-    end
-    
+    multiplier =
+      case tier do
+        :tier1 -> 0.7
+        :tier2 -> 0.5
+        :tier3 -> 0.3
+      end
+
     round(window_size * multiplier)
   end
 
   defp update_performance_cache(cache, model_id, workflow_type, metrics) do
     model_cache = Map.get(cache, model_id, %{})
-    
+
     record = %{
       workflow_type: workflow_type,
       success: metrics[:success] || false,
       latency_ms: metrics[:latency_ms] || 0,
       timestamp: DateTime.utc_now()
     }
-    
+
     workflow_records = Map.get(model_cache, workflow_type, [])
-    updated_records = [record | Enum.take(workflow_records, 99)]  # Keep last 100
-    
+    # Keep last 100
+    updated_records = [record | Enum.take(workflow_records, 99)]
+
     updated_model_cache = Map.put(model_cache, workflow_type, updated_records)
     Map.put(cache, model_id, updated_model_cache)
   end
 
   defp perform_assessment(model_id, state) do
     model_cache = Map.get(state.performance_cache, model_id, %{})
-    
+
     if map_size(model_cache) < 3 do
       # Not enough data yet
       {{:error, :insufficient_data}, state}
     else
       # Calculate aggregate stats
-      stats = Enum.map(model_cache, fn {workflow_type, records} ->
-        successes = Enum.count(records, & &1.success)
-        total = length(records)
-        avg_latency = if total > 0 do
-          Enum.sum(Enum.map(records, & &1.latency_ms)) / total
-        else
-          0
-        end
-        
-        %{
-          workflow_type: workflow_type,
-          success_rate: if(total > 0, do: successes / total, else: 0),
-          avg_latency_ms: avg_latency,
-          sample_count: total,
-          last_updated: DateTime.utc_now()
-        }
-      end)
-      
+      stats =
+        Enum.map(model_cache, fn {workflow_type, records} ->
+          successes = Enum.count(records, & &1.success)
+          total = length(records)
+
+          avg_latency =
+            if total > 0 do
+              Enum.sum(Enum.map(records, & &1.latency_ms)) / total
+            else
+              0
+            end
+
+          %{
+            workflow_type: workflow_type,
+            success_rate: if(total > 0, do: successes / total, else: 0),
+            avg_latency_ms: avg_latency,
+            sample_count: total,
+            last_updated: DateTime.utc_now()
+          }
+        end)
+
       profile = build_profile(model_id, state)
-      updated_profile = %{profile | 
-        performance_history: stats,
-        last_assessment: DateTime.utc_now()
-      }
-      
+      updated_profile = %{profile | performance_history: stats, last_assessment: DateTime.utc_now()}
+
       {{:ok, updated_profile}, state}
     end
   end
@@ -646,24 +654,25 @@ defmodule Mimo.AdaptiveWorkflow.ModelProfiler do
   defp perform_cleanup(state) do
     # Remove old performance records (older than 7 days)
     cutoff = DateTime.add(DateTime.utc_now(), -7, :day)
-    
-    cleaned_cache = Enum.map(state.performance_cache, fn {model_id, workflows} ->
-      cleaned_workflows = Enum.map(workflows, fn {wf_type, records} ->
-        filtered = Enum.filter(records, fn r ->
-          DateTime.compare(r.timestamp, cutoff) == :gt
-        end)
-        {wf_type, filtered}
+
+    cleaned_cache =
+      Enum.map(state.performance_cache, fn {model_id, workflows} ->
+        cleaned_workflows =
+          Enum.map(workflows, fn {wf_type, records} ->
+            filtered =
+              Enum.filter(records, fn r ->
+                DateTime.compare(r.timestamp, cutoff) == :gt
+              end)
+
+            {wf_type, filtered}
+          end)
+          |> Map.new()
+
+        {model_id, cleaned_workflows}
       end)
       |> Map.new()
-      
-      {model_id, cleaned_workflows}
-    end)
-    |> Map.new()
-    
-    %{state | 
-      performance_cache: cleaned_cache,
-      last_cleanup: DateTime.utc_now()
-    }
+
+    %{state | performance_cache: cleaned_cache, last_cleanup: DateTime.utc_now()}
   end
 
   defp schedule_cleanup do

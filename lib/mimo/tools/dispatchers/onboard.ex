@@ -36,7 +36,8 @@ defmodule Mimo.Tools.Dispatchers.Onboard do
       Tracker.start_link([])
     end
 
-    if Map.get(args, "operation") == "status" or Map.get(args, "status") == "true" or Map.get(args, "status") == true do
+    if Map.get(args, "operation") == "status" or Map.get(args, "status") == "true" or
+         Map.get(args, "status") == true do
       status = Tracker.get_status()
       {:ok, format_status(status)}
     else
@@ -55,18 +56,21 @@ defmodule Mimo.Tools.Dispatchers.Onboard do
         else
           case Tracker.start_onboarding(abs_path, fingerprint) do
             :ok ->
-              {:ok, %{
-                status: "started",
-                message: "🚀 Onboarding started in background.",
-                suggestion: "Use `onboard status=true` to check progress.",
-                fingerprint: fingerprint
-              }}
+              {:ok,
+               %{
+                 status: "started",
+                 message: "🚀 Onboarding started in background.",
+                 suggestion: "Use `onboard status=true` to check progress.",
+                 fingerprint: fingerprint
+               }}
+
             {:error, :already_running} ->
-              {:ok, %{
-                status: "running",
-                message: "⚠️ Onboarding already in progress.",
-                suggestion: "Use `onboard status=true` to check progress."
-              }}
+              {:ok,
+               %{
+                 status: "running",
+                 message: "⚠️ Onboarding already in progress.",
+                 suggestion: "Use `onboard status=true` to check progress."
+               }}
           end
         end
       else
@@ -79,24 +83,27 @@ defmodule Mimo.Tools.Dispatchers.Onboard do
     symbols = status.progress.symbols
     deps = status.progress.deps
     graph = status.progress.graph
-    
-    overall = status.status # :idle, :running, :completed, :partial
-    
-    summary = case overall do
-      :idle -> "Idle"
-      :running -> "Running (#{status.duration_ms}ms)"
-      :completed -> "Completed in #{status.duration_ms}ms"
-      :partial -> "Completed (Partial) in #{status.duration_ms}ms"
-      :failed -> "Failed"
-    end
-    
-    emoji = case overall do
-      :running -> "🔄"
-      :completed -> "✅"
-      :partial -> "⚠️"
-      _ -> "ℹ️"
-    end
-    
+
+    # :idle, :running, :completed, :partial
+    overall = status.status
+
+    summary =
+      case overall do
+        :idle -> "Idle"
+        :running -> "Running (#{status.duration_ms}ms)"
+        :completed -> "Completed in #{status.duration_ms}ms"
+        :partial -> "Completed (Partial) in #{status.duration_ms}ms"
+        :failed -> "Failed"
+      end
+
+    emoji =
+      case overall do
+        :running -> "🔄"
+        :completed -> "✅"
+        :partial -> "⚠️"
+        _ -> "ℹ️"
+      end
+
     %{
       status: overall,
       message: "#{emoji} #{summary}",

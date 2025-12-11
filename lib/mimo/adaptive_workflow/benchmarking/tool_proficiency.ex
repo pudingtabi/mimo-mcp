@@ -61,27 +61,27 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ToolProficiency do
     %{tool: "file", operation: "read", difficulty: :easy},
     %{tool: "file", operation: "edit", difficulty: :medium},
     %{tool: "file", operation: "multi_replace", difficulty: :hard},
-    
+
     # Code operations
     %{tool: "code", operation: "definition", difficulty: :easy},
     %{tool: "code", operation: "references", difficulty: :medium},
     %{tool: "code", operation: "diagnose", difficulty: :medium},
-    
+
     # Terminal operations
     %{tool: "terminal", operation: "execute", difficulty: :medium},
-    
+
     # Web operations
     %{tool: "web", operation: "search", difficulty: :easy},
     %{tool: "web", operation: "fetch", difficulty: :medium},
-    
+
     # Memory operations
     %{tool: "memory", operation: "search", difficulty: :easy},
     %{tool: "memory", operation: "store", difficulty: :easy},
-    
+
     # Knowledge operations
     %{tool: "knowledge", operation: "query", difficulty: :medium},
     %{tool: "knowledge", operation: "teach", difficulty: :medium},
-    
+
     # Reasoning operations
     %{tool: "reason", operation: "guided", difficulty: :hard}
   ]
@@ -104,7 +104,8 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ToolProficiency do
     * `{:ok, benchmark_result}` on success
     * `{:error, reason}` on failure
   """
-  @spec run_benchmark(ModelProfiler.model_id(), keyword()) :: {:ok, benchmark_result()} | {:error, term()}
+  @spec run_benchmark(ModelProfiler.model_id(), keyword()) ::
+          {:ok, benchmark_result()} | {:error, term()}
   def run_benchmark(model_id, opts \\ []) do
     tools = Keyword.get(opts, :tools, nil)
     include_multi_tool = Keyword.get(opts, :include_multi_tool, true)

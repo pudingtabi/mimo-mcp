@@ -1,5 +1,3 @@
-
-
 defmodule Mimo.Tools.Dispatchers.PrepareContext do
   @moduledoc """
   Compound cognitive tool: Smart Context Preparation.
@@ -116,18 +114,17 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
       {"library",
        TaskHelper.async_with_callers(fn -> {:library, gather_library_context(entities)} end)},
       # DEMAND 3: Pattern matching - find relevant emergence patterns
-      {"patterns",
-       TaskHelper.async_with_callers(fn -> {:patterns, gather_patterns(query)} end)},
+      {"patterns", TaskHelper.async_with_callers(fn -> {:patterns, gather_patterns(query)} end)},
       # DEMAND 5: Wisdom injection - gather failures and lessons
-      {"wisdom",
-       TaskHelper.async_with_callers(fn -> {:wisdom, gather_wisdom(query)} end)}
+      {"wisdom", TaskHelper.async_with_callers(fn -> {:wisdom, gather_wisdom(query)} end)}
     ]
 
     # Filter to only requested sources (patterns and wisdom always included for small model boost)
-    standard_sources = Enum.filter(all_tasks, fn {name, _task} -> 
-      name in sources or name in ["patterns", "wisdom"]
-    end)
-    
+    standard_sources =
+      Enum.filter(all_tasks, fn {name, _task} ->
+        name in sources or name in ["patterns", "wisdom"]
+      end)
+
     standard_sources
   end
 
@@ -402,7 +399,19 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
       build_tiered_response(query, entities, results, duration, max_tokens, args)
     else
       # Legacy flat response for backward compatibility
-      build_flat_response(query, entities, memory, knowledge, code, library, patterns, wisdom, duration, max_tokens, include_scores)
+      build_flat_response(
+        query,
+        entities,
+        memory,
+        knowledge,
+        code,
+        library,
+        patterns,
+        wisdom,
+        duration,
+        max_tokens,
+        include_scores
+      )
     end
   end
 
@@ -419,13 +428,16 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
     all_items = collect_all_items(results)
 
     # Classify items into tiers using HybridScorer
-    classified = HybridScorer.classify_items(all_items, nil, model_type: BudgetAllocator.model_type(model_type))
+    classified =
+      HybridScorer.classify_items(all_items, nil,
+        model_type: BudgetAllocator.model_type(model_type)
+      )
 
     # Apply budget constraints to each tier
     {tier1_items, tier1_remaining} = BudgetAllocator.fit_to_budget(classified.tier1, budget.tier1)
     {tier2_items, tier2_remaining} = BudgetAllocator.fit_to_budget(classified.tier2, budget.tier2)
-    
-    tier3_items = 
+
+    tier3_items =
       if include_tier3 do
         {items, _} = BudgetAllocator.fit_to_budget(classified.tier3, budget.tier3)
         items
@@ -436,12 +448,18 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
     # Calculate token usage
     tier1_tokens = budget.tier1 - tier1_remaining
     tier2_tokens = budget.tier2 - tier2_remaining
-    tier3_tokens = if include_tier3, do: Enum.reduce(tier3_items, 0, &(BudgetAllocator.estimate_item_tokens(&1) + &2)), else: 0
+
+    tier3_tokens =
+      if include_tier3,
+        do: Enum.reduce(tier3_items, 0, &(BudgetAllocator.estimate_item_tokens(&1) + &2)),
+        else: 0
 
     # Format each tier
     tier1_formatted = format_tier_items(tier1_items, include_scores)
     tier2_formatted = format_tier_items(tier2_items, include_scores)
-    tier3_formatted = if include_tier3, do: format_tier_items(tier3_items, include_scores), else: nil
+
+    tier3_formatted =
+      if include_tier3, do: format_tier_items(tier3_items, include_scores), else: nil
 
     {:ok,
      %{
@@ -453,11 +471,16 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
        context: %{
          tier1: tier1_formatted,
          tier2: tier2_formatted,
-         tier3: if(include_tier3, do: tier3_formatted, else: %{
-           available: length(classified.tier3) > 0,
-           estimated_tokens: Enum.reduce(classified.tier3, 0, &(BudgetAllocator.estimate_item_tokens(&1) + &2)),
-           items_count: length(classified.tier3)
-         })
+         tier3:
+           if(include_tier3,
+             do: tier3_formatted,
+             else: %{
+               available: length(classified.tier3) > 0,
+               estimated_tokens:
+                 Enum.reduce(classified.tier3, 0, &(BudgetAllocator.estimate_item_tokens(&1) + &2)),
+               items_count: length(classified.tier3)
+             }
+           )
        },
        metadata: %{
          token_usage: %{
@@ -479,9 +502,22 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
   end
 
   # Legacy flat response format
-  defp build_flat_response(query, entities, memory, knowledge, code, library, patterns, wisdom, duration, max_tokens, include_scores) do
+  defp build_flat_response(
+         query,
+         entities,
+         memory,
+         knowledge,
+         code,
+         library,
+         patterns,
+         wisdom,
+         duration,
+         max_tokens,
+         include_scores
+       ) do
     # Build structured context with patterns and wisdom
-    context_sections = build_context_sections(memory, knowledge, code, library, patterns, wisdom, include_scores)
+    context_sections =
+      build_context_sections(memory, knowledge, code, library, patterns, wisdom, include_scores)
 
     # Calculate totals (include patterns and wisdom)
     total_items =
@@ -525,7 +561,7 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
   # ==========================================================================
 
   defp collect_all_items(results) do
-    memory_items = 
+    memory_items =
       (results[:memory][:items] || [])
       |> Enum.map(&Map.put(&1, :source_type, :memory))
 
@@ -544,17 +580,19 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
     wisdom_failures =
       (results[:wisdom][:failures] || [])
       |> Enum.map(&Map.put(&1, :source_type, :wisdom_failure))
-      |> Enum.map(&Map.put(&1, :importance, 0.95))  # High importance for failures
+      # High importance for failures
+      |> Enum.map(&Map.put(&1, :importance, 0.95))
 
     wisdom_warnings =
       (results[:wisdom][:warnings] || [])
       |> Enum.map(&Map.put(&1, :source_type, :wisdom_warning))
-      |> Enum.map(&Map.put(&1, :importance, 0.85))  # High importance for warnings
+      # High importance for warnings
+      |> Enum.map(&Map.put(&1, :importance, 0.85))
 
     # Knowledge items (relationships and nodes)
     knowledge_rels =
       (results[:knowledge][:relationships] || [])
-      |> Enum.map(fn rel -> 
+      |> Enum.map(fn rel ->
         %{content: rel, source_type: :knowledge_relationship, importance: 0.6}
       end)
 
@@ -563,7 +601,10 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
       |> Enum.map(&Map.put(&1, :source_type, :knowledge_node))
 
     # Combine all items
-    memory_items ++ code_items ++ library_items ++ pattern_items ++ 
+    memory_items ++
+      code_items ++
+      library_items ++
+      pattern_items ++
       wisdom_failures ++ wisdom_warnings ++ knowledge_rels ++ knowledge_nodes
   end
 
@@ -574,9 +615,16 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
         content: format_item_content(item)
       }
 
-      base = if item[:file], do: Map.put(base, :source, "#{item[:file]}:#{item[:line] || "?"}"), else: base
-      base = if item[:urs] && include_scores, do: Map.put(base, :relevance, Float.round(item[:urs], 3)), else: base
-      
+      base =
+        if item[:file],
+          do: Map.put(base, :source, "#{item[:file]}:#{item[:line] || "?"}"),
+          else: base
+
+      base =
+        if item[:urs] && include_scores,
+          do: Map.put(base, :relevance, Float.round(item[:urs], 3)),
+          else: base
+
       # Add cross-modality info if available
       if cross_refs = item[:cross_modality] || item[:cross_modality_connections] do
         Map.put(base, :cross_modality, cross_refs)
@@ -588,13 +636,26 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
 
   defp format_item_content(item) do
     cond do
-      item[:content] -> item[:content]
-      item[:description] -> item[:description]
-      item[:symbol] -> "#{item[:kind] || "symbol"}: #{item[:symbol]}"
-      item[:package] -> "#{item[:package]} (#{item[:ecosystem]}): #{item[:description] || "no description"}"
-      item[:lesson] -> "⚠️ #{item[:lesson]}"
-      item[:message] -> item[:message]
-      true -> inspect(item)
+      item[:content] ->
+        item[:content]
+
+      item[:description] ->
+        item[:description]
+
+      item[:symbol] ->
+        "#{item[:kind] || "symbol"}: #{item[:symbol]}"
+
+      item[:package] ->
+        "#{item[:package]} (#{item[:ecosystem]}): #{item[:description] || "no description"}"
+
+      item[:lesson] ->
+        "⚠️ #{item[:lesson]}"
+
+      item[:message] ->
+        item[:message]
+
+      true ->
+        inspect(item)
     end
   end
 
@@ -607,12 +668,15 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
       cond do
         String.ends_with?(entity, ".ex") or String.ends_with?(entity, ".exs") ->
           [entity, String.replace(entity, ".ex", "_test.exs")]
+
         String.contains?(entity, "_") ->
           # Snake case suggests a function - suggest related test
           ["test/#{entity}_test.exs"]
+
         String.match?(entity, ~r/^[A-Z]/) ->
           # CamelCase suggests a module
           ["lib/#{Macro.underscore(entity)}.ex"]
+
         true ->
           []
       end
@@ -638,6 +702,7 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
 
       true ->
         model_name = if is_binary(model_type), do: model_type, else: Atom.to_string(model_type)
+
         "🎯 Tiered context for #{model_name}: #{tier1_count} essential, #{tier2_count} supporting items loaded."
     end
   end
@@ -795,6 +860,7 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
       (wisdom[:count] || 0) > 0 ->
         failure_count = length(wisdom[:failures] || [])
         warning_count = length(wisdom[:warnings] || [])
+
         "🧠 WISDOM INJECTED: #{failure_count} past failures to avoid, #{warning_count} warnings. Read carefully!"
 
       # DEMAND 3: Pattern matches found - highlight it  
@@ -814,8 +880,6 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
         "✨ Rich context loaded! #{total_items} relevant items found."
     end
   end
-
-
 
   # ==========================================================================
   # ENTITY EXTRACTION
@@ -910,4 +974,3 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
   defp truncate(str, max) when is_binary(str), do: String.slice(str, 0, max) <> "..."
   defp truncate(other, _max), do: inspect(other)
 end
-

@@ -126,64 +126,65 @@ defmodule Mimo.Brain.UsageFeedback do
   @impl true
   def init(_opts) do
     state = %{
-      retrieval_buffer: %{},  # memory_id => %{count, contexts}
-      pending_signals: [],    # [{type, session_id, memory_ids}]
+      # memory_id => %{count, contexts}
+      retrieval_buffer: %{},
+      # [{type, session_id, memory_ids}]
+      pending_signals: [],
       total_retrievals: 0,
       total_useful_signals: 0,
       total_noise_signals: 0
     }
-    
+
     # Schedule periodic flush
     schedule_flush()
-    
+
     Logger.info("[UsageFeedback] Initialized")
     {:ok, state}
   end
 
   @impl true
   def handle_cast({:retrieved, memory_id, context}, state) do
-    buffer = Map.update(
-      state.retrieval_buffer,
-      memory_id,
-      %{count: 1, contexts: [context]},
-      fn existing -> 
-        %{existing | 
-          count: existing.count + 1, 
-          contexts: Enum.take([context | existing.contexts], 5)
-        }
-      end
-    )
-    
-    {:noreply, %{state | 
-      retrieval_buffer: buffer,
-      total_retrievals: state.total_retrievals + 1
-    }}
+    buffer =
+      Map.update(
+        state.retrieval_buffer,
+        memory_id,
+        %{count: 1, contexts: [context]},
+        fn existing ->
+          %{
+            existing
+            | count: existing.count + 1,
+              contexts: Enum.take([context | existing.contexts], 5)
+          }
+        end
+      )
+
+    {:noreply, %{state | retrieval_buffer: buffer, total_retrievals: state.total_retrievals + 1}}
   end
 
   @impl true
   def handle_cast({:signal, type, session_id, memory_ids}, state) do
     new_signals = [{type, session_id, memory_ids, DateTime.utc_now()} | state.pending_signals]
-    
+
     # Process immediately if we have enough signals
-    new_state = 
+    new_state =
       if length(new_signals) >= 5 do
         process_signals(new_signals, state)
       else
         %{state | pending_signals: new_signals}
       end
-    
+
     {:noreply, new_state}
   end
 
   @impl true
   def handle_call({:get_helpfulness, memory_id}, _from, state) do
     # Check buffer first, then DB
-    score = 
+    score =
       case fetch_helpfulness_from_db(memory_id) do
         {:ok, s} -> s
         _ -> @default_helpfulness
       end
-    
+
     {:reply, score, state}
   end
 
@@ -196,18 +197,19 @@ defmodule Mimo.Brain.UsageFeedback do
       total_useful_signals: state.total_useful_signals,
       total_noise_signals: state.total_noise_signals
     }
+
     {:reply, stats, state}
   end
 
   @impl true
   def handle_info(:flush, state) do
-    new_state = 
+    new_state =
       if length(state.pending_signals) > 0 do
         process_signals(state.pending_signals, state)
       else
         flush_retrieval_counts(state)
       end
-    
+
     schedule_flush()
     {:noreply, new_state}
   end
@@ -218,7 +220,7 @@ defmodule Mimo.Brain.UsageFeedback do
 
   defp process_signals(signals, state) do
     # Group by memory_id
-    {useful_count, noise_count} = 
+    {useful_count, noise_count} =
       Enum.reduce(signals, {0, 0}, fn {type, _session, memory_ids, _ts}, {u, n} ->
         Enum.each(memory_ids, fn id ->
           case type do
@@ -226,19 +228,22 @@ defmodule Mimo.Brain.UsageFeedback do
             :noise -> update_helpfulness(id, -@decay_amount)
           end
         end)
-        
+
         case type do
           :useful -> {u + length(memory_ids), n}
           :noise -> {u, n + length(memory_ids)}
         end
       end)
-    
-    Logger.debug("[UsageFeedback] Processed #{length(signals)} signals: +#{useful_count} useful, -#{noise_count} noise")
-    
-    %{state |
-      pending_signals: [],
-      total_useful_signals: state.total_useful_signals + useful_count,
-      total_noise_signals: state.total_noise_signals + noise_count
+
+    Logger.debug(
+      "[UsageFeedback] Processed #{length(signals)} signals: +#{useful_count} useful, -#{noise_count} noise"
+    )
+
+    %{
+      state
+      | pending_signals: [],
+        total_useful_signals: state.total_useful_signals + useful_count,
+        total_noise_signals: state.total_noise_signals + noise_count
     }
   end
 
@@ -247,28 +252,30 @@ defmodule Mimo.Brain.UsageFeedback do
     Enum.each(state.retrieval_buffer, fn {memory_id, %{count: count}} ->
       update_retrieval_count(memory_id, count)
     end)
-    
+
     %{state | retrieval_buffer: %{}}
   end
 
   defp update_helpfulness(memory_id, delta) do
     try do
       case Repo.get(Engram, memory_id) do
-        nil -> :ok
+        nil ->
+          :ok
+
         engram ->
           metadata = engram.metadata || %{}
           current = Map.get(metadata, "helpfulness_score", @default_helpfulness)
-          
+
           # Clamp to 0.0-1.0
           new_score = max(0.0, min(1.0, current + delta))
-          
+
           new_metadata = Map.put(metadata, "helpfulness_score", new_score)
-          
+
           Engram.changeset(engram, %{metadata: new_metadata})
           |> Repo.update()
       end
     rescue
-      e -> 
+      e ->
         Logger.debug("[UsageFeedback] Failed to update helpfulness: #{Exception.message(e)}")
         :ok
     end
@@ -277,12 +284,14 @@ defmodule Mimo.Brain.UsageFeedback do
   defp update_retrieval_count(memory_id, additional_count) do
     try do
       case Repo.get(Engram, memory_id) do
-        nil -> :ok
+        nil ->
+          :ok
+
         engram ->
           metadata = engram.metadata || %{}
           current = Map.get(metadata, "retrieval_count", 0)
           new_metadata = Map.put(metadata, "retrieval_count", current + additional_count)
-          
+
           Engram.changeset(engram, %{metadata: new_metadata})
           |> Repo.update()
       end
@@ -294,7 +303,9 @@ defmodule Mimo.Brain.UsageFeedback do
   defp fetch_helpfulness_from_db(memory_id) do
     try do
       case Repo.get(Engram, memory_id) do
-        nil -> {:error, :not_found}
+        nil ->
+          {:error, :not_found}
+
         engram ->
           score = get_in(engram.metadata || %{}, ["helpfulness_score"]) || @default_helpfulness
           {:ok, score}

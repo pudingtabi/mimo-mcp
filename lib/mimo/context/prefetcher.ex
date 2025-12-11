@@ -29,8 +29,10 @@ defmodule Mimo.Context.Prefetcher do
   alias Mimo.Context.AccessPatternTracker
 
   @cache_table :mimo_prefetch_cache
-  @default_ttl_ms 300_000  # 5 minutes
-  @prefetch_interval 10_000  # 10 seconds
+  # 5 minutes
+  @default_ttl_ms 300_000
+  # 10 seconds
+  @prefetch_interval 10_000
   @max_cache_size 1000
   @batch_size 10
 
@@ -63,21 +65,22 @@ defmodule Mimo.Context.Prefetcher do
     key = {source_type, source_id}
     now = System.monotonic_time(:millisecond)
 
-    result = case :ets.lookup(@cache_table, key) do
-      [{^key, value, expires_at}] when expires_at > now ->
-        GenServer.cast(__MODULE__, :cache_hit)
-        value
+    result =
+      case :ets.lookup(@cache_table, key) do
+        [{^key, value, expires_at}] when expires_at > now ->
+          GenServer.cast(__MODULE__, :cache_hit)
+          value
 
-      [{^key, _value, _expires_at}] ->
-        # Expired, delete it
-        :ets.delete(@cache_table, key)
-        GenServer.cast(__MODULE__, :cache_miss)
-        nil
+        [{^key, _value, _expires_at}] ->
+          # Expired, delete it
+          :ets.delete(@cache_table, key)
+          GenServer.cast(__MODULE__, :cache_miss)
+          nil
 
-      [] ->
-        GenServer.cast(__MODULE__, :cache_miss)
-        nil
-    end
+        [] ->
+          GenServer.cast(__MODULE__, :cache_miss)
+          nil
+      end
 
     result
   catch
@@ -128,6 +131,7 @@ defmodule Mimo.Context.Prefetcher do
     catch
       :error, :badarg -> :ok
     end
+
     :ok
   end
 
@@ -192,10 +196,13 @@ defmodule Mimo.Context.Prefetcher do
   def handle_cast({:prefetch, query, opts}, state) do
     # Queue the query for prefetching
     new_pending = [{query, opts} | Enum.take(state.pending_queries, 9)]
-    new_state = %{state |
-      pending_queries: new_pending,
-      prefetches_started: state.prefetches_started + 1
+
+    new_state = %{
+      state
+      | pending_queries: new_pending,
+        prefetches_started: state.prefetches_started + 1
     }
+
     {:noreply, new_state}
   end
 
@@ -256,7 +263,8 @@ defmodule Mimo.Context.Prefetcher do
   # ==========================================================================
 
   defp schedule_cleanup do
-    Process.send_after(self(), :cleanup, 60_000)  # Every minute
+    # Every minute
+    Process.send_after(self(), :cleanup, 60_000)
   end
 
   defp schedule_prefetch_cycle do
@@ -310,10 +318,7 @@ defmodule Mimo.Context.Prefetcher do
           end)
         end)
 
-        %{state |
-          pending_queries: remaining,
-          last_prefetch: DateTime.utc_now()
-        }
+        %{state | pending_queries: remaining, last_prefetch: DateTime.utc_now()}
     end
   end
 
@@ -322,10 +327,11 @@ defmodule Mimo.Context.Prefetcher do
     _priority = Keyword.get(opts, :priority, :normal)
 
     # Get predictions from AccessPatternTracker
-    predictions = case GenServer.whereis(AccessPatternTracker) do
-      nil -> %{source_predictions: %{}}
-      _pid -> AccessPatternTracker.predict(query)
-    end
+    predictions =
+      case GenServer.whereis(AccessPatternTracker) do
+        nil -> %{source_predictions: %{}}
+        _pid -> AccessPatternTracker.predict(query)
+      end
 
     # Prefetch from each source based on predictions
     Enum.each(sources, fn source ->

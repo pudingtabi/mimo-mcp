@@ -438,7 +438,7 @@ defmodule Mimo.Brain.Emergence.Pattern do
 
   @doc """
   DEMAND 3: Search patterns by description for pattern library matching.
-  
+
   Used by prepare_context to find relevant patterns for a given query.
   Returns patterns sorted by relevance (simple keyword matching for now).
   """
@@ -446,11 +446,11 @@ defmodule Mimo.Brain.Emergence.Pattern do
   def search_by_description(query, opts \\ []) do
     limit = Keyword.get(opts, :limit, 10)
     status = Keyword.get(opts, :status, :active)
-    
+
     # Normalize query for matching
     query_lower = String.downcase(query)
     query_words = String.split(query_lower, ~r/\s+/) |> Enum.filter(&(String.length(&1) > 2))
-    
+
     # Get all active patterns and score by keyword match
     from(p in __MODULE__,
       where: p.status == ^status,
@@ -459,18 +459,19 @@ defmodule Mimo.Brain.Emergence.Pattern do
     |> Repo.all()
     |> Enum.map(fn pattern ->
       desc_lower = String.downcase(pattern.description || "")
-      
+
       # Calculate match score based on word overlap
-      match_count = Enum.count(query_words, fn word ->
-        String.contains?(desc_lower, word)
-      end)
-      
+      match_count =
+        Enum.count(query_words, fn word ->
+          String.contains?(desc_lower, word)
+        end)
+
       word_count = max(length(query_words), 1)
       match_score = match_count / word_count
-      
+
       # Combine with pattern strength for final score
       final_score = match_score * 0.6 + (pattern.strength || 0) * 0.4
-      
+
       {pattern, final_score}
     end)
     |> Enum.filter(fn {_pattern, score} -> score > 0.1 end)

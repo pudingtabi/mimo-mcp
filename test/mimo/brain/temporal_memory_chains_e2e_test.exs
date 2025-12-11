@@ -185,7 +185,9 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
       # Use very different content with unique suffixes
       suffix = System.unique_integer([:positive])
       {:ok, auth_id} = store_memory("AUTHENTICATION: bug in login form #{suffix}", "fact", 0.7)
-      {:ok, feature_id} = store_memory("FEATURE: new dashboard widget released #{suffix + 1}", "fact", 0.7)
+
+      {:ok, feature_id} =
+        store_memory("FEATURE: new dashboard widget released #{suffix + 1}", "fact", 0.7)
 
       auth = get_engram(auth_id)
       feature = get_engram(feature_id)
@@ -230,7 +232,8 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
       Process.sleep(100)
 
       # Store correction
-      {:ok, correct_id} = store_memory("The memory leak bug was never real - it was a false alarm", "fact", 0.8)
+      {:ok, correct_id} =
+        store_memory("The memory leak bug was never real - it was a false alarm", "fact", 0.8)
 
       wrong = get_engram(wrong_id)
       correct = get_engram(correct_id)
@@ -259,11 +262,12 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
       Process.sleep(100)
 
       # Store refined version with more detail
-      {:ok, refined_id} = store_memory(
-        "The caching layer improves performance by using Redis with a 5-minute TTL",
-        "fact",
-        0.7
-      )
+      {:ok, refined_id} =
+        store_memory(
+          "The caching layer improves performance by using Redis with a 5-minute TTL",
+          "fact",
+          0.7
+        )
 
       basic = get_engram(basic_id)
       refined = get_engram(refined_id)
@@ -297,11 +301,15 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
         importance: 0.5,
         supersedes_id: a
       }
+
       {:ok, b} = %Engram{} |> Engram.changeset(b_attrs) |> Repo.insert()
-      Repo.update!(Engram.changeset(get_engram(a), %{
-        superseded_at: DateTime.utc_now(),
-        supersession_type: "update"
-      }))
+
+      Repo.update!(
+        Engram.changeset(get_engram(a), %{
+          superseded_at: DateTime.utc_now(),
+          supersession_type: "update"
+        })
+      )
 
       # Create C superseding B
       c_attrs = %{
@@ -310,11 +318,15 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
         importance: 0.5,
         supersedes_id: b.id
       }
+
       {:ok, c} = %Engram{} |> Engram.changeset(c_attrs) |> Repo.insert()
-      Repo.update!(Engram.changeset(b, %{
-        superseded_at: DateTime.utc_now(),
-        supersession_type: "update"
-      }))
+
+      Repo.update!(
+        Engram.changeset(b, %{
+          superseded_at: DateTime.utc_now(),
+          supersession_type: "update"
+        })
+      )
 
       # Verify chain traversal from any position
       chain_from_a = Memory.get_chain(a)
@@ -342,11 +354,15 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
         importance: 0.5,
         supersedes_id: old_id
       }
+
       {:ok, new} = %Engram{} |> Engram.changeset(new_attrs) |> Repo.insert()
-      Repo.update!(Engram.changeset(get_engram(old_id), %{
-        superseded_at: DateTime.utc_now(),
-        supersession_type: "update"
-      }))
+
+      Repo.update!(
+        Engram.changeset(get_engram(old_id), %{
+          superseded_at: DateTime.utc_now(),
+          supersession_type: "update"
+        })
+      )
 
       # From old, should get new
       current = Memory.get_current(old_id)
@@ -363,10 +379,14 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
         importance: 0.5,
         supersedes_id: original_id
       }
+
       {:ok, updated} = %Engram{} |> Engram.changeset(update_attrs) |> Repo.insert()
-      Repo.update!(Engram.changeset(get_engram(original_id), %{
-        superseded_at: DateTime.utc_now()
-      }))
+
+      Repo.update!(
+        Engram.changeset(get_engram(original_id), %{
+          superseded_at: DateTime.utc_now()
+        })
+      )
 
       # From updated, should get original
       original = Memory.get_original(updated.id)
@@ -385,9 +405,12 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
 
       # Create superseded memory
       {:ok, superseded_id} = store_memory("Superseded memory for search test")
-      Repo.update!(Engram.changeset(get_engram(superseded_id), %{
-        superseded_at: DateTime.utc_now()
-      }))
+
+      Repo.update!(
+        Engram.changeset(get_engram(superseded_id), %{
+          superseded_at: DateTime.utc_now()
+        })
+      )
 
       # Active should be countable, superseded should not
       active_count = count_active_engrams()
@@ -406,16 +429,18 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
       {:ok, _id2} = store_memory("SUPERSESSION TEST: Database migration patterns #{suffix + 1}")
 
       # Supersede one
-      Repo.update!(Engram.changeset(get_engram(id1), %{
-        superseded_at: DateTime.utc_now()
-      }))
+      Repo.update!(
+        Engram.changeset(get_engram(id1), %{
+          superseded_at: DateTime.utc_now()
+        })
+      )
 
       # Query without filter (should see at least one)
-      all = Repo.all(from e in Engram)
+      all = Repo.all(from(e in Engram))
       assert length(all) >= 1
 
       # Query with superseded filter
-      active_only = Repo.all(from e in Engram, where: is_nil(e.superseded_at))
+      active_only = Repo.all(from(e in Engram, where: is_nil(e.superseded_at)))
       # Active memories should exist if we have any
       assert is_list(active_only)
     end
@@ -429,9 +454,12 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
       refute Engram.superseded?(engram)
 
       # After marking superseded
-      {:ok, superseded} = Repo.update(Engram.changeset(engram, %{
-        superseded_at: DateTime.utc_now()
-      }))
+      {:ok, superseded} =
+        Repo.update(
+          Engram.changeset(engram, %{
+            superseded_at: DateTime.utc_now()
+          })
+        )
 
       refute Engram.active?(superseded)
       assert Engram.superseded?(superseded)
@@ -451,12 +479,16 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
       suffix = System.unique_integer([:positive])
 
       # Store first memory - topic: authentication
-      {:ok, first_id} = store_memory("AUTHENTICATION: OAuth2 login implementation #{suffix}", "fact", 0.7)
+      {:ok, first_id} =
+        store_memory("AUTHENTICATION: OAuth2 login implementation #{suffix}", "fact", 0.7)
+
       first = get_engram(first_id)
       assert first != nil
 
       # Store second memory - topic: database (completely different)
-      {:ok, second_id} = store_memory("DATABASE: PostgreSQL indexing strategy #{suffix + 1}", "fact", 0.7)
+      {:ok, second_id} =
+        store_memory("DATABASE: PostgreSQL indexing strategy #{suffix + 1}", "fact", 0.7)
+
       second = get_engram(second_id)
       assert second != nil
 
@@ -468,16 +500,23 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
     test "persist_memory with TMC disabled creates new memories directly" do
       # Temporarily disable TMC
       original_flags = Application.get_env(:mimo_mcp, :feature_flags, [])
-      Application.put_env(:mimo_mcp, :feature_flags,
-        Keyword.put(original_flags, :temporal_memory_chains, false))
+
+      Application.put_env(
+        :mimo_mcp,
+        :feature_flags,
+        Keyword.put(original_flags, :temporal_memory_chains, false)
+      )
 
       suffix = System.unique_integer([:positive])
       {:ok, id1} = store_memory("TMC DISABLED: testing memory A #{suffix}")
       {:ok, id2} = store_memory("TMC DISABLED: testing memory B #{suffix + 1}")
 
       # Re-enable TMC
-      Application.put_env(:mimo_mcp, :feature_flags,
-        Keyword.put(original_flags, :temporal_memory_chains, true))
+      Application.put_env(
+        :mimo_mcp,
+        :feature_flags,
+        Keyword.put(original_flags, :temporal_memory_chains, true)
+      )
 
       # Both should be stored as new (no TMC processing)
       e1 = get_engram(id1)
@@ -519,6 +558,7 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
     test "handles rapid successive stores" do
       # Use very different content for each store to avoid TMC deduplication
       base = System.unique_integer([:positive])
+
       contents = [
         "Rapid ALPHA authentication module test #{base}",
         "Rapid BETA database connection test #{base + 1}",
@@ -527,10 +567,11 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
         "Rapid EPSILON cache invalidation test #{base + 4}"
       ]
 
-      ids = for content <- contents do
-        {:ok, id} = store_memory(content)
-        id
-      end
+      ids =
+        for content <- contents do
+          {:ok, id} = store_memory(content)
+          id
+        end
 
       # All should be stored - verify at least some are unique
       # (TMC may still detect some as similar depending on embedding model)
@@ -558,10 +599,14 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
         importance: 0.5,
         supersedes_id: original_id
       }
+
       {:ok, updated} = %Engram{} |> Engram.changeset(update_attrs) |> Repo.insert()
-      Repo.update!(Engram.changeset(get_engram(original_id), %{
-        superseded_at: DateTime.utc_now()
-      }))
+
+      Repo.update!(
+        Engram.changeset(get_engram(original_id), %{
+          superseded_at: DateTime.utc_now()
+        })
+      )
 
       # Test get_chain
       chain = Memory.get_chain(updated.id)
@@ -575,9 +620,11 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
       refute Memory.superseded?(id)
 
       # Mark as superseded
-      Repo.update!(Engram.changeset(get_engram(id), %{
-        superseded_at: DateTime.utc_now()
-      }))
+      Repo.update!(
+        Engram.changeset(get_engram(id), %{
+          superseded_at: DateTime.utc_now()
+        })
+      )
 
       # Now superseded
       assert Memory.superseded?(id)

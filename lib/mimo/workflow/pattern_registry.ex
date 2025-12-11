@@ -204,14 +204,14 @@ defmodule Mimo.Workflow.PatternRegistry do
   @impl true
   def handle_call({:save_pattern, pattern}, _from, state) do
     # Generate an ID if not present
-    pattern_with_id = 
+    pattern_with_id =
       if pattern.id do
         pattern
       else
         id = "#{pattern.name}_v1"
         %{pattern | id: id}
       end
-    
+
     case persist_pattern(pattern_with_id) do
       {:ok, saved} ->
         new_patterns = Map.put(state.patterns, saved.id, saved)

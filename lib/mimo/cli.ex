@@ -47,8 +47,11 @@ defmodule Mimo.CLI do
       nil when retries > 0 ->
         Process.sleep(100)
         wait_for_tool_registry(retries - 1)
+
       nil ->
-        :ok  # Give up after 5 seconds, stdio will handle gracefully
+        # Give up after 5 seconds, stdio will handle gracefully
+        :ok
+
       _pid ->
         :ok
     end

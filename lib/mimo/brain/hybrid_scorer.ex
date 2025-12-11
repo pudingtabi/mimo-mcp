@@ -22,7 +22,7 @@ defmodule Mimo.Brain.HybridScorer do
   ## Tiered Context (SPEC-051)
 
   The scorer supports tiered context delivery for optimizing token usage:
-  
+
   - Tier 1 (Essential): URS >= 0.85 - Critical for immediate execution
   - Tier 2 (Supporting): URS >= 0.65 - Important supporting context  
   - Tier 3 (Background): URS < 0.65 - Available on demand
@@ -351,10 +351,26 @@ defmodule Mimo.Brain.HybridScorer do
       thresholds: thresholds,
       model_type: model_type,
       components: %{
-        semantic: %{raw: semantic, weight: @urs_weights.semantic, weighted: semantic * @urs_weights.semantic},
-        temporal: %{raw: temporal, weight: @urs_weights.temporal, weighted: temporal * @urs_weights.temporal},
-        importance: %{raw: importance, weight: @urs_weights.importance, weighted: importance * @urs_weights.importance},
-        cross_modality: %{raw: cross_modal, weight: @urs_weights.cross_modality, weighted: cross_modal * @urs_weights.cross_modality}
+        semantic: %{
+          raw: semantic,
+          weight: @urs_weights.semantic,
+          weighted: semantic * @urs_weights.semantic
+        },
+        temporal: %{
+          raw: temporal,
+          weight: @urs_weights.temporal,
+          weighted: temporal * @urs_weights.temporal
+        },
+        importance: %{
+          raw: importance,
+          weight: @urs_weights.importance,
+          weighted: importance * @urs_weights.importance
+        },
+        cross_modality: %{
+          raw: cross_modal,
+          weight: @urs_weights.cross_modality,
+          weighted: cross_modal * @urs_weights.cross_modality
+        }
       }
     }
   end

@@ -37,7 +37,8 @@ defmodule Mimo.Brain.Synthesizer do
   alias Mimo.Brain.{Memory, LLM}
   alias Mimo.SafeCall
 
-  @default_interval 300_000  # 5 minutes
+  # 5 minutes
+  @default_interval 300_000
   @default_min_cluster_size 3
   @default_similarity_threshold 0.75
   @default_max_syntheses 5
@@ -125,8 +126,13 @@ defmodule Mimo.Brain.Synthesizer do
   @impl true
   def handle_call(:stats, _from, state) do
     stats =
-      Map.take(state, [:last_run, :total_syntheses, :total_clusters_processed,
-                       :last_batch_syntheses, :failures])
+      Map.take(state, [
+        :last_run,
+        :total_syntheses,
+        :total_clusters_processed,
+        :last_batch_syntheses,
+        :failures
+      ])
       |> Map.put(:interval_ms, state.interval)
       |> Map.put(:enabled, get_config(:enabled, true))
 
@@ -154,15 +160,22 @@ defmodule Mimo.Brain.Synthesizer do
 
       e ->
         Logger.error("[Synthesizer] Error: #{Exception.message(e)}")
+
         {%{syntheses_created: 0, clusters_found: 0, error: Exception.message(e)},
          %{state | failures: state.failures + 1}}
     end
   end
 
   defp do_run_synthesis(state, opts) do
-    min_cluster_size = opts[:min_cluster_size] || get_config(:min_cluster_size, @default_min_cluster_size)
-    similarity_threshold = opts[:similarity_threshold] || get_config(:similarity_threshold, @default_similarity_threshold)
-    max_syntheses = opts[:max_syntheses] || get_config(:max_syntheses_per_run, @default_max_syntheses)
+    min_cluster_size =
+      opts[:min_cluster_size] || get_config(:min_cluster_size, @default_min_cluster_size)
+
+    similarity_threshold =
+      opts[:similarity_threshold] ||
+        get_config(:similarity_threshold, @default_similarity_threshold)
+
+    max_syntheses =
+      opts[:max_syntheses] || get_config(:max_syntheses_per_run, @default_max_syntheses)
 
     :telemetry.execute([:mimo, :brain, :synthesis, :started], %{count: 1}, %{})
 
@@ -196,18 +209,20 @@ defmodule Mimo.Brain.Synthesizer do
       )
 
       if syntheses_created > 0 do
-        Logger.info("[Synthesizer] Created #{syntheses_created} synthesis facts from #{length(clusters)} clusters")
+        Logger.info(
+          "[Synthesizer] Created #{syntheses_created} synthesis facts from #{length(clusters)} clusters"
+        )
       end
 
       result = %{syntheses_created: syntheses_created, clusters_found: length(clusters)}
 
       new_state = %{
-        state |
-        last_run: DateTime.utc_now(),
-        total_syntheses: state.total_syntheses + syntheses_created,
-        total_clusters_processed: state.total_clusters_processed + length(clusters),
-        last_batch_syntheses: syntheses_created,
-        failures: state.failures + failures
+        state
+        | last_run: DateTime.utc_now(),
+          total_syntheses: state.total_syntheses + syntheses_created,
+          total_clusters_processed: state.total_clusters_processed + length(clusters),
+          last_batch_syntheses: syntheses_created,
+          failures: state.failures + failures
       }
 
       {result, new_state}
@@ -237,6 +252,7 @@ defmodule Mimo.Brain.Synthesizer do
   end
 
   defp cluster_greedy([], _threshold, _min_size, clusters), do: Enum.reverse(clusters)
+
   defp cluster_greedy([seed | rest], threshold, min_size, clusters) do
     # Find all memories similar to seed
     {similar, remaining} =
@@ -272,7 +288,8 @@ defmodule Mimo.Brain.Synthesizer do
           _ -> 0.0
         end
 
-      _ -> 0.0
+      _ ->
+        0.0
     end
   rescue
     _ -> 0.0
@@ -304,14 +321,19 @@ defmodule Mimo.Brain.Synthesizer do
       {:pass, _} ->
         # Use InferenceScheduler with :low priority (background task)
         # Fall back to direct LLM if scheduler unavailable
-        result = try do
-          Mimo.Brain.InferenceScheduler.request(:low, prompt, max_tokens: 200, temperature: 0.3, raw: true)
-        catch
-          :exit, _ ->
-            # Scheduler not available, fall back to direct LLM
-            Logger.debug("[Synthesizer] InferenceScheduler unavailable, using direct LLM")
-            LLM.complete(prompt, max_tokens: 200, temperature: 0.3, raw: true)
-        end
+        result =
+          try do
+            Mimo.Brain.InferenceScheduler.request(:low, prompt,
+              max_tokens: 200,
+              temperature: 0.3,
+              raw: true
+            )
+          catch
+            :exit, _ ->
+              # Scheduler not available, fall back to direct LLM
+              Logger.debug("[Synthesizer] InferenceScheduler unavailable, using direct LLM")
+              LLM.complete(prompt, max_tokens: 200, temperature: 0.3, raw: true)
+          end
 
         case result do
           {:ok, synthesis_text} when is_binary(synthesis_text) and byte_size(synthesis_text) > 20 ->
@@ -386,10 +408,11 @@ defmodule Mimo.Brain.Synthesizer do
           metadata = Map.get(m, :metadata, %{})
           # Exclude already-synthesized and synthesis results
           not Map.has_key?(metadata, "synthesized_at") and
-          Map.get(metadata, "source") != "autonomous_synthesis"
+            Map.get(metadata, "source") != "autonomous_synthesis"
         end)
 
-      _ -> []
+      _ ->
+        []
     end
   rescue
     _ -> []

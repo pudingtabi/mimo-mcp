@@ -85,7 +85,7 @@ defmodule Mimo.Workflow.Executor do
   @spec execute(Pattern.t(), map(), execute_opts()) :: {:ok, execution_result()} | {:error, term()}
   def execute(%Pattern{} = pattern, bindings \\ %{}, opts \\ []) do
     start_time = System.monotonic_time(:microsecond)
-    
+
     context = Map.merge(bindings, Keyword.get(opts, :context, %{}))
     async = Keyword.get(opts, :async, true)
     timeout = Keyword.get(opts, :timeout, pattern.timeout_ms || 300_000)
@@ -104,14 +104,14 @@ defmodule Mimo.Workflow.Executor do
         else
           # Convert pattern to procedure definition
           procedure_def = pattern_to_procedure(pattern, resolved_context)
-          
+
           # Execute via FSM
           result = execute_procedure(procedure_def, resolved_context, async, timeout, caller)
-          
+
           # Emit telemetry
           duration_us = System.monotonic_time(:microsecond) - start_time
           emit_telemetry(:execute, pattern.name, duration_us, result)
-          
+
           result
         end
 
@@ -126,13 +126,13 @@ defmodule Mimo.Workflow.Executor do
 
   Useful when you have a pattern name rather than the pattern struct.
   """
-  @spec execute_by_name(String.t(), map(), execute_opts()) :: 
+  @spec execute_by_name(String.t(), map(), execute_opts()) ::
           {:ok, execution_result()} | {:error, term()}
   def execute_by_name(pattern_name, bindings \\ %{}, opts \\ []) do
     case PatternRegistry.get_pattern(pattern_name) do
       {:ok, pattern} ->
         execute(pattern, bindings, opts)
-      
+
       {:error, :not_found} ->
         {:error, {:pattern_not_found, pattern_name}}
     end
@@ -146,18 +146,19 @@ defmodule Mimo.Workflow.Executor do
     case Repo.get(Execution, execution_id) do
       nil ->
         {:error, :not_found}
-      
+
       execution ->
-        {:ok, %{
-          execution_id: execution.id,
-          pattern_name: execution.pattern_name,
-          status: execution.status,
-          started_at: execution.started_at,
-          completed_at: execution.completed_at,
-          context: execution.context,
-          result: execution.result,
-          step_history: execution.step_history
-        }}
+        {:ok,
+         %{
+           execution_id: execution.id,
+           pattern_name: execution.pattern_name,
+           status: execution.status,
+           started_at: execution.started_at,
+           completed_at: execution.completed_at,
+           context: execution.context,
+           result: execution.result,
+           step_history: execution.step_history
+         }}
     end
   end
 
@@ -170,7 +171,7 @@ defmodule Mimo.Workflow.Executor do
       {:ok, pid} ->
         ExecutionFSM.interrupt(pid, reason)
         :ok
-      
+
       {:error, _} = error ->
         error
     end
@@ -188,11 +189,11 @@ defmodule Mimo.Workflow.Executor do
       nil ->
         Logger.warning("Cannot record result - execution not found: #{execution_id}")
         :ok
-      
+
       execution ->
         # Update execution record
         status = if outcome == :success, do: :completed, else: :failed
-        
+
         execution
         |> Ecto.Changeset.change(%{
           status: status,
@@ -200,10 +201,10 @@ defmodule Mimo.Workflow.Executor do
           result: Map.put(metadata, :outcome, outcome)
         })
         |> Repo.update()
-        
+
         # Update pattern success metrics
         update_pattern_metrics(execution.pattern_name, outcome)
-        
+
         :ok
     end
   end
@@ -216,16 +217,19 @@ defmodule Mimo.Workflow.Executor do
     limit = Keyword.get(opts, :limit, 20)
     status_filter = Keyword.get(opts, :status)
 
-    query = from e in Execution,
-      where: e.pattern_name == ^pattern_name,
-      order_by: [desc: e.started_at],
-      limit: ^limit
+    query =
+      from(e in Execution,
+        where: e.pattern_name == ^pattern_name,
+        order_by: [desc: e.started_at],
+        limit: ^limit
+      )
 
-    query = if status_filter do
-      from e in query, where: e.status == ^status_filter
-    else
-      query
-    end
+    query =
+      if status_filter do
+        from(e in query, where: e.status == ^status_filter)
+      else
+        query
+      end
 
     Repo.all(query)
     |> Enum.map(&execution_to_map/1)
@@ -245,10 +249,10 @@ defmodule Mimo.Workflow.Executor do
   def pattern_to_procedure(%Pattern{} = pattern, context) do
     # Build states from steps
     states = build_states_from_steps(pattern.steps, pattern, context)
-    
+
     # Determine initial and terminal states
     initial_state = get_initial_state_name(pattern.steps)
-    
+
     %{
       "name" => "workflow_#{pattern.name}_#{unique_suffix()}",
       "version" => "1.0",
@@ -272,7 +276,7 @@ defmodule Mimo.Workflow.Executor do
       next_state = get_next_state_name(steps, index)
       tool = step[:tool] || step["tool"]
       name = step[:name] || step["name"] || "step_#{index}"
-      
+
       state_def = %{
         "action" => build_action_from_step(step, pattern, context),
         "transitions" => build_transitions(next_state, step),
@@ -282,7 +286,7 @@ defmodule Mimo.Workflow.Executor do
           "step_name" => name
         }
       }
-      
+
       Map.put(acc, state_name, state_def)
     end)
   end
@@ -316,15 +320,16 @@ defmodule Mimo.Workflow.Executor do
     base_transitions = [
       %{"event" => "success", "target" => next_state}
     ]
-    
+
     # Add error transition if retry policy allows
-    error_transition = if step[:retry_policy] && step.retry_policy.max_attempts > 0 do
-      # Error transitions are handled by the FSM's retry logic
-      []
-    else
-      [%{"event" => "error", "target" => "failed"}]
-    end
-    
+    error_transition =
+      if step[:retry_policy] && step.retry_policy.max_attempts > 0 do
+        # Error transitions are handled by the FSM's retry logic
+        []
+      else
+        [%{"event" => "error", "target" => "failed"}]
+      end
+
     base_transitions ++ error_transition
   end
 
@@ -332,7 +337,7 @@ defmodule Mimo.Workflow.Executor do
     # The action calls our tool executor with resolved bindings
     resolved_bindings = BindingsResolver.resolve_step_bindings(step, context, pattern)
     tool = step[:tool] || step["tool"]
-    
+
     %{
       "module" => "Mimo.Workflow.Executor.StepRunner",
       "function" => "run_step",
@@ -351,7 +356,7 @@ defmodule Mimo.Workflow.Executor do
   defp step_timeout(step) do
     retry_policy = step[:retry_policy] || step["retry_policy"]
     timeout_ms = step[:timeout_ms] || step["timeout_ms"]
-    
+
     cond do
       is_integer(timeout_ms) -> timeout_ms
       is_map(retry_policy) and is_integer(retry_policy[:timeout_ms]) -> retry_policy[:timeout_ms]
@@ -363,17 +368,19 @@ defmodule Mimo.Workflow.Executor do
   defp build_context_schema(pattern) do
     # Build a JSON schema from pattern bindings
     bindings = pattern.bindings || []
-    
-    required_bindings = Enum.filter(bindings, fn binding ->
-      Map.get(binding, :required, false)
-    end)
-    
-    properties = Enum.reduce(bindings, %{}, fn binding, acc ->
-      name = Map.get(binding, :name, "unknown")
-      type = Map.get(binding, :type, :string)
-      Map.put(acc, name, %{"type" => infer_json_type(type)})
-    end)
-    
+
+    required_bindings =
+      Enum.filter(bindings, fn binding ->
+        Map.get(binding, :required, false)
+      end)
+
+    properties =
+      Enum.reduce(bindings, %{}, fn binding, acc ->
+        name = Map.get(binding, :name, "unknown")
+        type = Map.get(binding, :type, :string)
+        Map.put(acc, name, %{"type" => infer_json_type(type)})
+      end)
+
     %{
       "type" => "object",
       "properties" => properties,
@@ -403,34 +410,35 @@ defmodule Mimo.Workflow.Executor do
     # Create a temporary procedure entry
     # In a production system, we'd register this with ProceduralStore
     # For now, we execute directly via FSM
-    
+
     execution_id = generate_execution_id()
-    
+
     # Create execution record
     {:ok, execution} = create_execution_record(procedure_def, context, execution_id)
-    
+
     fsm_opts = [
       caller: caller,
       timeout: timeout
     ]
-    
+
     # start_fsm always returns {:ok, pid} since it uses Task.start which never fails
     {:ok, pid} = start_fsm(procedure_def, context, fsm_opts)
-    
+
     # Store PID mapping
     store_execution_pid(execution_id, pid)
-    
+
     if async do
       # Return immediately
-      {:ok, %{
-        execution_id: execution_id,
-        status: :running,
-        pattern_name: procedure_def["metadata"]["pattern_name"],
-        start_time: execution.started_at,
-        end_time: nil,
-        outputs: %{},
-        history: []
-      }}
+      {:ok,
+       %{
+         execution_id: execution_id,
+         status: :running,
+         pattern_name: procedure_def["metadata"]["pattern_name"],
+         start_time: execution.started_at,
+         end_time: nil,
+         outputs: %{},
+         history: []
+       }}
     else
       # Wait for completion
       wait_for_completion(pid, execution_id, timeout)
@@ -448,7 +456,7 @@ defmodule Mimo.Workflow.Executor do
       timeout_ms: procedure_def["timeout"] || 300_000,
       max_retries: 3
     }
-    
+
     # Start FSM with our procedure (this requires extending ExecutionFSM)
     # For now, we'll use a simplified execution path
     execute_steps_directly(procedure_def, context, opts)
@@ -457,32 +465,34 @@ defmodule Mimo.Workflow.Executor do
   # Simplified direct execution until we integrate with full FSM
   defp execute_steps_directly(procedure_def, context, opts) do
     caller = Keyword.get(opts, :caller)
-    
+
     Task.start(fn ->
       result = run_steps_sequentially(procedure_def["states"], context)
-      
+
       if caller do
         send(caller, {:workflow_completed, result})
       end
     end)
-    
-    {:ok, self()}  # Return a placeholder PID
+
+    # Return a placeholder PID
+    {:ok, self()}
   end
 
   defp run_steps_sequentially(states, context) do
     # Get ordered states
-    state_order = states
-    |> Enum.map(fn {name, _def} -> name end)
-    |> Enum.sort_by(fn name ->
-      case Regex.run(~r/_(\d+)$/, name) do
-        [_, num] -> String.to_integer(num)
-        _ -> 0
-      end
-    end)
-    
+    state_order =
+      states
+      |> Enum.map(fn {name, _def} -> name end)
+      |> Enum.sort_by(fn name ->
+        case Regex.run(~r/_(\d+)$/, name) do
+          [_, num] -> String.to_integer(num)
+          _ -> 0
+        end
+      end)
+
     Enum.reduce_while(state_order, {:ok, context}, fn state_name, {:ok, ctx} ->
       state_def = Map.get(states, state_name, %{})
-      
+
       case execute_state_action(state_def, ctx) do
         {:ok, new_ctx} -> {:cont, {:ok, Map.merge(ctx, new_ctx)}}
         {:error, reason} -> {:halt, {:error, reason}}
@@ -491,30 +501,32 @@ defmodule Mimo.Workflow.Executor do
   end
 
   defp execute_state_action(%{"action" => nil}, ctx), do: {:ok, ctx}
+
   defp execute_state_action(%{"action" => action}, ctx) do
     module = String.to_existing_atom("Elixir.#{action["module"]}")
     function = String.to_existing_atom(action["function"])
     args = action["args"] || []
-    
+
     try do
       apply(module, function, [ctx | args])
     rescue
       e -> {:error, Exception.message(e)}
     end
   end
+
   defp execute_state_action(_, ctx), do: {:ok, ctx}
 
   defp wait_for_completion(pid, execution_id, timeout) do
     ref = Process.monitor(pid)
-    
+
     receive do
       {:workflow_completed, result} ->
         Process.demonitor(ref, [:flush])
         finalize_execution(execution_id, result)
-      
+
       {:DOWN, ^ref, :process, ^pid, :normal} ->
         finalize_execution(execution_id, {:ok, %{}})
-      
+
       {:DOWN, ^ref, :process, ^pid, reason} ->
         finalize_execution(execution_id, {:error, reason})
     after
@@ -526,19 +538,23 @@ defmodule Mimo.Workflow.Executor do
   end
 
   defp finalize_execution(execution_id, result) do
-    status = case result do
-      {:ok, _} -> :completed
-      {:error, _} -> :failed
-    end
-    
-    outputs = case result do
-      {:ok, ctx} when is_map(ctx) -> ctx
-      _ -> %{}
-    end
-    
+    status =
+      case result do
+        {:ok, _} -> :completed
+        {:error, _} -> :failed
+      end
+
+    outputs =
+      case result do
+        {:ok, ctx} when is_map(ctx) -> ctx
+        _ -> %{}
+      end
+
     # Update execution record
     case Repo.get(Execution, execution_id) do
-      nil -> :ok
+      nil ->
+        :ok
+
       execution ->
         execution
         |> Ecto.Changeset.change(%{
@@ -548,19 +564,20 @@ defmodule Mimo.Workflow.Executor do
         })
         |> Repo.update()
     end
-    
+
     case result do
       {:ok, ctx} ->
-        {:ok, %{
-          execution_id: execution_id,
-          status: status,
-          pattern_name: nil,
-          start_time: nil,
-          end_time: DateTime.utc_now(),
-          outputs: ctx,
-          history: []
-        }}
-      
+        {:ok,
+         %{
+           execution_id: execution_id,
+           status: status,
+           pattern_name: nil,
+           start_time: nil,
+           end_time: DateTime.utc_now(),
+           outputs: ctx,
+           history: []
+         }}
+
       {:error, reason} ->
         {:error, reason}
     end
@@ -572,6 +589,7 @@ defmodule Mimo.Workflow.Executor do
 
   defp check_preconditions(%Pattern{preconditions: nil}, _context), do: :ok
   defp check_preconditions(%Pattern{preconditions: []}, _context), do: :ok
+
   defp check_preconditions(%Pattern{preconditions: preconditions}, context) do
     Enum.reduce_while(preconditions, :ok, fn precondition, _acc ->
       case check_single_precondition(precondition, context) do
@@ -586,25 +604,26 @@ defmodule Mimo.Workflow.Executor do
       :context_has_key ->
         key = precondition.key || precondition[:params][:key]
         Map.has_key?(context, key) or Map.has_key?(context, to_string(key))
-      
+
       :file_exists ->
         path = context[precondition.key] || context[to_string(precondition.key)]
         path && File.exists?(path)
-      
+
       :project_indexed ->
         # Check if project has been indexed via onboard
         case context["project_path"] || context[:project_path] do
           nil -> false
-          _path -> true  # Simplified check
+          # Simplified check
+          _path -> true
         end
-      
+
       :custom ->
         # Allow custom check functions
         case precondition[:function] do
           {mod, fun} -> apply(mod, fun, [context])
           _ -> true
         end
-      
+
       _ ->
         Logger.warning("Unknown precondition check type: #{inspect(check_type)}")
         true
@@ -617,22 +636,25 @@ defmodule Mimo.Workflow.Executor do
 
   defp resolve_all_bindings(%Pattern{steps: steps, bindings: bindings}, context) do
     # First, ensure all required bindings are present
-    resolved = Enum.reduce(bindings || [], context, fn binding, ctx ->
-      if Map.has_key?(ctx, binding.name) do
-        ctx
-      else
-        # Try to extract from context using default extractor
-        case binding[:extractor] do
-          nil -> ctx
-          extractor -> 
-            case BindingsResolver.extract_path(context, extractor) do
-              nil -> ctx
-              value -> Map.put(ctx, binding.name, value)
-            end
+    resolved =
+      Enum.reduce(bindings || [], context, fn binding, ctx ->
+        if Map.has_key?(ctx, binding.name) do
+          ctx
+        else
+          # Try to extract from context using default extractor
+          case binding[:extractor] do
+            nil ->
+              ctx
+
+            extractor ->
+              case BindingsResolver.extract_path(context, extractor) do
+                nil -> ctx
+                value -> Map.put(ctx, binding.name, value)
+              end
+          end
         end
-      end
-    end)
-    
+      end)
+
     # Then resolve step-specific bindings
     Enum.reduce(steps, resolved, fn step, ctx ->
       step_bindings = BindingsResolver.resolve_step_bindings(step, ctx, %{bindings: bindings})
@@ -650,13 +672,14 @@ defmodule Mimo.Workflow.Executor do
       status: :pending_confirmation,
       pattern_name: pattern.name,
       pattern_description: pattern.description,
-      steps: Enum.map(pattern.steps, fn step ->
-        %{
-          tool: step.tool,
-          name: step[:name] || step.tool,
-          args_preview: preview_args(step, context)
-        }
-      end),
+      steps:
+        Enum.map(pattern.steps, fn step ->
+          %{
+            tool: step.tool,
+            name: step[:name] || step.tool,
+            args_preview: preview_args(step, context)
+          }
+        end),
       resolved_context: context,
       estimated_duration_ms: pattern.timeout_ms || 300_000
     }
@@ -664,7 +687,7 @@ defmodule Mimo.Workflow.Executor do
 
   defp preview_args(step, context) do
     resolved = BindingsResolver.resolve_step_bindings(step, context, %{})
-    
+
     # Truncate long values for preview
     Enum.map(resolved, fn {k, v} ->
       {k, truncate_value(v, 100)}
@@ -679,6 +702,7 @@ defmodule Mimo.Workflow.Executor do
       value
     end
   end
+
   defp truncate_value(value, _), do: value
 
   # =============================================================================
@@ -695,7 +719,7 @@ defmodule Mimo.Workflow.Executor do
 
   defp create_execution_record(procedure_def, context, execution_id) do
     pattern_name = get_in(procedure_def, ["metadata", "pattern_name"]) || "unknown"
-    
+
     %Execution{}
     |> Execution.changeset(%{
       id: execution_id,
@@ -748,11 +772,12 @@ defmodule Mimo.Workflow.Executor do
   end
 
   defp emit_telemetry(operation, pattern_name, duration_us, result) do
-    status = case result do
-      {:ok, _} -> :ok
-      {:error, _} -> :error
-    end
-    
+    status =
+      case result do
+        {:ok, _} -> :ok
+        {:error, _} -> :error
+      end
+
     :telemetry.execute(
       [:mimo, :workflow, :executor, operation],
       %{duration_us: duration_us},

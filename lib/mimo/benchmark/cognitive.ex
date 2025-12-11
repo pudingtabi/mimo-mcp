@@ -55,14 +55,24 @@ defmodule Mimo.Benchmark.Cognitive do
   """
   @spec run(keyword()) :: {:ok, map()} | {:error, term()}
   def run(opts \\ []) do
-    categories = Keyword.get(opts, :categories, [:reasoning, :consolidation, :temporal, :temporal_validity, :retrieval])
+    categories =
+      Keyword.get(opts, :categories, [
+        :reasoning,
+        :consolidation,
+        :temporal,
+        :temporal_validity,
+        :retrieval
+      ])
+
     sample_size = Keyword.get(opts, :sample_size, 100)
     save_results = Keyword.get(opts, :save_results, true)
 
     run_id = generate_run_id()
     start_time = System.monotonic_time(:millisecond)
 
-    Logger.info("[CognitiveBenchmark] Starting run #{run_id} with categories: #{inspect(categories)}")
+    Logger.info(
+      "[CognitiveBenchmark] Starting run #{run_id} with categories: #{inspect(categories)}"
+    )
 
     results =
       categories
@@ -209,7 +219,8 @@ defmodule Mimo.Benchmark.Cognitive do
     metrics =
       if Enum.empty?(chain_memories) do
         %{
-          chain_integrity: 1.0,  # No chains = no broken chains
+          # No chains = no broken chains
+          chain_integrity: 1.0,
           supersession_accuracy: 1.0,
           orphan_rate: 0.0,
           chain_length_stats: %{min: 0, max: 0, avg: 0.0, median: 0},
@@ -403,7 +414,8 @@ defmodule Mimo.Benchmark.Cognitive do
     end)
     |> then(fn verified_memories ->
       if Enum.empty?(verified_memories) do
-        0.5  # Unknown accuracy
+        # Unknown accuracy
+        0.5
       else
         success_count =
           Enum.count(verified_memories, fn m ->
@@ -425,7 +437,8 @@ defmodule Mimo.Benchmark.Cognitive do
     end)
     |> then(fn branched_memories ->
       if Enum.empty?(branched_memories) do
-        0.0  # No branching used
+        # No branching used
+        0.0
       else
         # Calculate branch diversity
         branch_ids =
@@ -449,6 +462,7 @@ defmodule Mimo.Benchmark.Cognitive do
     memories
     |> Enum.filter(fn m ->
       metadata = m.metadata || %{}
+
       Map.has_key?(metadata, "reflection") or
         Map.has_key?(metadata, "lessons_learned") or
         String.contains?(m.content || "", ["learned", "insight", "next time"])
@@ -461,8 +475,13 @@ defmodule Mimo.Benchmark.Cognitive do
         actionable_count =
           Enum.count(reflection_memories, fn m ->
             metadata = m.metadata || %{}
-            has_lessons = is_list(metadata["lessons_learned"]) and length(metadata["lessons_learned"]) > 0
-            has_reflection = is_binary(metadata["reflection"]) and String.length(metadata["reflection"]) > 20
+
+            has_lessons =
+              is_list(metadata["lessons_learned"]) and length(metadata["lessons_learned"]) > 0
+
+            has_reflection =
+              is_binary(metadata["reflection"]) and String.length(metadata["reflection"]) > 20
+
             has_lessons or has_reflection
           end)
 
@@ -531,7 +550,8 @@ defmodule Mimo.Benchmark.Cognitive do
       end)
 
     if Enum.empty?(merged_memories) do
-      1.0  # No merges = no merge errors
+      # No merges = no merge errors
+      1.0
     else
       # Check that merged memories are more comprehensive
       valid_merges =
@@ -568,7 +588,9 @@ defmodule Mimo.Benchmark.Cognitive do
         end
 
       # Score based on how close actual decay is to expected
-      ratio = if expected_decay == 0, do: 1.0, else: abs(decay_rate - expected_decay) / expected_decay
+      ratio =
+        if expected_decay == 0, do: 1.0, else: abs(decay_rate - expected_decay) / expected_decay
+
       max(1.0 - ratio, 0.0)
     end)
     |> then(fn scores ->
@@ -627,9 +649,11 @@ defmodule Mimo.Benchmark.Cognitive do
       if Enum.empty?(typed_memories) do
         1.0
       else
-        valid_count = Enum.count(typed_memories, fn m ->
-          m.supersession_type in valid_types
-        end)
+        valid_count =
+          Enum.count(typed_memories, fn m ->
+            m.supersession_type in valid_types
+          end)
+
         valid_count / length(typed_memories)
       end
     end)
@@ -695,7 +719,8 @@ defmodule Mimo.Benchmark.Cognitive do
       1.0
     else
       # All currently valid memories should be retrievable
-      1.0  # Placeholder - actual query testing would go here
+      # Placeholder - actual query testing would go here
+      1.0
     end
   end
 
@@ -710,7 +735,8 @@ defmodule Mimo.Benchmark.Cognitive do
       1.0
     else
       # All should be excluded from default queries
-      1.0  # Placeholder
+      # Placeholder
+      1.0
     end
   end
 
@@ -725,7 +751,8 @@ defmodule Mimo.Benchmark.Cognitive do
       1.0
     else
       # All should be excluded from default queries
-      1.0  # Placeholder
+      # Placeholder
+      1.0
     end
   end
 
@@ -983,9 +1010,9 @@ defmodule Mimo.Benchmark.Cognitive do
 
   @doc """
   Default thresholds for cognitive metrics.
-  
+
   Override via application config:
-  
+
       config :mimo, :cognitive_benchmark_thresholds, %{
         reasoning: %{step_coherence: 0.7, conclusion_accuracy: 0.6},
         ...
@@ -1007,7 +1034,8 @@ defmodule Mimo.Benchmark.Cognitive do
     temporal: %{
       chain_integrity: 0.8,
       supersession_accuracy: 0.7,
-      orphan_rate: 0.1  # Max allowed (lower is better)
+      # Max allowed (lower is better)
+      orphan_rate: 0.1
     },
     temporal_validity: %{
       as_of_precision: 0.8,
@@ -1039,11 +1067,11 @@ defmodule Mimo.Benchmark.Cognitive do
 
   @doc """
   Check benchmark results against thresholds.
-  
+
   Returns a list of alerts for any metrics that fall below thresholds.
-  
+
   ## Example
-  
+
       {:ok, report} = Mimo.Benchmark.Cognitive.run()
       {:ok, alerts} = Mimo.Benchmark.Cognitive.check_thresholds(report)
       
@@ -1055,28 +1083,29 @@ defmodule Mimo.Benchmark.Cognitive do
   @spec check_thresholds(map()) :: {:ok, list(map())} | {:error, term()}
   def check_thresholds(%{results: results, aggregate: aggregate}) do
     thresholds = get_thresholds()
-    
-    alerts = 
-      # Check individual metrics within each category
+
+    # Check individual metrics within each category
+    alerts =
       results
       |> Enum.flat_map(fn {category, category_result} ->
         category_thresholds = Map.get(thresholds, category, %{})
         metrics = Map.get(category_result, :metrics, %{})
-        
+
         category_thresholds
         |> Enum.map(fn {metric, threshold} ->
           value = Map.get(metrics, metric)
-          
+
           # For orphan_rate, lower is better (inverted comparison)
-          failed = 
+          failed =
             if metric == :orphan_rate do
               value != nil and value > threshold
             else
               value != nil and value < threshold
             end
-            
+
           if failed do
             severity = calculate_severity(value, threshold, metric)
+
             %{
               category: category,
               metric: metric,
@@ -1094,14 +1123,16 @@ defmodule Mimo.Benchmark.Cognitive do
 
     # Check aggregate category scores
     category_thresholds = Map.get(thresholds, :category_scores, %{})
+
     category_alerts =
       aggregate.categories
       |> Enum.map(fn {category, score_info} ->
         threshold = Map.get(category_thresholds, category)
         score = score_info.score
-        
+
         if threshold && score < threshold do
           severity = calculate_severity(score, threshold, :category_score)
+
           %{
             category: category,
             metric: :category_score,
@@ -1118,16 +1149,16 @@ defmodule Mimo.Benchmark.Cognitive do
 
     {:ok, alerts ++ category_alerts}
   end
-  
+
   def check_thresholds(_), do: {:error, :invalid_report}
 
   @doc """
   Run benchmarks and check thresholds in one call.
-  
+
   Returns `{:ok, report, alerts}` or `{:error, reason}`.
-  
+
   For CI usage:
-  
+
       case Mimo.Benchmark.Cognitive.run_with_thresholds() do
         {:ok, _report, []} -> 
           # All passed
@@ -1149,7 +1180,8 @@ defmodule Mimo.Benchmark.Cognitive do
           {:ok, alerts} -> {:ok, report, alerts}
           {:error, reason} -> {:error, reason}
         end
-      {:error, reason} -> 
+
+      {:error, reason} ->
         {:error, reason}
     end
   end
@@ -1159,44 +1191,50 @@ defmodule Mimo.Benchmark.Cognitive do
   """
   @spec threshold_summary(list(map())) :: String.t()
   def threshold_summary([]), do: "✅ All cognitive metrics within thresholds"
-  
+
   def threshold_summary(alerts) do
     critical = Enum.count(alerts, &(&1.severity == :critical))
     warning = Enum.count(alerts, &(&1.severity == :warning))
-    
-    details = 
+
+    details =
       alerts
-      |> Enum.map(fn a -> 
+      |> Enum.map(fn a ->
         "  - #{a.category}.#{a.metric}: #{Float.round(a.value, 3)} < #{a.threshold} (#{a.severity})"
       end)
       |> Enum.join("\n")
-    
+
     """
     ❌ Cognitive benchmark threshold violations:
       Critical: #{critical}
       Warning: #{warning}
-    
+
     Details:
     #{details}
     """
   end
 
   # Calculate severity based on how far below threshold
-  defp calculate_severity(value, threshold, metric) when is_number(value) and is_number(threshold) do
+  defp calculate_severity(value, threshold, metric)
+       when is_number(value) and is_number(threshold) do
     # For orphan_rate, calculate differently (value > threshold is bad)
-    delta = 
+    delta =
       if metric == :orphan_rate do
-        value - threshold  # Positive delta means bad
+        # Positive delta means bad
+        value - threshold
       else
-        threshold - value  # Positive delta means bad
+        # Positive delta means bad
+        threshold - value
       end
-    
+
     cond do
-      delta > 0.2 -> :critical  # More than 20% below threshold
-      delta > 0.1 -> :warning   # 10-20% below threshold
-      true -> :info             # Within 10% of threshold
+      # More than 20% below threshold
+      delta > 0.2 -> :critical
+      # 10-20% below threshold
+      delta > 0.1 -> :warning
+      # Within 10% of threshold
+      true -> :info
     end
   end
-  
+
   defp calculate_severity(_, _, _), do: :unknown
 end

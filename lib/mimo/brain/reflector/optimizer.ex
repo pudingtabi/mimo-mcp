@@ -54,34 +54,35 @@ defmodule Mimo.Brain.Reflector.Optimizer do
   # ============================================
 
   @type outcome :: :success | :partial | :failure
-  @type dimension :: :correctness | :completeness | :confidence | :clarity | :grounding | :error_risk
+  @type dimension ::
+          :correctness | :completeness | :confidence | :clarity | :grounding | :error_risk
 
   @type prediction_record :: %{
-    prediction_id: String.t(),
-    predicted_score: float(),
-    predicted_quality: String.t(),
-    dimension_scores: map(),
-    issues_count: non_neg_integer(),
-    suggestions: [String.t()],
-    iterations_needed: non_neg_integer(),
-    context_hash: String.t(),
-    recorded_at: DateTime.t()
-  }
+          prediction_id: String.t(),
+          predicted_score: float(),
+          predicted_quality: String.t(),
+          dimension_scores: map(),
+          issues_count: non_neg_integer(),
+          suggestions: [String.t()],
+          iterations_needed: non_neg_integer(),
+          context_hash: String.t(),
+          recorded_at: DateTime.t()
+        }
 
   @type optimization_metrics :: %{
-    dimension_accuracy: %{dimension() => float()},
-    threshold_performance: %{
-      current: float(),
-      optimal_estimated: float(),
-      false_positive_rate: float(),
-      false_negative_rate: float()
-    },
-    suggestion_effectiveness: %{String.t() => float()},
-    refinement_success_rate: float(),
-    total_predictions: non_neg_integer(),
-    total_outcomes: non_neg_integer(),
-    last_optimization: DateTime.t() | nil
-  }
+          dimension_accuracy: %{dimension() => float()},
+          threshold_performance: %{
+            current: float(),
+            optimal_estimated: float(),
+            false_positive_rate: float(),
+            false_negative_rate: float()
+          },
+          suggestion_effectiveness: %{String.t() => float()},
+          refinement_success_rate: float(),
+          total_predictions: non_neg_integer(),
+          total_outcomes: non_neg_integer(),
+          last_optimization: DateTime.t() | nil
+        }
 
   # ============================================
   # Client API
@@ -126,7 +127,8 @@ defmodule Mimo.Brain.Reflector.Optimizer do
 
   - `{:ok, updated_count}` - Number of predictions matched and updated
   """
-  @spec record_outcome(String.t(), outcome(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  @spec record_outcome(String.t(), outcome(), keyword()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
   def record_outcome(context_hash, outcome, opts \\ []) do
     GenServer.call(__MODULE__, {:record_outcome, context_hash, outcome, opts})
   end
@@ -204,8 +206,10 @@ defmodule Mimo.Brain.Reflector.Optimizer do
     :ets.new(@table_name, [:named_table, :set, :public, read_concurrency: true])
 
     state = %{
-      predictions: %{},  # context_hash => [prediction_records]
-      outcomes: %{},      # context_hash => outcome_record
+      # context_hash => [prediction_records]
+      predictions: %{},
+      # context_hash => outcome_record
+      outcomes: %{},
       metrics: initial_metrics(),
       optimized_weights: default_weights(),
       optimized_threshold: 0.70,
@@ -231,7 +235,8 @@ defmodule Mimo.Brain.Reflector.Optimizer do
     record = %{
       prediction_id: prediction_id,
       predicted_score: evaluation[:aggregate_score] || evaluation["aggregate_score"] || 0.0,
-      predicted_quality: get_in(evaluation, [:quality_level]) || get_in(evaluation, ["quality_level"]) || "unknown",
+      predicted_quality:
+        get_in(evaluation, [:quality_level]) || get_in(evaluation, ["quality_level"]) || "unknown",
       dimension_scores: extract_dimension_scores(evaluation),
       issues_count: length(evaluation[:issues] || evaluation["issues"] || []),
       suggestions: extract_suggestion_texts(evaluation),
@@ -302,16 +307,18 @@ defmodule Mimo.Brain.Reflector.Optimizer do
 
       new_state =
         if apply_changes do
-          %{state |
-            optimized_weights: optimization_result.recommended_weights,
-            optimized_threshold: optimization_result.recommended_threshold,
-            last_optimization: DateTime.utc_now(),
-            metrics: update_after_optimization(state.metrics, optimization_result)
+          %{
+            state
+            | optimized_weights: optimization_result.recommended_weights,
+              optimized_threshold: optimization_result.recommended_threshold,
+              last_optimization: DateTime.utc_now(),
+              metrics: update_after_optimization(state.metrics, optimization_result)
           }
         else
-          %{state |
-            last_optimization: DateTime.utc_now(),
-            metrics: update_after_optimization(state.metrics, optimization_result)
+          %{
+            state
+            | last_optimization: DateTime.utc_now(),
+              metrics: update_after_optimization(state.metrics, optimization_result)
           }
         end
 
@@ -399,10 +406,12 @@ defmodule Mimo.Brain.Reflector.Optimizer do
       suggestion_effectiveness = calculate_suggestion_effectiveness(pairs)
 
       # Estimate optimal threshold
-      {optimal_threshold, fp_rate, fn_rate} = estimate_optimal_threshold(pairs, state.optimized_threshold)
+      {optimal_threshold, fp_rate, fn_rate} =
+        estimate_optimal_threshold(pairs, state.optimized_threshold)
 
       # Calculate recommended weights based on dimension accuracy
-      recommended_weights = calculate_recommended_weights(dimension_accuracy, state.optimized_weights)
+      recommended_weights =
+        calculate_recommended_weights(dimension_accuracy, state.optimized_weights)
 
       %{
         optimized: true,
@@ -418,7 +427,8 @@ defmodule Mimo.Brain.Reflector.Optimizer do
         },
         recommended_weights: recommended_weights,
         recommended_threshold: optimal_threshold,
-        summary: "Analyzed #{length(pairs)} pairs, optimal threshold: #{Float.round(optimal_threshold, 3)}"
+        summary:
+          "Analyzed #{length(pairs)} pairs, optimal threshold: #{Float.round(optimal_threshold, 3)}"
       }
     end
   end
@@ -427,7 +437,9 @@ defmodule Mimo.Brain.Reflector.Optimizer do
     state.predictions
     |> Enum.flat_map(fn {context_hash, predictions} ->
       case Map.get(state.outcomes, context_hash) do
-        nil -> []
+        nil ->
+          []
+
         outcome ->
           Enum.map(predictions, fn pred ->
             %{
@@ -458,7 +470,8 @@ defmodule Mimo.Brain.Reflector.Optimizer do
       end)
 
     if length(scores_with_outcomes) < 3 do
-      0.5  # Neutral if insufficient data
+      # Neutral if insufficient data
+      0.5
     else
       # Calculate correlation between dimension score and outcome
       calculate_correlation(scores_with_outcomes)
@@ -550,18 +563,21 @@ defmodule Mimo.Brain.Reflector.Optimizer do
 
   defp calculate_error_rates(pairs, threshold) do
     total = length(pairs)
+
     if total == 0 do
       {0.0, 0.0}
     else
       # False positive: predicted high quality but outcome was failure
-      fp = Enum.count(pairs, fn %{prediction: pred, outcome: outcome} ->
-        pred.predicted_score >= threshold and outcome.outcome == :failure
-      end)
+      fp =
+        Enum.count(pairs, fn %{prediction: pred, outcome: outcome} ->
+          pred.predicted_score >= threshold and outcome.outcome == :failure
+        end)
 
       # False negative: predicted low quality but outcome was success
-      fn_ = Enum.count(pairs, fn %{prediction: pred, outcome: outcome} ->
-        pred.predicted_score < threshold and outcome.outcome == :success
-      end)
+      fn_ =
+        Enum.count(pairs, fn %{prediction: pred, outcome: outcome} ->
+          pred.predicted_score < threshold and outcome.outcome == :success
+        end)
 
       {fp / total, fn_ / total}
     end
@@ -578,7 +594,7 @@ defmodule Mimo.Brain.Reflector.Optimizer do
       Enum.into(dimension_accuracy, %{}, fn {dim, accuracy} ->
         current = Map.get(current_weights, dim, 0.15)
         # 70% current, 30% accuracy-based
-        new_weight = current * 0.7 + (accuracy / total_accuracy) * 0.3
+        new_weight = current * 0.7 + accuracy / total_accuracy * 0.3
         {dim, Float.round(new_weight, 3)}
       end)
       |> normalize_weights()
@@ -607,13 +623,16 @@ defmodule Mimo.Brain.Reflector.Optimizer do
 
     recommendations =
       if total_outcomes < @min_samples_for_optimization do
-        [%{
-          type: :data_collection,
-          priority: :high,
-          message: "Collect more outcome data for optimization",
-          current: total_outcomes,
-          target: @min_samples_for_optimization
-        } | recommendations]
+        [
+          %{
+            type: :data_collection,
+            priority: :high,
+            message: "Collect more outcome data for optimization",
+            current: total_outcomes,
+            target: @min_samples_for_optimization
+          }
+          | recommendations
+        ]
       else
         recommendations
       end
@@ -623,25 +642,31 @@ defmodule Mimo.Brain.Reflector.Optimizer do
       state.metrics.dimension_accuracy
       |> Enum.filter(fn {_, acc} -> acc < 0.4 end)
       |> Enum.reduce(recommendations, fn {dim, acc}, recs ->
-        [%{
-          type: :dimension_calibration,
-          priority: :medium,
-          message: "Dimension '#{dim}' has low predictive accuracy (#{Float.round(acc, 2)})",
-          dimension: dim,
-          accuracy: acc
-        } | recs]
+        [
+          %{
+            type: :dimension_calibration,
+            priority: :medium,
+            message: "Dimension '#{dim}' has low predictive accuracy (#{Float.round(acc, 2)})",
+            dimension: dim,
+            accuracy: acc
+          }
+          | recs
+        ]
       end)
 
     # Check threshold calibration
     recommendations =
       if state.metrics.threshold_performance.false_positive_rate > 0.20 do
-        [%{
-          type: :threshold_adjustment,
-          priority: :high,
-          message: "High false positive rate - consider raising threshold",
-          current_rate: state.metrics.threshold_performance.false_positive_rate,
-          suggested: state.metrics.threshold_performance.optimal_estimated
-        } | recommendations]
+        [
+          %{
+            type: :threshold_adjustment,
+            priority: :high,
+            message: "High false positive rate - consider raising threshold",
+            current_rate: state.metrics.threshold_performance.false_positive_rate,
+            suggested: state.metrics.threshold_performance.optimal_estimated
+          }
+          | recommendations
+        ]
       else
         recommendations
       end
@@ -736,12 +761,15 @@ defmodule Mimo.Brain.Reflector.Optimizer do
   end
 
   defp update_after_optimization(metrics, result) do
-    %{metrics |
-      dimension_accuracy: result[:dimension_accuracy] || metrics.dimension_accuracy,
-      threshold_performance: result[:threshold_analysis] || metrics.threshold_performance,
-      suggestion_effectiveness: result[:suggestion_effectiveness] || metrics.suggestion_effectiveness,
-      refinement_success_rate: result[:refinement_success_rate] || metrics.refinement_success_rate,
-      last_optimization: DateTime.utc_now()
+    %{
+      metrics
+      | dimension_accuracy: result[:dimension_accuracy] || metrics.dimension_accuracy,
+        threshold_performance: result[:threshold_analysis] || metrics.threshold_performance,
+        suggestion_effectiveness:
+          result[:suggestion_effectiveness] || metrics.suggestion_effectiveness,
+        refinement_success_rate:
+          result[:refinement_success_rate] || metrics.refinement_success_rate,
+        last_optimization: DateTime.utc_now()
     }
   end
 
@@ -769,26 +797,32 @@ defmodule Mimo.Brain.Reflector.Optimizer do
         try do
           case Jason.decode(content) do
             {:ok, persisted} ->
-              %{state |
-                optimized_weights: Map.get(persisted, "weights", state.optimized_weights),
-                optimized_threshold: Map.get(persisted, "threshold", state.optimized_threshold)
+              %{
+                state
+                | optimized_weights: Map.get(persisted, "weights", state.optimized_weights),
+                  optimized_threshold: Map.get(persisted, "threshold", state.optimized_threshold)
               }
-            _ -> state
+
+            _ ->
+              state
           end
         rescue
           _ -> state
         end
-      _ -> state
+
+      _ ->
+        state
     end
   end
 
   defp persist_outcome(context_hash, predictions, outcome) do
-    content = Jason.encode!(%{
-      context_hash: context_hash,
-      prediction_count: length(predictions),
-      outcome: outcome.outcome,
-      recorded_at: DateTime.to_iso8601(outcome.recorded_at)
-    })
+    content =
+      Jason.encode!(%{
+        context_hash: context_hash,
+        prediction_count: length(predictions),
+        outcome: outcome.outcome,
+        recorded_at: DateTime.to_iso8601(outcome.recorded_at)
+      })
 
     Task.start(fn ->
       Memory.store(%{

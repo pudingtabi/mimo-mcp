@@ -77,6 +77,7 @@ defmodule Mimo.Brain.ContradictionGuard do
       if length(warnings) > 0 do
         Logger.info("[ContradictionGuard] Found #{length(warnings)} potential contradictions")
       end
+
       {:ok, warnings}
     end
   end
@@ -105,13 +106,19 @@ defmodule Mimo.Brain.ContradictionGuard do
 
     # Use InferenceScheduler with :high priority (user-facing, needs fast response)
     # Fall back to direct LLM if scheduler unavailable
-    result = try do
-      Mimo.Brain.InferenceScheduler.request(:high, prompt, format: :json, max_tokens: 200, raw: true, temperature: 0.1)
-    catch
-      :exit, _ ->
-        Logger.debug("[ContradictionGuard] InferenceScheduler unavailable, using direct LLM")
-        LLM.complete(prompt, format: :json, max_tokens: 200, raw: true, temperature: 0.1)
-    end
+    result =
+      try do
+        Mimo.Brain.InferenceScheduler.request(:high, prompt,
+          format: :json,
+          max_tokens: 200,
+          raw: true,
+          temperature: 0.1
+        )
+      catch
+        :exit, _ ->
+          Logger.debug("[ContradictionGuard] InferenceScheduler unavailable, using direct LLM")
+          LLM.complete(prompt, format: :json, max_tokens: 200, raw: true, temperature: 0.1)
+      end
 
     case result do
       {:ok, response} ->
@@ -122,6 +129,7 @@ defmodule Mimo.Brain.ContradictionGuard do
               |> Enum.filter(&is_binary/1)
               |> Enum.filter(&(String.length(&1) > 10))
               |> Enum.take(max_claims)
+
             {:ok, valid_claims}
 
           _ ->
@@ -144,17 +152,20 @@ defmodule Mimo.Brain.ContradictionGuard do
   @spec check_claims([String.t()], float()) :: {:ok, [String.t()]} | {:error, term()}
   def check_claims(claims, similarity_threshold) do
     # Use reduce_while to stop on first error (fail-closed)
-    result = Enum.reduce_while(claims, {:ok, []}, fn claim, {:ok, acc_warnings} ->
-      case check_single_claim(claim, similarity_threshold) do
-        {:contradiction, warning} ->
-          {:cont, {:ok, [warning | acc_warnings]}}
-        :ok ->
-          {:cont, {:ok, acc_warnings}}
-        {:error, reason} ->
-          # Fail closed - propagate error
-          {:halt, {:error, {:claim_check_failed, claim, reason}}}
-      end
-    end)
+    result =
+      Enum.reduce_while(claims, {:ok, []}, fn claim, {:ok, acc_warnings} ->
+        case check_single_claim(claim, similarity_threshold) do
+          {:contradiction, warning} ->
+            {:cont, {:ok, [warning | acc_warnings]}}
+
+          :ok ->
+            {:cont, {:ok, acc_warnings}}
+
+          {:error, reason} ->
+            # Fail closed - propagate error
+            {:halt, {:error, {:claim_check_failed, claim, reason}}}
+        end
+      end)
 
     case result do
       {:ok, warnings} -> {:ok, Enum.reverse(warnings)}
@@ -193,13 +204,18 @@ defmodule Mimo.Brain.ContradictionGuard do
 
     # Use InferenceScheduler with :high priority (user-facing)
     # Fall back to direct LLM if scheduler unavailable
-    result = try do
-      Mimo.Brain.InferenceScheduler.request(:high, prompt, max_tokens: 100, raw: true, temperature: 0.1)
-    catch
-      :exit, _ ->
-        Logger.debug("[ContradictionGuard] InferenceScheduler unavailable, using direct LLM")
-        LLM.complete(prompt, max_tokens: 100, raw: true, temperature: 0.1)
-    end
+    result =
+      try do
+        Mimo.Brain.InferenceScheduler.request(:high, prompt,
+          max_tokens: 100,
+          raw: true,
+          temperature: 0.1
+        )
+      catch
+        :exit, _ ->
+          Logger.debug("[ContradictionGuard] InferenceScheduler unavailable, using direct LLM")
+          LLM.complete(prompt, max_tokens: 100, raw: true, temperature: 0.1)
+      end
 
     case result do
       {:ok, response} ->
@@ -235,6 +251,7 @@ defmodule Mimo.Brain.ContradictionGuard do
   """
   @spec format_warnings([String.t()]) :: String.t()
   def format_warnings([]), do: ""
+
   def format_warnings(warnings) do
     """
     ⚠️ CONTRADICTION DETECTED - Review before responding:
@@ -252,8 +269,12 @@ defmodule Mimo.Brain.ContradictionGuard do
   @spec check_and_format(String.t()) :: String.t()
   def check_and_format(proposed_response) do
     case check(proposed_response) do
-      {:ok, []} -> ""
-      {:ok, warnings} -> format_warnings(warnings)
+      {:ok, []} ->
+        ""
+
+      {:ok, warnings} ->
+        format_warnings(warnings)
+
       {:error, reason} ->
         # Fail closed - indicate check couldn't happen
         "⚠️ CONTRADICTION CHECK FAILED: #{inspect(reason)} - Manual review recommended."

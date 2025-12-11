@@ -26,7 +26,8 @@ defmodule Mimo.Tools.Dispatchers.NeuroSymbolicInference do
         dispatch_train_gnn(args)
 
       unknown ->
-        {:error, "Unknown neuro_symbolic_inference operation: #{unknown}. Valid: #{inspect(@operations)}"}
+        {:error,
+         "Unknown neuro_symbolic_inference operation: #{unknown}. Valid: #{inspect(@operations)}"}
     end
   end
 
@@ -38,7 +39,11 @@ defmodule Mimo.Tools.Dispatchers.NeuroSymbolicInference do
       {:error, "prompt is required for discover_rules"}
     else
       persist_validated = args["persist_validated"] || args[:persist_validated] || false
-      RuleGenerator.generate_and_persist_rules(prompt, max_rules: max_rules, persist_validated: persist_validated)
+
+      RuleGenerator.generate_and_persist_rules(prompt,
+        max_rules: max_rules,
+        persist_validated: persist_validated
+      )
     end
   end
 

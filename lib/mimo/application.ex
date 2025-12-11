@@ -188,12 +188,12 @@ defmodule Mimo.Application do
         \u274C Failed to start Mimo supervisor
         Reason: #{inspect(reason)}
         """)
+
         {:error, reason}
     end
   end
 
   defp start_post_init_tasks(sup) do
-
     # Start the graceful degradation retry processor (after TaskSupervisor is available)
     spawn(fn ->
       # Wait for TaskSupervisor to be ready

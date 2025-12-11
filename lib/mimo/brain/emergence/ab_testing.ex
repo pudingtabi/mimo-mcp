@@ -69,12 +69,12 @@ defmodule Mimo.Brain.Emergence.ABTesting do
   """
   def track_outcome(success?) when is_boolean(success?) do
     session_id = get_session_id()
-    
+
     if session_id do
       # Track outcome for any patterns that were suggested this session
       track_session_outcome(session_id, success?)
     end
-    
+
     :ok
   end
 
@@ -156,10 +156,10 @@ defmodule Mimo.Brain.Emergence.ABTesting do
         # Random 50/50 assignment
         group = if :rand.uniform() < 0.5, do: :test, else: :control
         Process.put(@session_group_key, group)
-        
+
         # Track assignment
         track_group_assignment(get_or_create_session_id(), group)
-        
+
         group
 
       group ->
@@ -173,10 +173,10 @@ defmodule Mimo.Brain.Emergence.ABTesting do
 
   defp track_pattern_suggestions(session_id, suggestions, context) do
     ensure_ets_table()
-    
+
     # Store which patterns were suggested for this session
     pattern_ids = Enum.map(suggestions, & &1.pattern_id)
-    
+
     :ets.insert(:emergence_ab_testing, {
       {:session_patterns, session_id},
       %{
@@ -194,7 +194,7 @@ defmodule Mimo.Brain.Emergence.ABTesting do
 
   defp track_session_outcome(session_id, success?) do
     ensure_ets_table()
-    
+
     # Get patterns that were suggested for this session
     case :ets.lookup(:emergence_ab_testing, {:session_patterns, session_id}) do
       [{_, %{pattern_ids: pattern_ids}}] ->
@@ -210,20 +210,25 @@ defmodule Mimo.Brain.Emergence.ABTesting do
     # Track session-level outcome
     group = current_group() || :unknown
     outcome_key = {:outcome, group, success?}
-    
+
     :ets.update_counter(:emergence_ab_testing, outcome_key, {2, 1}, {outcome_key, 0})
   end
 
   defp track_group_assignment(session_id, group) do
     ensure_ets_table()
-    
+
     :ets.insert(:emergence_ab_testing, {
       {:assignment, session_id},
       %{group: group, assigned_at: DateTime.utc_now()}
     })
 
     # Increment group counter
-    :ets.update_counter(:emergence_ab_testing, {:group_count, group}, {2, 1}, {{:group_count, group}, 0})
+    :ets.update_counter(
+      :emergence_ab_testing,
+      {:group_count, group},
+      {2, 1},
+      {{:group_count, group}, 0}
+    )
   end
 
   defp ensure_ets_table do
@@ -242,7 +247,8 @@ defmodule Mimo.Brain.Emergence.ABTesting do
         pattern_id: suggestion.pattern_id,
         description: suggestion.description,
         relevance: suggestion.relevance,
-        hint: "💡 This pattern has shown #{format_success_rate(suggestion.success_rate)} success rate"
+        hint:
+          "💡 This pattern has shown #{format_success_rate(suggestion.success_rate)} success rate"
       }
     end)
   end
@@ -250,12 +256,13 @@ defmodule Mimo.Brain.Emergence.ABTesting do
   defp format_success_rate(rate) when is_float(rate) do
     "#{Float.round(rate * 100, 1)}%"
   end
+
   defp format_success_rate(_), do: "unknown"
 
   defp compute_stats do
     test_sessions = get_counter({:group_count, :test})
     control_sessions = get_counter({:group_count, :control})
-    
+
     test_successes = get_counter({:outcome, :test, true})
     test_failures = get_counter({:outcome, :test, false})
     control_successes = get_counter({:outcome, :control, true})

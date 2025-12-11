@@ -35,16 +35,16 @@ defmodule Mimo.NeuroSymbolic.RuleValidator do
 
     {:ok, %{validated: validated, precision: precision, recall: 0.0, evidence: evidence}}
   end
-  
+
   # Fallback for rules missing required keys
   def validate_rule(rule) when is_map(rule) do
     {:error, {:invalid_rule, :missing_required_keys, Map.keys(rule)}}
   end
-  
+
   def validate_rule(_), do: {:error, {:invalid_rule, :not_a_map}}
 
   defp extract_predicates_from_premise(nil), do: []
-  
+
   defp extract_predicates_from_premise(premise) when is_list(premise) do
     premise
     |> Enum.map(fn
@@ -55,20 +55,21 @@ defmodule Mimo.NeuroSymbolic.RuleValidator do
     end)
     |> Enum.reject(&is_nil/1)
   end
-  
+
   defp extract_predicates_from_premise(_), do: []
 
   defp extract_predicate_from_conclusion(nil), do: nil
-  
+
   defp extract_predicate_from_conclusion(conclusion) when is_map(conclusion) do
     Map.get(conclusion, "predicate") || Map.get(conclusion, :predicate)
   end
-  
+
   defp extract_predicate_from_conclusion(_), do: nil
 
   defp count_triples_for_predicates(preds) when is_list(preds) do
     preds
-    |> Enum.reject(&is_nil/1)  # Filter out nil predicates
+    # Filter out nil predicates
+    |> Enum.reject(&is_nil/1)
     |> Enum.map(&Repository.get_by_predicate(&1, limit: 1))
     |> Enum.map(&length/1)
     |> Enum.sum()

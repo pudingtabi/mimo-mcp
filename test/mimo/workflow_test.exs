@@ -53,7 +53,7 @@ defmodule Mimo.WorkflowTest do
           %{tool: "memory", args: %{operation: "search", query: "error"}}
         ]
       }
-      
+
       changeset = Pattern.changeset(%Pattern{}, attrs)
       assert changeset.valid?
     end
@@ -75,7 +75,8 @@ defmodule Mimo.WorkflowTest do
   describe "PatternRegistry" do
     test "seeds default patterns" do
       patterns = PatternRegistry.list_patterns()
-      assert length(patterns) >= 5  # We created 5 seed patterns
+      # We created 5 seed patterns
+      assert length(patterns) >= 5
     end
 
     test "retrieves pattern by name" do
@@ -95,7 +96,7 @@ defmodule Mimo.WorkflowTest do
         category: :code_navigation,
         steps: [%{tool: "code", args: %{operation: "symbols"}}]
       }
-      
+
       assert {:ok, _saved} = PatternRegistry.save_pattern(new_pattern)
       assert {:ok, retrieved} = PatternRegistry.get_pattern("custom_workflow")
       assert retrieved.description == "Custom test workflow"
@@ -109,17 +110,17 @@ defmodule Mimo.WorkflowTest do
   describe "Predictor" do
     test "predicts workflow for debugging task" do
       task = "Fix the undefined function error in auth.ex"
-      
+
       case Predictor.predict_workflow(task, %{}) do
         {:ok, pattern, confidence, bindings} ->
           assert pattern.category in [:debugging, :code_navigation]
           assert confidence > 0.0
           assert is_map(bindings)
-        
+
         {:suggest, patterns} ->
           assert is_list(patterns)
           assert length(patterns) > 0
-        
+
         {:manual, reason} ->
           assert is_binary(reason)
       end
@@ -127,12 +128,12 @@ defmodule Mimo.WorkflowTest do
 
     test "predicts workflow for file editing task" do
       task = "Update the configuration in config.exs"
-      
+
       result = Predictor.predict_workflow(task, %{})
 
       assert match?({:ok, _, _, _}, result) or
-             match?({:suggest, _}, result) or
-             match?({:manual, _}, result)
+               match?({:suggest, _}, result) or
+               match?({:manual, _}, result)
     end
 
     test "extracts features from task description" do
@@ -159,6 +160,7 @@ defmodule Mimo.WorkflowTest do
   describe "BindingsResolver" do
     test "resolves simple bindings" do
       context = %{"file" => "auth.ex", "error" => "undefined function"}
+
       step = %{
         "tool" => "code",
         "params" => %{},
@@ -175,9 +177,9 @@ defmodule Mimo.WorkflowTest do
           }
         ]
       }
-      
+
       resolved = BindingsResolver.resolve_step_bindings(step, context, nil)
-      
+
       assert resolved["path"] == "auth.ex"
       assert resolved["message"] == "undefined function"
     end
@@ -190,25 +192,27 @@ defmodule Mimo.WorkflowTest do
           }
         }
       }
-      
+
       path = "result.data.content"
       value = BindingsResolver.extract_path(context, path)
-      
+
       assert value == "file contents here"
     end
 
     test "handles missing bindings gracefully" do
       bindings = %{}
+
       step = %{
         tool: "file",
         args: %{
           path: "{missing_key}"
         }
       }
+
       pattern = %{bindings: []}
-      
+
       resolved = BindingsResolver.resolve_step_bindings(step, bindings, pattern)
-      
+
       # Should either keep the placeholder or return nil
       assert resolved["path"] == "{missing_key}" or resolved["path"] == nil
     end
@@ -226,16 +230,16 @@ defmodule Mimo.WorkflowTest do
           %{tool: "file", args: %{}}
         ]
       }
-      
+
       pattern2 = %Pattern{
         steps: [
           %{tool: "memory", args: %{}},
           %{tool: "code", args: %{}}
         ]
       }
-      
+
       distance = Clusterer.pattern_distance(pattern1, pattern2)
-      
+
       # Should be similar (low distance) since one step matches
       assert distance < 1.0
       assert distance >= 0.0
@@ -244,19 +248,19 @@ defmodule Mimo.WorkflowTest do
     test "finds similar patterns" do
       patterns = PatternRegistry.list_patterns()
       test_pattern = hd(patterns)
-      
+
       # Pass the steps, not the full pattern
       similar = Clusterer.find_similar_pattern(test_pattern.steps, patterns, 0.5)
-      
+
       # Should find at least itself as similar
       assert similar != nil or length(patterns) == 1
     end
 
     test "clusters patterns by similarity" do
       patterns = PatternRegistry.list_patterns()
-      
+
       {:ok, clusters} = Clusterer.cluster_patterns(patterns, threshold: 0.5)
-      
+
       # Should return list of clusters
       assert is_list(clusters)
     end
@@ -284,12 +288,13 @@ defmodule Mimo.WorkflowTest do
 
     test "detects tier for unknown model as tier2" do
       tier = ModelProfiler.detect_tier("some-unknown-model-2025")
-      assert tier == :tier2  # Default for unknown
+      # Default for unknown
+      assert tier == :tier2
     end
 
     test "gets capabilities for known model" do
       capabilities = ModelProfiler.get_capabilities("claude-3-opus")
-      
+
       assert Map.has_key?(capabilities, :reasoning)
       assert Map.has_key?(capabilities, :coding)
       assert capabilities[:reasoning] >= 0.9
@@ -297,10 +302,11 @@ defmodule Mimo.WorkflowTest do
 
     test "gets constraints for small model" do
       constraints = ModelProfiler.get_constraints("claude-3-haiku")
-      
+
       assert is_list(constraints)
-      assert "requires_explicit_step_guidance" in constraints or 
-             "benefits_from_prepare_context" in constraints
+
+      assert "requires_explicit_step_guidance" in constraints or
+               "benefits_from_prepare_context" in constraints
     end
 
     test "checks if model can handle capability" do
@@ -310,7 +316,7 @@ defmodule Mimo.WorkflowTest do
 
     test "gets workflow recommendations" do
       recommendations = ModelProfiler.get_workflow_recommendations("claude-3-haiku")
-      
+
       assert Map.has_key?(recommendations, :use_prepare_context)
       assert recommendations[:use_prepare_context] == true
       assert recommendations[:max_parallel_tools] == 1
@@ -325,12 +331,12 @@ defmodule Mimo.WorkflowTest do
     test "adapts pattern for tier3 model" do
       {:ok, pattern} = PatternRegistry.get_pattern("debug_error")
       original_steps = length(pattern.steps)
-      
+
       {:ok, adapted} = TemplateAdapter.adapt(pattern, force_tier: :tier3)
-      
+
       # Should have more steps (prepare_context added)
       assert length(adapted.steps) > original_steps
-      
+
       # First step should be prepare_context
       first_step = hd(adapted.steps)
       assert first_step.tool == "meta" or first_step[:name] == "prepare_context"
@@ -339,30 +345,31 @@ defmodule Mimo.WorkflowTest do
     test "doesn't modify pattern for tier1 model" do
       {:ok, pattern} = PatternRegistry.get_pattern("debug_error")
       original_steps = length(pattern.steps)
-      
+
       {:ok, adapted} = TemplateAdapter.adapt(pattern, force_tier: :tier1)
-      
+
       # Should have same or fewer steps (no additions for tier1)
       assert length(adapted.steps) == original_steps
     end
 
     test "adds metadata about adaptation" do
       {:ok, pattern} = PatternRegistry.get_pattern("code_navigation")
-      
-      {:ok, adapted} = TemplateAdapter.adapt(pattern, 
-        model_id: "claude-3-haiku",
-        force_tier: :tier3
-      )
-      
+
+      {:ok, adapted} =
+        TemplateAdapter.adapt(pattern,
+          model_id: "claude-3-haiku",
+          force_tier: :tier3
+        )
+
       assert adapted.metadata[:adapted_for] == "claude-3-haiku"
       assert adapted.metadata[:adapted_tier] == :tier3
     end
 
     test "previews adaptations without applying" do
       {:ok, pattern} = PatternRegistry.get_pattern("debug_error")
-      
+
       preview = TemplateAdapter.preview_adaptations(pattern, force_tier: :tier3)
-      
+
       assert Map.has_key?(preview, :original_step_count)
       assert Map.has_key?(preview, :adaptations)
       assert Map.has_key?(preview, :estimated_overhead_ms)
@@ -376,10 +383,10 @@ defmodule Mimo.WorkflowTest do
   describe "MetaCognitiveRouter workflow integration" do
     test "classifies and suggests workflow for procedural query" do
       result = MetaCognitiveRouter.classify_and_suggest("Fix the undefined function error")
-      
+
       assert Map.has_key?(result, :classification)
       assert result.classification.primary_store == :procedural
-      
+
       # Should have a workflow suggestion for procedural queries
       if result.workflow_suggestion do
         assert Map.has_key?(result.workflow_suggestion, :type)
@@ -389,7 +396,7 @@ defmodule Mimo.WorkflowTest do
 
     test "suggests workflow directly" do
       {:ok, suggestion} = MetaCognitiveRouter.suggest_workflow("Debug the authentication error")
-      
+
       assert Map.has_key?(suggestion, :type)
       assert suggestion.type in [:auto_execute, :suggest, :manual]
       assert Map.has_key?(suggestion, :confidence)
@@ -412,20 +419,21 @@ defmodule Mimo.WorkflowTest do
         context: %{},
         timestamp: DateTime.utc_now()
       }
-      
+
       assert :ok = LearningTracker.record_event(event)
     end
 
     test "records simple outcome" do
-      assert :ok = LearningTracker.record_outcome("test_pattern", :success,
-        model_id: "gpt-4",
-        duration_ms: 1000
-      )
+      assert :ok =
+               LearningTracker.record_outcome("test_pattern", :success,
+                 model_id: "gpt-4",
+                 duration_ms: 1000
+               )
     end
 
     test "gets statistics" do
       stats = LearningTracker.stats()
-      
+
       assert Map.has_key?(stats, :buffered_events)
       assert Map.has_key?(stats, :affinity_count)
     end
@@ -435,7 +443,7 @@ defmodule Mimo.WorkflowTest do
       for i <- 1..5 do
         LearningTracker.record_outcome("flush_test_#{i}", :success)
       end
-      
+
       # Flush and verify
       assert :ok = LearningTracker.flush()
     end
@@ -448,9 +456,9 @@ defmodule Mimo.WorkflowTest do
   describe "Executor" do
     test "converts pattern to procedure definition" do
       {:ok, pattern} = PatternRegistry.get_pattern("context_gathering")
-      
+
       procedure = Executor.pattern_to_procedure(pattern, %{query: "test"})
-      
+
       assert Map.has_key?(procedure, "name")
       assert Map.has_key?(procedure, "states")
       assert Map.has_key?(procedure, "initial_state")
@@ -468,7 +476,7 @@ defmodule Mimo.WorkflowTest do
   describe "Workflow facade" do
     test "lists patterns" do
       patterns = Workflow.list_patterns()
-      
+
       assert is_list(patterns)
       assert length(patterns) >= 5
     end
@@ -480,7 +488,7 @@ defmodule Mimo.WorkflowTest do
 
     test "suggests workflow for task" do
       result = Workflow.suggest("Fix the compile error in auth module")
-      
+
       assert match?({:ok, _}, result)
       {:ok, suggestion} = result
       assert Map.has_key?(suggestion, :type)
@@ -488,20 +496,20 @@ defmodule Mimo.WorkflowTest do
 
     test "gets model profile" do
       {:ok, profile} = Workflow.get_model_profile("claude-opus-4")
-      
+
       assert profile.tier == :tier1
       assert Map.has_key?(profile, :capabilities)
     end
 
     test "gets model recommendations" do
       recommendations = Workflow.get_model_recommendations("claude-3-haiku")
-      
+
       assert recommendations[:use_prepare_context] == true
     end
 
     test "adapts pattern for model" do
       {:ok, adapted} = Workflow.adapt_for_model("debug_error", "claude-3-haiku")
-      
+
       assert adapted.metadata[:adapted_for] == "claude-3-haiku"
     end
 
@@ -515,7 +523,7 @@ defmodule Mimo.WorkflowTest do
 
     test "gets learning stats" do
       stats = Workflow.learning_stats()
-      
+
       assert is_map(stats)
     end
   end
@@ -527,16 +535,18 @@ defmodule Mimo.WorkflowTest do
   describe "Telemetry" do
     test "attaches and detaches handlers" do
       Mimo.Workflow.Telemetry.attach()
-      
+
       # Verify events are registered
       events = Mimo.Workflow.Telemetry.events()
       assert length(events) > 0
-      
+
       Mimo.Workflow.Telemetry.detach()
     end
 
     test "emits workflow events" do
-      Mimo.Workflow.Telemetry.emit(:predict, %{duration_us: 1000, confidence: 0.85}, %{pattern_name: "test"})
+      Mimo.Workflow.Telemetry.emit(:predict, %{duration_us: 1000, confidence: 0.85}, %{
+        pattern_name: "test"
+      })
     end
   end
 end

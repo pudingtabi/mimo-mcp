@@ -285,8 +285,7 @@ defmodule Mimo.Cognitive.VerificationTelemetry do
       count: op_stats.count + 1,
       successes: op_stats.successes + if(success, do: 1, else: 0),
       total_duration: op_stats.total_duration + duration,
-      avg_duration:
-        Float.round((op_stats.total_duration + duration) / (op_stats.count + 1), 2),
+      avg_duration: Float.round((op_stats.total_duration + duration) / (op_stats.count + 1), 2),
       success_rate:
         Float.round((op_stats.successes + if(success, do: 1, else: 0)) / (op_stats.count + 1), 3)
     }

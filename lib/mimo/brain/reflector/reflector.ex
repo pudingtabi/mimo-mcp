@@ -46,7 +46,14 @@ defmodule Mimo.Brain.Reflector do
 
   require Logger
 
-  alias Mimo.Brain.Reflector.{Evaluator, ConfidenceEstimator, ErrorDetector, ConfidenceOutput, Optimizer}
+  alias Mimo.Brain.Reflector.{
+    Evaluator,
+    ConfidenceEstimator,
+    ErrorDetector,
+    ConfidenceOutput,
+    Optimizer
+  }
+
   alias Mimo.Brain.Memory
   alias Mimo.Cognitive.Reasoner
   alias Mimo.Skills.Verify
@@ -423,11 +430,13 @@ defmodule Mimo.Brain.Reflector do
 
   defp generate_context_hash(query, context) do
     # Create a hash from query and key context elements for matching
-    content = [
-      query,
-      context[:thread_id] || "",
-      context[:tool] || ""
-    ] |> Enum.join("::")
+    content =
+      [
+        query,
+        context[:thread_id] || "",
+        context[:tool] || ""
+      ]
+      |> Enum.join("::")
 
     :crypto.hash(:sha256, content)
     |> Base.encode16(case: :lower)

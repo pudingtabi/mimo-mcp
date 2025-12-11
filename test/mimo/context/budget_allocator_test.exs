@@ -7,27 +7,36 @@ defmodule Mimo.Context.BudgetAllocatorTest do
     test "allocates budgets for small models" do
       budget = BudgetAllocator.allocate(:small, 2000)
 
-      assert budget.tier1 == 100  # 5%
-      assert budget.tier2 == 300  # 15%
-      assert budget.tier3 == 1600 # 80%
+      # 5%
+      assert budget.tier1 == 100
+      # 15%
+      assert budget.tier2 == 300
+      # 80%
+      assert budget.tier3 == 1600
       assert budget.total == 2000
     end
 
     test "allocates budgets for medium models" do
       budget = BudgetAllocator.allocate(:medium, 8000)
 
-      assert budget.tier1 == 640   # 8%
-      assert budget.tier2 == 1600  # 20%
-      assert budget.tier3 == 5760  # 72%
+      # 8%
+      assert budget.tier1 == 640
+      # 20%
+      assert budget.tier2 == 1600
+      # 72%
+      assert budget.tier3 == 5760
       assert budget.total == 8000
     end
 
     test "allocates budgets for large models" do
       budget = BudgetAllocator.allocate(:large, 40000)
 
-      assert budget.tier1 == 4000   # 10%
-      assert budget.tier2 == 10000  # 25%
-      assert budget.tier3 == 26000  # 65%
+      # 10%
+      assert budget.tier1 == 4000
+      # 25%
+      assert budget.tier2 == 10000
+      # 65%
+      assert budget.tier3 == 26000
       assert budget.total == 40000
     end
 
@@ -49,7 +58,8 @@ defmodule Mimo.Context.BudgetAllocatorTest do
     test "uses default max_tokens when not provided" do
       budget = BudgetAllocator.allocate(:small)
 
-      assert budget.total == 2000  # Default for small
+      # Default for small
+      assert budget.total == 2000
       assert budget.tier1 == 100
     end
 
@@ -120,13 +130,16 @@ defmodule Mimo.Context.BudgetAllocatorTest do
       {fitting, remaining} = BudgetAllocator.fit_to_budget(items, 70)
 
       assert length(fitting) == 2
-      assert remaining == 10  # 70 - 10 - 50 = 10
+      # 70 - 10 - 50 = 10
+      assert remaining == 10
     end
 
     test "estimates tokens from content when not provided" do
       items = [
-        %{content: "Hello world!"},  # ~3 tokens
-        %{content: String.duplicate("x", 100)}  # ~25 tokens
+        # ~3 tokens
+        %{content: "Hello world!"},
+        # ~25 tokens
+        %{content: String.duplicate("x", 100)}
       ]
 
       {fitting, remaining} = BudgetAllocator.fit_to_budget(items, 30)
@@ -159,7 +172,7 @@ defmodule Mimo.Context.BudgetAllocatorTest do
     test "estimates from content field" do
       item = %{content: String.duplicate("x", 100)}
       tokens = BudgetAllocator.estimate_item_tokens(item)
-      
+
       # 100 chars / 4 = 25 tokens
       assert tokens == 25
     end
@@ -174,7 +187,8 @@ defmodule Mimo.Context.BudgetAllocatorTest do
 
   describe "estimate_string_tokens/1" do
     test "estimates tokens from string length" do
-      assert BudgetAllocator.estimate_string_tokens("Hello") == 1  # 5 chars / 4 = 1
+      # 5 chars / 4 = 1
+      assert BudgetAllocator.estimate_string_tokens("Hello") == 1
       assert BudgetAllocator.estimate_string_tokens(String.duplicate("x", 100)) == 25
       assert BudgetAllocator.estimate_string_tokens("") == 0
     end

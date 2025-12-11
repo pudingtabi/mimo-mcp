@@ -7,16 +7,27 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLink do
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
-  @derive {Jason.Encoder, only: [:id, :source_type, :source_id, :target_type, :target_id, :link_type, :confidence, :discovered_by, :inserted_at]}
+  @derive {Jason.Encoder,
+           only: [
+             :id,
+             :source_type,
+             :source_id,
+             :target_type,
+             :target_id,
+             :link_type,
+             :confidence,
+             :discovered_by,
+             :inserted_at
+           ]}
 
   schema "cross_modality_links" do
-    field :source_type, :string
-    field :source_id, :string
-    field :target_type, :string
-    field :target_id, :string
-    field :link_type, :string
-    field :confidence, :float, default: 0.5
-    field :discovered_by, :string
+    field(:source_type, :string)
+    field(:source_id, :string)
+    field(:target_type, :string)
+    field(:target_id, :string)
+    field(:link_type, :string)
+    field(:confidence, :float, default: 0.5)
+    field(:discovered_by, :string)
 
     timestamps(type: :naive_datetime_usec)
   end

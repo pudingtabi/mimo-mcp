@@ -6,7 +6,7 @@ defmodule Mimo.Library.AutoDiscovery do
   dependencies and pre-cache their documentation for faster lookups.
 
   ## Parallel Execution
-  
+
   Dependencies are cached in parallel with a concurrency limit of 4 to avoid
   overwhelming external APIs while still being fast.
 
@@ -54,7 +54,9 @@ defmodule Mimo.Library.AutoDiscovery do
           Enum.map(deps, fn {name, version} -> {ecosystem, name, version} end)
         end)
 
-      Logger.info("[AutoDiscovery] Caching #{length(all_deps)} dependencies in parallel (max #{@max_concurrency} concurrent)")
+      Logger.info(
+        "[AutoDiscovery] Caching #{length(all_deps)} dependencies in parallel (max #{@max_concurrency} concurrent)"
+      )
 
       # Cache dependencies IN PARALLEL with concurrency limit
       results =

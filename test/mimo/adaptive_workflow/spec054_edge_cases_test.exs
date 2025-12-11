@@ -1,7 +1,7 @@
 defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
   @moduledoc """
   Edge case tests for SPEC-054: Adaptive Workflow Engine for Model Optimization.
-  
+
   Tests boundary conditions, error handling, and corner cases for:
   ModelProfiler, TemplateAdapter, LearningTracker, and benchmarking modules.
   """
@@ -12,12 +12,14 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
     TemplateAdapter,
     LearningTracker
   }
+
   alias Mimo.AdaptiveWorkflow.Benchmarking.{
     ContextWindow,
     ReasoningDepth,
     TokenEfficiency,
     ToolProficiency
   }
+
   alias Mimo.Workflow.{Pattern, PatternRegistry}
   alias Mimo.Workflow
 
@@ -66,7 +68,7 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
       tier_lower = ModelProfiler.detect_tier("gpt-4")
       tier_upper = ModelProfiler.detect_tier("GPT-4")
       tier_mixed = ModelProfiler.detect_tier("GpT-4")
-      
+
       assert tier_lower in [:tier1, :tier2, :tier3]
       assert tier_upper in [:tier1, :tier2, :tier3]
       assert tier_mixed in [:tier1, :tier2, :tier3]
@@ -102,9 +104,10 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
 
     test "capabilities have expected keys" do
       capabilities = ModelProfiler.get_capabilities("claude-3-opus")
-      
+
       # Keys defined in @known_models capabilities
       expected_keys = [:reasoning, :coding, :analysis, :synthesis, :tool_use, :context_handling]
+
       for key <- expected_keys do
         assert Map.has_key?(capabilities, key), "Missing key: #{key}"
       end
@@ -113,11 +116,11 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
     test "capability values are in valid range" do
       for model <- ["claude-3-opus", "gpt-4", "claude-3-haiku", "unknown"] do
         capabilities = ModelProfiler.get_capabilities(model)
-        
+
         for {key, value} <- capabilities do
           if is_float(value) or is_integer(value) do
             assert value >= 0.0 and value <= 1.0,
-              "#{model}.#{key} = #{value} is out of range [0, 1]"
+                   "#{model}.#{key} = #{value} is out of range [0, 1]"
           end
         end
       end
@@ -133,12 +136,13 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
     test "gets constraints for all tier levels" do
       for tier <- [:tier1, :tier2, :tier3] do
         # Find a model for this tier
-        model = case tier do
-          :tier1 -> "claude-opus-4"
-          :tier2 -> "gpt-4"
-          :tier3 -> "claude-3-haiku"
-        end
-        
+        model =
+          case tier do
+            :tier1 -> "claude-opus-4"
+            :tier2 -> "gpt-4"
+            :tier3 -> "claude-3-haiku"
+          end
+
         constraints = ModelProfiler.get_constraints(model)
         assert is_list(constraints)
       end
@@ -175,7 +179,7 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
 
     test "recommendations have expected structure" do
       recommendations = ModelProfiler.get_workflow_recommendations("claude-3-haiku")
-      
+
       assert Map.has_key?(recommendations, :use_prepare_context)
       assert Map.has_key?(recommendations, :max_parallel_tools)
       assert is_boolean(recommendations[:use_prepare_context])
@@ -185,10 +189,10 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
     test "recommendations vary by tier" do
       tier1_recs = ModelProfiler.get_workflow_recommendations("claude-opus-4")
       tier3_recs = ModelProfiler.get_workflow_recommendations("claude-3-haiku")
-      
+
       # Tier 3 should recommend prepare_context
       assert tier3_recs[:use_prepare_context] == true
-      
+
       # Tier 3 should have lower parallel tools
       assert tier3_recs[:max_parallel_tools] <= tier1_recs[:max_parallel_tools] || true
     end
@@ -205,7 +209,7 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
         steps: nil,
         category: :debugging
       }
-      
+
       result = TemplateAdapter.adapt(pattern, force_tier: :tier3)
       assert match?({:ok, _}, result) or match?({:error, _}, result)
     end
@@ -216,49 +220,50 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
         steps: [],
         category: :debugging
       }
-      
+
       result = TemplateAdapter.adapt(pattern, force_tier: :tier3)
       assert match?({:ok, _}, result) or match?({:error, _}, result)
     end
 
     test "adapts pattern with very many steps" do
-      steps = for i <- 1..50 do
-        %{tool: "tool_#{i}", args: %{step: i}}
-      end
-      
+      steps =
+        for i <- 1..50 do
+          %{tool: "tool_#{i}", args: %{step: i}}
+        end
+
       pattern = %Pattern{
         name: "many_steps",
         steps: steps,
         category: :code_navigation
       }
-      
+
       {:ok, adapted} = TemplateAdapter.adapt(pattern, force_tier: :tier3)
       assert is_list(adapted.steps)
     end
 
     test "adapts with invalid tier option" do
       {:ok, pattern} = PatternRegistry.get_pattern("debug_error")
-      
+
       result = TemplateAdapter.adapt(pattern, force_tier: :invalid_tier)
       assert match?({:ok, _}, result) or match?({:error, _}, result)
     end
 
     test "adapts with nil model_id" do
       {:ok, pattern} = PatternRegistry.get_pattern("debug_error")
-      
+
       result = TemplateAdapter.adapt(pattern, model_id: nil)
       assert match?({:ok, _}, result) or match?({:error, _}, result)
     end
 
     test "adapts same pattern multiple times" do
       {:ok, pattern} = PatternRegistry.get_pattern("debug_error")
-      
+
       # Adapt for tier3
       {:ok, adapted1} = TemplateAdapter.adapt(pattern, force_tier: :tier3)
-      
+
       # Adapt again - should still work
       {:ok, adapted2} = TemplateAdapter.adapt(adapted1, force_tier: :tier3)
-      
+
       assert is_list(adapted2.steps)
     end
 
@@ -269,12 +274,13 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
         category: :debugging,
         metadata: %{original_key: "original_value"}
       }
-      
-      {:ok, adapted} = TemplateAdapter.adapt(pattern, 
-        force_tier: :tier3,
-        model_id: "test-model"
-      )
-      
+
+      {:ok, adapted} =
+        TemplateAdapter.adapt(pattern,
+          force_tier: :tier3,
+          model_id: "test-model"
+        )
+
       assert adapted.metadata[:original_key] == "original_value" || true
       assert adapted.metadata[:adapted_for] == "test-model"
     end
@@ -295,7 +301,7 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
     test "preview shows estimated overhead" do
       {:ok, pattern} = PatternRegistry.get_pattern("debug_error")
       preview = TemplateAdapter.preview_adaptations(pattern, force_tier: :tier3)
-      
+
       assert Map.has_key?(preview, :estimated_overhead_ms)
       assert is_integer(preview.estimated_overhead_ms) or is_float(preview.estimated_overhead_ms)
     end
@@ -313,7 +319,7 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
         outcome: :success,
         timestamp: DateTime.utc_now()
       }
-      
+
       result = LearningTracker.record_event(event)
       assert result == :ok
     end
@@ -329,7 +335,7 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
         context: nil,
         timestamp: DateTime.utc_now()
       }
-      
+
       result = LearningTracker.record_event(event)
       assert result == :ok or match?({:error, _}, result)
     end
@@ -345,7 +351,7 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
         },
         timestamp: DateTime.utc_now()
       }
-      
+
       result = LearningTracker.record_event(event)
       assert result == :ok
     end
@@ -358,24 +364,26 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
         duration_ms: -100,
         timestamp: DateTime.utc_now()
       }
-      
+
       result = LearningTracker.record_event(event)
       assert result == :ok or match?({:error, _}, result)
     end
 
     test "handles concurrent event recording" do
-      tasks = for i <- 1..20 do
-        Task.async(fn ->
-          event = %{
-            execution_id: "concurrent_#{i}_#{System.unique_integer([:positive])}",
-            pattern_name: "concurrent_test_#{i}",
-            outcome: if(rem(i, 2) == 0, do: :success, else: :failure),
-            duration_ms: i * 100,
-            timestamp: DateTime.utc_now()
-          }
-          LearningTracker.record_event(event)
-        end)
-      end
+      tasks =
+        for i <- 1..20 do
+          Task.async(fn ->
+            event = %{
+              execution_id: "concurrent_#{i}_#{System.unique_integer([:positive])}",
+              pattern_name: "concurrent_test_#{i}",
+              outcome: if(rem(i, 2) == 0, do: :success, else: :failure),
+              duration_ms: i * 100,
+              timestamp: DateTime.utc_now()
+            }
+
+            LearningTracker.record_event(event)
+          end)
+        end
 
       results = Task.await_many(tasks, 5000)
       assert Enum.all?(results, &(&1 == :ok))
@@ -404,9 +412,7 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
     end
 
     test "records with very large duration" do
-      result = LearningTracker.record_outcome("test_pattern", :success,
-        duration_ms: 999_999_999
-      )
+      result = LearningTracker.record_outcome("test_pattern", :success, duration_ms: 999_999_999)
       assert result == :ok
     end
   end
@@ -414,7 +420,7 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
   describe "LearningTracker stats edge cases" do
     test "stats returns expected structure" do
       stats = LearningTracker.stats()
-      
+
       assert Map.has_key?(stats, :buffered_events)
       assert Map.has_key?(stats, :affinity_count)
     end
@@ -424,7 +430,7 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
       for i <- 1..50 do
         LearningTracker.record_outcome("stats_test_#{i}", :success)
       end
-      
+
       stats = LearningTracker.stats()
       assert is_integer(stats.buffered_events)
     end
@@ -434,7 +440,7 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
     test "flush with no events is safe" do
       # First flush to clear
       LearningTracker.flush()
-      
+
       # Second flush with empty buffer
       result = LearningTracker.flush()
       assert result == :ok
@@ -445,12 +451,13 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
       for i <- 1..10 do
         LearningTracker.record_outcome("flush_concurrent_#{i}", :success)
       end
-      
+
       # Flush concurrently
-      tasks = for _ <- 1..5 do
-        Task.async(fn -> LearningTracker.flush() end)
-      end
-      
+      tasks =
+        for _ <- 1..5 do
+          Task.async(fn -> LearningTracker.flush() end)
+        end
+
       results = Task.await_many(tasks, 5000)
       assert Enum.all?(results, &(&1 == :ok))
     end
@@ -520,40 +527,39 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
   describe "cross-module integration edge cases" do
     test "profile informs template adaptation" do
       {:ok, pattern} = PatternRegistry.get_pattern("debug_error")
-      
+
       # Get profile
       {:ok, profile} = Workflow.get_model_profile("claude-3-haiku")
-      
+
       # Use profile tier for adaptation
       {:ok, adapted} = TemplateAdapter.adapt(pattern, force_tier: profile.tier)
-      
+
       # Record learning from this
-      LearningTracker.record_outcome(adapted.name, :success,
-        model_id: "claude-3-haiku"
-      )
-      
+      LearningTracker.record_outcome(adapted.name, :success, model_id: "claude-3-haiku")
+
       assert is_list(adapted.steps)
     end
 
     test "learning tracker persists through multiple operations" do
       # Record events
       for i <- 1..10 do
-        LearningTracker.record_outcome("persist_test_#{rem(i, 3)}", 
+        LearningTracker.record_outcome(
+          "persist_test_#{rem(i, 3)}",
           if(rem(i, 2) == 0, do: :success, else: :failure),
           model_id: "test-model-#{rem(i, 2)}",
           duration_ms: i * 100
         )
       end
-      
+
       # Get stats
       stats1 = LearningTracker.stats()
-      
+
       # Flush
       LearningTracker.flush()
-      
+
       # Stats after flush
       stats2 = LearningTracker.stats()
-      
+
       # Buffer should be cleared after flush
       assert stats2.buffered_events <= stats1.buffered_events || true
     end

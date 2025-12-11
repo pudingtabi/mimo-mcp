@@ -457,7 +457,7 @@ defmodule Mimo.ToolInterfaceTest do
       # They still work when called directly but are NOT listed to encourage
       # migration to the unified 'memory' tool
       assert "memory" in tool_names
-      
+
       # The legacy tools are still executable (tested in deprecated tools tests above)
       # but intentionally hidden from list_tools() to guide users to new API
     end

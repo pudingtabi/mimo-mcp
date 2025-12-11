@@ -55,27 +55,34 @@ defmodule Mimo.Tools.Dispatchers.File do
           Mimo.Skills.FileOps.read_lines(path, start_line, end_line)
 
         "insert_after" ->
-          result = Mimo.Skills.FileOps.insert_after_line(
-            path,
-            args["line_number"] || 0,
-            args["content"] || ""
-          )
+          result =
+            Mimo.Skills.FileOps.insert_after_line(
+              path,
+              args["line_number"] || 0,
+              args["content"] || ""
+            )
+
           FileReadCache.invalidate(path)
           result
 
         "insert_before" ->
-          result = Mimo.Skills.FileOps.insert_before_line(
-            path,
-            args["line_number"] || 1,
-            args["content"] || ""
-          )
+          result =
+            Mimo.Skills.FileOps.insert_before_line(
+              path,
+              args["line_number"] || 1,
+              args["content"] || ""
+            )
+
           FileReadCache.invalidate(path)
           result
 
         "replace_lines" ->
           start_line = args["start_line"] || 1
           end_line = args["end_line"] || start_line
-          result = Mimo.Skills.FileOps.replace_lines(path, start_line, end_line, args["content"] || "")
+
+          result =
+            Mimo.Skills.FileOps.replace_lines(path, start_line, end_line, args["content"] || "")
+
           FileReadCache.invalidate(path)
           result
 
@@ -91,7 +98,9 @@ defmodule Mimo.Tools.Dispatchers.File do
           Mimo.Skills.FileOps.search(path, args["pattern"] || "", opts)
 
         "replace_string" ->
-          result = Mimo.Skills.FileOps.replace_string(path, args["old_str"] || "", args["new_str"] || "")
+          result =
+            Mimo.Skills.FileOps.replace_string(path, args["old_str"] || "", args["new_str"] || "")
+
           FileReadCache.invalidate(path)
           result
 

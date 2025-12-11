@@ -59,16 +59,13 @@ defmodule Mimo.Telemetry.Metrics do
       counter("mimo.memory.search.count",
         description: "Total memory search operations"
       ),
-
       counter("mimo.memory.store.count",
         description: "Total memory store operations"
       ),
-
       counter("mimo.tool.dispatch.count",
         description: "Total tool dispatch operations",
         tags: [:tool_name]
       ),
-
       counter("mimo.errors.count",
         description: "Total errors by type",
         tags: [:type, :component]
@@ -83,19 +80,15 @@ defmodule Mimo.Telemetry.Metrics do
         description: "Total BEAM memory usage in bytes",
         unit: :byte
       ),
-
       last_value("mimo.memory.total_count",
         description: "Total memories in store"
       ),
-
       last_value("mimo.hnsw.index_size",
         description: "HNSW index size (number of vectors)"
       ),
-
       last_value("mimo.embedding_cache.hit_rate",
         description: "Embedding cache hit rate percentage"
       ),
-
       last_value("mimo.embedding_cache.size",
         description: "Number of cached embeddings"
       ),
@@ -111,11 +104,9 @@ defmodule Mimo.Telemetry.Metrics do
         description: "Total VM memory",
         unit: :byte
       ),
-
       last_value("vm.total_run_queue_lengths.total",
         description: "Total run queue length"
       ),
-
       last_value("vm.system_counts.process_count",
         description: "Number of BEAM processes"
       ),
@@ -139,7 +130,6 @@ defmodule Mimo.Telemetry.Metrics do
         description: "Total triples ingested",
         tags: [:source, :method]
       ),
-
       distribution("mimo.semantic_store.ingest.duration",
         description: "Ingestion latency",
         unit: {:native, :millisecond},
@@ -154,7 +144,6 @@ defmodule Mimo.Telemetry.Metrics do
         description: "Total entity resolutions",
         tags: [:method, :type]
       ),
-
       distribution("mimo.semantic_store.resolve.duration",
         description: "Entity resolution latency",
         unit: {:native, :millisecond},
@@ -163,7 +152,6 @@ defmodule Mimo.Telemetry.Metrics do
           buckets: [5, 10, 25, 50, 100, 250]
         ]
       ),
-
       summary("mimo.semantic_store.resolve.confidence",
         description: "Entity resolution confidence scores",
         tags: [:method]
@@ -174,12 +162,10 @@ defmodule Mimo.Telemetry.Metrics do
         description: "Total inference passes",
         tags: [:graph_id]
       ),
-
       counter("mimo.semantic_store.inference.triples_created",
         description: "Triples created by inference",
         tags: [:graph_id]
       ),
-
       distribution("mimo.semantic_store.inference.duration",
         description: "Inference pass latency",
         unit: {:native, :millisecond},
@@ -197,7 +183,6 @@ defmodule Mimo.Telemetry.Metrics do
         description: "Total classifications",
         tags: [:intent, :path]
       ),
-
       distribution("mimo.brain.classify.duration",
         description: "Classification latency",
         unit: {:native, :millisecond},
@@ -206,7 +191,6 @@ defmodule Mimo.Telemetry.Metrics do
           buckets: [1, 5, 10, 20, 50, 100, 500]
         ]
       ),
-
       summary("mimo.brain.classify.confidence",
         description: "Classification confidence scores",
         tags: [:intent]
@@ -220,7 +204,6 @@ defmodule Mimo.Telemetry.Metrics do
         description: "Total HTTP requests",
         tags: [:method, :path, :status]
       ),
-
       distribution("mimo.http.request.duration",
         description: "HTTP request latency",
         unit: {:native, :millisecond},
@@ -241,7 +224,6 @@ defmodule Mimo.Telemetry.Metrics do
           buckets: [1, 5, 10, 25, 50, 100]
         ]
       ),
-
       distribution("mimo.hnsw.insert.duration",
         description: "HNSW insert latency",
         unit: {:native, :millisecond},
@@ -257,11 +239,9 @@ defmodule Mimo.Telemetry.Metrics do
       counter("mimo.embedding_cache.hits",
         description: "Embedding cache hits"
       ),
-
       counter("mimo.embedding_cache.misses",
         description: "Embedding cache misses"
       ),
-
       distribution("mimo.embedding.generate.duration",
         description: "Embedding generation latency (Ollama)",
         unit: {:native, :millisecond},
@@ -278,12 +258,10 @@ defmodule Mimo.Telemetry.Metrics do
         description: "Total errors",
         tags: [:component, :error_type]
       ),
-
       counter("mimo.retry.total",
         description: "Total retry attempts",
         tags: [:component, :attempt]
       ),
-
       counter("mimo.circuit_breaker.state_change",
         description: "Circuit breaker state changes",
         tags: [:name, :from_state, :to_state]
@@ -297,7 +275,6 @@ defmodule Mimo.Telemetry.Metrics do
         description: "Total proactive suggestions made",
         tags: [:accepted]
       ),
-
       summary("mimo.observer.suggestions.confidence",
         description: "Suggestion confidence scores"
       )

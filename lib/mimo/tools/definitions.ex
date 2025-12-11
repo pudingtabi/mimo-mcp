@@ -23,17 +23,33 @@ defmodule Mimo.Tools.Definitions do
 
   # Deprecated tool names - these are hidden from MCP exposure but still work internally
   @deprecated_tools MapSet.new([
-    # Web aliases → use `web operation=...`
-    "fetch", "search", "blink", "browser", "vision", "sonar", "web_extract", "web_parse",
-    # Code aliases → use `code operation=...`
-    "code_symbols", "library", "diagnostics", "graph",
-    # Meta aliases → use `meta operation=...`
-    "analyze_file", "debug_error", "prepare_context", "suggest_next_tool",
-    # Cognitive aliases → use `cognitive operation=...`
-    "emergence", "reflector", "verify",
-    # Memory aliases → use `memory operation=...`
-    "store_fact", "search_vibes"
-  ])
+                      # Web aliases → use `web operation=...`
+                      "fetch",
+                      "search",
+                      "blink",
+                      "browser",
+                      "vision",
+                      "sonar",
+                      "web_extract",
+                      "web_parse",
+                      # Code aliases → use `code operation=...`
+                      "code_symbols",
+                      "library",
+                      "diagnostics",
+                      "graph",
+                      # Meta aliases → use `meta operation=...`
+                      "analyze_file",
+                      "debug_error",
+                      "prepare_context",
+                      "suggest_next_tool",
+                      # Cognitive aliases → use `cognitive operation=...`
+                      "emergence",
+                      "reflector",
+                      "verify",
+                      # Memory aliases → use `memory operation=...`
+                      "store_fact",
+                      "search_vibes"
+                    ])
 
   @tool_definitions [
     # ==========================================================================
@@ -151,7 +167,11 @@ defmodule Mimo.Tools.Definitions do
       input_schema: %{
         type: "object",
         properties: %{
-          command: %{type: "string", description: "The actual shell command to execute (e.g., 'ls -la', 'npm test', 'cargo build'). This parameter is REQUIRED."},
+          command: %{
+            type: "string",
+            description:
+              "The actual shell command to execute (e.g., 'ls -la', 'npm test', 'cargo build'). This parameter is REQUIRED."
+          },
           operation: %{
             type: "string",
             enum: [
@@ -1882,7 +1902,16 @@ defmodule Mimo.Tools.Definitions do
         properties: %{
           operation: %{
             type: "string",
-            enum: ["queue", "status", "pause", "resume", "reset_circuit", "list_queue", "clear_queue", "check_safety"],
+            enum: [
+              "queue",
+              "status",
+              "pause",
+              "resume",
+              "reset_circuit",
+              "list_queue",
+              "clear_queue",
+              "check_safety"
+            ],
             default: "status",
             description: "Operation to perform"
           },
@@ -1915,13 +1944,13 @@ defmodule Mimo.Tools.Definitions do
 
   @doc """
   Returns all MCP tool definitions (filtered - excludes deprecated tools).
-  
+
   Deprecated tools are hidden from MCP exposure to reduce context consumption
   but still work internally for backward compatibility.
   """
   def definitions do
     @tool_definitions
-    |> Enum.reject(fn tool -> 
+    |> Enum.reject(fn tool ->
       MapSet.member?(@deprecated_tools, to_string(tool.name))
     end)
   end

@@ -5,7 +5,8 @@ defmodule Mimo.Tools.Dispatchers.Onboard.Tracker do
 
   # State structure
   defstruct [
-    status: :idle,       # :idle, :running, :completed, :partial, :failed
+    # :idle, :running, :completed, :partial, :failed
+    status: :idle,
     path: nil,
     fingerprint: nil,
     start_time: nil,
@@ -61,9 +62,9 @@ defmodule Mimo.Tools.Dispatchers.Onboard.Tracker do
         progress: %{symbols: :running, deps: :running, graph: :running},
         results: %{symbols: nil, deps: nil, graph: nil}
       }
-      
+
       # Start the background task
-      Task.Supervisor.start_child(Mimo.TaskSupervisor, fn -> 
+      Task.Supervisor.start_child(Mimo.TaskSupervisor, fn ->
         run_background_tasks(path)
       end)
 
@@ -73,12 +74,13 @@ defmodule Mimo.Tools.Dispatchers.Onboard.Tracker do
 
   @impl true
   def handle_call(:get_status, _from, state) do
-    duration = if state.start_time do
-      end_time = state.finish_time || System.monotonic_time(:millisecond)
-      end_time - state.start_time
-    else
-      0
-    end
+    duration =
+      if state.start_time do
+        end_time = state.finish_time || System.monotonic_time(:millisecond)
+        end_time - state.start_time
+      else
+        0
+      end
 
     response = %{
       status: state.status,
@@ -88,6 +90,7 @@ defmodule Mimo.Tools.Dispatchers.Onboard.Tracker do
       results: state.results,
       error: state.error
     }
+
     {:reply, response, state}
   end
 
@@ -95,41 +98,54 @@ defmodule Mimo.Tools.Dispatchers.Onboard.Tracker do
   def handle_cast({:update_progress, type, status, result}, state) do
     new_progress = Map.put(state.progress, type, status)
     new_results = if result, do: Map.put(state.results, type, result), else: state.results
-    
+
     # Check if all done
     all_done = Enum.all?(Map.values(new_progress), fn s -> s in [:done, :error, :timeout] end)
-    
-    {new_status, finish_time} = if all_done do
-      # Check if any errors
-      has_errors = Enum.any?(Map.values(new_progress), fn s -> s in [:error, :timeout] end)
-      final_status = if has_errors, do: :partial, else: :completed
-      
-      # Store fingerprint if successful or partial
-      store_fingerprint(state.path, state.fingerprint, new_results.symbols, new_results.deps, new_results.graph)
-      
-      {final_status, System.monotonic_time(:millisecond)}
-    else
-      {state.status, state.finish_time}
-    end
-    
-    new_state = %{state | 
-      progress: new_progress, 
-      results: new_results, 
-      status: new_status,
-      finish_time: finish_time
+
+    {new_status, finish_time} =
+      if all_done do
+        # Check if any errors
+        has_errors = Enum.any?(Map.values(new_progress), fn s -> s in [:error, :timeout] end)
+        final_status = if has_errors, do: :partial, else: :completed
+
+        # Store fingerprint if successful or partial
+        store_fingerprint(
+          state.path,
+          state.fingerprint,
+          new_results.symbols,
+          new_results.deps,
+          new_results.graph
+        )
+
+        {final_status, System.monotonic_time(:millisecond)}
+      else
+        {state.status, state.finish_time}
+      end
+
+    new_state = %{
+      state
+      | progress: new_progress,
+        results: new_results,
+        status: new_status,
+        finish_time: finish_time
     }
-    
+
     {:noreply, new_state}
   end
 
   defp run_background_tasks(path) do
     # We run these in parallel tasks but report back individually
-    
+
     # Define the tasks
     tasks = [
-      {:symbols, fn -> Mimo.Tools.Dispatchers.Code.dispatch(%{"operation" => "index", "path" => path}) end},
-      {:deps, fn -> Mimo.Tools.Dispatchers.Library.dispatch(%{"operation" => "discover", "path" => path}) end},
-      {:graph, fn -> Mimo.Tools.Dispatchers.Knowledge.dispatch(%{"operation" => "link", "path" => path}) end}
+      {:symbols,
+       fn -> Mimo.Tools.Dispatchers.Code.dispatch(%{"operation" => "index", "path" => path}) end},
+      {:deps,
+       fn ->
+         Mimo.Tools.Dispatchers.Library.dispatch(%{"operation" => "discover", "path" => path})
+       end},
+      {:graph,
+       fn -> Mimo.Tools.Dispatchers.Knowledge.dispatch(%{"operation" => "link", "path" => path}) end}
     ]
 
     tasks
@@ -137,8 +153,9 @@ defmodule Mimo.Tools.Dispatchers.Onboard.Tracker do
       Task.Supervisor.async_nolink(Mimo.TaskSupervisor, fn ->
         try do
           case func.() do
-            {:ok, result} -> 
+            {:ok, result} ->
               Mimo.Tools.Dispatchers.Onboard.Tracker.update_progress(type, :done, result)
+
             {:error, reason} ->
               Logger.warning("[OnboardTracker] #{type} failed: #{inspect(reason)}")
               Mimo.Tools.Dispatchers.Onboard.Tracker.update_progress(type, :error, %{error: reason})
@@ -146,7 +163,10 @@ defmodule Mimo.Tools.Dispatchers.Onboard.Tracker do
         rescue
           e ->
             Logger.error("[OnboardTracker] #{type} crashed: #{Exception.message(e)}")
-            Mimo.Tools.Dispatchers.Onboard.Tracker.update_progress(type, :error, %{error: Exception.message(e)})
+
+            Mimo.Tools.Dispatchers.Onboard.Tracker.update_progress(type, :error, %{
+              error: Exception.message(e)
+            })
         end
       end)
     end)

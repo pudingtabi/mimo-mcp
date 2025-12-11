@@ -16,7 +16,8 @@ defmodule Mimo.Utils.InputValidationTest do
 
     test "clamps values above max" do
       assert InputValidation.validate_limit(9999, max: 100) == 100
-      assert InputValidation.validate_limit(1_000_000) == 1000  # default max
+      # default max
+      assert InputValidation.validate_limit(1_000_000) == 1000
     end
 
     test "accepts valid integers" do
@@ -26,7 +27,8 @@ defmodule Mimo.Utils.InputValidationTest do
 
     test "converts string to integer" do
       assert InputValidation.validate_limit("50") == 50
-      assert InputValidation.validate_limit("abc") == 10  # falls back to default
+      # falls back to default
+      assert InputValidation.validate_limit("abc") == 10
     end
 
     test "converts float to integer" do
@@ -91,8 +93,10 @@ defmodule Mimo.Utils.InputValidationTest do
     end
 
     test "clamps to min/max" do
-      assert InputValidation.validate_timeout(500) == 1_000  # min is 1000
-      assert InputValidation.validate_timeout(1_000_000) == 300_000  # default max
+      # min is 1000
+      assert InputValidation.validate_timeout(500) == 1_000
+      # default max
+      assert InputValidation.validate_timeout(1_000_000) == 300_000
     end
   end
 end

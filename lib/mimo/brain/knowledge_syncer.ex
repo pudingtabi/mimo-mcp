@@ -216,9 +216,15 @@ defmodule Mimo.Brain.KnowledgeSyncer do
           Enum.map(triples, fn triple ->
             Ingestor.ingest_triple(
               %{
-                subject: Map.get(triple, "subject") || Map.get(triple, :subject) || Map.get(triple, "subject_id") || Map.get(triple, :subject_id),
-                predicate: Map.get(triple, "predicate") || Map.get(triple, :predicate) || Map.get(triple, :pred) || Map.get(triple, "pred"),
-                object: Map.get(triple, "object") || Map.get(triple, :object) || Map.get(triple, "object_id") || Map.get(triple, :object_id)
+                subject:
+                  Map.get(triple, "subject") || Map.get(triple, :subject) ||
+                    Map.get(triple, "subject_id") || Map.get(triple, :subject_id),
+                predicate:
+                  Map.get(triple, "predicate") || Map.get(triple, :predicate) ||
+                    Map.get(triple, :pred) || Map.get(triple, "pred"),
+                object:
+                  Map.get(triple, "object") || Map.get(triple, :object) ||
+                    Map.get(triple, "object_id") || Map.get(triple, :object_id)
               },
               source
             )

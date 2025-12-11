@@ -116,7 +116,8 @@ defmodule Mimo.Brain.HybridScorerTest do
         importance: 0.99,
         access_count: 100,
         last_accessed_at: NaiveDateTime.utc_now(),
-        cross_modality_connections: 3  # Strong cross-modal boost
+        # Strong cross-modal boost
+        cross_modality_connections: 3
       }
 
       tier = HybridScorer.classify_tier(item, nil, model_type: :medium)
@@ -124,10 +125,12 @@ defmodule Mimo.Brain.HybridScorerTest do
       assert tier in [:tier2, :tier3]
 
       # With pre-computed vector similarity, should reach tier1
-      tier_with_vector = HybridScorer.classify_tier(item, nil, 
-        model_type: :medium, 
-        vector_similarity: 0.95
-      )
+      tier_with_vector =
+        HybridScorer.classify_tier(item, nil,
+          model_type: :medium,
+          vector_similarity: 0.95
+        )
+
       assert tier_with_vector in [:tier1, :tier2]
     end
 
@@ -186,8 +189,17 @@ defmodule Mimo.Brain.HybridScorerTest do
     end
 
     test "higher importance increases URS" do
-      low_importance = %{importance: 0.2, access_count: 0, last_accessed_at: NaiveDateTime.utc_now()}
-      high_importance = %{importance: 0.9, access_count: 0, last_accessed_at: NaiveDateTime.utc_now()}
+      low_importance = %{
+        importance: 0.2,
+        access_count: 0,
+        last_accessed_at: NaiveDateTime.utc_now()
+      }
+
+      high_importance = %{
+        importance: 0.9,
+        access_count: 0,
+        last_accessed_at: NaiveDateTime.utc_now()
+      }
 
       urs_low = HybridScorer.calculate_unified_score(low_importance, nil)
       urs_high = HybridScorer.calculate_unified_score(high_importance, nil)
@@ -252,7 +264,12 @@ defmodule Mimo.Brain.HybridScorerTest do
       items = [
         %{id: 1, importance: 0.95, access_count: 10, last_accessed_at: NaiveDateTime.utc_now()},
         %{id: 2, importance: 0.7, access_count: 5, last_accessed_at: NaiveDateTime.utc_now()},
-        %{id: 3, importance: 0.2, access_count: 0, last_accessed_at: NaiveDateTime.add(NaiveDateTime.utc_now(), -30, :day)}
+        %{
+          id: 3,
+          importance: 0.2,
+          access_count: 0,
+          last_accessed_at: NaiveDateTime.add(NaiveDateTime.utc_now(), -30, :day)
+        }
       ]
 
       classified = HybridScorer.classify_items(items, nil, model_type: :medium)

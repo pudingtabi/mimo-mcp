@@ -56,15 +56,22 @@ config :mimo_mcp, :feature_flags,
 
 # Disable aggressive Cleanup in dev - keep memories for 365 days
 config :mimo_mcp, Mimo.Brain.Cleanup,
-  default_ttl_days: 365,          # Keep all memories for 1 year (was 30 days)
-  low_importance_ttl_days: 90,    # Keep low-importance for 90 days (was 7 days)
-  max_memory_count: 500_000,      # Allow more memories (was 100,000)
-  cleanup_interval_ms: 86_400_000 # Run only once per day, not hourly
+  # Keep all memories for 1 year (was 30 days)
+  default_ttl_days: 365,
+  # Keep low-importance for 90 days (was 7 days)
+  low_importance_ttl_days: 90,
+  # Allow more memories (was 100,000)
+  max_memory_count: 500_000,
+  # Run only once per day, not hourly
+  cleanup_interval_ms: 86_400_000
 
 # Adjust Forgetting to be less aggressive
 config :mimo_mcp, :forgetting,
   enabled: true,
-  interval_ms: 86_400_000,        # Daily instead of hourly
-  threshold: 0.05,                # Lower threshold - only forget truly decayed memories
-  batch_size: 100,                # Smaller batches
+  # Daily instead of hourly
+  interval_ms: 86_400_000,
+  # Lower threshold - only forget truly decayed memories
+  threshold: 0.05,
+  # Smaller batches
+  batch_size: 100,
   dry_run: false

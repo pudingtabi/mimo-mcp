@@ -337,9 +337,10 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
            %{
              operation: :impact,
              all_patterns: true,
-             impacts: Enum.map(impacts, fn {pid, impact} -> 
-               %{pattern_id: pid, impact: format_impact(impact)}
-             end)
+             impacts:
+               Enum.map(impacts, fn {pid, impact} ->
+                 %{pattern_id: pid, impact: format_impact(impact)}
+               end)
            }}
 
         {:error, reason} ->
@@ -354,7 +355,7 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
     with {:ok, pattern_id} <- validate_required(args, "pattern_id"),
          {:ok, context} <- validate_required(args, "context") do
       session_id = args["session_id"] || generate_session_id()
-      
+
       case UsageTracker.track_usage(pattern_id, context, session_id: session_id) do
         :ok ->
           {:ok,

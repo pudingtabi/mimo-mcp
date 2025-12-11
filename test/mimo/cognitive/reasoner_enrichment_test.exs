@@ -34,7 +34,9 @@ defmodule Mimo.Cognitive.ReasonerEnrichmentTest do
         # Because the query references Ecto, wisdom warnings should include Ecto heuristic
         warnings = enriched.enrichment.wisdom[:warnings] || []
         assert is_list(warnings)
-        assert Enum.any?(warnings, fn w -> String.contains?(w.message || "", "Ecto") end) or warnings == []
+
+        assert Enum.any?(warnings, fn w -> String.contains?(w.message || "", "Ecto") end) or
+                 warnings == []
 
       "timed_out" ->
         # Accept timeout (environment may be slow) and ensure step is recorded and timing note present
@@ -45,7 +47,11 @@ defmodule Mimo.Cognitive.ReasonerEnrichmentTest do
   end
 
   test "prepare_context returns wisdom and patterns for Ecto query" do
-    {:ok, result} = Mimo.Tools.Dispatchers.PrepareContext.dispatch(%{"query" => "Ecto struct access", "include_scores" => true})
+    {:ok, result} =
+      Mimo.Tools.Dispatchers.PrepareContext.dispatch(%{
+        "query" => "Ecto struct access",
+        "include_scores" => true
+      })
 
     assert is_map(result)
     assert Map.has_key?(result, :context)
@@ -62,6 +68,8 @@ defmodule Mimo.Cognitive.ReasonerEnrichmentTest do
 
     assert is_map(wisdom)
     assert is_list(wisdom[:warnings])
-    assert Enum.any?(wisdom[:warnings], fn w -> String.contains?(w.message || "", "Ecto") end) or wisdom[:warnings] == []
+
+    assert Enum.any?(wisdom[:warnings], fn w -> String.contains?(w.message || "", "Ecto") end) or
+             wisdom[:warnings] == []
   end
 end

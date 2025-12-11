@@ -197,11 +197,7 @@ defmodule Mimo.Autonomous.CircuitBreaker do
         %{transition: :closed_to_open, reason: inspect(reason)}
       )
 
-      %{circuit |
-        state: :open,
-        consecutive_failures: failures,
-        last_failure_at: DateTime.utc_now()
-      }
+      %{circuit | state: :open, consecutive_failures: failures, last_failure_at: DateTime.utc_now()}
     else
       Logger.debug("[CircuitBreaker] Failure #{failures}/#{circuit.config.max_failures}")
       %{circuit | consecutive_failures: failures, last_failure_at: DateTime.utc_now()}
@@ -217,11 +213,12 @@ defmodule Mimo.Autonomous.CircuitBreaker do
       %{transition: :half_open_to_open, reason: inspect(reason)}
     )
 
-    %{circuit |
-      state: :open,
-      consecutive_failures: circuit.consecutive_failures + 1,
-      last_failure_at: DateTime.utc_now(),
-      half_open_attempts: 0
+    %{
+      circuit
+      | state: :open,
+        consecutive_failures: circuit.consecutive_failures + 1,
+        last_failure_at: DateTime.utc_now(),
+        half_open_attempts: 0
     }
   end
 
@@ -245,11 +242,12 @@ defmodule Mimo.Autonomous.CircuitBreaker do
       %{transition: :manual_reset}
     )
 
-    %{circuit |
-      state: :closed,
-      consecutive_failures: 0,
-      last_failure_at: nil,
-      half_open_attempts: 0
+    %{
+      circuit
+      | state: :closed,
+        consecutive_failures: 0,
+        last_failure_at: nil,
+        half_open_attempts: 0
     }
   end
 
@@ -262,8 +260,7 @@ defmodule Mimo.Autonomous.CircuitBreaker do
       state: circuit.state,
       consecutive_failures: circuit.consecutive_failures,
       last_failure_at: circuit.last_failure_at,
-      remaining_cooldown_ms:
-        if(circuit.state == :open, do: remaining_cooldown(circuit), else: nil),
+      remaining_cooldown_ms: if(circuit.state == :open, do: remaining_cooldown(circuit), else: nil),
       config: circuit.config
     }
   end

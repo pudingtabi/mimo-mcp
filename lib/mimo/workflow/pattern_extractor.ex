@@ -158,8 +158,10 @@ defmodule Mimo.Workflow.PatternExtractor do
   @spec extract_from_tool_log([map()], keyword()) :: {:ok, [Pattern.t()]} | {:error, term()}
   def extract_from_tool_log(log_entries, opts \\ [])
   def extract_from_tool_log([], _opts), do: {:ok, []}
+
   def extract_from_tool_log(log_entries, opts) when is_list(log_entries) do
-    min_support = Keyword.get(opts, :min_support, 1)  # Lower default for direct input
+    # Lower default for direct input
+    min_support = Keyword.get(opts, :min_support, 1)
     window_ms = Keyword.get(opts, :window_ms, @default_window_ms)
 
     try do
@@ -199,11 +201,20 @@ defmodule Mimo.Workflow.PatternExtractor do
 
   defp get_operation(entry) do
     cond do
-      entry[:operation] -> entry[:operation]
-      entry["operation"] -> entry["operation"]
-      entry[:args] && is_map(entry[:args]) -> entry[:args][:operation] || entry[:args]["operation"] || "default"
-      entry["args"] && is_map(entry["args"]) -> entry["args"]["operation"] || "default"
-      true -> "default"
+      entry[:operation] ->
+        entry[:operation]
+
+      entry["operation"] ->
+        entry["operation"]
+
+      entry[:args] && is_map(entry[:args]) ->
+        entry[:args][:operation] || entry[:args]["operation"] || "default"
+
+      entry["args"] && is_map(entry["args"]) ->
+        entry["args"]["operation"] || "default"
+
+      true ->
+        "default"
     end
   end
 
@@ -389,7 +400,10 @@ defmodule Mimo.Workflow.PatternExtractor do
     window_end = DateTime.add(head.timestamp, window_ms, :millisecond)
 
     window_logs =
-      [head | Enum.take_while(tail, fn log -> DateTime.compare(log.timestamp, window_end) != :gt end)]
+      [
+        head
+        | Enum.take_while(tail, fn log -> DateTime.compare(log.timestamp, window_end) != :gt end)
+      ]
 
     if length(window_logs) >= @min_sequence_length do
       sequence = Enum.map(window_logs, &tool_signature/1)
@@ -516,7 +530,7 @@ defmodule Mimo.Workflow.PatternExtractor do
 
   defp generate_pattern_name(sequence) do
     # Generate a descriptive name based on the sequence
-    tools = sequence |> Enum.map(&String.split(&1, ".") |> hd()) |> Enum.uniq()
+    tools = sequence |> Enum.map(&(String.split(&1, ".") |> hd())) |> Enum.uniq()
 
     case length(tools) do
       1 -> "#{hd(tools)}_workflow"

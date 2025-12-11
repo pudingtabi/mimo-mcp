@@ -31,10 +31,12 @@ defmodule Mimo.Benchmark.LOCOMOTest do
 
     test "loads JSONL file", %{tmp_dir: tmp_dir} do
       path = Path.join(tmp_dir, "test.jsonl")
+
       lines = [
         Jason.encode!(%{"conversation_id" => "c1", "turns" => []}),
         Jason.encode!(%{"conversation_id" => "c2", "turns" => []})
       ]
+
       File.write!(path, Enum.join(lines, "\n"))
 
       assert {:ok, convs} = LOCOMO.load_conversations(path)
@@ -164,7 +166,8 @@ defmodule Mimo.Benchmark.LOCOMOTest do
     @tag timeout: 60_000
     test "runs full benchmark with synthetic data" do
       # Generate a small synthetic dataset
-      tmp_path = Path.join(System.tmp_dir!(), "locomo_test_#{System.unique_integer([:positive])}.jsonl")
+      tmp_path =
+        Path.join(System.tmp_dir!(), "locomo_test_#{System.unique_integer([:positive])}.jsonl")
 
       SyntheticLOCOMO.generate(2, 5, 3)
       |> Enum.map_join("\n", &Jason.encode!/1)
@@ -223,14 +226,36 @@ defmodule Mimo.Benchmark.LOCOMOTest do
   describe "compute_aggregate_metrics/1" do
     test "computes correct accuracy for mixed results" do
       results = [
-        %{correct: true, question_type: :factual, latency_ms: 10, retrieved_count: 3, similarity_score: 0.8, score: 0.8},
-        %{correct: false, question_type: :factual, latency_ms: 20, retrieved_count: 3, similarity_score: 0.5, score: 0.5},
-        %{correct: true, question_type: :temporal, latency_ms: 15, retrieved_count: 2, similarity_score: 0.9, score: 0.9}
+        %{
+          correct: true,
+          question_type: :factual,
+          latency_ms: 10,
+          retrieved_count: 3,
+          similarity_score: 0.8,
+          score: 0.8
+        },
+        %{
+          correct: false,
+          question_type: :factual,
+          latency_ms: 20,
+          retrieved_count: 3,
+          similarity_score: 0.5,
+          score: 0.5
+        },
+        %{
+          correct: true,
+          question_type: :temporal,
+          latency_ms: 15,
+          retrieved_count: 2,
+          similarity_score: 0.9,
+          score: 0.9
+        }
       ]
 
       # Access private function via module
-      metrics = LOCOMO.__info__(:functions)
-      |> Enum.find(fn {name, _} -> name == :compute_aggregate_metrics end)
+      metrics =
+        LOCOMO.__info__(:functions)
+        |> Enum.find(fn {name, _} -> name == :compute_aggregate_metrics end)
 
       # Since it's private, we test via run/2 integration instead
       # This test documents expected behavior

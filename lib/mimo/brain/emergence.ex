@@ -416,22 +416,25 @@ defmodule Mimo.Brain.Emergence do
     Logger.info("[Emergence] Starting emergence cycle")
 
     # Phase 1: Detection (graceful on failure)
-    detection = case detect_patterns(opts) do
-      {:ok, result} -> result
-      _ -> %{}
-    end
+    detection =
+      case detect_patterns(opts) do
+        {:ok, result} -> result
+        _ -> %{}
+      end
 
     # Phase 2: Amplification (graceful on failure)
-    amplification = case amplify() do
-      {:ok, result} -> result
-      _ -> %{}
-    end
+    amplification =
+      case amplify() do
+        {:ok, result} -> result
+        _ -> %{}
+      end
 
     # Phase 3: Promotion (graceful on failure)
-    promotions = case promote_eligible(opts) do
-      {:ok, result} -> result
-      _ -> %{promoted: 0}
-    end
+    promotions =
+      case promote_eligible(opts) do
+        {:ok, result} -> result
+        _ -> %{promoted: 0}
+      end
 
     # Phase 4: Alerts
     alerts = check_alerts()

@@ -87,10 +87,13 @@ defmodule Mimo.Benchmark.Performance do
     latencies =
       queries
       |> Enum.map(fn query ->
-        {time, _result} = :timer.tc(fn ->
-          Memory.search_memories(query, limit: 10)
-        end)
-        time / 1000  # Convert microseconds to ms
+        {time, _result} =
+          :timer.tc(fn ->
+            Memory.search_memories(query, limit: 10)
+          end)
+
+        # Convert microseconds to ms
+        time / 1000
       end)
 
     compute_percentiles(latencies)
@@ -109,10 +112,14 @@ defmodule Mimo.Benchmark.Performance do
     latencies =
       1..iterations
       |> Enum.map(fn i ->
-        content = "Benchmark memory #{i} - #{System.unique_integer([:positive])} with some content for embedding generation"
-        {time, _result} = :timer.tc(fn ->
-          Memory.persist_memory(content, :fact, 0.5, skip_novelty: true)
-        end)
+        content =
+          "Benchmark memory #{i} - #{System.unique_integer([:positive])} with some content for embedding generation"
+
+        {time, _result} =
+          :timer.tc(fn ->
+            Memory.persist_memory(content, :fact, 0.5, skip_novelty: true)
+          end)
+
         time / 1000
       end)
 
@@ -135,13 +142,15 @@ defmodule Mimo.Benchmark.Performance do
     latencies =
       1..iterations
       |> Enum.map(fn _ ->
-        {time, _result} = :timer.tc(fn ->
-          Mimo.Tools.dispatch("memory", %{
-            "operation" => "search",
-            "query" => "test query #{:rand.uniform(100)}",
-            "limit" => 5
-          })
-        end)
+        {time, _result} =
+          :timer.tc(fn ->
+            Mimo.Tools.dispatch("memory", %{
+              "operation" => "search",
+              "query" => "test query #{:rand.uniform(100)}",
+              "limit" => 5
+            })
+          end)
+
         time / 1000
       end)
 
@@ -232,9 +241,11 @@ defmodule Mimo.Benchmark.Performance do
       latencies =
         1..100
         |> Enum.map(fn _ ->
-          {time, _} = :timer.tc(fn ->
-            Memory.search_memories("benchmark query #{:rand.uniform(100)}", limit: 10)
-          end)
+          {time, _} =
+            :timer.tc(fn ->
+              Memory.search_memories("benchmark query #{:rand.uniform(100)}", limit: 10)
+            end)
+
           time / 1000
         end)
 
@@ -257,19 +268,23 @@ defmodule Mimo.Benchmark.Performance do
       # 70% reads, 30% writes (typical workload)
       {op, latency} =
         if :rand.uniform() < 0.7 do
-          {time, _} = :timer.tc(fn ->
-            Memory.search_memories("worker #{worker_id} query #{count}", limit: 5)
-          end)
+          {time, _} =
+            :timer.tc(fn ->
+              Memory.search_memories("worker #{worker_id} query #{count}", limit: 5)
+            end)
+
           {:search, time / 1000}
         else
-          {time, _} = :timer.tc(fn ->
-            Memory.persist_memory(
-              "Worker #{worker_id} memory #{count}",
-              :fact,
-              0.5,
-              skip_novelty: true
-            )
-          end)
+          {time, _} =
+            :timer.tc(fn ->
+              Memory.persist_memory(
+                "Worker #{worker_id} memory #{count}",
+                :fact,
+                0.5,
+                skip_novelty: true
+              )
+            end)
+
           {:store, time / 1000}
         end
 

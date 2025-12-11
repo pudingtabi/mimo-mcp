@@ -60,13 +60,13 @@ defmodule Mimo.Brain.CognitiveLifecycleTest do
       {:ok, result} = CognitiveLifecycle.track_transition(thread_id, "file", "edit")
       assert result.phase == :action
       assert length(result.warnings) > 0
-      assert Enum.any?(result.warnings, & &1.type == :action_without_context)
+      assert Enum.any?(result.warnings, &(&1.type == :action_without_context))
     end
 
     test "no warning when context gathered first", %{thread_id: thread_id} do
       # First gather context
       {:ok, _} = CognitiveLifecycle.track_transition(thread_id, "memory", "search")
-      
+
       # Then action
       {:ok, result} = CognitiveLifecycle.track_transition(thread_id, "file", "edit")
       assert result.phase == :action
@@ -76,17 +76,17 @@ defmodule Mimo.Brain.CognitiveLifecycleTest do
     test "clears thread state", %{thread_id: thread_id} do
       # Track some transitions
       {:ok, _} = CognitiveLifecycle.track_transition(thread_id, "memory", "search")
-      
+
       # Verify state exists
       state = CognitiveLifecycle.get_thread_state(thread_id)
       assert state != nil
-      
+
       # Clear state
       :ok = CognitiveLifecycle.clear_thread(thread_id)
-      
+
       # Allow async cast to process
       Process.sleep(10)
-      
+
       # State should be nil now
       assert CognitiveLifecycle.get_thread_state(thread_id) == nil
     end
@@ -100,7 +100,7 @@ defmodule Mimo.Brain.CognitiveLifecycleTest do
 
     test "returns distribution for new thread", %{thread_id: thread_id} do
       distribution = CognitiveLifecycle.get_phase_distribution(thread_id)
-      
+
       assert distribution.total == 0
       assert distribution.counts.context == 0
       assert distribution.counts.action == 0
@@ -119,15 +119,15 @@ defmodule Mimo.Brain.CognitiveLifecycleTest do
       CognitiveLifecycle.track_transition(thread_id, "file", "read")
       CognitiveLifecycle.track_transition(thread_id, "memory", "store")
       CognitiveLifecycle.track_transition(thread_id, "knowledge", "teach")
-      
+
       distribution = CognitiveLifecycle.get_phase_distribution(thread_id)
-      
+
       assert distribution.total == 10
       assert distribution.counts.context == 2
       assert distribution.counts.deliberate == 1
       assert distribution.counts.action == 5
       assert distribution.counts.learn == 2
-      
+
       # Check percentages
       assert distribution.percentages.context == 20.0
       assert distribution.percentages.deliberate == 10.0
@@ -139,7 +139,7 @@ defmodule Mimo.Brain.CognitiveLifecycleTest do
   describe "stats/0" do
     test "returns aggregate statistics" do
       stats = CognitiveLifecycle.stats()
-      
+
       assert Map.has_key?(stats, :total_threads)
       assert Map.has_key?(stats, :active_threads)
       assert Map.has_key?(stats, :total_interactions)
@@ -152,7 +152,7 @@ defmodule Mimo.Brain.CognitiveLifecycleTest do
   describe "target_ranges/0" do
     test "returns target ranges for phases" do
       ranges = CognitiveLifecycle.target_ranges()
-      
+
       assert ranges.context == {0.15, 0.20}
       assert ranges.deliberate == {0.15, 0.20}
       assert ranges.action == {0.45, 0.55}

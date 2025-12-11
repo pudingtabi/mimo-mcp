@@ -179,6 +179,7 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinker do
   @spec link_all([{source_type(), String.t()}]) :: link_result()
   def link_all(pairs, opts \\ []) when is_list(pairs) do
     persist = Keyword.get(opts, :persist, false)
+
     links =
       pairs
       |> Enum.flat_map(fn {type, id} ->
@@ -205,7 +206,9 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinker do
           }
         end)
 
-      {count, _} = Repo.insert_all(Mimo.NeuroSymbolic.CrossModalityLink, entries, on_conflict: :nothing)
+      {count, _} =
+        Repo.insert_all(Mimo.NeuroSymbolic.CrossModalityLink, entries, on_conflict: :nothing)
+
       Logger.info("Persisted #{count} cross-modality links")
     end
 
@@ -228,7 +231,11 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinker do
         %{
           total_connections: length(links),
           by_target_type: Map.new(by_type, fn {type, items} -> {type, length(items)} end),
-          average_confidence: if(links == [], do: 0.0, else: Enum.sum(Enum.map(links, & &1.confidence)) / length(links)),
+          average_confidence:
+            if(links == [],
+              do: 0.0,
+              else: Enum.sum(Enum.map(links, & &1.confidence)) / length(links)
+            ),
           source_type: source_type,
           source_id: source_id
         }
@@ -363,7 +370,7 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinker do
     # Search for code that imports/requires this library
     # Use graph edges with :uses or :imports type
     query =
-      from e in GraphEdge,
+      from(e in GraphEdge,
         join: target in GraphNode,
         on: e.target_node_id == target.id,
         where: target.name == ^package_name and e.edge_type in [:uses, :imports],
@@ -371,6 +378,7 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinker do
         on: e.source_node_id == source.id,
         select: source,
         limit: ^limit
+      )
 
     nodes = Repo.all(query)
 
@@ -462,7 +470,7 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinker do
   defp infer_connected_entities(node_id, limit) do
     # Traverse graph edges from this knowledge node
     query =
-      from e in GraphEdge,
+      from(e in GraphEdge,
         where: e.source_node_id == ^node_id or e.target_node_id == ^node_id,
         join: source in GraphNode,
         on: e.source_node_id == source.id,
@@ -470,6 +478,7 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinker do
         on: e.target_node_id == target.id,
         select: {source, target, e},
         limit: ^limit
+      )
 
     results = Repo.all(query)
 

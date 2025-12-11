@@ -39,15 +39,33 @@ defmodule Mimo.Tools.Dispatchers.Autonomous do
 
     result =
       case op do
-        "queue" -> dispatch_queue(args)
-        "status" -> dispatch_status()
-        "pause" -> dispatch_pause()
-        "resume" -> dispatch_resume()
-        "reset_circuit" -> dispatch_reset_circuit()
-        "list_queue" -> dispatch_list_queue()
-        "clear_queue" -> dispatch_clear_queue()
-        "check_safety" -> dispatch_check_safety(args)
-        _ -> {:error, "Unknown autonomous operation: #{op}. Valid: queue, status, pause, resume, reset_circuit, list_queue, clear_queue"}
+        "queue" ->
+          dispatch_queue(args)
+
+        "status" ->
+          dispatch_status()
+
+        "pause" ->
+          dispatch_pause()
+
+        "resume" ->
+          dispatch_resume()
+
+        "reset_circuit" ->
+          dispatch_reset_circuit()
+
+        "list_queue" ->
+          dispatch_list_queue()
+
+        "clear_queue" ->
+          dispatch_clear_queue()
+
+        "check_safety" ->
+          dispatch_check_safety(args)
+
+        _ ->
+          {:error,
+           "Unknown autonomous operation: #{op}. Valid: queue, status, pause, resume, reset_circuit, list_queue, clear_queue"}
       end
 
     # Wrap result in standard format
@@ -77,41 +95,47 @@ defmodule Mimo.Tools.Dispatchers.Autonomous do
 
     case TaskRunner.queue_task(task_spec) do
       {:ok, task_id} ->
-        {:ok, %{
-          status: "queued",
-          task_id: task_id,
-          message: "Task queued successfully. It will be executed automatically.",
-          type: Map.get(task_spec, "type"),
-          description: Map.get(task_spec, "description")
-        }}
+        {:ok,
+         %{
+           status: "queued",
+           task_id: task_id,
+           message: "Task queued successfully. It will be executed automatically.",
+           type: Map.get(task_spec, "type"),
+           description: Map.get(task_spec, "description")
+         }}
 
       {:error, :blocked_dangerous_command} ->
-        {:error, %{
-          status: "blocked",
-          reason: :safety_violation,
-          message: SafetyGuard.explain_block(:blocked_dangerous_command)
-        }}
+        {:error,
+         %{
+           status: "blocked",
+           reason: :safety_violation,
+           message: SafetyGuard.explain_block(:blocked_dangerous_command)
+         }}
 
       {:error, :blocked_protected_path} ->
-        {:error, %{
-          status: "blocked",
-          reason: :safety_violation,
-          message: SafetyGuard.explain_block(:blocked_protected_path)
-        }}
+        {:error,
+         %{
+           status: "blocked",
+           reason: :safety_violation,
+           message: SafetyGuard.explain_block(:blocked_protected_path)
+         }}
 
       {:error, :missing_description} ->
-        {:error, %{
-          status: "invalid",
-          reason: :missing_description,
-          message: "Task description is required. Provide a clear description of what the task should do."
-        }}
+        {:error,
+         %{
+           status: "invalid",
+           reason: :missing_description,
+           message:
+             "Task description is required. Provide a clear description of what the task should do."
+         }}
 
       {:error, reason} ->
-        {:error, %{
-          status: "failed",
-          reason: reason,
-          message: SafetyGuard.explain_block(reason)
-        }}
+        {:error,
+         %{
+           status: "failed",
+           reason: reason,
+           message: SafetyGuard.explain_block(reason)
+         }}
     end
   end
 
@@ -119,46 +143,51 @@ defmodule Mimo.Tools.Dispatchers.Autonomous do
     status = TaskRunner.status()
 
     # Format for display
-    {:ok, %{
-      status: status.status,
-      paused: status.paused,
-      queued_tasks: status.queued,
-      running_tasks: status.running,
-      completed_tasks: status.completed,
-      failed_tasks: status.failed,
-      circuit_breaker: %{
-        state: status.circuit_state,
-        details: Map.get(status, :circuit_details)
-      },
-      message: format_status_message(status)
-    }}
+    {:ok,
+     %{
+       status: status.status,
+       paused: status.paused,
+       queued_tasks: status.queued,
+       running_tasks: status.running,
+       completed_tasks: status.completed,
+       failed_tasks: status.failed,
+       circuit_breaker: %{
+         state: status.circuit_state,
+         details: Map.get(status, :circuit_details)
+       },
+       message: format_status_message(status)
+     }}
   end
 
   defp dispatch_pause do
     TaskRunner.pause()
 
-    {:ok, %{
-      status: "paused",
-      message: "Autonomous task execution paused. Running tasks will complete, but no new tasks will start. Use 'resume' to continue."
-    }}
+    {:ok,
+     %{
+       status: "paused",
+       message:
+         "Autonomous task execution paused. Running tasks will complete, but no new tasks will start. Use 'resume' to continue."
+     }}
   end
 
   defp dispatch_resume do
     TaskRunner.resume()
 
-    {:ok, %{
-      status: "resumed",
-      message: "Autonomous task execution resumed. Queued tasks will begin executing."
-    }}
+    {:ok,
+     %{
+       status: "resumed",
+       message: "Autonomous task execution resumed. Queued tasks will begin executing."
+     }}
   end
 
   defp dispatch_reset_circuit do
     TaskRunner.reset_circuit()
 
-    {:ok, %{
-      status: "reset",
-      message: "Circuit breaker reset to closed state. Task execution will resume normally."
-    }}
+    {:ok,
+     %{
+       status: "reset",
+       message: "Circuit breaker reset to closed state. Task execution will resume normally."
+     }}
   end
 
   defp dispatch_list_queue do
@@ -175,20 +204,22 @@ defmodule Mimo.Tools.Dispatchers.Autonomous do
         }
       end)
 
-    {:ok, %{
-      count: length(tasks),
-      tasks: tasks,
-      message: if(tasks == [], do: "No tasks in queue", else: "#{length(tasks)} task(s) queued")
-    }}
+    {:ok,
+     %{
+       count: length(tasks),
+       tasks: tasks,
+       message: if(tasks == [], do: "No tasks in queue", else: "#{length(tasks)} task(s) queued")
+     }}
   end
 
   defp dispatch_clear_queue do
     TaskRunner.clear_queue()
 
-    {:ok, %{
-      status: "cleared",
-      message: "All queued tasks have been cleared. Running tasks will complete."
-    }}
+    {:ok,
+     %{
+       status: "cleared",
+       message: "All queued tasks have been cleared. Running tasks will complete."
+     }}
   end
 
   defp dispatch_check_safety(args) do
@@ -200,17 +231,19 @@ defmodule Mimo.Tools.Dispatchers.Autonomous do
 
     case SafetyGuard.check_allowed(task_spec) do
       :ok ->
-        {:ok, %{
-          safe: true,
-          message: "This task passes safety checks and can be executed."
-        }}
+        {:ok,
+         %{
+           safe: true,
+           message: "This task passes safety checks and can be executed."
+         }}
 
       {:error, reason} ->
-        {:ok, %{
-          safe: false,
-          reason: reason,
-          message: SafetyGuard.explain_block(reason)
-        }}
+        {:ok,
+         %{
+           safe: false,
+           reason: reason,
+           message: SafetyGuard.explain_block(reason)
+         }}
     end
   end
 

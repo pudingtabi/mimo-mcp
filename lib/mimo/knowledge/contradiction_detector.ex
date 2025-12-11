@@ -115,7 +115,9 @@ defmodule Mimo.Knowledge.ContradictionDetector do
       end)
 
     if length(contradictions) > 0 do
-      Logger.info("[ContradictionDetector] Found #{length(contradictions)} potential contradictions")
+      Logger.info(
+        "[ContradictionDetector] Found #{length(contradictions)} potential contradictions"
+      )
     end
 
     {:ok, contradictions}

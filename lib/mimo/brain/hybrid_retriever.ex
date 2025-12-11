@@ -414,7 +414,7 @@ defmodule Mimo.Brain.HybridRetriever do
           Process.put(:"$callers", [caller | callers])
           fun.()
         end)
-        
+
       false ->
         # Fallback: run synchronously with Task.async (unsupervised)
         Task.async(fn ->

@@ -130,6 +130,7 @@ defmodule Mimo.Defensive do
     if Mix.env() in [:dev, :test] do
       IO.write(:standard_error, "[MIMO DEBUG] #{message}\n")
     end
+
     :ok
   rescue
     _ -> :ok
@@ -140,9 +141,9 @@ defmodule Mimo.Defensive do
 
   Falls back to Task.await if Task.Supervisor is not available.
   """
-  @spec with_timeout((() -> term()), timeout()) :: {:ok, term()} | {:error, :timeout}
+  @spec with_timeout((-> term()), timeout()) :: {:ok, term()} | {:error, :timeout}
   def with_timeout(fun, timeout \\ 5000) when is_function(fun, 0) do
-    task = 
+    task =
       if task_supervisor_available?() do
         Task.Supervisor.async_nolink(Mimo.TaskSupervisor, fun)
       else
@@ -183,19 +184,23 @@ defmodule Mimo.Defensive do
 
   If the primary function fails or times out, executes the fallback.
   """
-  @spec with_fallback((() -> {:ok, term()} | {:error, term()}), (() -> term()), keyword()) :: 
-    {:ok, term()} | {:error, term()}
+  @spec with_fallback((-> {:ok, term()} | {:error, term()}), (-> term()), keyword()) ::
+          {:ok, term()} | {:error, term()}
   def with_fallback(primary_fn, fallback_fn, opts \\ []) do
     timeout = Keyword.get(opts, :timeout, 5000)
 
     case with_timeout(primary_fn, timeout) do
-      {:ok, {:ok, result}} -> {:ok, result}
-      {:ok, {:error, _} = _error} -> 
+      {:ok, {:ok, result}} ->
+        {:ok, result}
+
+      {:ok, {:error, _} = _error} ->
         warn_stderr("Primary function failed, using fallback")
         execute_fallback(fallback_fn)
+
       {:error, :timeout} ->
-        warn_stderr("Primary function timed out, using fallback")  
+        warn_stderr("Primary function timed out, using fallback")
         execute_fallback(fallback_fn)
+
       {:error, _reason} ->
         execute_fallback(fallback_fn)
     end

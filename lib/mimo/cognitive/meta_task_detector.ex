@@ -220,7 +220,8 @@ defmodule Mimo.Cognitive.MetaTaskDetector do
       type: :iterative_task,
       instruction:
         "This requires an ITERATIVE process. For EACH item, perform the specified steps in order before moving to the next item.",
-      example: "For item 1: [step a] → [step b] → [step c]\nFor item 2: [step a] → [step b] → [step c]",
+      example:
+        "For item 1: [step a] → [step b] → [step c]\nFor item 2: [step a] → [step b] → [step c]",
       confidence: 0.88
     }
   end
