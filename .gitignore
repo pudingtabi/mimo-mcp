@@ -6,10 +6,12 @@ package-lock.json
 
 # Database - NEVER commit user data
 *.db
+*.db-*
 *.db-journal
 *.db-shm
 *.db-wal
 priv/*.db
+priv/*.db.*
 priv/mimo_mcp.db
 
 # Environment & Secrets - CRITICAL
@@ -86,3 +88,17 @@ native/*/target/
 
 # User-specific files
 *.local
+
+# Binary packages and installers (never commit)
+*.deb
+*.rpm
+*.dmg
+*.exe
+*.msi
+*.pkg
+
+# Large language model files
+*.gguf
+*.bin
+*.safetensors
+models/
