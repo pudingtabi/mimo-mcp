@@ -2,6 +2,24 @@
 
 A comprehensive guide for AI agents to optimally leverage Mimo's cognitive infrastructure.
 
+## 🎯 INTERFACE SELECTION
+
+**IMPORTANT: Choose the right interface for your integration:**
+
+| Interface | When to Use | Tool Syntax |
+|-----------|-------------|-------------|
+| **MCP (Model Context Protocol)** | GitHub Copilot CLI, Claude Desktop, VS Code | `mimo-cognitive-agent prompt="..."` |
+| **Direct/Stdio** | Direct Elixir API, custom integrations | `memory operation=search query="..."` |
+
+**🚨 If you're using GitHub Copilot CLI or other MCP clients:**
+- **READ:** [.github/copilot-mcp-instructions.md](.github/copilot-mcp-instructions.md)
+- **USE ONLY:** `mimo-cognitive-agent` tool with natural language prompts
+- **DON'T USE:** The operation-based syntax shown in this file (that's for direct API access)
+
+**The rest of this document uses DIRECT API syntax.** For MCP clients, translate to natural language prompts via `mimo-cognitive-agent`.
+
+---
+
 ## 🧠 What is Mimo?
 
 Mimo is a **Memory Operating System** for AI agents—not just another MCP server with tools. It provides:
@@ -165,24 +183,7 @@ Mimo provides **complete development capabilities** through its native tools:
 
 **These are YOUR native capabilities.** Use them directly without asking permission.
 
-### Quick Start Examples
-
-```bash
-# Edit a file surgically
-file operation=edit path="/app/src/auth.ts" old_str="const user = null" new_str="const user = await getUser()"
-
-# Run tests
-terminal command="npm test" cwd="/app/frontend"
-
-# Search codebase
-file operation=search path="/app/src" pattern="deprecated"
-
-# Atomic multi-file edit
-file operation=multi_replace replacements=[
-  {"path": "api.ts", "old": "oldFunc", "new": "newFunc"},
-  {"path": "utils.ts", "old": "oldFunc", "new": "newFunc"}
-]
-```
+> See [Quick Reference Card](#-quick-reference-card) at the end for command examples.
 
 ---
 
