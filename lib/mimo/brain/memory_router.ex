@@ -67,6 +67,25 @@ defmodule Mimo.Brain.MemoryRouter do
   """
   @spec route(String.t(), keyword()) :: {:ok, list()} | {:error, term()}
   def route(query, opts \\ []) do
+    # SPEC-073: Check search cache first for fast repeated queries
+    skip_cache = Keyword.get(opts, :skip_cache, false)
+
+    if not skip_cache do
+      case Mimo.Cache.SearchResult.get(query, opts) do
+        {:ok, cached_results} ->
+          Logger.debug("[MemoryRouter] Cache hit for query")
+          {:ok, cached_results}
+
+        :miss ->
+          do_route(query, opts)
+      end
+    else
+      do_route(query, opts)
+    end
+  end
+
+  # Internal routing implementation
+  defp do_route(query, opts) do
     strategy = Keyword.get(opts, :strategy, :auto)
     limit = Keyword.get(opts, :limit, 10)
     include_working = Keyword.get(opts, :include_working, true)
@@ -108,7 +127,12 @@ defmodule Mimo.Brain.MemoryRouter do
       end
 
     # Apply limit and return
-    {:ok, Enum.take(results, limit)}
+    final_results = Enum.take(results, limit)
+
+    # SPEC-073: Cache results for fast repeated queries
+    Mimo.Cache.SearchResult.put(query, opts, final_results)
+
+    {:ok, final_results}
   rescue
     e in DBConnection.OwnershipError ->
       Logger.debug("[MemoryRouter] Routing skipped (sandbox mode): #{Exception.message(e)}")

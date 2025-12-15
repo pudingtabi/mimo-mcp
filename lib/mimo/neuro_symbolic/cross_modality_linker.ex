@@ -397,7 +397,7 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinker do
     _ -> []
   end
 
-  defp extract_library_hints(symbol_id) do
+  defp extract_library_hints(symbol_id) when is_binary(symbol_id) do
     # Extract library name hints from symbol naming
     cond do
       String.contains?(symbol_id, "Phoenix") -> ["phoenix"]
@@ -408,6 +408,10 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinker do
       true -> []
     end
   end
+
+  # Handle nil or non-string symbol_id gracefully
+  defp extract_library_hints(nil), do: []
+  defp extract_library_hints(symbol_id), do: extract_library_hints(to_string(symbol_id))
 
   # ==========================================================================
   # Private: Knowledge Link Inference

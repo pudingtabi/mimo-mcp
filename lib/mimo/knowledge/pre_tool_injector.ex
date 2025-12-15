@@ -179,37 +179,33 @@ defmodule Mimo.Knowledge.PreToolInjector do
   end
 
   # Unpack search results based on what was included
-  defp unpack_search_results(results, profile) do
-    case {profile.include_patterns, profile.include_warnings} do
-      {true, true} ->
-        # All three: [memories, patterns, warnings]
-        case results do
-          [m, p, w] -> {m, p, w}
-          _ -> {empty_result(), empty_result(), empty_result()}
-        end
+  defp unpack_search_results(results, %{include_patterns: true, include_warnings: true}) do
+    case results do
+      [m, p, w] -> {m, p, w}
+      _ -> {empty_result(), empty_result(), empty_result()}
+    end
+  end
 
-      {true, false} ->
-        # Only memories and patterns
-        case results do
-          [m, p] -> {m, p, empty_result()}
-          [m] -> {m, empty_result(), empty_result()}
-          _ -> {empty_result(), empty_result(), empty_result()}
-        end
+  defp unpack_search_results(results, %{include_patterns: true, include_warnings: false}) do
+    case results do
+      [m, p] -> {m, p, empty_result()}
+      [m] -> {m, empty_result(), empty_result()}
+      _ -> {empty_result(), empty_result(), empty_result()}
+    end
+  end
 
-      {false, true} ->
-        # Only memories and warnings
-        case results do
-          [m, w] -> {m, empty_result(), w}
-          [m] -> {m, empty_result(), empty_result()}
-          _ -> {empty_result(), empty_result(), empty_result()}
-        end
+  defp unpack_search_results(results, %{include_patterns: false, include_warnings: true}) do
+    case results do
+      [m, w] -> {m, empty_result(), w}
+      [m] -> {m, empty_result(), empty_result()}
+      _ -> {empty_result(), empty_result(), empty_result()}
+    end
+  end
 
-      {false, false} ->
-        # Only memories
-        case results do
-          [m] -> {m, empty_result(), empty_result()}
-          _ -> {empty_result(), empty_result(), empty_result()}
-        end
+  defp unpack_search_results(results, %{include_patterns: false, include_warnings: false}) do
+    case results do
+      [m] -> {m, empty_result(), empty_result()}
+      _ -> {empty_result(), empty_result(), empty_result()}
     end
   end
 

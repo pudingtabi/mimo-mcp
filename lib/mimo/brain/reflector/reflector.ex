@@ -677,4 +677,17 @@ defmodule Mimo.Brain.Reflector do
       }
     end)
   end
+
+  @doc """
+  Get reflector statistics from the Optimizer.
+  Delegates to the Optimizer GenServer for backward compatibility.
+  """
+  @spec stats() :: {:ok, map()} | {:error, term()}
+  def stats do
+    try do
+      {:ok, Optimizer.stats()}
+    rescue
+      e -> {:error, Exception.message(e)}
+    end
+  end
 end

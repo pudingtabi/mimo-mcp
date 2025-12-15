@@ -160,6 +160,40 @@ defmodule Mimo.Tools.Dispatchers.File do
   # Diff operations
   defp do_dispatch("diff", _path, args, _skip_context), do: dispatch_diff(args)
 
+  # ==========================================================================
+  # CODE INTELLIGENCE ALIASES (SPEC-080: AI Agent Optimization)
+  # These aliases make code navigation discoverable through the file tool,
+  # reducing cognitive load for AI agents that naturally think "file → code"
+  # ==========================================================================
+
+  # Find where a function/class/module is defined
+  defp do_dispatch("find_definition", _path, args, _skip_context) do
+    Mimo.Tools.Dispatchers.Code.dispatch(Map.put(args, "operation", "definition"))
+  end
+
+  # Find all usages/references to a symbol
+  defp do_dispatch("find_references", _path, args, _skip_context) do
+    Mimo.Tools.Dispatchers.Code.dispatch(Map.put(args, "operation", "references"))
+  end
+
+  # List all symbols in a file (functions, classes, modules)
+  defp do_dispatch("symbols", path, args, _skip_context) do
+    Mimo.Tools.Dispatchers.Code.dispatch(
+      Map.put(args, "operation", "symbols")
+      |> Map.put("path", path)
+    )
+  end
+
+  # Search symbols by pattern
+  defp do_dispatch("find_symbol", _path, args, _skip_context) do
+    Mimo.Tools.Dispatchers.Code.dispatch(Map.put(args, "operation", "search"))
+  end
+
+  # Get call graph for a function
+  defp do_dispatch("call_graph", _path, args, _skip_context) do
+    Mimo.Tools.Dispatchers.Code.dispatch(Map.put(args, "operation", "call_graph"))
+  end
+
   # Unknown operation
   defp do_dispatch(op, _path, _args, _skip_context), do: {:error, "Unknown file operation: #{op}"}
 

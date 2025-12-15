@@ -251,34 +251,48 @@ defmodule Mimo.Retry do
   - Invalid request format
   """
   @spec default_retryable?(term()) :: boolean()
-  def default_retryable?(error) do
-    case error do
-      # Rate limiting - always retry
-      {:error, {:rate_limited, _}} -> true
-      {:error, {:cerebras_rate_limited, _}} -> true
-      {:error, {:openrouter_rate_limited, _}} -> true
-      {:error, {:openrouter_error, 429, _}} -> true
-      {:error, {:cerebras_error, 429, _}} -> true
-      # Server errors - usually transient
-      {:error, {:openrouter_error, status, _}} when status in [500, 502, 503, 504] -> true
-      {:error, {:cerebras_error, status, _}} when status in [500, 502, 503, 504] -> true
-      {:error, {:groq_error, status, _}} when status in [500, 502, 503, 504] -> true
-      # Transport/network errors - might be transient
-      {:error, {:request_failed, :timeout}} -> true
-      {:error, {:request_failed, :connect_timeout}} -> true
-      {:error, {:request_failed, :closed}} -> true
-      {:error, {:request_failed, {:tls_alert, _}}} -> true
-      {:error, %Req.TransportError{}} -> true
-      # Not retryable - API keys, auth, client errors
-      {:error, :no_api_key} -> false
-      {:error, :no_cerebras_key} -> false
-      {:error, :no_openrouter_key} -> false
-      {:error, {:openrouter_error, status, _}} when status in [400, 401, 403, 404] -> false
-      {:error, {:cerebras_error, status, _}} when status in [400, 401, 403, 404] -> false
-      # Unknown errors - conservative, don't retry
-      _ -> false
-    end
-  end
+  # Rate limiting - always retry
+  def default_retryable?({:error, {:rate_limited, _}}), do: true
+  def default_retryable?({:error, {:cerebras_rate_limited, _}}), do: true
+  def default_retryable?({:error, {:openrouter_rate_limited, _}}), do: true
+  def default_retryable?({:error, {:openrouter_error, 429, _}}), do: true
+  def default_retryable?({:error, {:cerebras_error, 429, _}}), do: true
+
+  # Server errors - usually transient
+  def default_retryable?({:error, {:openrouter_error, status, _}})
+      when status in [500, 502, 503, 504],
+      do: true
+
+  def default_retryable?({:error, {:cerebras_error, status, _}})
+      when status in [500, 502, 503, 504],
+      do: true
+
+  def default_retryable?({:error, {:groq_error, status, _}})
+      when status in [500, 502, 503, 504],
+      do: true
+
+  # Transport/network errors - might be transient
+  def default_retryable?({:error, {:request_failed, :timeout}}), do: true
+  def default_retryable?({:error, {:request_failed, :connect_timeout}}), do: true
+  def default_retryable?({:error, {:request_failed, :closed}}), do: true
+  def default_retryable?({:error, {:request_failed, {:tls_alert, _}}}), do: true
+  def default_retryable?({:error, %Req.TransportError{}}), do: true
+
+  # Not retryable - API keys, auth, client errors
+  def default_retryable?({:error, :no_api_key}), do: false
+  def default_retryable?({:error, :no_cerebras_key}), do: false
+  def default_retryable?({:error, :no_openrouter_key}), do: false
+
+  def default_retryable?({:error, {:openrouter_error, status, _}})
+      when status in [400, 401, 403, 404],
+      do: false
+
+  def default_retryable?({:error, {:cerebras_error, status, _}})
+      when status in [400, 401, 403, 404],
+      do: false
+
+  # Unknown errors - conservative, don't retry
+  def default_retryable?(_), do: false
 
   # Get option with environment variable fallback
   defp get_opt(opts, key, default) do

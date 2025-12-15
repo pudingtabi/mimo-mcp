@@ -362,55 +362,72 @@ defmodule Mimo.Brain.MemoryIntegrator do
     importance = opts[:importance] || 0.5
     supersedes_id = get_id(existing)
 
-    # CRITICAL: Wrap all operations in a single transaction to prevent orphaned chains
-    # If any step fails, the entire operation is rolled back
     Repo.transaction(fn ->
-      # Create new memory with supersedes_id via metadata
       metadata = %{supersedes_id: supersedes_id}
 
-      case Memory.persist_memory(new_content, category, importance, nil, metadata) do
-        {:ok, new_engram} ->
-          # Update the engram to set supersedes_id if not set via metadata
-          # (persist_memory may not handle supersedes_id)
-          new_engram =
-            if new_engram.supersedes_id != supersedes_id do
-              case Repo.update(Ecto.Changeset.change(new_engram, %{supersedes_id: supersedes_id})) do
-                {:ok, updated} ->
-                  updated
-
-                {:error, changeset} ->
-                  Logger.error("Failed to set supersedes_id: #{inspect(changeset.errors)}")
-                  Repo.rollback({:supersedes_update_failed, changeset.errors})
-              end
-            else
-              new_engram
-            end
-
-          # Mark old as superseded
-          if is_struct(existing, Engram) do
-            case supersede(existing, new_engram, supersession_type) do
-              {:ok, _} ->
-                new_engram
-
-              {:error, reason} ->
-                Logger.error("Failed to mark old memory as superseded: #{inspect(reason)}")
-                # Rollback the entire transaction to prevent orphaned chains
-                Repo.rollback({:supersession_failed, reason})
-            end
-          else
-            # Existing was a map, not a persisted engram
-            new_engram
-          end
-
-        {:error, reason} ->
-          Repo.rollback({:persist_failed, reason})
-      end
+      do_supersede_and_create(
+        existing,
+        new_content,
+        category,
+        importance,
+        metadata,
+        supersedes_id,
+        supersession_type
+      )
     end)
-    |> case do
-      {:ok, engram} -> {:ok, engram}
-      {:error, reason} -> {:error, reason}
+    |> normalize_transaction_result()
+  end
+
+  defp do_supersede_and_create(
+         existing,
+         new_content,
+         category,
+         importance,
+         metadata,
+         supersedes_id,
+         supersession_type
+       ) do
+    case Memory.persist_memory(new_content, category, importance, nil, metadata) do
+      {:ok, new_engram} ->
+        new_engram = ensure_supersedes_id(new_engram, supersedes_id)
+        mark_existing_superseded(existing, new_engram, supersession_type)
+
+      {:error, reason} ->
+        Repo.rollback({:persist_failed, reason})
     end
   end
+
+  defp ensure_supersedes_id(engram, supersedes_id) do
+    if engram.supersedes_id != supersedes_id do
+      case Repo.update(Ecto.Changeset.change(engram, %{supersedes_id: supersedes_id})) do
+        {:ok, updated} ->
+          updated
+
+        {:error, changeset} ->
+          Logger.error("Failed to set supersedes_id: #{inspect(changeset.errors)}")
+          Repo.rollback({:supersedes_update_failed, changeset.errors})
+      end
+    else
+      engram
+    end
+  end
+
+  defp mark_existing_superseded(existing, new_engram, supersession_type)
+       when is_struct(existing, Engram) do
+    case supersede(existing, new_engram, supersession_type) do
+      {:ok, _} ->
+        new_engram
+
+      {:error, reason} ->
+        Logger.error("Failed to mark old memory as superseded: #{inspect(reason)}")
+        Repo.rollback({:supersession_failed, reason})
+    end
+  end
+
+  defp mark_existing_superseded(_existing, new_engram, _supersession_type), do: new_engram
+
+  defp normalize_transaction_result({:ok, engram}), do: {:ok, engram}
+  defp normalize_transaction_result({:error, reason}), do: {:error, reason}
 
   defp parse_decision_response(response) do
     cleaned =
@@ -421,21 +438,7 @@ defmodule Mimo.Brain.MemoryIntegrator do
 
     case Jason.decode(cleaned) do
       {:ok, %{"decision" => decision_str} = result} ->
-        decision = parse_decision_string(decision_str)
-
-        if decision in @valid_decisions do
-          {:ok,
-           %{
-             decision: decision,
-             reasoning: result["reasoning"] || "No reasoning provided",
-             confidence: result["confidence"] || 0.8
-           }}
-        else
-          Logger.warning("Invalid decision from LLM: #{decision_str}, defaulting to :new")
-
-          {:ok,
-           %{decision: :new, reasoning: "Invalid LLM decision, defaulting to new", confidence: 0.5}}
-        end
+        build_decision_from_result(decision_str, result)
 
       {:ok, _} ->
         Logger.warning("Unexpected LLM response format")
@@ -444,6 +447,24 @@ defmodule Mimo.Brain.MemoryIntegrator do
       {:error, reason} ->
         Logger.warning("Failed to parse decision response: #{inspect(reason)}")
         {:ok, %{decision: :new, reasoning: "Parse error, defaulting to new", confidence: 0.5}}
+    end
+  end
+
+  defp build_decision_from_result(decision_str, result) do
+    decision = parse_decision_string(decision_str)
+
+    if decision in @valid_decisions do
+      {:ok,
+       %{
+         decision: decision,
+         reasoning: result["reasoning"] || "No reasoning provided",
+         confidence: result["confidence"] || 0.8
+       }}
+    else
+      Logger.warning("Invalid decision from LLM: #{decision_str}, defaulting to :new")
+
+      {:ok,
+       %{decision: :new, reasoning: "Invalid LLM decision, defaulting to new", confidence: 0.5}}
     end
   end
 

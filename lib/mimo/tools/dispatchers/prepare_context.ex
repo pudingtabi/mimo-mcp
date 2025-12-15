@@ -29,6 +29,7 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
   alias Mimo.Brain.HybridScorer
   alias Mimo.Context.BudgetAllocator
   alias Mimo.Tools.Dispatchers.{Code, Knowledge, Library}
+  alias Mimo.Cognitive.KnowledgeTransfer
   alias Mimo.TaskHelper
 
   @doc """
@@ -116,13 +117,16 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
       # DEMAND 3: Pattern matching - find relevant emergence patterns
       {"patterns", TaskHelper.async_with_callers(fn -> {:patterns, gather_patterns(query)} end)},
       # DEMAND 5: Wisdom injection - gather failures and lessons
-      {"wisdom", TaskHelper.async_with_callers(fn -> {:wisdom, gather_wisdom(query)} end)}
+      {"wisdom", TaskHelper.async_with_callers(fn -> {:wisdom, gather_wisdom(query)} end)},
+      # Phase 3: Cross-domain knowledge transfer
+      {"cross_domain",
+       TaskHelper.async_with_callers(fn -> {:cross_domain, gather_cross_domain(query)} end)}
     ]
 
-    # Filter to only requested sources (patterns and wisdom always included for small model boost)
+    # Filter to only requested sources (patterns, wisdom, cross_domain always included for cognitive boost)
     standard_sources =
       Enum.filter(all_tasks, fn {name, _task} ->
-        name in sources or name in ["patterns", "wisdom"]
+        name in sources or name in ["patterns", "wisdom", "cross_domain"]
       end)
 
     standard_sources
@@ -204,6 +208,41 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
     e ->
       Logger.debug("[PrepareContext] Wisdom gathering failed: #{Exception.message(e)}")
       %{failures: [], warnings: [], formatted: "", count: 0, error: Exception.message(e)}
+  end
+
+  # ==========================================================================
+  # PHASE 3: CROSS-DOMAIN KNOWLEDGE TRANSFER
+  # ==========================================================================
+
+  defp gather_cross_domain(query) do
+    # Find cross-domain insights that might help with the current task
+    case KnowledgeTransfer.find_transfers(query, limit: 3) do
+      {:ok, transfers} when is_list(transfers) and length(transfers) > 0 ->
+        formatted_transfers =
+          Enum.map(transfers, fn t ->
+            %{
+              from: t.source_domain,
+              to: t.target_domain,
+              concept: t.concept,
+              insight: "From #{t.source_domain}: #{t.source_pattern}",
+              recommendation: "In #{t.target_domain}: #{t.target_pattern}",
+              confidence: Float.round(t.confidence, 2)
+            }
+          end)
+
+        %{
+          count: length(formatted_transfers),
+          items: formatted_transfers,
+          target_domain: if(length(transfers) > 0, do: hd(transfers).target_domain, else: :unknown)
+        }
+
+      _ ->
+        %{count: 0, items: [], target_domain: :unknown}
+    end
+  rescue
+    e ->
+      Logger.debug("[PrepareContext] Cross-domain transfer failed: #{Exception.message(e)}")
+      %{count: 0, items: [], error: Exception.message(e)}
   end
 
   # ==========================================================================
@@ -937,35 +976,29 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
   # ==========================================================================
   # HELPERS
   defp extract_relationships(semantic_store) when is_map(semantic_store) do
-    relationships_map =
-      Map.get(semantic_store, :relationships) || Map.get(semantic_store, "relationships") || %{}
-
-    outgoing =
-      Map.get(relationships_map, :outgoing) || Map.get(relationships_map, "outgoing") || []
-
-    incoming =
-      Map.get(relationships_map, :incoming) || Map.get(relationships_map, "incoming") || []
+    relationships_map = get_map_value(semantic_store, [:relationships, "relationships"], %{})
+    outgoing = get_map_value(relationships_map, [:outgoing, "outgoing"], [])
+    incoming = get_map_value(relationships_map, [:incoming, "incoming"], [])
 
     (outgoing ++ incoming)
-    |> Enum.map(fn rel ->
-      subject =
-        Map.get(rel, :subject) || Map.get(rel, "subject") || Map.get(rel, :subject_id) ||
-          Map.get(rel, "subject_id") || "?"
-
-      predicate =
-        Map.get(rel, :predicate) || Map.get(rel, "predicate") || Map.get(rel, :pred) ||
-          Map.get(rel, "pred") || "relates_to"
-
-      object =
-        Map.get(rel, :object) || Map.get(rel, "object") || Map.get(rel, :object_id) ||
-          Map.get(rel, "object_id") || "?"
-
-      "#{subject} #{predicate} #{object}"
-    end)
+    |> Enum.map(&format_relationship/1)
     |> Enum.uniq()
   end
 
   defp extract_relationships(_), do: []
+
+  defp format_relationship(rel) do
+    subject = get_map_value(rel, [:subject, "subject", :subject_id, "subject_id"], "?")
+    predicate = get_map_value(rel, [:predicate, "predicate", :pred, "pred"], "relates_to")
+    object = get_map_value(rel, [:object, "object", :object_id, "object_id"], "?")
+    "#{subject} #{predicate} #{object}"
+  end
+
+  defp get_map_value(map, keys, default) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, default, fn key -> Map.get(map, key) end) || default
+  end
+
+  defp get_map_value(_, _, default), do: default
 
   @doc false
   def extract_relationships_for_test(semantic_store), do: extract_relationships(semantic_store)

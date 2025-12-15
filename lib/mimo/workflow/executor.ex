@@ -638,27 +638,38 @@ defmodule Mimo.Workflow.Executor do
   # =============================================================================
 
   defp resolve_all_bindings(%Pattern{steps: steps, bindings: bindings}, context) do
-    # First, ensure all required bindings are present
-    resolved =
-      Enum.reduce(bindings || [], context, fn binding, ctx ->
-        if Map.has_key?(ctx, binding.name) do
-          ctx
-        else
-          # Try to extract from context using default extractor
-          case binding[:extractor] do
-            nil ->
-              ctx
+    resolved = resolve_pattern_bindings(bindings || [], context)
+    resolve_step_bindings_all(steps, resolved, bindings)
+  end
 
-            extractor ->
-              case BindingsResolver.extract_path(context, extractor) do
-                nil -> ctx
-                value -> Map.put(ctx, binding.name, value)
-              end
-          end
+  defp resolve_pattern_bindings(bindings, context) do
+    Enum.reduce(bindings, context, fn binding, ctx ->
+      resolve_single_binding(binding, ctx, context)
+    end)
+  end
+
+  defp resolve_single_binding(binding, ctx, context) do
+    if Map.has_key?(ctx, binding.name) do
+      ctx
+    else
+      try_extract_binding(binding, ctx, context)
+    end
+  end
+
+  defp try_extract_binding(binding, ctx, context) do
+    case binding[:extractor] do
+      nil ->
+        ctx
+
+      extractor ->
+        case BindingsResolver.extract_path(context, extractor) do
+          nil -> ctx
+          value -> Map.put(ctx, binding.name, value)
         end
-      end)
+    end
+  end
 
-    # Then resolve step-specific bindings
+  defp resolve_step_bindings_all(steps, resolved, bindings) do
     Enum.reduce(steps, resolved, fn step, ctx ->
       step_bindings = BindingsResolver.resolve_step_bindings(step, ctx, %{bindings: bindings})
       Map.merge(ctx, step_bindings)

@@ -98,40 +98,49 @@ defmodule Mimo.Library.ImportWatcher do
     ecosystem = language_to_ecosystem(language)
 
     if ecosystem do
-      case File.read(path) do
-        {:ok, content} ->
-          imports = extract_imports(content, language)
-          external = filter_external_packages(imports, language)
-
-          Logger.debug("[ImportWatcher] Found #{length(external)} external imports in #{path}")
-
-          # Cache in background tasks
-          Enum.each(external, fn pkg ->
-            Mimo.Sandbox.run_async(Mimo.Repo, fn ->
-              case Index.ensure_cached(pkg, ecosystem) do
-                :ok ->
-                  Logger.debug("[ImportWatcher] Cached #{ecosystem}/#{pkg}")
-
-                {:error, reason} ->
-                  Logger.warning(
-                    "[ImportWatcher] Failed to cache #{ecosystem}/#{pkg}: #{inspect(reason)}"
-                  )
-
-                  :telemetry.execute([:mimo, :import_watcher, :cache_error], %{count: 1}, %{
-                    package: pkg,
-                    ecosystem: ecosystem
-                  })
-              end
-            end)
-          end)
-
-          :ok
-
-        {:error, _} ->
-          :ok
-      end
+      cache_file_imports(path, language, ecosystem)
     else
       :ok
+    end
+  end
+
+  defp cache_file_imports(path, language, ecosystem) do
+    case File.read(path) do
+      {:ok, content} ->
+        content
+        |> extract_imports(language)
+        |> filter_external_packages(language)
+        |> cache_packages(ecosystem, path)
+
+      {:error, _} ->
+        :ok
+    end
+  end
+
+  defp cache_packages(packages, ecosystem, path) do
+    Logger.debug("[ImportWatcher] Found #{length(packages)} external imports in #{path}")
+
+    Enum.each(packages, fn pkg ->
+      Mimo.Sandbox.run_async(Mimo.Repo, fn ->
+        cache_single_package(pkg, ecosystem)
+      end)
+    end)
+
+    :ok
+  end
+
+  defp cache_single_package(pkg, ecosystem) do
+    case Index.ensure_cached(pkg, ecosystem) do
+      :ok ->
+        Logger.debug("[ImportWatcher] Cached #{ecosystem}/#{pkg}")
+
+      {:error, reason} ->
+        Logger.warning("[ImportWatcher] Failed to cache #{ecosystem}/#{pkg}: #{inspect(reason)}")
+
+        :telemetry.execute([:mimo, :import_watcher, :cache_error], %{count: 1}, %{
+          package: pkg,
+          ecosystem: ecosystem
+        })
     end
   end
 

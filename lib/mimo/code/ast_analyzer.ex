@@ -189,25 +189,21 @@ defmodule Mimo.Code.AstAnalyzer do
     |> Enum.uniq_by(fn ref -> {ref.line, ref.col, ref.name} end)
   end
 
-  defp normalize_kind(kind) do
-    case kind do
-      "def" -> "function"
-      "defp" -> "function"
-      "defmacro" -> "macro"
-      "defmacrop" -> "macro"
-      "defmodule" -> "module"
-      "function_definition" -> "function"
-      "async_function_definition" -> "function"
-      "function_declaration" -> "function"
-      "class_definition" -> "class"
-      "class_declaration" -> "class"
-      "method_definition" -> "method"
-      "const" -> "constant"
-      "let" -> "variable"
-      "var" -> "variable"
-      k -> k
-    end
-  end
+  defp normalize_kind("def"), do: "function"
+  defp normalize_kind("defp"), do: "function"
+  defp normalize_kind("defmacro"), do: "macro"
+  defp normalize_kind("defmacrop"), do: "macro"
+  defp normalize_kind("defmodule"), do: "module"
+  defp normalize_kind("function_definition"), do: "function"
+  defp normalize_kind("async_function_definition"), do: "function"
+  defp normalize_kind("function_declaration"), do: "function"
+  defp normalize_kind("class_definition"), do: "class"
+  defp normalize_kind("class_declaration"), do: "class"
+  defp normalize_kind("method_definition"), do: "method"
+  defp normalize_kind("const"), do: "constant"
+  defp normalize_kind("let"), do: "variable"
+  defp normalize_kind("var"), do: "variable"
+  defp normalize_kind(k), do: k
 
   defp normalize_ref_kind(kind) do
     case kind do

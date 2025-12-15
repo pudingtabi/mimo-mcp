@@ -230,51 +230,101 @@ defmodule Mimo.Skills.Blink do
 
   defp do_fetch_with_layers(url, browser, retries_left, max_layer, current_layer)
        when retries_left > 0 do
-    result =
-      case current_layer do
-        0 -> basic_fetch(url, browser)
-        1 -> layer_1_fetch(url, browser)
-        2 -> layer_2_fetch(url, browser)
-        _ -> {:error, :max_layer_exceeded}
-      end
+    result = fetch_by_layer(url, browser, current_layer)
 
-    case result do
-      {:ok, response} ->
-        case challenged?(response) do
-          false ->
-            {:ok, Map.put(response, :layer_used, current_layer)}
-
-          {:challenge, type} when current_layer < max_layer ->
-            Logger.info(
-              "[Blink] Challenge detected (#{type}), escalating to layer #{current_layer + 1}"
-            )
-
-            Process.sleep(jittered_delay(1000))
-            do_fetch_with_layers(url, browser, retries_left, max_layer, current_layer + 1)
-
-          {:challenge, type} ->
-            {:challenge, %{type: type, response: response, layer: current_layer}}
-
-          {:blocked, _reason} when retries_left > 1 ->
-            next_browser = rotate_browser(browser)
-            Process.sleep(jittered_delay(2000))
-            do_fetch_with_layers(url, next_browser, retries_left - 1, max_layer, current_layer)
-
-          {:blocked, reason} ->
-            {:blocked, %{reason: reason, response: response}}
-        end
-
-      {:error, _reason} when retries_left > 1 ->
+    case handle_fetch_result(result, url, browser, retries_left, max_layer, current_layer) do
+      {:escalate, next_layer} ->
         Process.sleep(jittered_delay(1000))
-        do_fetch_with_layers(url, browser, retries_left - 1, max_layer, current_layer)
+        do_fetch_with_layers(url, browser, retries_left, max_layer, next_layer)
 
-      {:error, reason} ->
-        {:error, reason}
+      {:retry_blocked, next_browser} ->
+        Process.sleep(jittered_delay(2000))
+        do_fetch_with_layers(url, next_browser, retries_left - 1, max_layer, current_layer)
+
+      other ->
+        other
     end
   end
 
   defp do_fetch_with_layers(_url, _browser, 0, _max_layer, _current_layer) do
     {:error, :max_retries_exceeded}
+  end
+
+  defp fetch_by_layer(url, browser, 0), do: basic_fetch(url, browser)
+  defp fetch_by_layer(url, browser, 1), do: layer_1_fetch(url, browser)
+  defp fetch_by_layer(url, browser, 2), do: layer_2_fetch(url, browser)
+  defp fetch_by_layer(_url, _browser, _), do: {:error, :max_layer_exceeded}
+
+  defp handle_fetch_result({:ok, response}, _url, browser, retries_left, max_layer, current_layer) do
+    handle_challenge_check(
+      challenged?(response),
+      response,
+      browser,
+      retries_left,
+      current_layer,
+      max_layer
+    )
+  end
+
+  defp handle_fetch_result({:error, _reason}, url, browser, retries_left, max_layer, current_layer)
+       when retries_left > 1 do
+    Process.sleep(jittered_delay(1000))
+    do_fetch_with_layers(url, browser, retries_left - 1, max_layer, current_layer)
+  end
+
+  defp handle_fetch_result({:error, reason}, _url, _browser, _retries, _max_layer, _current_layer) do
+    {:error, reason}
+  end
+
+  defp handle_challenge_check(false, response, _browser, _retries, current_layer, _max_layer) do
+    {:ok, Map.put(response, :layer_used, current_layer)}
+  end
+
+  defp handle_challenge_check(
+         {:challenge, type},
+         _response,
+         _browser,
+         _retries,
+         current_layer,
+         max_layer
+       )
+       when current_layer < max_layer do
+    Logger.info("[Blink] Challenge detected (#{type}), escalating to layer #{current_layer + 1}")
+    {:escalate, current_layer + 1}
+  end
+
+  defp handle_challenge_check(
+         {:challenge, type},
+         response,
+         _browser,
+         _retries,
+         current_layer,
+         _max_layer
+       ) do
+    {:challenge, %{type: type, response: response, layer: current_layer}}
+  end
+
+  defp handle_challenge_check(
+         {:blocked, _reason},
+         _response,
+         browser,
+         retries_left,
+         _current_layer,
+         _max_layer
+       )
+       when retries_left > 1 do
+    {:retry_blocked, rotate_browser(browser)}
+  end
+
+  defp handle_challenge_check(
+         {:blocked, reason},
+         response,
+         _browser,
+         _retries,
+         _current_layer,
+         _max_layer
+       ) do
+    {:blocked, %{reason: reason, response: response}}
   end
 
   defp basic_fetch(url, browser) do

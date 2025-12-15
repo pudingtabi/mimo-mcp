@@ -214,7 +214,8 @@ defmodule Mimo.Tools.Helpers do
         Mimo.Skills.MemoryContext.get_file_context(path)
       end)
 
-    case Task.yield(task, 2000) || Task.shutdown(task) do
+    # SPEC-080: Reduced from 2s to 500ms - this is optional enrichment, don't block
+    case Task.yield(task, 500) || Task.shutdown(task) do
       {:ok, {:ok, context}} when not is_nil(context) ->
         {:ok, Mimo.Skills.MemoryContext.enrich_response(data, context)}
 
@@ -236,7 +237,8 @@ defmodule Mimo.Tools.Helpers do
         Mimo.Skills.MemoryContext.get_command_context(command)
       end)
 
-    case Task.yield(task, 2000) || Task.shutdown(task) do
+    # SPEC-080: Reduced from 2s to 500ms - this is optional enrichment, don't block
+    case Task.yield(task, 500) || Task.shutdown(task) do
       {:ok, {:ok, context}} when not is_nil(context) ->
         {:ok, Mimo.Skills.MemoryContext.enrich_response(data, context)}
 

@@ -50,23 +50,57 @@ defmodule Mimo.ToolInterface do
     # Register activity for pause-aware decay (non-blocking)
     register_activity()
 
+    # Track cognitive lifecycle (non-blocking)
+    track_cognitive_lifecycle(tool_name, arguments)
+
     # SPEC-INTERCEPTOR: Analyze request for cognitive enhancement
-    case Mimo.RequestInterceptor.analyze_and_enrich(tool_name, arguments) do
-      {:enriched, context, metadata} ->
-        # Auto-enriched with cognitive context - add to arguments
-        enriched_args = Map.put(arguments, "_mimo_context", context)
-        result = do_execute(tool_name, enriched_args)
-        add_cognitive_metadata(result, metadata)
+    result =
+      case Mimo.RequestInterceptor.analyze_and_enrich(tool_name, arguments) do
+        {:enriched, context, metadata} ->
+          # Auto-enriched with cognitive context - add to arguments
+          enriched_args = Map.put(arguments, "_mimo_context", context)
+          res = do_execute(tool_name, enriched_args)
+          add_cognitive_metadata(res, metadata)
 
-      {:suggest, cognitive_tool, query, reason} ->
-        # Execute the tool but add suggestion to result
-        result = do_execute(tool_name, arguments)
-        add_cognitive_suggestion(result, cognitive_tool, query, reason)
+        {:suggest, cognitive_tool, query, reason} ->
+          # Execute the tool but add suggestion to result
+          res = do_execute(tool_name, arguments)
+          add_cognitive_suggestion(res, cognitive_tool, query, reason)
 
-      {:continue, nil} ->
-        # Normal execution
-        do_execute(tool_name, arguments)
-    end
+        {:continue, nil} ->
+          # Normal execution
+          do_execute(tool_name, arguments)
+      end
+
+    # Auto-reflect on significant outputs (non-blocking, feeds Optimizer)
+    maybe_auto_reflect(tool_name, arguments, result)
+
+    # Track context window usage (non-blocking)
+    track_context_window_usage(arguments, result)
+
+    # Phase 3: Predictive context prefetching (non-blocking)
+    maybe_prefetch_context(tool_name, arguments, result)
+
+    result
+  end
+
+  # Track tool usage in cognitive lifecycle (non-blocking)
+  defp track_cognitive_lifecycle(tool_name, arguments) do
+    # Extract thread_id from arguments or use default
+    thread_id = arguments["_thread_id"] || arguments[:_thread_id] || "default"
+    # Extract operation from arguments
+    operation = arguments["operation"] || arguments[:operation]
+
+    # Fire-and-forget tracking
+    spawn(fn ->
+      try do
+        Mimo.Brain.CognitiveLifecycle.track_transition(thread_id, tool_name, operation)
+      rescue
+        _ -> :ok
+      catch
+        :exit, _ -> :ok
+      end
+    end)
   end
 
   # Add cognitive metadata to successful results
@@ -78,12 +112,31 @@ defmodule Mimo.ToolInterface do
 
   # Add cognitive suggestion to successful results
   defp add_cognitive_suggestion({:ok, result}, tool, query, reason) when is_map(result) do
+    hint = build_suggestion_hint(tool, query)
+
     suggestion = %{
       recommended_tool: tool,
       query: query,
       reason: reason,
-      hint: build_suggestion_hint(tool, query)
+      hint: hint
     }
+
+    # Track prompt for self-improving optimization (non-blocking)
+    if hint do
+      spawn(fn ->
+        try do
+          Mimo.Cognitive.PromptOptimizer.track_prompt(hint, %{
+            type: :cognitive_suggestion,
+            tool_name: to_string(tool),
+            query: query
+          })
+        rescue
+          _ -> :ok
+        catch
+          :exit, _ -> :ok
+        end
+      end)
+    end
 
     {:ok, Map.put(result, :_cognitive_suggestion, suggestion)}
   end
@@ -108,6 +161,256 @@ defmodule Mimo.ToolInterface do
   defp register_activity do
     if Process.whereis(Mimo.Brain.ActivityTracker) do
       Mimo.Brain.ActivityTracker.register_activity()
+    end
+  end
+
+  # Auto-reflect on significant tool outputs (feeds Evaluator-Optimizer)
+  # Non-blocking: spawns a task to evaluate output quality
+  defp maybe_auto_reflect(tool_name, arguments, {:ok, result}) when is_map(result) do
+    # Check if this tool should auto-reflect
+    tool_atom = String.to_existing_atom(tool_name)
+    should_reflect = Mimo.Brain.Reflector.Config.should_auto_reflect?(tool_atom)
+
+    if should_reflect do
+      # Only reflect on substantial outputs (> 100 chars when serialized)
+      output_text = extract_output_text(result)
+
+      if String.length(output_text) > 100 do
+        spawn(fn ->
+          try do
+            # Build context from arguments
+            context = %{
+              tool: tool_name,
+              operation: arguments["operation"],
+              query: arguments["query"] || arguments["path"] || arguments["command"]
+            }
+
+            # Lightweight evaluation (skip full refinement)
+            case Mimo.Brain.Reflector.reflect_and_refine(output_text, context,
+                   skip_refinement: true,
+                   store_outcome: true
+                 ) do
+              {:ok, _} -> :ok
+              {:uncertain, _} -> :ok
+              {:error, _} -> :ok
+            end
+          rescue
+            _ -> :ok
+          catch
+            :exit, _ -> :ok
+          end
+        end)
+      end
+    end
+  rescue
+    # String.to_existing_atom can raise if atom doesn't exist
+    ArgumentError -> :ok
+  end
+
+  defp maybe_auto_reflect(_tool_name, _arguments, _result), do: :ok
+
+  # Extract displayable text from tool result for reflection
+  defp extract_output_text(result) when is_map(result) do
+    cond do
+      Map.has_key?(result, :content) -> to_string(result.content)
+      Map.has_key?(result, "content") -> to_string(result["content"])
+      Map.has_key?(result, :output) -> to_string(result.output)
+      Map.has_key?(result, "output") -> to_string(result["output"])
+      Map.has_key?(result, :data) -> inspect(result.data, limit: 500)
+      Map.has_key?(result, "data") -> inspect(result["data"], limit: 500)
+      true -> inspect(result, limit: 500)
+    end
+  end
+
+  defp extract_output_text(result), do: inspect(result, limit: 500)
+
+  # Track context window usage for the session (non-blocking)
+  defp track_context_window_usage(arguments, {:ok, result}) when is_map(result) do
+    thread_id = arguments["_thread_id"] || arguments[:_thread_id] || "default"
+    model = arguments["_model"] || arguments[:_model] || "opus"
+
+    spawn(fn ->
+      try do
+        # Estimate tokens from result
+        output_text = extract_output_text(result)
+        tokens = Mimo.Context.BudgetAllocator.estimate_string_tokens(output_text)
+
+        # Track in ContextWindowManager
+        if Process.whereis(Mimo.Context.ContextWindowManager) do
+          Mimo.Context.ContextWindowManager.track_usage(thread_id, tokens, model: model)
+        end
+      rescue
+        _ -> :ok
+      catch
+        :exit, _ -> :ok
+      end
+    end)
+  end
+
+  defp track_context_window_usage(_arguments, _result), do: :ok
+
+  # Phase 3: Predictive context prefetching (non-blocking)
+  # Uses AccessPatternTracker and Prefetcher to anticipate future context needs
+  defp maybe_prefetch_context(tool_name, arguments, {:ok, result}) when is_map(result) do
+    spawn(fn ->
+      try do
+        # Extract query/context from arguments
+        query = extract_query_from_args(tool_name, arguments)
+
+        if query && String.length(query) > 3 do
+          # Track access pattern for learning
+          track_access_pattern(tool_name, arguments, result)
+
+          # Predict and prefetch likely next context needs
+          prefetch_predicted_context(query, tool_name)
+        end
+      rescue
+        _ -> :ok
+      catch
+        :exit, _ -> :ok
+      end
+    end)
+  end
+
+  defp maybe_prefetch_context(_tool_name, _arguments, _result), do: :ok
+
+  # Extract query/context from tool arguments based on tool type
+  defp extract_query_from_args(tool_name, arguments) do
+    case tool_name do
+      "memory" ->
+        arguments["query"] || arguments[:query] || arguments["content"] || arguments[:content]
+
+      "file" ->
+        arguments["path"] || arguments[:path] || arguments["pattern"] || arguments[:pattern]
+
+      "knowledge" ->
+        arguments["query"] || arguments[:query] || arguments["text"] || arguments[:text]
+
+      "code" ->
+        arguments["name"] || arguments[:name] || arguments["path"] || arguments[:path]
+
+      "ask_mimo" ->
+        arguments["query"] || arguments[:query]
+
+      "reason" ->
+        arguments["problem"] || arguments[:problem] || arguments["thought"] || arguments[:thought]
+
+      "terminal" ->
+        # Extract key info from command
+        cmd = arguments["command"] || arguments[:command] || ""
+        extract_command_context(cmd)
+
+      "web" ->
+        arguments["query"] || arguments[:query] || arguments["url"] || arguments[:url]
+
+      _ ->
+        # Try common field names
+        arguments["query"] || arguments[:query] ||
+          arguments["path"] || arguments[:path] ||
+          arguments["name"] || arguments[:name]
+    end
+  end
+
+  defp extract_command_context(command) when is_binary(command) do
+    # Extract meaningful context from shell commands
+    cond do
+      String.contains?(command, "test") -> "testing"
+      String.contains?(command, "build") or String.contains?(command, "compile") -> "building"
+      String.contains?(command, "install") -> "dependencies"
+      String.contains?(command, "git") -> "version control"
+      true -> nil
+    end
+  end
+
+  defp extract_command_context(_), do: nil
+
+  # Track access pattern for predictive learning
+  defp track_access_pattern(tool_name, arguments, result) do
+    if Process.whereis(Mimo.Context.AccessPatternTracker) do
+      source_type = tool_name_to_source_type(tool_name)
+      source_id = extract_source_id(tool_name, arguments, result)
+      task_query = extract_query_from_args(tool_name, arguments) || ""
+
+      Mimo.Context.AccessPatternTracker.track_access(
+        source_type,
+        source_id,
+        task: task_query,
+        tier: result[:tier] || result["tier"]
+      )
+    end
+  end
+
+  defp tool_name_to_source_type(tool_name) do
+    case tool_name do
+      "memory" -> :memory
+      "code" -> :code_symbol
+      "knowledge" -> :knowledge
+      "file" -> :file
+      _ -> :other
+    end
+  end
+
+  defp extract_source_id(tool_name, arguments, result) do
+    case tool_name do
+      "memory" ->
+        # Use first result ID if available
+        case result do
+          %{items: [%{id: id} | _]} -> id
+          %{"items" => [%{"id" => id} | _]} -> id
+          _ -> arguments["query"] || arguments[:query] || "unknown"
+        end
+
+      "file" ->
+        arguments["path"] || arguments[:path] || "unknown"
+
+      "code" ->
+        arguments["name"] || arguments[:name] || arguments["path"] || arguments[:path] || "unknown"
+
+      _ ->
+        "unknown"
+    end
+  end
+
+  # Prefetch context predicted to be needed next
+  defp prefetch_predicted_context(query, tool_name) do
+    if Process.whereis(Mimo.Context.Prefetcher) do
+      # Determine which sources to prefetch based on current tool
+      sources = predict_next_sources(tool_name)
+
+      Mimo.Context.Prefetcher.prefetch_for_query(query, sources: sources, priority: :normal)
+    end
+  end
+
+  # Predict which sources will likely be needed next based on current tool
+  defp predict_next_sources(tool_name) do
+    case tool_name do
+      "ask_mimo" ->
+        # After consulting mimo, likely to access memory or code
+        [:memory, :knowledge, :code_symbol]
+
+      "memory" ->
+        # After memory search, might look at code or knowledge
+        [:code_symbol, :knowledge]
+
+      "file" ->
+        # After file ops, might search memory or symbols
+        [:memory, :code_symbol]
+
+      "code" ->
+        # After code analysis, might access related files or memory
+        [:file, :memory]
+
+      "knowledge" ->
+        # After knowledge query, might access memory or code
+        [:memory, :code_symbol]
+
+      "reason" ->
+        # After reasoning, might access any source
+        [:memory, :knowledge, :code_symbol]
+
+      _ ->
+        # Default: memory and knowledge are common
+        [:memory, :knowledge]
     end
   end
 
@@ -663,83 +966,15 @@ defmodule Mimo.ToolInterface do
   defp do_execute(tool_name, arguments) do
     case Mimo.ToolRegistry.get_tool_owner(tool_name) do
       {:ok, {:mimo_core, _tool_atom}} ->
-        # Route to Mimo.Tools core capabilities
-        Logger.debug("Dispatching #{tool_name} to Mimo.Tools")
-
-        case Mimo.Tools.dispatch(tool_name, arguments) do
-          {:ok, result} ->
-            # Try to enrich result with context (non-blocking)
-            enriched = try_enrich_result(tool_name, arguments, result)
-
-            {:ok,
-             %{
-               tool_call_id: UUID.uuid4(),
-               status: "success",
-               data: enriched
-             }}
-
-          {:error, reason} ->
-            # Record error for debugging chain detection
-            Mimo.RequestInterceptor.record_error(tool_name, reason)
-            {:error, "Core tool execution failed: #{inspect(reason)}"}
-
-          # Handle bare :ok (some operations don't return data)
-          :ok ->
-            {:ok,
-             %{
-               tool_call_id: UUID.uuid4(),
-               status: "success",
-               data: %{message: "Operation completed successfully"}
-             }}
-
-          # Catch-all for unexpected return types
-          other ->
-            Logger.warning("Unexpected return from #{tool_name}: #{inspect(other)}")
-
-            {:ok,
-             %{
-               tool_call_id: UUID.uuid4(),
-               status: "success",
-               data: other
-             }}
-        end
+        execute_mimo_core(tool_name, arguments)
 
       {:ok, {:skill, skill_name, _pid, _tool_def}} ->
-        # Route to already-running external skill
-        Logger.debug("Routing #{tool_name} to running skill #{skill_name}")
-
-        case Mimo.Skills.Client.call_tool(skill_name, tool_name, arguments) do
-          {:ok, result} ->
-            {:ok,
-             %{
-               tool_call_id: UUID.uuid4(),
-               status: "success",
-               data: result
-             }}
-
-          {:error, reason} ->
-            {:error, "Skill execution failed: #{inspect(reason)}"}
-        end
+        execute_running_skill(skill_name, tool_name, arguments)
 
       {:ok, {:skill_lazy, skill_name, config, _nil}} ->
-        # Lazy-spawn external skill on first call
-        Logger.debug("Lazy-spawning skill #{skill_name} for tool #{tool_name}")
-
-        case Mimo.Skills.Client.call_tool_sync(skill_name, config, tool_name, arguments) do
-          {:ok, result} ->
-            {:ok,
-             %{
-               tool_call_id: UUID.uuid4(),
-               status: "success",
-               data: result
-             }}
-
-          {:error, reason} ->
-            {:error, "Skill execution failed: #{inspect(reason)}"}
-        end
+        execute_lazy_skill(skill_name, config, tool_name, arguments)
 
       {:ok, {:internal, _}} ->
-        # Internal tool without specific handler - missing arguments
         {:error, "Missing required arguments for tool: #{tool_name}"}
 
       {:error, :not_found} ->
@@ -749,6 +984,53 @@ defmodule Mimo.ToolInterface do
       {:error, reason} ->
         {:error, "Tool routing failed: #{inspect(reason)}"}
     end
+  end
+
+  defp execute_mimo_core(tool_name, arguments) do
+    Logger.debug("Dispatching #{tool_name} to Mimo.Tools")
+
+    case Mimo.Tools.dispatch(tool_name, arguments) do
+      {:ok, result} ->
+        enriched = try_enrich_result(tool_name, arguments, result)
+        {:ok, build_success_response(enriched)}
+
+      {:error, reason} ->
+        Mimo.RequestInterceptor.record_error(tool_name, reason)
+        {:error, "Core tool execution failed: #{inspect(reason)}"}
+
+      :ok ->
+        {:ok, build_success_response(%{message: "Operation completed successfully"})}
+
+      other ->
+        Logger.warning("Unexpected return from #{tool_name}: #{inspect(other)}")
+        {:ok, build_success_response(other)}
+    end
+  end
+
+  defp execute_running_skill(skill_name, tool_name, arguments) do
+    Logger.debug("Routing #{tool_name} to running skill #{skill_name}")
+
+    case Mimo.Skills.Client.call_tool(skill_name, tool_name, arguments) do
+      {:ok, result} -> {:ok, build_success_response(result)}
+      {:error, reason} -> {:error, "Skill execution failed: #{inspect(reason)}"}
+    end
+  end
+
+  defp execute_lazy_skill(skill_name, config, tool_name, arguments) do
+    Logger.debug("Lazy-spawning skill #{skill_name} for tool #{tool_name}")
+
+    case Mimo.Skills.Client.call_tool_sync(skill_name, config, tool_name, arguments) do
+      {:ok, result} -> {:ok, build_success_response(result)}
+      {:error, reason} -> {:error, "Skill execution failed: #{inspect(reason)}"}
+    end
+  end
+
+  defp build_success_response(data) do
+    %{
+      tool_call_id: UUID.uuid4(),
+      status: "success",
+      data: data
+    }
   end
 
   # Try to enrich a tool result with memory/knowledge context (non-blocking)

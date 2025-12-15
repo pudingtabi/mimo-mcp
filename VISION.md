@@ -136,7 +136,7 @@ Where other systems add features, Mimo adds **cognitive depth**. Where other too
 - [x] 17 native tools (4 unified + 13 specialized) with 12 deprecated aliases
 - [x] Awakening Protocol (SPEC-040)
 
-### Phase 2: Cognitive Enhancement 🔄 (In Progress)
+### Phase 2: Cognitive Enhancement 🔄 (~70% Complete)
 *"The awakened mind reasons"*
 
 - [x] Unified reasoning engine (CoT, ToT, ReAct, Reflexion)
@@ -144,18 +144,27 @@ Where other systems add features, Mimo adds **cognitive depth**. Where other too
 - [x] Tool adoption optimization (SPEC-041)
 - [x] Reflective Intelligence (SPEC-043) - Self-evaluation systems
 - [x] Cognitive lifecycle tracking (SPEC-042) - Phase classification & anti-pattern detection
-- [ ] Evaluator-Optimizer pattern (self-critique loop)
-- [ ] Context window awareness and management
+- [x] Evaluator-Optimizer pattern (self-critique loop)
+- [x] Context window awareness and management
+- [x] Meta-Cognitive Router (SPEC-070) - Adaptive classification ✅
+- [x] Active Inference Loop (SPEC-071) - Proactive context pushing ✅
+- [x] Sleep Cycle (SPEC-072) - Memory consolidation stages ✅
+- [x] Cognitive Feedback Loop (SPEC-074) - Learning infrastructure ✅
+- [ ] 🔄 Feedback-driven learning (infrastructure exists, learning behavior maturing)
+- [ ] 🔄 True adaptive routing (classification feedback loop in progress)
 
-### Phase 3: Emergent Capabilities 🔄 (In Progress)
+### Phase 3: Emergent Capabilities 🔄 (~45% Complete)
 *"The awakened mind discovers"*
 
-- [x] Emergent Capabilities Framework (SPEC-044) - Pattern detection & promotion
-- [ ] Autonomous goal decomposition
-- [ ] Cross-domain knowledge transfer
-- [ ] Pattern recognition across memory stores
-- [ ] Predictive context preparation
-- [ ] Self-improving prompt optimization
+- [x] Emergent Capabilities Framework (SPEC-044) - Pattern detection & cataloging
+- [x] Autonomous goal decomposition - Basic implementation
+- [x] Cross-domain knowledge transfer - KnowledgeTransfer module
+- [x] Pattern recognition across memory stores - Basic grouping
+- [x] Predictive context preparation - AccessPatternTracker + ActiveInference
+- [x] Self-improving prompt optimization - PromptOptimizer module
+- [ ] 🔄 True emergence (pattern cataloging exists, not actual capability generation)
+- [ ] 🔄 Sophisticated pattern recognition (LLM-enhanced, basic regex currently)
+- [ ] 🔄 Learned predictions (feedback loop active, learning accumulating)
 
 ### Phase 4: Collective Intelligence 🔮 (Future)
 *"The awakened minds collaborate"*
@@ -223,6 +232,11 @@ Where other systems add features, Mimo adds **cognitive depth**. Where other too
 | SPEC-056 | Token Optimization | ✅ Complete | Memory context opt-in, symbol-based reading |
 | SPEC-064 | Structural Token Optimization | ✅ Complete | 40% token reduction via skip_memory_context |
 | SPEC-065 | Proactive Knowledge Injection | ✅ Complete | Memory surfacing before tool execution |
+| SPEC-070 | Meta-Cognitive Router Enhancement | ✅ Complete | Embedding-based semantic classification |
+| SPEC-071 | Active Inference Loop | ✅ Complete | Proactive context pushing, Free Energy Principle |
+| SPEC-072 | Sleep Cycle Consolidation | ✅ Complete | Multi-stage memory consolidation |
+| SPEC-073 | Performance Optimization | ✅ Complete | Search result caching, <50ms target |
+| SPEC-074 | Cognitive Feedback Loop | ✅ Complete | Core learning infrastructure, outcome tracking |
 
 ---
 

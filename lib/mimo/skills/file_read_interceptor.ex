@@ -152,18 +152,20 @@ defmodule Mimo.Skills.FileReadInterceptor do
   defp do_intercept(path, opts) do
     max_age = Keyword.get(opts, :max_age, 300)
 
-    # Run checks in parallel with timeout
+    # SPEC-080: Reduced timeout from 5s to 1s for interception checks
+    # These are optimization hints, not critical - don't block actual file reads
+    # If checks are slow, just proceed with file read
     tasks = [
       Task.async(fn -> check_memory_content(path) end),
       Task.async(fn -> check_symbol_cache(path) end),
       Task.async(fn -> check_recent_reads(path, max_age) end)
     ]
 
-    # Wait for all tasks with 5s timeout.
-    # IMPORTANT: Task.await_many/2 exits the caller on timeout; use yield_many to avoid crashing MCP under load.
+    # Wait for all tasks with 1s timeout (was 5s - too slow!)
+    # If checks timeout, just proceed with file read
     results =
       tasks
-      |> Task.yield_many(5000)
+      |> Task.yield_many(1000)
       |> Enum.map(fn
         {_task, {:ok, result}} ->
           result

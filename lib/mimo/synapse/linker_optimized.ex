@@ -86,7 +86,9 @@ defmodule Mimo.Synapse.LinkerOptimized do
           result = link_code_file_cached(file)
 
           # Periodic flush every N files (spreads write load)
+          # sync() ensures all stage_edge casts are processed before flush
           if rem(idx + 1, @flush_interval) == 0 do
+            GraphCache.sync()
             GraphCache.flush()
           end
 
@@ -109,6 +111,8 @@ defmodule Mimo.Synapse.LinkerOptimized do
       end)
 
     # Final flush to write any remaining cached data
+    # sync() ensures all stage_edge casts from parallel tasks are processed
+    GraphCache.sync()
     GraphCache.flush()
 
     elapsed = System.monotonic_time(:millisecond) - start_time
@@ -164,7 +168,7 @@ defmodule Mimo.Synapse.LinkerOptimized do
     references = get_code_references(file_path)
 
     # Stage file node (ETS lookup, not SQLite)
-    file_node_id =
+    {:ok, file_node_id} =
       GraphCache.stage_node(:file, file_path, %{
         language: detect_language(file_path),
         indexed_at: DateTime.utc_now() |> DateTime.to_iso8601()
@@ -177,7 +181,7 @@ defmodule Mimo.Synapse.LinkerOptimized do
         node_type = symbol_kind_to_node_type(symbol.kind)
         name = symbol.qualified_name || symbol.name
 
-        node_id =
+        {:ok, node_id} =
           GraphCache.stage_node(node_type, name, %{
             language: symbol.language,
             visibility: symbol.visibility || "public",
@@ -196,23 +200,30 @@ defmodule Mimo.Synapse.LinkerOptimized do
       |> Map.new()
 
     # Stage edges for references
+    # References have: name (target being called), line (where call occurs), kind (call/import/etc)
+    # We need to find the containing symbol (source) based on line number and create edge to target
     refs_staged =
       references
       |> Enum.map(fn ref ->
-        ref_name = get_ref_field(ref, :name) || get_ref_field(ref, :source_name)
-        source_node_id = Map.get(symbol_nodes, ref_name)
-        target_name = get_ref_field(ref, :target) || get_ref_field(ref, :target_name)
+        # The ref.name is the TARGET being called
+        target_name = get_ref_field(ref, :name) || get_ref_field(ref, :qualified_name)
+        ref_line = get_ref_field(ref, :line) || 0
 
-        if source_node_id && target_name do
-          # Stage target node (might already exist)
-          target_node_id = stage_ref_target(ref, target_name, symbol_nodes)
+        # Find the containing symbol (source) based on line number
+        source_node_id = find_containing_symbol(symbol_nodes, symbols, ref_line)
+
+        if target_name && (source_node_id || file_node_id) do
+          # Use file node as fallback if no containing symbol found
+          actual_source = source_node_id || file_node_id
+
+          # Stage target node (might already exist locally or externally)
+          target_node_id = stage_ref_target_by_name(target_name, symbol_nodes)
 
           if target_node_id do
             ref_kind = get_ref_field(ref, :kind) || "call"
-            ref_line = get_ref_field(ref, :line) || 0
             edge_type = reference_kind_to_edge_type(ref_kind)
 
-            GraphCache.stage_edge(source_node_id, target_node_id, edge_type, %{
+            GraphCache.stage_edge(actual_source, target_node_id, edge_type, %{
               source: "static_analysis",
               line: ref_line
             })
@@ -227,11 +238,15 @@ defmodule Mimo.Synapse.LinkerOptimized do
       end)
       |> Enum.sum()
 
+    # Stage edges for module dependencies (import/use/alias)
+    deps_staged = stage_module_dependencies(file_path, file_node_id)
+
     {:ok,
      %{
        file_path: file_path,
        symbols_staged: map_size(symbol_nodes),
-       refs_staged: refs_staged
+       refs_staged: refs_staged,
+       deps_staged: deps_staged
      }}
   rescue
     e ->
@@ -239,21 +254,64 @@ defmodule Mimo.Synapse.LinkerOptimized do
       {:error, e}
   end
 
-  # Stage a reference target, preferring local symbols over new nodes
-  defp stage_ref_target(ref, target_name, symbol_nodes) do
-    # Check if target is a local symbol first
-    case Map.get(symbol_nodes, target_name) do
-      nil ->
-        # External reference - stage a new node
-        target_type = get_ref_field(ref, :target_type) || :function
+  # Stage edges for module dependencies (import/use/alias)
+  defp stage_module_dependencies(file_path, file_node_id) do
+    deps = extract_module_dependencies(file_path)
 
-        GraphCache.stage_node(target_type, target_name, %{
-          source: "reference_target",
+    Enum.each(deps, fn dep ->
+      # Stage the target module node
+      {:ok, module_node_id} =
+        GraphCache.stage_node(:module, dep.module, %{
+          source: "dependency_extraction",
           inferred: true
         })
 
+      # Determine edge type based on dependency kind
+      edge_type = reference_kind_to_edge_type(dep.kind)
+
+      # Stage edge: file -> module
+      GraphCache.stage_edge(file_node_id, module_node_id, edge_type, %{
+        source: "ast_analysis",
+        line: dep.line
+      })
+    end)
+
+    length(deps)
+  end
+
+  # Stage a reference target by name only
+  defp stage_ref_target_by_name(target_name, symbol_nodes) do
+    case Map.get(symbol_nodes, target_name) do
+      nil ->
+        # External reference - stage a new node for the target
+        {:ok, node_id} =
+          GraphCache.stage_node(:function, target_name, %{
+            source: "reference_target",
+            inferred: true
+          })
+
+        node_id
+
       local_id ->
         local_id
+    end
+  end
+
+  # Find the containing symbol based on line number
+  defp find_containing_symbol(symbol_nodes, symbols, ref_line) do
+    # Find symbol that contains this line (start_line <= ref_line <= end_line)
+    containing =
+      symbols
+      |> Enum.find(fn symbol ->
+        start_line = symbol.start_line || 0
+        end_line = symbol.end_line || start_line
+        start_line <= ref_line && ref_line <= end_line
+      end)
+
+    if containing do
+      Map.get(symbol_nodes, containing.name)
+    else
+      nil
     end
   end
 
@@ -262,9 +320,12 @@ defmodule Mimo.Synapse.LinkerOptimized do
   # ============================================
 
   defp get_code_symbols(file_path) do
+    # Expand to absolute path to match database storage format
+    abs_path = Path.expand(file_path)
+
     symbols =
       try do
-        Mimo.Code.SymbolIndex.symbols_in_file(file_path)
+        Mimo.Code.SymbolIndex.symbols_in_file(abs_path)
       rescue
         _ -> []
       end
@@ -299,9 +360,107 @@ defmodule Mimo.Synapse.LinkerOptimized do
 
   defp get_code_references(file_path) do
     try do
-      Mimo.Code.SymbolIndex.references_in_file(file_path)
+      # Expand to absolute path to match database storage format
+      abs_path = Path.expand(file_path)
+      Mimo.Code.SymbolIndex.references_in_file(abs_path)
     rescue
       _ -> []
+    end
+  end
+
+  @doc """
+  Extract module dependencies (import/use/alias) from Elixir source files.
+  Returns list of %{kind: "import"|"use"|"alias", module: "ModuleName", line: n}
+  """
+  def extract_module_dependencies(file_path) do
+    if String.ends_with?(file_path, [".ex", ".exs"]) do
+      try do
+        source = File.read!(file_path)
+        {:ok, ast} = Code.string_to_quoted(source, columns: true, token_metadata: true)
+        extract_deps_from_ast(ast, [])
+      rescue
+        _ -> []
+      end
+    else
+      []
+    end
+  end
+
+  defp extract_deps_from_ast({:import, meta, args}, acc) do
+    modules = extract_module_names(args)
+
+    Enum.reduce(modules, acc, fn module, a ->
+      [%{kind: "import", module: module, line: meta[:line] || 0} | a]
+    end)
+  end
+
+  defp extract_deps_from_ast({:use, meta, args}, acc) do
+    modules = extract_module_names(args)
+
+    Enum.reduce(modules, acc, fn module, a ->
+      [%{kind: "use", module: module, line: meta[:line] || 0} | a]
+    end)
+  end
+
+  defp extract_deps_from_ast({:alias, meta, args}, acc) do
+    modules = extract_module_names(args)
+
+    Enum.reduce(modules, acc, fn module, a ->
+      [%{kind: "alias", module: module, line: meta[:line] || 0} | a]
+    end)
+  end
+
+  defp extract_deps_from_ast({:require, meta, args}, acc) do
+    modules = extract_module_names(args)
+
+    Enum.reduce(modules, acc, fn module, a ->
+      [%{kind: "require", module: module, line: meta[:line] || 0} | a]
+    end)
+  end
+
+  defp extract_deps_from_ast({_, _, children}, acc) when is_list(children) do
+    Enum.reduce(children, acc, &extract_deps_from_ast/2)
+  end
+
+  defp extract_deps_from_ast(list, acc) when is_list(list) do
+    Enum.reduce(list, acc, &extract_deps_from_ast/2)
+  end
+
+  # Handle keyword list tuples like {:do, body}
+  defp extract_deps_from_ast({key, value}, acc) when is_atom(key) do
+    extract_deps_from_ast(value, acc)
+  end
+
+  defp extract_deps_from_ast(_, acc), do: acc
+
+  # Extract module names - handles both simple and multi-alias syntax
+  # Returns a list of module name strings
+  defp extract_module_names(args) do
+    case args do
+      # Multi-alias: alias Foo.{Bar, Baz} -> [{:., _, [base, :{}]}, _, [aliases]]
+      [{{:., _, [{:__aliases__, _, base_parts}, :{}]}, _, aliases}] ->
+        base = base_parts |> Enum.map(&to_string/1) |> Enum.join(".")
+
+        Enum.map(aliases, fn
+          {:__aliases__, _, parts} ->
+            suffix = parts |> Enum.map(&to_string/1) |> Enum.join(".")
+            "#{base}.#{suffix}"
+
+          _ ->
+            nil
+        end)
+        |> Enum.reject(&is_nil/1)
+
+      # Simple alias: alias Foo.Bar
+      [{:__aliases__, _, parts} | _] when is_list(parts) ->
+        [parts |> Enum.map(&to_string/1) |> Enum.join(".")]
+
+      # Atom module (Erlang): :crypto
+      [module | _] when is_atom(module) ->
+        [to_string(module)]
+
+      _ ->
+        []
     end
   end
 
@@ -331,8 +490,12 @@ defmodule Mimo.Synapse.LinkerOptimized do
   defp reference_kind_to_edge_type("call"), do: :calls
   defp reference_kind_to_edge_type("import"), do: :imports
   defp reference_kind_to_edge_type("use"), do: :uses
-  defp reference_kind_to_edge_type("alias"), do: :aliases
-  defp reference_kind_to_edge_type(_), do: :references
+  # Map to uses since :aliases isn't in enum
+  defp reference_kind_to_edge_type("alias"), do: :uses
+  # Map to uses (require makes module available)
+  defp reference_kind_to_edge_type("require"), do: :uses
+  # Default to :calls (most common)
+  defp reference_kind_to_edge_type(_), do: :calls
 
   # Handle both struct and map field access
   defp get_ref_field(ref, field) when is_struct(ref), do: Map.get(ref, field)

@@ -73,6 +73,8 @@ defmodule Mimo.Application do
         {Mimo.Cache.Classifier, []},
         # SPEC-061: Embedding cache for production performance
         {Mimo.Cache.Embedding, []},
+        # SPEC-073: Search result cache for fast repeated queries
+        {Mimo.Cache.SearchResult, []},
         # SPEC-064: File read LRU cache for token optimization
         {Mimo.Skills.FileReadCache, []},
         # SPEC-061: Telemetry profiler for bottleneck identification
@@ -149,16 +151,38 @@ defmodule Mimo.Application do
         # SessionTracker: Tracks AI sessions and triggers awakening injection
         {Mimo.Awakening.SessionTracker, []},
         # ===== Emergent Capabilities Framework (SPEC-044) =====
+        # Emergence Catalog: ETS-backed catalog for promoted patterns (MUST start before Scheduler)
+        {Mimo.Brain.Emergence.Catalog, []},
         # Emergence Scheduler: Periodic pattern detection and promotion
         {Mimo.Brain.Emergence.Scheduler, []},
+        # ===== Active Inference (SPEC-071) =====
+        # Proactive context pushing based on Free Energy Principle
+        {Mimo.ActiveInference, []},
+        # ===== Cognitive Feedback Loop (SPEC-074) =====
+        # Core learning infrastructure - connects outcomes to behavior changes
+        {Mimo.Cognitive.FeedbackLoop, []},
+        # ===== Sleep Cycle (SPEC-072) =====
+        # Multi-stage memory consolidation (episodic → semantic → procedural)
+        {Mimo.SleepCycle, []},
         # Emergence Usage Tracker: Pattern usage and impact tracking (Q1 2026 Phase 2)
         {Mimo.Brain.Emergence.UsageTracker, []},
+        # ===== Context Window Management (Phase 2 Cognitive Enhancement) =====
+        # ContextWindowManager: Tracks token usage per session, warns on limits
+        {Mimo.Context.ContextWindowManager, []},
+        # ===== Predictive Context Preparation (Phase 3 Emergent Capabilities) =====
+        # AccessPatternTracker: Tracks tool access patterns for prediction
+        {Mimo.Context.AccessPatternTracker, []},
+        # Prefetcher: Pre-fetches predicted context in background
+        {Mimo.Context.Prefetcher, []},
         # ===== Cognitive Lifecycle Pattern (SPEC-042) =====
         # CognitiveLifecycle: Tracks phase transitions (context → deliberate → action → learn)
         {Mimo.Brain.CognitiveLifecycle, []},
         # ===== Evaluator-Optimizer Pattern (Phase 2 Cognitive Enhancement) =====
         # Optimizer: Self-improving evaluation with outcome tracking and feedback loop
         {Mimo.Brain.Reflector.Optimizer, []},
+        # ===== Self-Improving Prompt Optimization (Phase 3 Emergent Capabilities) =====
+        # PromptOptimizer: Learns from prompt effectiveness to improve suggestions
+        {Mimo.Cognitive.PromptOptimizer, []},
         # ===== Knowledge Auto-Learning System =====
         # KnowledgeSyncer: Periodic memory → knowledge graph synchronization
         {Mimo.Brain.KnowledgeSyncer, []},
@@ -398,7 +422,9 @@ defmodule Mimo.Application do
         id: :circuit_breaker_web
       ),
       {Mimo.ToolRegistry, []},
-      {Task.Supervisor, name: Mimo.TaskSupervisor}
+      {Task.Supervisor, name: Mimo.TaskSupervisor},
+      # Context window tracking (lightweight, useful even in degraded mode)
+      {Mimo.Context.ContextWindowManager, []}
     ]
 
     opts = [strategy: :one_for_one, name: Mimo.Supervisor.Minimal]

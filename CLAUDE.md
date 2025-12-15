@@ -1,246 +1,181 @@
-# Claude Code + Mimo Integration Guide
+# MANDATORY: Mimo MCP Tool Usage
 
-> **Mimo-First Approach**: Always use Mimo MCP tools first, Claude built-in tools as fallbacks.
-
-This guide is for **Claude Code CLI** users. For GitHub Copilot, see [AGENTS.md](AGENTS.md).
+**HARD RULE: You MUST use Mimo tools. Claude built-in tools are FORBIDDEN unless Mimo fails.**
 
 ---
 
-## Tool Priority Order
+## FORBIDDEN ACTIONS
 
-| Need | Mimo Tool (FIRST) | Claude Fallback (SECOND) |
-|------|-------------------|--------------------------|
-| Read file | `mcp__mimo__file operation=read` | `Read` |
-| Edit file | `mcp__mimo__file operation=edit` | `Edit` |
-| Search code | `mcp__mimo__code operation=definition` | `Grep` |
-| Find files | `mcp__mimo__file operation=glob` | `Glob` |
-| Run command | `mcp__mimo__terminal command="..."` | `Bash` |
-| Web search | `mcp__mimo__web operation=search` | `WebSearch` |
+You MUST NOT do these. Violation breaks the user's workflow:
 
-**Why Mimo first?**
-- Automatic memory context injection
-- Pattern learning from past operations
-- Knowledge graph integration
-- Persistent wisdom across sessions
+| FORBIDDEN | USE INSTEAD |
+|-----------|-------------|
+| `Grep` to find function/class | `mcp__mimo__file` with `find_definition` |
+| `Grep` to find usages | `mcp__mimo__file` with `find_references` |
+| `Glob` to find files | `mcp__mimo__file` with `glob` |
+| `Read` to read files | `mcp__mimo__file` with `read` |
+| `Edit` to edit files | `mcp__mimo__file` with `edit` |
+| `Bash` to run commands | `mcp__mimo__terminal` with `command` |
+| `WebSearch` for docs | `mcp__mimo__code` with `library_get` |
 
 ---
 
-## Session Start Protocol
+## COPY-PASTE EXAMPLES
 
-```bash
-# 1. Query accumulated wisdom (ALWAYS FIRST)
-mcp__mimo__ask_mimo query="What context do you have about this project?"
+Use these EXACT patterns. Copy and modify:
 
-# 2. Check awakening status
-mcp__mimo__awakening_status include_achievements=true
-
-# 3. Index project if needed
-mcp__mimo__onboard path="." force=false
+### Find where a function is defined
+```
+mcp__mimo__file operation="find_definition" name="authenticate"
 ```
 
----
-
-## Cognitive Excellence Protocol
-
-### Before Any Complex Task
-
-```bash
-# Step 1: Assess confidence
-mcp__mimo__cognitive operation=assess topic="[your task]"
-
-# Step 2: Search existing knowledge
-mcp__mimo__memory operation=search query="[relevant topic]"
-
-# Step 3: Start reasoning session (if complex)
-mcp__mimo__reason operation=guided problem="[task description]" strategy=auto
+### Find all usages of a function/class
+```
+mcp__mimo__file operation="find_references" name="UserController"
 ```
 
-### Reasoning Strategies
+### List all functions in a file
+```
+mcp__mimo__file operation="symbols" path="lib/auth.ex"
+```
 
-| Task Type | Strategy | When |
-|-----------|----------|------|
-| Sequential logic | `cot` | Math, debugging, step-by-step |
-| Multiple approaches | `tot` | Design decisions, architecture |
-| Needs tool execution | `react` | Find & fix bugs, implementation |
-| Learning from errors | `reflexion` | Post-mortems, retries |
+### Read a file
+```
+mcp__mimo__file operation="read" path="lib/app.ex" limit=100
+```
 
----
+### Edit a file
+```
+mcp__mimo__file operation="edit" path="lib/app.ex" old_str="old text" new_str="new text"
+```
 
-## Verification (MANDATORY for Claims)
+### Find files by pattern
+```
+mcp__mimo__file operation="glob" pattern="**/*.ex"
+```
 
-Never say "I'm confident" without verification:
+### Search file content
+```
+mcp__mimo__file operation="search" path="lib/" pattern="TODO"
+```
 
-```bash
-# Verify counts
-mcp__mimo__cognitive operation=verify_count topic="number of errors"
+### Run a command
+```
+mcp__mimo__terminal command="mix test"
+```
 
-# Verify logic
-mcp__mimo__cognitive operation=verify_logic topic="does A imply B?"
+### Get package documentation
+```
+mcp__mimo__code operation="library_get" name="phoenix" ecosystem="hex"
+```
 
-# Verify math
-mcp__mimo__cognitive operation=verify_math topic="calculation check"
-
-# Self-check for overconfidence
-mcp__mimo__cognitive operation=verify_self_check topic="am I too confident?"
+### Get compiler errors
+```
+mcp__mimo__code operation="diagnose" path="lib/"
 ```
 
 ---
 
-## Memory System
+## TRIGGER RULES
 
-### Store Discoveries IMMEDIATELY
+When you think X, do Y:
 
-```bash
-# Store facts (technical details)
-mcp__mimo__memory operation=store content="[discovery]" category=fact importance=0.8
+| WHEN YOU THINK... | DO THIS |
+|-------------------|---------|
+| "Where is function X defined?" | `file find_definition name="X"` |
+| "Who calls function X?" | `file find_references name="X"` |
+| "What functions are in this file?" | `file symbols path="..."` |
+| "I need to read this file" | `file read path="..."` |
+| "I need to find files matching..." | `file glob pattern="..."` |
+| "I need to search for text..." | `file search pattern="..."` |
+| "I need to run a command" | `terminal command="..."` |
+| "How do I use library X?" | `code library_get name="X"` |
+| "Are there compile errors?" | `code diagnose path="..."` |
+| "I should check memory first" | `memory search query="..."` |
 
-# Store actions (completed work)
-mcp__mimo__memory operation=store content="[what was done]" category=action importance=0.7
+---
 
-# Store observations (patterns noticed)
-mcp__mimo__memory operation=store content="[observation]" category=observation importance=0.6
+## SESSION START (MANDATORY)
 
-# Store plans (future work)
-mcp__mimo__memory operation=store content="[plan]" category=plan importance=0.7
+Run these FIRST in every session:
+
 ```
-
-### Search Before Reading Files
-
-```bash
-# ALWAYS search memory first - you may already know!
-mcp__mimo__memory operation=search query="[topic]" limit=10
-
-# If not in memory, THEN read file
-mcp__mimo__file operation=read path="..."
+mcp__mimo__ask_mimo query="What context exists for this project?"
+mcp__mimo__onboard path="."
 ```
 
 ---
 
-## Knowledge Graph
+## BEFORE YOU READ ANY FILE
 
-For **relationships** between entities:
+ALWAYS search memory first. You may already know:
 
-```bash
-# Query relationships
-mcp__mimo__knowledge operation=query query="what depends on X?"
+```
+mcp__mimo__memory operation="search" query="relevant topic"
+```
 
-# Teach new relationships
-mcp__mimo__knowledge operation=teach subject="auth.ex" predicate="imports" object="crypto"
+If found, skip the file read. If not found, read and then store:
 
-# Traverse connections
-mcp__mimo__knowledge operation=traverse node_id="module:auth" direction=outgoing
+```
+mcp__mimo__memory operation="store" content="what you learned" category="fact" importance=0.8
 ```
 
 ---
 
-## Code Intelligence
+## BEFORE COMPLEX TASKS
 
-```bash
-# Find definition (NOT grep!)
-mcp__mimo__code operation=definition name="function_name"
+Start a reasoning session:
 
-# Find all usages
-mcp__mimo__code operation=references name="ClassName"
-
-# List symbols in file
-mcp__mimo__code operation=symbols path="lib/auth.ex"
-
-# Run diagnostics (NOT terminal compile!)
-mcp__mimo__code operation=diagnose path="lib/"
-
-# Get library docs (NOT web search!)
-mcp__mimo__code operation=library_get name="phoenix" ecosystem=hex
+```
+mcp__mimo__reason operation="guided" problem="describe the task"
 ```
 
 ---
 
-## When to Use Claude Built-in Tools
+## WHEN MIMO FAILS
 
-Use Claude's built-in tools when:
+Only if Mimo returns an error, you may ask user permission:
 
-1. **Mimo MCP is unavailable** - Connection issues
-2. **Performance critical** - Simple operations where MCP overhead matters
-3. **Mimo tool fails** - Fallback after error
-4. **Explicit user request** - User asks for specific tool
+> "Mimo file tool failed with [error]. May I use Claude's Read tool as fallback?"
 
-### Fallback Pattern
-
-```
-Try Mimo tool
-  → Success? Done
-  → Failed? Log to memory, use Claude fallback
-```
+Wait for user approval before using built-in tools.
 
 ---
 
-## Anti-Patterns
+## WHY MIMO?
 
-| DON'T | DO |
-|-------|-----|
-| Jump to `Edit` immediately | `cognitive assess` + `reason guided` first |
-| `Read` before memory search | `memory search` first |
-| `Grep` for function location | `code definition name="func"` |
-| `Bash "mix compile"` for errors | `code diagnose path="..."` |
-| `WebSearch` for package docs | `code library_get` |
-| Forget to store discoveries | `memory store` after every insight |
-| Claim confidence without proof | `cognitive verify_*` first |
+Mimo tools provide:
+- **Memory context**: Past knowledge injected automatically
+- **Symbol intelligence**: Faster than grep, understands code structure
+- **Knowledge graph**: Relationships between entities
+- **Learning**: Patterns improve over time
+
+Claude built-ins have NONE of these. That's why Mimo first, always.
 
 ---
 
-## Claude-Specific Features
+## QUICK REFERENCE
 
-### Use TodoWrite for Complex Tasks
-
-```
-TodoWrite with todos showing:
-- What needs to be done
-- Current progress (in_progress, pending, completed)
-```
-
-### Use Task for Parallel Work
-
-```
-Task tool with subagent_type for:
-- Explore: Codebase exploration
-- Plan: Implementation planning
-- claude-code-guide: Documentation lookup
-```
-
----
-
-## Quick Reference
-
-```
-SESSION START:
-  ask_mimo → awakening_status → onboard
-
-BEFORE ACTION:
-  cognitive assess → memory search → reason guided (if complex)
-
-DURING WORK:
-  Mimo tools first → Claude fallback if needed
-
-AFTER DISCOVERY:
-  memory store → knowledge teach
-
-BEFORE CLAIMING:
-  cognitive verify_* → only then claim confidence
-```
+| Task | Mimo Tool | Operation |
+|------|-----------|-----------|
+| Read file | `file` | `read` |
+| Edit file | `file` | `edit` |
+| Find definition | `file` | `find_definition` |
+| Find references | `file` | `find_references` |
+| List symbols | `file` | `symbols` |
+| Find files | `file` | `glob` |
+| Search content | `file` | `search` |
+| Run command | `terminal` | (just `command=`) |
+| Package docs | `code` | `library_get` |
+| Compiler errors | `code` | `diagnose` |
+| Search memory | `memory` | `search` |
+| Store memory | `memory` | `store` |
+| Ask Mimo | `ask_mimo` | (just `query=`) |
+| Start reasoning | `reason` | `guided` |
+| Query knowledge | `knowledge` | `query` |
 
 ---
 
-## Environment Setup
+## ENFORCEMENT
 
-Ensure Mimo MCP is connected:
-
-```json
-{
-  "mcpServers": {
-    "mimo": {
-      "command": "/path/to/mimo-mcp/bin/mimo-mcp-stdio"
-    }
-  }
-}
-```
-
-**Order: CONTEXT → REASON → ACT → LEARN → VERIFY**
+If you use `Grep`, `Glob`, `Read`, `Edit`, `Bash`, or `WebSearch` without Mimo failing first, you are violating these instructions. The user has explicitly configured Mimo as the primary toolset. Respect this configuration.

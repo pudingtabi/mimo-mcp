@@ -13,7 +13,9 @@ defmodule Mimo.Skills.FileOps do
 
   @max_chunk_lines 500
   @max_file_size 10 * 1024 * 1024
-  @file_timeout 5_000
+  # SPEC-080: Increased from 5s to 30s to prevent premature timeout
+  # File reads should complete quickly, but slow NFS/network drives need buffer
+  @file_timeout 30_000
 
   # Convert file system errors to human-readable messages
   defp format_file_error(:enoent, path), do: {:error, "File not found: #{path}"}
@@ -743,11 +745,14 @@ defmodule Mimo.Skills.FileOps do
     end
   end
 
-  # Count occurrences of a substring
+  # Count occurrences of a substring (literal match, not regex)
   defp count_occurrences(content, pattern) do
-    # Split and count segments minus 1
-    parts = String.split(content, pattern)
-    length(parts) - 1
+    # Use :binary.matches for literal string matching (not regex!)
+    # This fixes the bug where regex metacharacters caused false matches
+    case :binary.matches(content, pattern) do
+      matches when is_list(matches) -> length(matches)
+      _ -> 0
+    end
   end
 
   # Truncate long strings for error messages
@@ -1076,9 +1081,16 @@ defmodule Mimo.Skills.FileOps do
   def multi_replace(replacements, opts \\ []) when is_list(replacements) do
     global = Keyword.get(opts, :global, false)
 
-    # Phase 1: Expand and group replacements by file path
-    grouped =
-      Enum.reduce(replacements, %{}, fn r, acc ->
+    # Phase 1: Group and validate paths
+    case group_replacements_by_path(replacements) do
+      {:error, _} = error -> error
+      {:ok, valid_paths} -> validate_and_apply_replacements(valid_paths, global)
+    end
+  end
+
+  defp group_replacements_by_path(replacements) do
+    {grouped, errors} =
+      Enum.reduce(replacements, {%{}, []}, fn r, {acc, errs} ->
         path = r["path"] || r[:path]
         old_str = r["old"] || r[:old]
         new_str = r["new"] || r[:new]
@@ -1086,103 +1098,112 @@ defmodule Mimo.Skills.FileOps do
         case expand_safe(path) do
           {:ok, safe_path} ->
             entry = %{old: old_str, new: new_str}
-            Map.update(acc, safe_path, [entry], fn entries -> entries ++ [entry] end)
+            {Map.update(acc, safe_path, [entry], fn entries -> entries ++ [entry] end), errs}
 
           {:error, _} ->
-            # Track error but continue collecting
-            Map.update(acc, {:error, path}, [{:error, :invalid_path}], fn e -> e end)
+            {acc, ["Invalid path: #{path}" | errs]}
         end
       end)
 
-    # Separate valid paths from error paths
-    {valid_paths, error_paths} =
-      Enum.split_with(grouped, fn {k, _} -> is_binary(k) end)
-
-    if error_paths != [] do
-      {:error,
-       %{
-         status: "validation_failed",
-         errors: Enum.map(error_paths, fn {{:error, path}, _} -> "Invalid path: #{path}" end)
-       }}
+    if errors != [] do
+      {:error, %{status: "validation_failed", errors: Enum.reverse(errors)}}
     else
-      # Phase 2: Validate all patterns exist in their respective files
-      validations =
-        Enum.map(valid_paths, fn {path, entries} ->
-          case File.read(path) do
-            {:ok, content} ->
-              # Check all patterns exist
-              missing =
-                Enum.filter(entries, fn %{old: old_str} ->
-                  not String.contains?(content, old_str)
-                end)
+      {:ok, grouped}
+    end
+  end
 
-              if missing == [] do
-                {:ok, %{path: path, content: content, entries: entries}}
-              else
-                {:error, {:patterns_not_found, path, Enum.map(missing, & &1.old)}}
-              end
+  defp validate_and_apply_replacements(valid_paths, global) do
+    # Phase 2: Validate all patterns exist
+    case validate_patterns_exist(valid_paths) do
+      {:error, _} = error -> error
+      {:ok, validated} -> apply_all_replacements(validated, global)
+    end
+  end
 
-            {:error, reason} ->
-              {:error, {reason, path}}
-          end
-        end)
-
-      errors = Enum.filter(validations, &match?({:error, _}, &1))
-
-      if errors != [] do
-        {:error,
-         %{
-           status: "validation_failed",
-           errors:
-             Enum.map(errors, fn {:error, e} ->
-               case e do
-                 {:patterns_not_found, path, patterns} ->
-                   "Patterns not found in #{path}: #{Enum.map_join(patterns, ", ", &String.slice(&1, 0, 30))}"
-
-                 {reason, path} ->
-                   "#{reason}: #{path}"
-               end
-             end)
-         }}
-      else
-        # Phase 3: Apply all replacements sequentially per file
-        results =
-          Enum.map(validations, fn {:ok, %{path: path, content: content, entries: entries}} ->
-            # Apply all replacements for this file in order
-            final_content =
-              Enum.reduce(entries, content, fn %{old: old_str, new: new_str}, acc ->
-                if global do
-                  String.replace(acc, old_str, new_str)
-                else
-                  String.replace(acc, old_str, new_str, global: false)
-                end
+  defp validate_patterns_exist(valid_paths) do
+    validations =
+      Enum.map(valid_paths, fn {path, entries} ->
+        case File.read(path) do
+          {:ok, content} ->
+            missing =
+              Enum.filter(entries, fn %{old: old_str} ->
+                not String.contains?(content, old_str)
               end)
 
-            case File.write(path, final_content) do
-              :ok -> {:ok, path}
-              error -> error
+            if missing == [] do
+              {:ok, %{path: path, content: content, entries: entries}}
+            else
+              {:error, {:patterns_not_found, path, Enum.map(missing, & &1.old)}}
             end
-          end)
 
-        write_errors = Enum.filter(results, &match?({:error, _}, &1))
-
-        if write_errors != [] do
-          {:error,
-           %{
-             status: "partial_failure",
-             errors: Enum.map(write_errors, fn {:error, e} -> inspect(e) end),
-             successful:
-               Enum.filter(results, &match?({:ok, _}, &1)) |> Enum.map(fn {:ok, p} -> p end)
-           }}
-        else
-          {:ok,
-           %{
-             status: "success",
-             files_modified: length(results),
-             paths: Enum.map(results, fn {:ok, p} -> p end)
-           }}
+          {:error, reason} ->
+            {:error, {reason, path}}
         end
+      end)
+
+    errors = Enum.filter(validations, &match?({:error, _}, &1))
+
+    if errors != [] do
+      {:error, %{status: "validation_failed", errors: format_validation_errors(errors)}}
+    else
+      {:ok, Enum.map(validations, fn {:ok, v} -> v end)}
+    end
+  end
+
+  defp format_validation_errors(errors) do
+    Enum.map(errors, fn {:error, e} ->
+      case e do
+        {:patterns_not_found, path, patterns} ->
+          "Patterns not found in #{path}: #{Enum.map_join(patterns, ", ", &String.slice(&1, 0, 30))}"
+
+        {reason, path} ->
+          "#{reason}: #{path}"
       end
+    end)
+  end
+
+  defp apply_all_replacements(validated, global) do
+    # Phase 3: Apply replacements
+    results =
+      Enum.map(validated, fn %{path: path, content: content, entries: entries} ->
+        final_content = apply_entries(content, entries, global)
+
+        case File.write(path, final_content) do
+          :ok -> {:ok, path}
+          error -> error
+        end
+      end)
+
+    format_replacement_results(results)
+  end
+
+  defp apply_entries(content, entries, global) do
+    Enum.reduce(entries, content, fn %{old: old_str, new: new_str}, acc ->
+      if global do
+        String.replace(acc, old_str, new_str)
+      else
+        String.replace(acc, old_str, new_str, global: false)
+      end
+    end)
+  end
+
+  defp format_replacement_results(results) do
+    write_errors = Enum.filter(results, &match?({:error, _}, &1))
+
+    if write_errors != [] do
+      {:error,
+       %{
+         status: "partial_failure",
+         errors: Enum.map(write_errors, fn {:error, e} -> inspect(e) end),
+         successful: Enum.filter(results, &match?({:ok, _}, &1)) |> Enum.map(fn {:ok, p} -> p end)
+       }}
+    else
+      {:ok,
+       %{
+         status: "success",
+         files_modified: length(results),
+         paths: Enum.map(results, fn {:ok, p} -> p end)
+       }}
     end
   end
 

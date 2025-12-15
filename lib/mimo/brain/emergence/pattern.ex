@@ -117,6 +117,7 @@ defmodule Mimo.Brain.Emergence.Pattern do
     |> validate_number(:success_rate, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
     |> validate_number(:strength, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
     |> validate_number(:occurrences, greater_than_or_equal_to: 1)
+    |> unique_constraint(:signature, name: "emergence_patterns_signature_index")
     |> put_default_timestamps()
     |> generate_signature()
   end
@@ -137,19 +138,26 @@ defmodule Mimo.Brain.Emergence.Pattern do
   end
 
   defp generate_signature(changeset) do
-    # Generate a unique signature based on type + components hash
-    type = get_field(changeset, :type)
-    components = get_field(changeset, :components) || []
-
-    if type && components != [] do
-      hash_input = "#{type}:#{Jason.encode!(components)}"
-
-      signature =
-        :crypto.hash(:sha256, hash_input) |> Base.encode16(case: :lower) |> String.slice(0, 16)
-
-      put_change(changeset, :signature, signature)
-    else
+    # Only generate signature for new records (inserts), not updates
+    # This prevents unique constraint violations during record_occurrence
+    if changeset.data.id do
+      # Existing record - don't change signature
       changeset
+    else
+      # New record - generate signature
+      type = get_field(changeset, :type)
+      components = get_field(changeset, :components) || []
+
+      if type && components != [] do
+        hash_input = "#{type}:#{Jason.encode!(components)}"
+
+        signature =
+          :crypto.hash(:sha256, hash_input) |> Base.encode16(case: :lower) |> String.slice(0, 16)
+
+        put_change(changeset, :signature, signature)
+      else
+        changeset
+      end
     end
   end
 
@@ -170,6 +178,7 @@ defmodule Mimo.Brain.Emergence.Pattern do
   @doc """
   Finds or creates a pattern by signature.
   If found, increments occurrence count and updates last_seen.
+  Handles race conditions with retry on constraint violation.
   """
   @spec find_or_create(map()) :: {:ok, t()} | {:error, term()}
   def find_or_create(attrs) do
@@ -181,10 +190,54 @@ defmodule Mimo.Brain.Emergence.Pattern do
     signature =
       :crypto.hash(:sha256, hash_input) |> Base.encode16(case: :lower) |> String.slice(0, 16)
 
+    # Add signature to attrs for insert
+    attrs_with_sig = Map.put(attrs, :signature, signature)
+
     case get_by_signature(signature) do
-      nil -> create(attrs)
+      nil -> create_with_retry(attrs_with_sig, signature)
       existing -> record_occurrence(existing)
     end
+  end
+
+  # Handle race condition: if insert fails due to unique constraint, find and update
+  defp create_with_retry(attrs, signature) do
+    case create(attrs) do
+      {:ok, pattern} ->
+        {:ok, pattern}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        if constraint_error?(changeset, "emergence_patterns_signature_index") do
+          # Another process inserted the pattern - find and update it
+          retry_after_constraint_error(signature)
+        else
+          {:error, changeset}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  rescue
+    # Handle Ecto.ConstraintError raised when constraint is violated
+    e in Ecto.ConstraintError ->
+      if e.constraint == "emergence_patterns_signature_index" do
+        retry_after_constraint_error(signature)
+      else
+        reraise e, __STACKTRACE__
+      end
+  end
+
+  defp retry_after_constraint_error(signature) do
+    case get_by_signature(signature) do
+      nil -> {:error, :race_condition_unresolved}
+      existing -> record_occurrence(existing)
+    end
+  end
+
+  defp constraint_error?(%Ecto.Changeset{errors: errors}, constraint_name) do
+    Enum.any?(errors, fn
+      {_field, {_msg, [constraint: :unique, constraint_name: ^constraint_name]}} -> true
+      _ -> false
+    end)
   end
 
   @doc """

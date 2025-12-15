@@ -63,7 +63,7 @@ defmodule Mimo.Autonomous.TaskRunner do
   use GenServer
   require Logger
 
-  alias Mimo.Autonomous.{SafetyGuard, CircuitBreaker}
+  alias Mimo.Autonomous.{SafetyGuard, CircuitBreaker, GoalDecomposer}
   alias Mimo.Brain.{Memory, ContradictionGuard, Synthesizer}
   alias Mimo.Synapse.Graph
 
@@ -139,11 +139,11 @@ defmodule Mimo.Autonomous.TaskRunner do
         command: "mix test"
       })
   """
-  @spec queue_task(map()) :: {:ok, String.t()} | {:error, term()}
+  @spec queue_task(map()) :: {:ok, String.t()} | {:ok, [String.t()]} | {:error, term()}
   def queue_task(task_spec) when is_map(task_spec) do
     with :ok <- validate_task_spec(task_spec),
          :ok <- SafetyGuard.check_allowed(task_spec) do
-      GenServer.call(__MODULE__, {:queue, task_spec})
+      GenServer.call(__MODULE__, {:queue_with_decomposition, task_spec})
     end
   end
 
@@ -224,6 +224,86 @@ defmodule Mimo.Autonomous.TaskRunner do
   end
 
   # =============================================================================
+  # GOAL DECOMPOSITION HELPERS
+  # =============================================================================
+
+  # Queue a single task (called from within GenServer)
+  defp queue_single_task(task_spec, state) do
+    task_id = generate_task_id()
+    task = build_task(task_id, task_spec)
+
+    # Skip memory search for decomposed sub-tasks (already have context from parent)
+    # This prevents cumulative timeout when queueing multiple sub-tasks
+    is_decomposed = Map.get(task_spec, "_decomposed", false)
+
+    hints =
+      if is_decomposed do
+        []
+      else
+        search_similar_tasks(task.description)
+      end
+
+    task = Map.put(task, :hints, hints)
+
+    new_state = %{state | queue: state.queue ++ [task]}
+
+    :telemetry.execute(
+      [:mimo, :autonomous, :task],
+      %{count: 1},
+      %{event: :queued, task_id: task_id, hints_found: length(hints)}
+    )
+
+    Logger.info("[TaskRunner] Task #{task_id} queued: #{task.description}")
+    if hints != [], do: Logger.debug("[TaskRunner] Found #{length(hints)} hints from past tasks")
+
+    {{:ok, task_id}, new_state}
+  end
+
+  # Queue all sub-tasks from a decomposed complex task (internal version for GenServer)
+  defp queue_decomposed_tasks_internal(original_task, sub_tasks, dependencies, state) do
+    parent_description =
+      Map.get(original_task, "description") || Map.get(original_task, :description, "")
+
+    Logger.info(
+      "[TaskRunner] Autonomous goal decomposition: " <>
+        "\"#{String.slice(parent_description, 0, 50)}...\" -> #{length(sub_tasks)} sub-tasks"
+    )
+
+    # Queue each sub-task with its dependencies
+    {task_ids, final_state} =
+      Enum.reduce(sub_tasks, {[], state}, fn sub_task, {ids, acc_state} ->
+        sub_spec = %{
+          "type" => sub_task.type,
+          "description" => sub_task.description,
+          "parent_id" => sub_task.parent_id,
+          "depends_on" => Map.get(dependencies, sub_task.id, []),
+          "sequence" => sub_task.sequence,
+          "_decomposed" => true
+        }
+
+        # Copy command from original if this is an implementation sub-task
+        sub_spec =
+          if sub_task.type in ["implement", "build", "test"] do
+            original_command = Map.get(original_task, "command") || Map.get(original_task, :command)
+            if original_command, do: Map.put(sub_spec, "command", original_command), else: sub_spec
+          else
+            sub_spec
+          end
+
+        {{:ok, task_id}, new_state} = queue_single_task(sub_spec, acc_state)
+        {[task_id | ids], new_state}
+      end)
+
+    :telemetry.execute(
+      [:mimo, :autonomous, :goal_decomposition],
+      %{count: length(task_ids)},
+      %{parent_description: parent_description, sub_task_count: length(sub_tasks)}
+    )
+
+    {{:ok, Enum.reverse(task_ids)}, final_state}
+  end
+
+  # =============================================================================
   # GENSERVER CALLBACKS
   # =============================================================================
 
@@ -266,6 +346,24 @@ defmodule Mimo.Autonomous.TaskRunner do
     )
 
     {:noreply, %{state | status: :ready}}
+  end
+
+  @impl true
+  def handle_call({:queue_with_decomposition, task_spec}, _from, state) do
+    # Check for autonomous goal decomposition
+    case GoalDecomposer.maybe_decompose(task_spec) do
+      {:simple, _} ->
+        # Simple task - queue directly
+        {reply, new_state} = queue_single_task(task_spec, state)
+        {:reply, reply, new_state}
+
+      {:decomposed, sub_tasks, dependencies} ->
+        # Complex task - queue all sub-tasks
+        {reply, new_state} =
+          queue_decomposed_tasks_internal(task_spec, sub_tasks, dependencies, state)
+
+        {:reply, reply, new_state}
+    end
   end
 
   @impl true
@@ -713,13 +811,25 @@ defmodule Mimo.Autonomous.TaskRunner do
   end
 
   defp search_similar_tasks(description) do
-    try do
-      query = "autonomous task: #{description}"
-      Memory.search_memories(query, limit: 5, min_similarity: 0.5)
-    rescue
-      e ->
-        # SPEC-071: Log instead of silent swallow
-        Logger.warning("[TaskRunner] Memory search failed: #{Exception.message(e)}")
+    # Use Task with timeout to prevent blocking GenServer
+    task =
+      Task.async(fn ->
+        try do
+          query = "autonomous task: #{description}"
+          Memory.search_memories(query, limit: 5, min_similarity: 0.5)
+        rescue
+          e ->
+            Logger.warning("[TaskRunner] Memory search failed: #{Exception.message(e)}")
+            []
+        end
+      end)
+
+    case Task.yield(task, 2000) || Task.shutdown(task) do
+      {:ok, results} ->
+        results
+
+      _ ->
+        Logger.debug("[TaskRunner] Memory search timed out, continuing without hints")
         []
     end
   end

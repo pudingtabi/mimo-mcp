@@ -38,30 +38,37 @@ defmodule Mimo.Benchmark.LOCOMO do
   """
   @spec load_conversations(Path.t()) :: {:ok, [map()]} | {:error, term()}
   def load_conversations(path) do
-    cond do
-      String.ends_with?(path, ".jsonl") ->
-        path
-        |> File.stream!()
-        |> Stream.map(&Jason.decode!/1)
-        |> Enum.to_list()
-        |> then(&{:ok, &1})
-
-      true ->
-        with {:ok, body} <- File.read(path),
-             {:ok, decoded} <- Jason.decode(body) do
-          conversations =
-            case decoded do
-              %{"conversations" => list} when is_list(list) -> list
-              list when is_list(list) -> list
-              other -> raise ArgumentError, "Unexpected dataset format: #{inspect(other)}"
-            end
-
-          {:ok, conversations}
-        end
+    if String.ends_with?(path, ".jsonl") do
+      load_jsonl(path)
+    else
+      load_json(path)
     end
   rescue
     e -> {:error, e}
   end
+
+  defp load_jsonl(path) do
+    conversations =
+      path
+      |> File.stream!()
+      |> Stream.map(&Jason.decode!/1)
+      |> Enum.to_list()
+
+    {:ok, conversations}
+  end
+
+  defp load_json(path) do
+    with {:ok, body} <- File.read(path),
+         {:ok, decoded} <- Jason.decode(body) do
+      {:ok, extract_conversations(decoded)}
+    end
+  end
+
+  defp extract_conversations(%{"conversations" => list}) when is_list(list), do: list
+  defp extract_conversations(list) when is_list(list), do: list
+
+  defp extract_conversations(other),
+    do: raise(ArgumentError, "Unexpected dataset format: #{inspect(other)}")
 
   @doc """
   Ingest a conversation into the memory store with parallel turn processing.

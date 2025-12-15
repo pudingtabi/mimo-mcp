@@ -98,7 +98,7 @@ defmodule Mimo.ProceduralStore.Validator do
   defp validate_state(errors, name, state) when is_map(state) do
     errors
     |> validate_state_action(name, state)
-    |> validate_state_transitions(name, state)
+    |> validate_individual_state_transitions(name, state)
   end
 
   defp validate_state(errors, name, _state) do
@@ -135,7 +135,7 @@ defmodule Mimo.ProceduralStore.Validator do
     end
   end
 
-  defp validate_state_transitions(errors, name, state) do
+  defp validate_individual_state_transitions(errors, name, state) do
     case Map.get(state, "transitions") do
       nil ->
         # No transitions = terminal state
@@ -176,45 +176,50 @@ defmodule Mimo.ProceduralStore.Validator do
   defp validate_transitions(errors, definition) do
     states = Map.get(definition, "states", %{})
 
-    # Skip if states is not a map
     if is_map(states) do
       state_names = Map.keys(states) |> MapSet.new()
-
-      # Check all transition targets exist
-      states
-      |> Enum.reduce(errors, fn {name, state}, acc ->
-        # Skip if state is not a map
-        if is_map(state) do
-          transitions = Map.get(state, "transitions", [])
-
-          # Skip if transitions is not a list
-          if is_list(transitions) do
-            invalid_targets =
-              transitions
-              |> Enum.filter(&is_map/1)
-              |> Enum.map(&Map.get(&1, "target"))
-              |> Enum.reject(&is_nil/1)
-              |> Enum.reject(&MapSet.member?(state_names, &1))
-
-            case invalid_targets do
-              [] ->
-                acc
-
-              targets ->
-                [
-                  "state '#{name}' has transitions to non-existent states: #{Enum.join(targets, ", ")}"
-                  | acc
-                ]
-            end
-          else
-            acc
-          end
-        else
-          acc
-        end
-      end)
+      validate_state_transitions(errors, states, state_names)
     else
       errors
+    end
+  end
+
+  defp validate_state_transitions(errors, states, state_names) do
+    Enum.reduce(states, errors, fn {name, state}, acc ->
+      validate_single_state_transitions(acc, name, state, state_names)
+    end)
+  end
+
+  defp validate_single_state_transitions(errors, _name, state, _state_names) when not is_map(state),
+    do: errors
+
+  defp validate_single_state_transitions(errors, name, state, state_names) do
+    transitions = Map.get(state, "transitions", [])
+
+    if is_list(transitions) do
+      check_transition_targets(errors, name, transitions, state_names)
+    else
+      errors
+    end
+  end
+
+  defp check_transition_targets(errors, name, transitions, state_names) do
+    invalid_targets =
+      transitions
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(&Map.get(&1, "target"))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.reject(&MapSet.member?(state_names, &1))
+
+    case invalid_targets do
+      [] ->
+        errors
+
+      targets ->
+        [
+          "state '#{name}' has transitions to non-existent states: #{Enum.join(targets, ", ")}"
+          | errors
+        ]
     end
   end
 

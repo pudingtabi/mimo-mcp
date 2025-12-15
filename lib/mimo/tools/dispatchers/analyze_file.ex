@@ -260,25 +260,23 @@ defmodule Mimo.Tools.Dispatchers.AnalyzeFile do
   # ==========================================================================
 
   defp detect_file_type(path) do
-    ext = Path.extname(path) |> String.downcase()
-
-    case ext do
-      ".ex" -> "elixir"
-      ".exs" -> "elixir_script"
-      ".ts" -> "typescript"
-      ".tsx" -> "typescript_react"
-      ".js" -> "javascript"
-      ".jsx" -> "javascript_react"
-      ".py" -> "python"
-      ".rs" -> "rust"
-      ".go" -> "go"
-      ".md" -> "markdown"
-      ".json" -> "json"
-      ".yaml" -> "yaml"
-      ".yml" -> "yaml"
-      _ -> "unknown"
-    end
+    path |> Path.extname() |> String.downcase() |> ext_to_type()
   end
+
+  defp ext_to_type(".ex"), do: "elixir"
+  defp ext_to_type(".exs"), do: "elixir_script"
+  defp ext_to_type(".ts"), do: "typescript"
+  defp ext_to_type(".tsx"), do: "typescript_react"
+  defp ext_to_type(".js"), do: "javascript"
+  defp ext_to_type(".jsx"), do: "javascript_react"
+  defp ext_to_type(".py"), do: "python"
+  defp ext_to_type(".rs"), do: "rust"
+  defp ext_to_type(".go"), do: "go"
+  defp ext_to_type(".md"), do: "markdown"
+  defp ext_to_type(".json"), do: "json"
+  defp ext_to_type(".yaml"), do: "yaml"
+  defp ext_to_type(".yml"), do: "yaml"
+  defp ext_to_type(_), do: "unknown"
 
   # Only called with list argument (guard ensures this)
   defp summarize_symbols(symbols) when is_list(symbols) do

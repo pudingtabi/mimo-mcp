@@ -14,8 +14,13 @@ defmodule Mimo.Cognitive.ReasonerTest do
   alias Mimo.Cognitive.{Reasoner, ReasoningSession}
 
   # Initialize ETS table before tests
+  # The GenServer may not be started in test env, so we create the table directly
   setup_all do
-    ReasoningSession.init()
+    # Ensure the ETS table exists (create if not exists)
+    unless :ets.whereis(:reasoning_sessions) != :undefined do
+      :ets.new(:reasoning_sessions, [:named_table, :set, :public, read_concurrency: true])
+    end
+
     :ok
   end
 

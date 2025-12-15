@@ -355,32 +355,37 @@ defmodule Mimo.Brain.Reflector.ConfidenceEstimator do
     query = context[:query] || ""
 
     if query == "" do
-      # No query to align with
       0.5
     else
-      query_words = extract_key_terms(query)
-      output_words = extract_key_terms(output)
-
-      if query_words == [] do
-        0.5
-      else
-        # Check how many query terms appear in output
-        covered =
-          Enum.count(query_words, fn qw ->
-            Enum.any?(output_words, fn ow ->
-              String.contains?(ow, qw) or String.contains?(qw, ow)
-            end)
-          end)
-
-        coverage_ratio = covered / length(query_words)
-
-        # Check if output addresses question type
-        question_type = detect_question_type(query)
-        answer_type_match = check_answer_type(output, question_type)
-
-        coverage_ratio * 0.6 + answer_type_match * 0.4
-      end
+      calculate_query_alignment(output, query)
     end
+  end
+
+  defp calculate_query_alignment(output, query) do
+    query_words = extract_key_terms(query)
+
+    if query_words == [] do
+      0.5
+    else
+      output_words = extract_key_terms(output)
+      coverage_ratio = calculate_coverage_ratio(query_words, output_words)
+
+      question_type = detect_question_type(query)
+      answer_type_match = check_answer_type(output, question_type)
+
+      coverage_ratio * 0.6 + answer_type_match * 0.4
+    end
+  end
+
+  defp calculate_coverage_ratio(query_words, output_words) do
+    covered =
+      Enum.count(query_words, fn qw ->
+        Enum.any?(output_words, fn ow ->
+          String.contains?(ow, qw) or String.contains?(qw, ow)
+        end)
+      end)
+
+    covered / length(query_words)
   end
 
   defp quick_alignment_signal(output, context) do

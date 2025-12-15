@@ -104,46 +104,53 @@ defmodule Mix.Tasks.Mimo.Backup do
 
   defp list_backups do
     if File.exists?(@backup_dir) do
-      backups =
-        @backup_dir
-        |> File.ls!()
-        |> Enum.filter(&String.ends_with?(&1, ".db"))
-        |> Enum.sort(:desc)
-
-      if Enum.empty?(backups) do
-        Mix.shell().info("No backups found in #{@backup_dir}")
-      else
-        Mix.shell().info("Available backups in #{@backup_dir}:\n")
-
-        for backup <- backups do
-          backup_path = Path.join(@backup_dir, backup)
-          {:ok, stats} = File.stat(backup_path)
-          size_mb = Float.round(stats.size / 1024 / 1024, 2)
-          mtime = stats.mtime |> NaiveDateTime.from_erl!() |> NaiveDateTime.to_string()
-
-          Mix.shell().info("  • #{backup}")
-          Mix.shell().info("    Size: #{size_mb} MB")
-          Mix.shell().info("    Modified: #{mtime}")
-
-          # Show metadata if exists
-          meta_path = backup_path <> ".meta.json"
-
-          if File.exists?(meta_path) do
-            case Jason.decode(File.read!(meta_path)) do
-              {:ok, meta} ->
-                if meta["custom_name"], do: Mix.shell().info("    Name: #{meta["custom_name"]}")
-                Mix.shell().info("    Created: #{meta["created_at"]}")
-
-              _ ->
-                :ok
-            end
-          end
-
-          Mix.shell().info("")
-        end
-      end
+      list_backups_in_dir()
     else
       Mix.shell().info("No backups found (#{@backup_dir} does not exist)")
+    end
+  end
+
+  defp list_backups_in_dir do
+    backups =
+      @backup_dir
+      |> File.ls!()
+      |> Enum.filter(&String.ends_with?(&1, ".db"))
+      |> Enum.sort(:desc)
+
+    if Enum.empty?(backups) do
+      Mix.shell().info("No backups found in #{@backup_dir}")
+    else
+      Mix.shell().info("Available backups in #{@backup_dir}:\n")
+      Enum.each(backups, &print_backup_info/1)
+    end
+  end
+
+  defp print_backup_info(backup) do
+    backup_path = Path.join(@backup_dir, backup)
+    {:ok, stats} = File.stat(backup_path)
+    size_mb = Float.round(stats.size / 1024 / 1024, 2)
+    mtime = stats.mtime |> NaiveDateTime.from_erl!() |> NaiveDateTime.to_string()
+
+    Mix.shell().info("  • #{backup}")
+    Mix.shell().info("    Size: #{size_mb} MB")
+    Mix.shell().info("    Modified: #{mtime}")
+
+    print_backup_metadata(backup_path)
+    Mix.shell().info("")
+  end
+
+  defp print_backup_metadata(backup_path) do
+    meta_path = backup_path <> ".meta.json"
+
+    if File.exists?(meta_path) do
+      case Jason.decode(File.read!(meta_path)) do
+        {:ok, meta} ->
+          if meta["custom_name"], do: Mix.shell().info("    Name: #{meta["custom_name"]}")
+          Mix.shell().info("    Created: #{meta["created_at"]}")
+
+        _ ->
+          :ok
+      end
     end
   end
 

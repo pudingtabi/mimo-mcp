@@ -709,66 +709,13 @@ defmodule Mimo.Cognitive.Reasoner do
   defp enrich_with_context(thought, session) do
     content = Map.get(thought, :content, thought)
 
-    # Prepare a rich context using the dedicated PrepareContext dispatcher
-    prepared_context =
-      case PrepareContext.dispatch(%{"query" => content, "include_scores" => true}) do
-        {:ok, prepared} -> prepared
-        _ -> %{}
-      end
-
-    # Assess confidence (timeout-protected)
+    # Gather context from various sources
+    prepared_context = fetch_prepared_context(content)
     uncertainty = assess_with_timeout(content)
-    score = Map.get(uncertainty, :score, 0.0)
+    merged_wisdom = build_merged_wisdom(prepared_context, content, uncertainty)
 
-    # Trigger wisdom injector if needed (may return :skip or {:inject, wisdom})
-    wisdom_injection =
-      case WisdomInjector.inject_if_uncertain(content, score) do
-        {:inject, w} -> w
-        :skip -> %{}
-      end
-
-    # Prepare merged wisdom (combine PrepareContext's wisdom and injected wisdom)
-    prepared_wisdom = get_in(prepared_context, [:context, :wisdom]) || %{}
-    merged_wisdom = merge_wisdom(prepared_wisdom, wisdom_injection)
-
-    # Build enrichment structure with sections from prepared context
-    memory_context = get_in(prepared_context, [:context, :memory, :items]) || []
-
-    knowledge_connections =
-      (get_in(prepared_context, [:context, :knowledge, :relationships]) || []) ++
-        (get_in(prepared_context, [:context, :knowledge, :nodes]) || [])
-
-    code_references = get_in(prepared_context, [:context, :code, :items]) || []
-    patterns = get_in(prepared_context, [:context, :patterns, :items]) || []
-    formatted_context = prepared_context[:formatted_context] || ""
-
-    # Small model boost indicators
-    sm_boost = Map.get(prepared_context, :small_model_boost, %{})
-
-    wisdom_injected_flag =
-      length(merged_wisdom[:failures] || []) > 0 or
-        length(merged_wisdom[:warnings] || []) > 0 or
-        Map.get(sm_boost, :wisdom_injected, false)
-
-    enrichment = %{
-      memory_context: memory_context,
-      knowledge_connections: knowledge_connections,
-      code_references: code_references,
-      patterns: patterns,
-      wisdom: merged_wisdom,
-      formatted_context: formatted_context,
-      confidence: %{
-        level: Map.get(uncertainty, :confidence),
-        score: Map.get(uncertainty, :score, 0.0)
-      }
-    }
-
-    # Add small model boost metadata to enrichment
-    enrichment =
-      Map.put(enrichment, :small_model_boost, %{
-        patterns_matched: Map.get(sm_boost, :patterns_matched, false),
-        wisdom_injected: wisdom_injected_flag
-      })
+    # Build enrichment structure
+    enrichment = build_enrichment(prepared_context, uncertainty, merged_wisdom)
 
     %{
       session_id: session.id,
@@ -779,6 +726,64 @@ defmodule Mimo.Cognitive.Reasoner do
   rescue
     _error ->
       %{status: "enrichment_failed", note: "Error during enrichment, step is still recorded"}
+  end
+
+  defp fetch_prepared_context(content) do
+    case PrepareContext.dispatch(%{"query" => content, "include_scores" => true}) do
+      {:ok, prepared} -> prepared
+      _ -> %{}
+    end
+  end
+
+  defp build_merged_wisdom(prepared_context, content, uncertainty) do
+    score = Map.get(uncertainty, :score, 0.0)
+
+    wisdom_injection =
+      case WisdomInjector.inject_if_uncertain(content, score) do
+        {:inject, w} -> w
+        :skip -> %{}
+      end
+
+    prepared_wisdom = get_in(prepared_context, [:context, :wisdom]) || %{}
+    merge_wisdom(prepared_wisdom, wisdom_injection)
+  end
+
+  defp build_enrichment(prepared_context, uncertainty, merged_wisdom) do
+    memory_context = get_in(prepared_context, [:context, :memory, :items]) || []
+
+    knowledge_connections =
+      (get_in(prepared_context, [:context, :knowledge, :relationships]) || []) ++
+        (get_in(prepared_context, [:context, :knowledge, :nodes]) || [])
+
+    code_references = get_in(prepared_context, [:context, :code, :items]) || []
+    patterns = get_in(prepared_context, [:context, :patterns, :items]) || []
+    formatted_context = prepared_context[:formatted_context] || ""
+
+    sm_boost = Map.get(prepared_context, :small_model_boost, %{})
+    wisdom_injected_flag = has_wisdom_injection?(merged_wisdom, sm_boost)
+
+    %{
+      memory_context: memory_context,
+      knowledge_connections: knowledge_connections,
+      code_references: code_references,
+      patterns: patterns,
+      wisdom: merged_wisdom,
+      formatted_context: formatted_context,
+      confidence: %{
+        level: Map.get(uncertainty, :confidence),
+        score: Map.get(uncertainty, :score, 0.0)
+      },
+      small_model_boost: %{
+        patterns_matched: Map.get(sm_boost, :patterns_matched, false),
+        wisdom_injected: wisdom_injected_flag
+      }
+    }
+  end
+
+  defp has_wisdom_injection?(merged_wisdom, sm_boost) do
+    length(merged_wisdom[:failures] || []) > 0 or
+      length(merged_wisdom[:warnings] || []) > 0 or
+      Map.get(sm_boost, :wisdom_injected, false)
   end
 
   defp format_similar_problems(memories) do

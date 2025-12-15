@@ -7,35 +7,54 @@ defmodule Mimo.Skills.FileOpsEnhancementsTest do
 
   alias Mimo.Skills.FileOps
 
-  # Use workspace-relative path for sandbox compatibility
-  @test_dir Path.expand("../../../_test_file_ops_#{:rand.uniform(100_000)}", __DIR__)
-
   setup do
-    # Create test directory structure inside workspace
-    File.mkdir_p!(@test_dir)
-    File.mkdir_p!(Path.join(@test_dir, "src"))
-    File.mkdir_p!(Path.join(@test_dir, "lib"))
-    File.mkdir_p!(Path.join(@test_dir, "node_modules/pkg"))
+    # Create test directory in system temp (always writable)
+    test_dir = Path.join(System.tmp_dir!(), "_test_file_ops_#{:rand.uniform(100_000)}")
+
+    # Store original MIMO_ALLOWED_PATHS and add temp dir
+    original_allowed = System.get_env("MIMO_ALLOWED_PATHS")
+    temp_base = System.tmp_dir!()
+
+    new_allowed =
+      case original_allowed do
+        nil -> temp_base
+        "" -> temp_base
+        existing -> "#{existing}:#{temp_base}"
+      end
+
+    System.put_env("MIMO_ALLOWED_PATHS", new_allowed)
+
+    # Create test directory structure inside temp
+    File.mkdir_p!(test_dir)
+    File.mkdir_p!(Path.join(test_dir, "src"))
+    File.mkdir_p!(Path.join(test_dir, "lib"))
+    File.mkdir_p!(Path.join(test_dir, "node_modules/pkg"))
 
     # Create test files
-    File.write!(Path.join(@test_dir, "src/app.ts"), "const foo = 1;")
-    File.write!(Path.join(@test_dir, "src/utils.ts"), "export function bar() {}")
-    File.write!(Path.join(@test_dir, "lib/main.ex"), "defmodule Main do\nend")
-    File.write!(Path.join(@test_dir, "lib/helper.ex"), "defmodule Helper do\nend")
-    File.write!(Path.join(@test_dir, "node_modules/pkg/index.js"), "// pkg")
+    File.write!(Path.join(test_dir, "src/app.ts"), "const foo = 1;")
+    File.write!(Path.join(test_dir, "src/utils.ts"), "export function bar() {}")
+    File.write!(Path.join(test_dir, "lib/main.ex"), "defmodule Main do\nend")
+    File.write!(Path.join(test_dir, "lib/helper.ex"), "defmodule Helper do\nend")
+    File.write!(Path.join(test_dir, "node_modules/pkg/index.js"), "// pkg")
 
     # Create .gitignore
-    File.write!(Path.join(@test_dir, ".gitignore"), """
+    File.write!(Path.join(test_dir, ".gitignore"), """
     node_modules/
     *.log
     dist/
     """)
 
     on_exit(fn ->
-      File.rm_rf!(@test_dir)
+      File.rm_rf!(test_dir)
+
+      # Restore original MIMO_ALLOWED_PATHS
+      case original_allowed do
+        nil -> System.delete_env("MIMO_ALLOWED_PATHS")
+        val -> System.put_env("MIMO_ALLOWED_PATHS", val)
+      end
     end)
 
-    {:ok, test_dir: @test_dir}
+    {:ok, test_dir: test_dir}
   end
 
   describe "glob/2" do

@@ -89,6 +89,21 @@ defmodule Mimo.Synapse.GraphCache do
   end
 
   @doc """
+  Ensure all pending casts are processed before returning.
+  Call this before flush() when using stage_edge from parallel tasks.
+  """
+  @spec sync() :: :ok
+  def sync do
+    # A call will wait for all preceding casts to be processed
+    # since GenServer processes messages sequentially
+    SafeCall.genserver(__MODULE__, :sync,
+      timeout: 30_000,
+      raw: true,
+      fallback: :ok
+    )
+  end
+
+  @doc """
   Flush all pending nodes and edges to the database.
   """
   @spec flush() :: {:ok, map()}
@@ -257,6 +272,14 @@ defmodule Mimo.Synapse.GraphCache do
     }
 
     {:reply, {:ok, stats}, new_state}
+  end
+
+  @impl true
+  def handle_call(:sync, _from, state) do
+    # This is a no-op - simply handling this call ensures all
+    # preceding casts have been processed due to GenServer's
+    # sequential message processing
+    {:reply, :ok, state}
   end
 
   @impl true

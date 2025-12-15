@@ -289,7 +289,8 @@ defmodule Mimo.Brain.Emergence.Detector do
   # ─────────────────────────────────────────────────────────────────
 
   defp detect_inference(context) do
-    # Look for patterns where memories from different categories
+    # Phase 3: Cross-memory inference - find patterns across different memory stores
+    # Look for patterns where memories from different categories/stores
     # were accessed together and led to successful outcomes
 
     query = context[:query] || ""
@@ -297,14 +298,39 @@ defmodule Mimo.Brain.Emergence.Detector do
     if query == "" do
       {:ok, []}
     else
-      # Search episodic and semantic memories
-      episodic_results = Memory.search_memories(query, limit: 10, category: "action")
-      # Note: semantic search would go through Knowledge module
+      # Query multiple memory stores in parallel
+      memory_tasks = [
+        Task.async(fn ->
+          {:episodic, Memory.search_memories(query, limit: 8, category: "action")}
+        end),
+        Task.async(fn -> {:facts, Memory.search_memories(query, limit: 8, category: "fact")} end),
+        Task.async(fn ->
+          {:observations, Memory.search_memories(query, limit: 5, category: "observation")}
+        end),
+        Task.async(fn -> {:knowledge, gather_knowledge_nodes(query)} end)
+      ]
 
-      # Find cross-correlations
+      # Collect results with timeout
+      store_results =
+        memory_tasks
+        |> Task.yield_many(3000)
+        |> Enum.map(fn {task, result} ->
+          case result do
+            {:ok, {store, data}} ->
+              {store, data}
+
+            _ ->
+              Task.shutdown(task, :brutal_kill)
+              nil
+          end
+        end)
+        |> Enum.reject(&is_nil/1)
+        |> Map.new()
+
+      # Find cross-store patterns
       inferences =
-        episodic_results
-        |> cross_correlate_memories()
+        store_results
+        |> cross_correlate_stores()
         |> filter_novel_inferences()
         |> Enum.map(&create_inference_pattern/1)
 
@@ -313,31 +339,63 @@ defmodule Mimo.Brain.Emergence.Detector do
     end
   end
 
-  defp cross_correlate_memories(memories) do
-    # Find memories that appear together frequently
-    # and might suggest an inference
-    memories
+  # Gather knowledge graph nodes related to query
+  defp gather_knowledge_nodes(query) do
+    try do
+      case Mimo.Synapse.Graph.search_nodes(query, limit: 5) do
+        nodes when is_list(nodes) ->
+          Enum.map(nodes, fn n ->
+            %{content: n.name || n.id, category: "knowledge", type: n.type}
+          end)
+
+        _ ->
+          []
+      end
+    rescue
+      _ -> []
+    end
+  end
+
+  # Cross-correlate memories from different stores
+  defp cross_correlate_stores(store_results) do
+    all_memories =
+      store_results
+      |> Enum.flat_map(fn {store, memories} ->
+        memories
+        |> List.wrap()
+        |> Enum.map(fn m -> Map.put(m, :source_store, store) end)
+      end)
+
+    # Find pairs from DIFFERENT stores
+    all_memories
     |> Enum.with_index()
     |> Enum.flat_map(fn {mem1, idx1} ->
-      memories
+      all_memories
       |> Enum.with_index()
-      |> Enum.filter(fn {_, idx2} -> idx2 > idx1 end)
+      |> Enum.filter(fn {mem2, idx2} ->
+        idx2 > idx1 and mem1[:source_store] != mem2[:source_store]
+      end)
       |> Enum.map(fn {mem2, _} ->
         %{
           memory1: mem1,
           memory2: mem2,
           combined_content: "#{mem1[:content]} + #{mem2[:content]}",
-          categories: [mem1[:category], mem2[:category]] |> Enum.uniq()
+          categories: [mem1[:category], mem2[:category]] |> Enum.uniq(),
+          stores: [mem1[:source_store], mem2[:source_store]] |> Enum.uniq()
         }
       end)
     end)
+    # Limit to prevent explosion
+    |> Enum.take(20)
   end
 
   defp filter_novel_inferences(correlations) do
     # Keep only correlations that seem to yield new insights
     Enum.filter(correlations, fn correlation ->
-      # Must be from different categories to be interesting
-      length(correlation.categories) > 1
+      # Must be from different categories OR different stores to be interesting
+      different_categories = length(correlation.categories) > 1
+      different_stores = length(Map.get(correlation, :stores, [])) > 1
+      different_categories or different_stores
     end)
   end
 

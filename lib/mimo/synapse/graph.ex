@@ -546,7 +546,8 @@ defmodule Mimo.Synapse.Graph do
       nodes_attrs
       |> Enum.map(fn attrs ->
         attrs
-        |> Map.put(:id, Ecto.UUID.generate())
+        # Use existing ID if provided, otherwise generate new one
+        |> Map.put_new(:id, Ecto.UUID.generate())
         |> Map.put_new(:properties, %{})
         |> Map.put_new(:embedding, [])
         |> Map.put_new(:access_count, 0)

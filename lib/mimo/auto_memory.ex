@@ -64,25 +64,57 @@ defmodule Mimo.AutoMemory do
     Logger.debug("AutoMemory: Processing tool=#{tool_name}")
 
     case categorize_tool(tool_name) do
+      # Unified file tool - route based on operation
+      {:file_op, :check_operation} ->
+        handle_file_operation(arguments, result)
+
+      # Terminal/process execution
+      {:process, _} ->
+        store_process_memory(:from_args, arguments, result)
+
+      # Web operations
+      {:web_op, :check_operation} ->
+        handle_web_operation(arguments, result)
+
+      # Code intelligence operations
+      {:code_op, :check_operation} ->
+        handle_code_operation(arguments, result)
+
+      # Knowledge graph operations
+      {:knowledge_op, :check_operation} ->
+        handle_knowledge_operation(arguments, result)
+
+      # Reasoning operations - valuable for learning
+      {:reason_op, _} ->
+        handle_reason_operation(arguments, result)
+
+      # Meta operations
+      {:meta_op, :check_operation} ->
+        handle_meta_operation(arguments, result)
+
+      # Cognitive operations
+      {:cognitive_op, :check_operation} ->
+        handle_cognitive_operation(arguments, result)
+
+      # Legacy file read
       {:file_read, path} ->
         Logger.debug("AutoMemory: Categorized as file_read")
         store_file_read_memory(path, arguments, result)
 
+      # Legacy file write
       {:file_write, path} ->
         Logger.debug("AutoMemory: Categorized as file_write")
         store_file_write_memory(path, arguments, result)
 
+      # Legacy search
       {:search, query} ->
         Logger.debug("AutoMemory: Categorized as search")
         store_search_memory(query, arguments, result)
 
+      # Legacy browser
       {:browser, action} ->
         Logger.debug("AutoMemory: Categorized as browser, action=#{action}")
         store_browser_memory(action, arguments, result)
-
-      {:process, command} ->
-        Logger.debug("AutoMemory: Categorized as process")
-        store_process_memory(command, arguments, result)
 
       :skip ->
         Logger.debug("AutoMemory: Skipped tool=#{tool_name}")
@@ -90,25 +122,331 @@ defmodule Mimo.AutoMemory do
     end
   end
 
-  # Tool categorization patterns - extracted for clarity and reduced complexity
-  @file_read_patterns ["read_file"]
-  @file_write_patterns ["write_file"]
-  @search_patterns ["search", "vibes"]
-  @browser_patterns ["puppeteer", "browser", "blink"]
-  @process_patterns ["process", "terminal"]
-  @fetch_patterns ["fetch", "web_extract"]
-  @skip_patterns ["store_fact", "ask_mimo", "mimo_", "config", "list_", "get_"]
+  # ============================================================================
+  # Unified Tool Handlers (Phase 2)
+  # ============================================================================
 
-  # Categorize tools by their type using pattern matching
+  # Handle unified file tool operations
+  defp handle_file_operation(arguments, {:ok, result}) do
+    operation = arguments["operation"] || "read"
+    path = arguments["path"] || arguments["name"] || "unknown"
+
+    case operation do
+      op when op in ["read", "read_lines", "read_multiple"] ->
+        content = extract_content_string(result)
+
+        if String.length(content) > 50 do
+          store_memory(
+            "Read #{path}: #{summarize_content(content, 200)}",
+            "observation",
+            calculate_importance(content)
+          )
+        end
+
+      op when op in ["write", "edit", "replace_string", "multi_replace"] ->
+        store_memory(
+          "Modified file: #{path} (operation: #{op})",
+          "action",
+          0.6
+        )
+
+      op when op in ["find_definition", "find_references", "symbols", "call_graph"] ->
+        # Store code navigation for learning patterns
+        name = arguments["name"] || arguments["pattern"] || ""
+        result_count = get_result_count(result)
+
+        if result_count > 0 do
+          store_memory(
+            "Code navigation: #{op} '#{name}' found #{result_count} results",
+            "observation",
+            0.5
+          )
+        end
+
+      op when op in ["search", "glob"] ->
+        pattern = arguments["pattern"] || ""
+        result_count = get_result_count(result)
+
+        if result_count > 0 do
+          store_memory(
+            "File search: #{op} '#{pattern}' found #{result_count} matches",
+            "observation",
+            0.4
+          )
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp handle_file_operation(_, _), do: :ok
+
+  # Handle web tool operations
+  defp handle_web_operation(arguments, {:ok, result}) do
+    operation = arguments["operation"] || "fetch"
+    url = arguments["url"] || ""
+
+    case operation do
+      op when op in ["fetch", "extract", "browser", "blink", "blink_smart"] ->
+        if url != "" do
+          status = get_in_result(result, ["status"]) || get_in_result(result, ["data", "status"])
+
+          store_memory(
+            "Web fetch: #{url}#{if status, do: " (status: #{status})", else: ""}",
+            "action",
+            0.4
+          )
+        end
+
+      op when op in ["search", "code_search"] ->
+        query = arguments["query"] || ""
+
+        if query != "" do
+          result_count = get_result_count(result)
+
+          store_memory(
+            "Web search: '#{query}' returned #{result_count} results",
+            "observation",
+            0.6
+          )
+        end
+
+      "screenshot" ->
+        store_memory(
+          "Screenshot captured#{if url != "", do: " of #{url}", else: ""}",
+          "action",
+          0.3
+        )
+
+      "vision" ->
+        image = arguments["image"] || ""
+        store_memory("Vision analysis: #{summarize_content(image, 50)}", "observation", 0.5)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp handle_web_operation(_, _), do: :ok
+
+  # Handle code tool operations
+  defp handle_code_operation(arguments, {:ok, result}) do
+    operation = arguments["operation"] || "symbols"
+
+    case operation do
+      op when op in ["library_get", "library_search"] ->
+        name = arguments["name"] || arguments["query"] || ""
+        ecosystem = arguments["ecosystem"] || "unknown"
+
+        if name != "" do
+          store_memory(
+            "Library lookup: #{name} (#{ecosystem})",
+            "observation",
+            0.6
+          )
+        end
+
+      op when op in ["diagnose", "check", "lint", "typecheck"] ->
+        path = arguments["path"] || ""
+        error_count = get_in_result(result, ["data", "total"]) || get_result_count(result)
+
+        store_memory(
+          "Diagnostics: #{op} on #{path} found #{error_count} issues",
+          "observation",
+          0.5
+        )
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp handle_code_operation(_, _), do: :ok
+
+  # Handle knowledge graph operations
+  defp handle_knowledge_operation(arguments, {:ok, result}) do
+    operation = arguments["operation"] || "query"
+
+    case operation do
+      "teach" ->
+        subject = arguments["subject"] || arguments["text"] || ""
+
+        store_memory(
+          "Knowledge taught: #{summarize_content(subject, 100)}",
+          "fact",
+          0.7
+        )
+
+      "query" ->
+        query = arguments["query"] || ""
+        result_count = get_result_count(result)
+
+        if result_count > 0 do
+          store_memory(
+            "Knowledge query: '#{query}' returned #{result_count} results",
+            "observation",
+            0.4
+          )
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp handle_knowledge_operation(_, _), do: :ok
+
+  # Handle reasoning operations - valuable for learning
+  defp handle_reason_operation(arguments, {:ok, result}) do
+    operation = arguments["operation"] || "guided"
+    problem = arguments["problem"] || arguments["thought"] || ""
+
+    case operation do
+      "guided" ->
+        strategy = get_in_result(result, ["data", "strategy"]) || "unknown"
+
+        store_memory(
+          "Reasoning started: #{summarize_content(problem, 100)} (strategy: #{strategy})",
+          "plan",
+          0.7
+        )
+
+      "conclude" ->
+        store_memory(
+          "Reasoning concluded for: #{summarize_content(problem, 100)}",
+          "action",
+          0.6
+        )
+
+      "reflect" ->
+        success = arguments["success"] || false
+
+        store_memory(
+          "Reflection: #{if success, do: "success", else: "failure"} - #{summarize_content(problem, 100)}",
+          "observation",
+          0.8
+        )
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp handle_reason_operation(_, _), do: :ok
+
+  # Handle meta operations (analyze_file, debug_error, etc.)
+  defp handle_meta_operation(arguments, {:ok, _result}) do
+    operation = arguments["operation"] || "analyze_file"
+
+    case operation do
+      "analyze_file" ->
+        path = arguments["path"] || ""
+        store_memory("Analyzed file: #{path}", "observation", 0.5)
+
+      "debug_error" ->
+        message = arguments["message"] || ""
+
+        store_memory(
+          "Debugging error: #{summarize_content(message, 100)}",
+          "action",
+          0.6
+        )
+
+      "prepare_context" ->
+        query = arguments["query"] || ""
+
+        store_memory(
+          "Context prepared for: #{summarize_content(query, 100)}",
+          "observation",
+          0.4
+        )
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp handle_meta_operation(_, _), do: :ok
+
+  # Handle cognitive operations
+  defp handle_cognitive_operation(arguments, {:ok, result}) do
+    operation = arguments["operation"] || "assess"
+
+    case operation do
+      op when op in ["emergence_detect", "emergence_promote"] ->
+        pattern_count = get_result_count(result)
+
+        store_memory(
+          "Emergence #{op}: detected #{pattern_count} patterns",
+          "observation",
+          0.7
+        )
+
+      "reflector_reflect" ->
+        store_memory("Self-reflection performed", "observation", 0.6)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp handle_cognitive_operation(_, _), do: :ok
+
+  # Helper to extract count from various result formats
+  defp get_result_count(result) when is_map(result) do
+    cond do
+      Map.has_key?(result, "count") ->
+        result["count"]
+
+      Map.has_key?(result, :count) ->
+        result[:count]
+
+      Map.has_key?(result, "data") and is_map(result["data"]) ->
+        result["data"]["count"] || length(Map.get(result["data"], "results", []))
+
+      Map.has_key?(result, :data) and is_map(result[:data]) ->
+        result[:data][:count] || length(Map.get(result[:data], :results, []))
+
+      true ->
+        0
+    end
+  end
+
+  defp get_result_count(result) when is_list(result), do: length(result)
+  defp get_result_count(_), do: 0
+
+  # Tool categorization patterns - updated for unified tool names (Phase 2)
+  # Primary tools: file, terminal, web, code, knowledge, memory, think, reason, etc.
+  @skip_patterns ["memory", "ask_mimo", "awakening", "tool_usage", "list_", "reload"]
+
+  # Categorize tools by their type - now based on unified tool names + operation arg
   defp categorize_tool(tool_name) do
     cond do
-      matches_any?(tool_name, @file_read_patterns) -> {:file_read, :from_args}
-      matches_any?(tool_name, @file_write_patterns) -> {:file_write, :from_args}
-      matches_any?(tool_name, @search_patterns) -> {:search, :from_args}
-      matches_any?(tool_name, @browser_patterns) -> {:browser, tool_name}
-      matches_any?(tool_name, @process_patterns) -> {:process, :from_args}
-      matches_any?(tool_name, @fetch_patterns) -> {:file_read, :url}
+      # Skip memory-related tools to avoid recursive storage
       matches_any?(tool_name, @skip_patterns) -> :skip
+      # Unified file tool - check operation in arguments
+      tool_name == "file" -> {:file_op, :check_operation}
+      # Terminal/process execution
+      tool_name == "terminal" -> {:process, :from_args}
+      # Web operations (fetch, search, browser, etc.)
+      tool_name == "web" -> {:web_op, :check_operation}
+      # Code intelligence (symbols, library, diagnostics)
+      tool_name == "code" -> {:code_op, :check_operation}
+      # Knowledge graph operations
+      tool_name == "knowledge" -> {:knowledge_op, :check_operation}
+      # Reasoning operations - worth storing for learning
+      tool_name == "reason" -> {:reason_op, :from_args}
+      # Meta operations (analyze_file, debug_error, etc.)
+      tool_name == "meta" -> {:meta_op, :check_operation}
+      # Cognitive operations (emergence, reflector, verify)
+      tool_name == "cognitive" -> {:cognitive_op, :check_operation}
+      # Legacy patterns for backwards compatibility
+      String.contains?(tool_name, "read_file") -> {:file_read, :from_args}
+      String.contains?(tool_name, "write_file") -> {:file_write, :from_args}
+      String.contains?(tool_name, "search") -> {:search, :from_args}
+      String.contains?(tool_name, "terminal") -> {:process, :from_args}
+      String.contains?(tool_name, "fetch") -> {:file_read, :url}
       true -> :skip
     end
   end

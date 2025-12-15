@@ -57,14 +57,50 @@ defmodule Mimo.Tools.Definitions do
     # ==========================================================================
     %{
       name: "file",
-      description:
-        "Sandboxed file operations with automatic memory context. Responses include related memories for accuracy. Operations: read, write, ls, read_lines, insert_after, insert_before, replace_lines, delete_lines, search, replace_string, edit, list_directory, get_info, move, create_directory, read_multiple, list_symbols, read_symbol, search_symbols, glob, multi_replace, diff. 💡 Memory context is auto-included. Store new insights in memory after learning.",
+      description: """
+      📁 UNIFIED FILE & CODE OPERATIONS - Your primary tool for files AND code navigation!
+
+      This is the MAIN tool for all file and code operations. Use this FIRST before grep/search.
+
+      ## File Operations
+      • `read` - Read file content
+      • `write` - Write/create files
+      • `edit` - Find and replace text
+      • `glob` - Find files by pattern (e.g., "**/*.ex")
+      • `search` - Search content within files
+      • `diff` - Compare files or proposed changes
+
+      ## Code Navigation (USE THESE instead of grep!)
+      • `find_definition name="foo"` - Find where function/class is defined
+      • `find_references name="Bar"` - Find all usages of a symbol
+      • `symbols path="lib/"` - List all functions/classes in file
+      • `find_symbol pattern="auth*"` - Search symbols by pattern
+      • `call_graph name="handle"` - See who calls what
+
+      ## Why use file for code navigation?
+      ✓ Faster than grep - uses pre-built symbol index
+      ✓ Understands code structure - not just text matching
+      ✓ Cross-language - works for Elixir, Python, JS, TS, Rust, Go
+      ✓ Memory context auto-included
+
+      ## Examples
+      ```
+      file find_definition name="authenticate"     → jumps to function definition
+      file find_references name="UserController"   → finds all usages
+      file symbols path="lib/auth.ex"              → lists all functions
+      file glob pattern="**/*_test.exs"            → finds test files
+      file read path="lib/app.ex" limit=100        → reads first 100 lines
+      ```
+
+      💡 TIP: For package docs, use `code library_get`. For diagnostics, use `code diagnose`.
+      """,
       input_schema: %{
         type: "object",
         properties: %{
           operation: %{
             type: "string",
             enum: [
+              # File operations
               "read",
               "write",
               "ls",
@@ -86,7 +122,13 @@ defmodule Mimo.Tools.Definitions do
               "search_symbols",
               "glob",
               "multi_replace",
-              "diff"
+              "diff",
+              # Code navigation aliases (SPEC-080)
+              "find_definition",
+              "find_references",
+              "symbols",
+              "find_symbol",
+              "call_graph"
             ]
           },
           path: %{type: "string", description: "File or directory path"},
@@ -95,7 +137,7 @@ defmodule Mimo.Tools.Definitions do
           start_line: %{type: "integer"},
           end_line: %{type: "integer"},
           line_number: %{type: "integer"},
-          pattern: %{type: "string", description: "For search/glob operations"},
+          pattern: %{type: "string", description: "For search/glob/find_symbol operations"},
           old_str: %{type: "string", description: "For replace_string/edit: text to find"},
           new_str: %{type: "string", description: "For replace_string/edit: replacement text"},
           destination: %{type: "string", description: "For move operation"},
@@ -104,6 +146,11 @@ defmodule Mimo.Tools.Definitions do
           offset: %{type: "integer", description: "Start line for chunked read (1-indexed)"},
           limit: %{type: "integer", description: "Max lines to read (default 500)"},
           symbol_name: %{type: "string", description: "For read_symbol operation"},
+          # Code navigation parameters (SPEC-080)
+          name: %{
+            type: "string",
+            description: "Symbol name for find_definition/find_references/call_graph"
+          },
           context_before: %{type: "integer", description: "Lines of context before symbol"},
           context_after: %{type: "integer", description: "Lines of context after symbol"},
           max_results: %{type: "integer", description: "Max results for search operations"},

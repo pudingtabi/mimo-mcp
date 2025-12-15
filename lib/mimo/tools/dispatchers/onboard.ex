@@ -31,51 +31,64 @@ defmodule Mimo.Tools.Dispatchers.Onboard do
     - status: Check status of running onboarding (default: false)
   """
   def dispatch(args) do
-    # Ensure tracker is running (hot-fix for running system if not in supervision tree yet)
+    ensure_tracker_running()
+
+    if status_requested?(args) do
+      {:ok, format_status(Tracker.get_status())}
+    else
+      handle_onboard_request(args)
+    end
+  end
+
+  defp ensure_tracker_running do
     if Process.whereis(Tracker) == nil do
       Tracker.start_link([])
     end
+  end
 
-    if Map.get(args, "operation") == "status" or Map.get(args, "status") == "true" or
-         Map.get(args, "status") == true do
-      status = Tracker.get_status()
-      {:ok, format_status(status)}
-    else
-      path = args["path"] || "."
-      force = Map.get(args, "force", false)
+  defp status_requested?(args) do
+    Map.get(args, "operation") == "status" or
+      Map.get(args, "status") == "true" or
+      Map.get(args, "status") == true
+  end
 
-      # Resolve to absolute path
-      abs_path = Path.expand(path)
+  defp handle_onboard_request(args) do
+    path = args["path"] || "."
+    force = Map.get(args, "force", false)
+    abs_path = Path.expand(path)
 
-      if File.dir?(abs_path) do
-        fingerprint = compute_fingerprint(abs_path)
-
-        # Check if already indexed (unless force)
-        if !force && already_indexed?(fingerprint) do
-          return_cached_profile(abs_path, fingerprint)
-        else
-          case Tracker.start_onboarding(abs_path, fingerprint) do
-            :ok ->
-              {:ok,
-               %{
-                 status: "started",
-                 message: "🚀 Onboarding started in background.",
-                 suggestion: "Use `onboard status=true` to check progress.",
-                 fingerprint: fingerprint
-               }}
-
-            {:error, :already_running} ->
-              {:ok,
-               %{
-                 status: "running",
-                 message: "⚠️ Onboarding already in progress.",
-                 suggestion: "Use `onboard status=true` to check progress."
-               }}
-          end
-        end
-      else
+    cond do
+      not File.dir?(abs_path) ->
         {:error, "Path does not exist or is not a directory: #{abs_path}"}
-      end
+
+      not force and already_indexed?(compute_fingerprint(abs_path)) ->
+        return_cached_profile(abs_path, compute_fingerprint(abs_path))
+
+      true ->
+        start_onboarding(abs_path)
+    end
+  end
+
+  defp start_onboarding(abs_path) do
+    fingerprint = compute_fingerprint(abs_path)
+
+    case Tracker.start_onboarding(abs_path, fingerprint) do
+      :ok ->
+        {:ok,
+         %{
+           status: "started",
+           message: "🚀 Onboarding started in background.",
+           suggestion: "Use `onboard status=true` to check progress.",
+           fingerprint: fingerprint
+         }}
+
+      {:error, :already_running} ->
+        {:ok,
+         %{
+           status: "running",
+           message: "⚠️ Onboarding already in progress.",
+           suggestion: "Use `onboard status=true` to check progress."
+         }}
     end
   end
 
