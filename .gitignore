@@ -42,9 +42,9 @@ Thumbs.db
 erl_crash.dump
 *.ez
 
-# Test
+# Test files (internal development only)
+/test/
 /cover/
-/doc/
 _test_*/
 _test_diagnostics_*/
 _test_autodiscovery_*/
@@ -53,6 +53,9 @@ test_mcp.json
 *.log
 verification_run*.log
 test_failures.log
+
+# Benchmarks (internal development only)
+/bench/
 
 # Temporary
 /tmp/
@@ -67,6 +70,21 @@ native/vector_math/target/
 # Internal development docs (specs, prompts, ADRs, analysis)
 # These contain implementation details and development process
 /docs/
+
+# Internal planning and vision docs
+IMPLEMENTATION_PLAN*.md
+VISION.md
+MEMORY_BACKUP_RECOVERY.md
+AGENTS.md
+
+# Agent/IDE-specific configurations (user-specific)
+.agent/
+.archive/
+.kiro/
+.gemini/
+.devcontainer/
+.github/.archive/
+.github/instructions/
 .github/prompts/
 
 # Debug/temp scripts
@@ -80,9 +98,6 @@ start.sh
 
 # Skills manifest (user-specific, generated at runtime)
 priv/skills_manifest.json
-
-# Benchmark results (may contain environment-specific data)
-bench/results/
 
 # Crash dumps
 erl_crash.dump
@@ -110,3 +125,6 @@ native/*/target/
 *.bin
 *.safetensors
 models/
+
+# Go wrapper (optional component)
+/cmd/
