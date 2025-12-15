@@ -30,6 +30,7 @@ defmodule Mimo.ToolInterface do
   alias Mimo.Brain.{Memory, Engram, DecayScorer}
   alias Mimo.ProceduralStore.{ExecutionFSM, Loader, Execution}
   alias Mimo.Utils.InputValidation
+  alias Mimo.Cognitive.FeedbackLoop
   alias Mimo.Repo
 
   # Timeouts
@@ -80,6 +81,9 @@ defmodule Mimo.ToolInterface do
 
     # Phase 3: Predictive context prefetching (non-blocking)
     maybe_prefetch_context(tool_name, arguments, result)
+
+    # SPEC-074: Record tool execution outcome for cognitive learning (non-blocking)
+    record_tool_outcome(tool_name, arguments, result)
 
     result
   end
@@ -273,6 +277,45 @@ defmodule Mimo.ToolInterface do
   end
 
   defp maybe_prefetch_context(_tool_name, _arguments, _result), do: :ok
+
+  # SPEC-074: Record tool execution outcomes for cognitive learning
+  # This enables the FeedbackLoop to learn from tool success/failure patterns
+  defp record_tool_outcome(tool_name, arguments, result) do
+    spawn(fn ->
+      try do
+        {success, latency_ms} = analyze_result(result)
+        operation = arguments["operation"] || arguments[:operation] || "default"
+
+        context = %{
+          tool: tool_name,
+          operation: operation,
+          has_context: Map.has_key?(arguments, "_mimo_context")
+        }
+
+        outcome = %{
+          success: success,
+          latency_ms: latency_ms,
+          timestamp: DateTime.utc_now()
+        }
+
+        FeedbackLoop.record_outcome(:tool_execution, context, outcome)
+      rescue
+        _ -> :ok
+      catch
+        _, _ -> :ok
+      end
+    end)
+  end
+
+  # Analyze result to determine success and extract timing
+  defp analyze_result({:ok, result}) when is_map(result) do
+    latency = result["latency_ms"] || result[:latency_ms] || 0
+    {true, latency}
+  end
+
+  defp analyze_result({:ok, _}), do: {true, 0}
+  defp analyze_result({:error, _}), do: {false, 0}
+  defp analyze_result(_), do: {true, 0}
 
   # Extract query/context from tool arguments based on tool type
   defp extract_query_from_args(tool_name, arguments) do
