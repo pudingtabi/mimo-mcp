@@ -237,8 +237,7 @@ defmodule Mimo.Skills.MemoryContext do
         extract_concepts_from_path(path)
       ]
       |> List.flatten()
-      |> Enum.reject(&is_nil/1)
-      |> Enum.reject(&(&1 == "" or &1 == "."))
+      |> Enum.reject(&(is_nil(&1) or &1 == "" or &1 == "."))
       |> Enum.uniq()
 
     terms
@@ -306,8 +305,7 @@ defmodule Mimo.Skills.MemoryContext do
         extract_notable_args(parts)
       ]
       |> List.flatten()
-      |> Enum.reject(&is_nil/1)
-      |> Enum.reject(&(&1 == ""))
+      |> Enum.reject(&(is_nil(&1) or &1 == ""))
       |> Enum.uniq()
 
     terms
@@ -378,7 +376,7 @@ defmodule Mimo.Skills.MemoryContext do
       count: count,
       summary: summary,
       suggestion:
-        "💡 Consider this context when working with #{filename}. Store new insights with `memory operation=store`."
+        "💡 Consider this context when working with #{filename}. Store new insights in memory."
     }
   end
 
@@ -398,7 +396,7 @@ defmodule Mimo.Skills.MemoryContext do
       count: count,
       summary: summary,
       suggestion:
-        "💡 Consider this context before running `#{base_cmd}`. Store important results with `memory operation=store category=action`."
+        "💡 Consider this context before running `#{base_cmd}`. Store important results in memory (category: action)."
     }
   end
 
@@ -414,8 +412,7 @@ defmodule Mimo.Skills.MemoryContext do
       grouped: %{},
       count: 0,
       summary: "No prior context found for #{target_name}.",
-      suggestion:
-        "💡 This is new territory. Store valuable insights with `memory operation=store` as you learn."
+      suggestion: "💡 This is new territory. Store valuable insights in memory as you learn."
     }
   end
 

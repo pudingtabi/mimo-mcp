@@ -79,7 +79,11 @@ defmodule Mimo.Benchmark.LOCOMOTest do
 
       assert length(engrams) == 2
 
-      [first | _] = Enum.sort_by(engrams, & &1.id)
+      # Sort by turn number from metadata to get correct order
+      [first | _] =
+        engrams
+        |> Enum.sort_by(fn e -> e.metadata["turn"] || e.id end)
+
       assert first.content =~ "Hello"
       assert first.metadata["benchmark"] == "locomo"
       assert first.metadata["conversation_id"] == "test_conv_1"

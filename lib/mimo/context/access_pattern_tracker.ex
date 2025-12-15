@@ -198,7 +198,7 @@ defmodule Mimo.Context.AccessPatternTracker do
 
   @impl true
   def handle_cast(:cleanup, state) do
-    cutoff = System.monotonic_time(:second) - @max_pattern_age_days * 86400
+    cutoff = System.monotonic_time(:second) - @max_pattern_age_days * 86_400
 
     # Clean old accesses from history
     cleaned_history =

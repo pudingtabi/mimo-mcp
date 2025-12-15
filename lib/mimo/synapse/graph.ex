@@ -229,6 +229,145 @@ defmodule Mimo.Synapse.Graph do
   end
 
   # ============================================
+  # Embedding Operations (Phase 1 Stability)
+  # ============================================
+
+  @doc """
+  Create a node and automatically generate its embedding.
+
+  Uses EmbeddingManager with fallback providers.
+  The embedding is generated asynchronously if `async: true` is passed.
+  """
+  @spec create_node_with_embedding(map(), keyword()) ::
+          {:ok, GraphNode.t()} | {:error, term()}
+  def create_node_with_embedding(attrs, opts \\ []) do
+    async = Keyword.get(opts, :async, false)
+
+    case create_node(attrs) do
+      {:ok, node} ->
+        if async do
+          # Generate embedding in background
+          Task.start(fn -> generate_node_embedding(node) end)
+          {:ok, node}
+        else
+          # Generate embedding synchronously
+          case generate_node_embedding(node) do
+            {:ok, updated_node} -> {:ok, updated_node}
+            # Return node even if embedding fails
+            {:error, _} -> {:ok, node}
+          end
+        end
+
+      error ->
+        error
+    end
+  end
+
+  @doc """
+  Generate and save embedding for an existing node.
+
+  Creates embedding from node name + description using EmbeddingManager.
+  """
+  @spec generate_node_embedding(GraphNode.t()) ::
+          {:ok, GraphNode.t()} | {:error, term()}
+  def generate_node_embedding(%GraphNode{} = node) do
+    alias Mimo.Brain.EmbeddingManager
+
+    # Create text from node name and description
+    text = build_embedding_text(node)
+
+    case EmbeddingManager.generate(text) do
+      {:ok, embedding, _provider} ->
+        node
+        |> Ecto.Changeset.change(%{embedding: embedding})
+        |> Repo.update()
+
+      {:error, reason} ->
+        Logger.warning("Failed to generate embedding for node #{node.id}: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Backfill embeddings for nodes that don't have them.
+
+  ## Options
+    - `:types` - Node types to backfill (default: [:concept])
+    - `:limit` - Maximum nodes to process (default: 100)
+    - `:batch_size` - Nodes per batch (default: 10)
+    - `:async` - Run in background (default: false)
+
+  ## Returns
+    - `{:ok, %{processed: N, success: N, failed: N}}`
+  """
+  @spec backfill_embeddings(keyword()) :: {:ok, map()} | {:error, term()}
+  def backfill_embeddings(opts \\ []) do
+    types = Keyword.get(opts, :types, [:concept])
+    limit = Keyword.get(opts, :limit, 100)
+    batch_size = Keyword.get(opts, :batch_size, 10)
+    async = Keyword.get(opts, :async, false)
+
+    if async do
+      Task.start(fn -> do_backfill_embeddings(types, limit, batch_size) end)
+      {:ok, %{status: :started_async}}
+    else
+      do_backfill_embeddings(types, limit, batch_size)
+    end
+  end
+
+  defp do_backfill_embeddings(types, limit, batch_size) do
+    # Find nodes without embeddings
+    nodes_without_embeddings =
+      GraphNode
+      |> where([n], n.node_type in ^types)
+      |> where([n], is_nil(n.embedding) or n.embedding == fragment("'[]'"))
+      |> limit(^limit)
+      |> order_by([n], desc: n.access_count)
+      |> Repo.all()
+
+    Logger.info("[Graph] Backfilling embeddings for #{length(nodes_without_embeddings)} nodes")
+
+    results =
+      nodes_without_embeddings
+      |> Enum.chunk_every(batch_size)
+      |> Enum.flat_map(fn batch ->
+        Enum.map(batch, fn node ->
+          case generate_node_embedding(node) do
+            {:ok, _} -> :success
+            {:error, _} -> :failed
+          end
+        end)
+      end)
+
+    success = Enum.count(results, &(&1 == :success))
+    failed = Enum.count(results, &(&1 == :failed))
+
+    Logger.info("[Graph] Backfill complete: #{success} success, #{failed} failed")
+
+    {:ok, %{processed: length(results), success: success, failed: failed}}
+  end
+
+  defp build_embedding_text(%GraphNode{} = node) do
+    parts = [node.name]
+
+    parts =
+      if node.description && node.description != "" do
+        parts ++ [node.description]
+      else
+        parts
+      end
+
+    parts =
+      if node.node_type do
+        parts ++ ["type: #{node.node_type}"]
+      else
+        parts
+      end
+
+    Enum.join(parts, ". ")
+  end
+
+  # ============================================
   # Edge Operations
   # ============================================
 

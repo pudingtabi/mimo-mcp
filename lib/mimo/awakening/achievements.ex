@@ -308,31 +308,37 @@ defmodule Mimo.Awakening.Achievements do
     if Enum.empty?(newly_unlocked) do
       {:ok, stats, []}
     else
-      # Add achievements and bonus XP
-      new_achievement_ids = Enum.map(newly_unlocked, & &1.id)
-      all_achievements = (stats.achievements || []) ++ new_achievement_ids
-      new_xp = stats.total_xp + bonus_xp
-      new_level = Mimo.Awakening.PowerCalculator.calculate_level(new_xp)
-
-      case stats
-           |> Stats.changeset(%{
-             achievements: all_achievements,
-             total_xp: new_xp,
-             current_level: new_level
-           })
-           |> Mimo.Repo.update() do
-        {:ok, updated_stats} ->
-          # Log the achievements
-          Enum.each(newly_unlocked, fn a ->
-            Logger.info("🏆 Achievement Unlocked: #{a.name} (+#{a.xp} XP)")
-          end)
-
-          {:ok, updated_stats, newly_unlocked}
-
-        {:error, _} = error ->
-          error
-      end
+      update_stats_with_achievements(stats, newly_unlocked, bonus_xp)
     end
+  end
+
+  defp update_stats_with_achievements(stats, newly_unlocked, bonus_xp) do
+    new_achievement_ids = Enum.map(newly_unlocked, & &1.id)
+    all_achievements = (stats.achievements || []) ++ new_achievement_ids
+    new_xp = stats.total_xp + bonus_xp
+    new_level = Mimo.Awakening.PowerCalculator.calculate_level(new_xp)
+
+    changeset =
+      Stats.changeset(stats, %{
+        achievements: all_achievements,
+        total_xp: new_xp,
+        current_level: new_level
+      })
+
+    case Mimo.Repo.update(changeset) do
+      {:ok, updated_stats} ->
+        log_unlocked_achievements(newly_unlocked)
+        {:ok, updated_stats, newly_unlocked}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp log_unlocked_achievements(achievements) do
+    Enum.each(achievements, fn a ->
+      Logger.info("🏆 Achievement Unlocked: #{a.name} (+#{a.xp} XP)")
+    end)
   end
 
   @doc """
@@ -341,88 +347,102 @@ defmodule Mimo.Awakening.Achievements do
   """
   @spec get_progress(String.t(), Stats.t()) :: {non_neg_integer(), non_neg_integer(), float()}
   def get_progress(achievement_id, stats) do
-    case achievement_id do
-      # Memory achievements
-      "first_memory" -> progress_calc(stats.total_memories, 1)
-      "memory_10" -> progress_calc(stats.total_memories, 10)
-      "memory_100" -> progress_calc(stats.total_memories, 100)
-      "memory_500" -> progress_calc(stats.total_memories, 500)
-      "memory_1000" -> progress_calc(stats.total_memories, 1000)
-      # Session achievements
-      "first_session" -> progress_calc(stats.total_sessions, 1)
-      "sessions_10" -> progress_calc(stats.total_sessions, 10)
-      "sessions_50" -> progress_calc(stats.total_sessions, 50)
-      "sessions_100" -> progress_calc(stats.total_sessions, 100)
-      # Relationship achievements
-      "first_relationship" -> progress_calc(stats.total_relationships, 1)
-      "relationships_10" -> progress_calc(stats.total_relationships, 10)
-      "relationships_50" -> progress_calc(stats.total_relationships, 50)
-      "relationships_100" -> progress_calc(stats.total_relationships, 100)
-      # Procedure achievements
-      "first_procedure" -> progress_calc(stats.total_procedures, 1)
-      "procedures_5" -> progress_calc(stats.total_procedures, 5)
-      "procedures_10" -> progress_calc(stats.total_procedures, 10)
-      # Tool achievements
-      "tools_100" -> progress_calc(stats.total_tool_calls, 100)
-      "tools_1000" -> progress_calc(stats.total_tool_calls, 1000)
-      "tools_10000" -> progress_calc(stats.total_tool_calls, 10_000)
-      # Level achievements
-      "level_2" -> progress_calc(stats.current_level, 2)
-      "level_3" -> progress_calc(stats.current_level, 3)
-      "level_4" -> progress_calc(stats.current_level, 4)
-      "level_5" -> progress_calc(stats.current_level, 5)
-      # XP achievements
-      "xp_100" -> progress_calc(stats.total_xp, 100)
-      "xp_1000" -> progress_calc(stats.total_xp, 1000)
-      "xp_5000" -> progress_calc(stats.total_xp, 5000)
-      "xp_10000" -> progress_calc(stats.total_xp, 10_000)
-      _ -> {0, 1, 0.0}
-    end
+    do_get_progress(achievement_id, stats)
   end
+
+  # Memory achievements
+  defp do_get_progress("first_memory", s), do: progress_calc(s.total_memories, 1)
+  defp do_get_progress("memory_10", s), do: progress_calc(s.total_memories, 10)
+  defp do_get_progress("memory_100", s), do: progress_calc(s.total_memories, 100)
+  defp do_get_progress("memory_500", s), do: progress_calc(s.total_memories, 500)
+  defp do_get_progress("memory_1000", s), do: progress_calc(s.total_memories, 1000)
+
+  # Session achievements
+  defp do_get_progress("first_session", s), do: progress_calc(s.total_sessions, 1)
+  defp do_get_progress("sessions_10", s), do: progress_calc(s.total_sessions, 10)
+  defp do_get_progress("sessions_50", s), do: progress_calc(s.total_sessions, 50)
+  defp do_get_progress("sessions_100", s), do: progress_calc(s.total_sessions, 100)
+
+  # Relationship achievements
+  defp do_get_progress("first_relationship", s), do: progress_calc(s.total_relationships, 1)
+  defp do_get_progress("relationships_10", s), do: progress_calc(s.total_relationships, 10)
+  defp do_get_progress("relationships_50", s), do: progress_calc(s.total_relationships, 50)
+  defp do_get_progress("relationships_100", s), do: progress_calc(s.total_relationships, 100)
+
+  # Procedure achievements
+  defp do_get_progress("first_procedure", s), do: progress_calc(s.total_procedures, 1)
+  defp do_get_progress("procedures_5", s), do: progress_calc(s.total_procedures, 5)
+  defp do_get_progress("procedures_10", s), do: progress_calc(s.total_procedures, 10)
+
+  # Tool achievements
+  defp do_get_progress("tools_100", s), do: progress_calc(s.total_tool_calls, 100)
+  defp do_get_progress("tools_1000", s), do: progress_calc(s.total_tool_calls, 1000)
+  defp do_get_progress("tools_10000", s), do: progress_calc(s.total_tool_calls, 10_000)
+
+  # Level achievements
+  defp do_get_progress("level_2", s), do: progress_calc(s.current_level, 2)
+  defp do_get_progress("level_3", s), do: progress_calc(s.current_level, 3)
+  defp do_get_progress("level_4", s), do: progress_calc(s.current_level, 4)
+  defp do_get_progress("level_5", s), do: progress_calc(s.current_level, 5)
+
+  # XP achievements
+  defp do_get_progress("xp_100", s), do: progress_calc(s.total_xp, 100)
+  defp do_get_progress("xp_1000", s), do: progress_calc(s.total_xp, 1000)
+  defp do_get_progress("xp_5000", s), do: progress_calc(s.total_xp, 5000)
+  defp do_get_progress("xp_10000", s), do: progress_calc(s.total_xp, 10_000)
+
+  # Unknown
+  defp do_get_progress(_, _), do: {0, 1, 0.0}
 
   # ==========================================================================
   # Private Functions
   # ==========================================================================
 
-  defp achievement_unlocked?(id, stats, _event) do
-    case id do
-      # Memory achievements
-      "first_memory" -> stats.total_memories >= 1
-      "memory_10" -> stats.total_memories >= 10
-      "memory_100" -> stats.total_memories >= 100
-      "memory_500" -> stats.total_memories >= 500
-      "memory_1000" -> stats.total_memories >= 1000
-      # Session achievements
-      "first_session" -> stats.total_sessions >= 1
-      "sessions_10" -> stats.total_sessions >= 10
-      "sessions_50" -> stats.total_sessions >= 50
-      "sessions_100" -> stats.total_sessions >= 100
-      # Relationship achievements
-      "first_relationship" -> stats.total_relationships >= 1
-      "relationships_10" -> stats.total_relationships >= 10
-      "relationships_50" -> stats.total_relationships >= 50
-      "relationships_100" -> stats.total_relationships >= 100
-      # Procedure achievements
-      "first_procedure" -> stats.total_procedures >= 1
-      "procedures_5" -> stats.total_procedures >= 5
-      "procedures_10" -> stats.total_procedures >= 10
-      # Tool achievements
-      "tools_100" -> stats.total_tool_calls >= 100
-      "tools_1000" -> stats.total_tool_calls >= 1000
-      "tools_10000" -> stats.total_tool_calls >= 10_000
-      # Level achievements
-      "level_2" -> stats.current_level >= 2
-      "level_3" -> stats.current_level >= 3
-      "level_4" -> stats.current_level >= 4
-      "level_5" -> stats.current_level >= 5
-      # XP achievements
-      "xp_100" -> stats.total_xp >= 100
-      "xp_1000" -> stats.total_xp >= 1000
-      "xp_5000" -> stats.total_xp >= 5000
-      "xp_10000" -> stats.total_xp >= 10_000
-      _ -> false
-    end
-  end
+  defp achievement_unlocked?(id, stats, _event), do: do_achievement_unlocked(id, stats)
+
+  # Memory achievements
+  defp do_achievement_unlocked("first_memory", s), do: s.total_memories >= 1
+  defp do_achievement_unlocked("memory_10", s), do: s.total_memories >= 10
+  defp do_achievement_unlocked("memory_100", s), do: s.total_memories >= 100
+  defp do_achievement_unlocked("memory_500", s), do: s.total_memories >= 500
+  defp do_achievement_unlocked("memory_1000", s), do: s.total_memories >= 1000
+
+  # Session achievements
+  defp do_achievement_unlocked("first_session", s), do: s.total_sessions >= 1
+  defp do_achievement_unlocked("sessions_10", s), do: s.total_sessions >= 10
+  defp do_achievement_unlocked("sessions_50", s), do: s.total_sessions >= 50
+  defp do_achievement_unlocked("sessions_100", s), do: s.total_sessions >= 100
+
+  # Relationship achievements
+  defp do_achievement_unlocked("first_relationship", s), do: s.total_relationships >= 1
+  defp do_achievement_unlocked("relationships_10", s), do: s.total_relationships >= 10
+  defp do_achievement_unlocked("relationships_50", s), do: s.total_relationships >= 50
+  defp do_achievement_unlocked("relationships_100", s), do: s.total_relationships >= 100
+
+  # Procedure achievements
+  defp do_achievement_unlocked("first_procedure", s), do: s.total_procedures >= 1
+  defp do_achievement_unlocked("procedures_5", s), do: s.total_procedures >= 5
+  defp do_achievement_unlocked("procedures_10", s), do: s.total_procedures >= 10
+
+  # Tool achievements
+  defp do_achievement_unlocked("tools_100", s), do: s.total_tool_calls >= 100
+  defp do_achievement_unlocked("tools_1000", s), do: s.total_tool_calls >= 1000
+  defp do_achievement_unlocked("tools_10000", s), do: s.total_tool_calls >= 10_000
+
+  # Level achievements
+  defp do_achievement_unlocked("level_2", s), do: s.current_level >= 2
+  defp do_achievement_unlocked("level_3", s), do: s.current_level >= 3
+  defp do_achievement_unlocked("level_4", s), do: s.current_level >= 4
+  defp do_achievement_unlocked("level_5", s), do: s.current_level >= 5
+
+  # XP achievements
+  defp do_achievement_unlocked("xp_100", s), do: s.total_xp >= 100
+  defp do_achievement_unlocked("xp_1000", s), do: s.total_xp >= 1000
+  defp do_achievement_unlocked("xp_5000", s), do: s.total_xp >= 5000
+  defp do_achievement_unlocked("xp_10000", s), do: s.total_xp >= 10_000
+
+  # Unknown
+  defp do_achievement_unlocked(_, _), do: false
 
   defp progress_calc(current, target) do
     current = current || 0

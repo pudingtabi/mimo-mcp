@@ -296,10 +296,10 @@ defmodule Mimo.AdaptiveWorkflow.TemplateAdapter do
   defp maybe_limit_parallelism(pattern, tier, skip, recommendations) do
     max_parallel = recommendations[:max_parallel_tools] || tier_to_parallel(tier)
 
-    if :parallelism not in skip do
-      limit_parallel_steps(pattern, max_parallel)
-    else
+    if :parallelism in skip do
       pattern
+    else
+      limit_parallel_steps(pattern, max_parallel)
     end
   end
 
@@ -447,7 +447,6 @@ defmodule Mimo.AdaptiveWorkflow.TemplateAdapter do
   defp summarize_recommendations(recommendations) do
     recommendations
     |> Enum.filter(fn {_k, v} -> v == true or (is_number(v) and v > 0) end)
-    |> Enum.map(fn {k, v} -> "#{k}: #{v}" end)
-    |> Enum.join(", ")
+    |> Enum.map_join(", ", fn {k, v} -> "#{k}: #{v}" end)
   end
 end

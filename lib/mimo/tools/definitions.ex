@@ -58,7 +58,7 @@ defmodule Mimo.Tools.Definitions do
     %{
       name: "file",
       description:
-        "Sandboxed file operations with automatic memory context. Responses include related memories for accuracy. Operations: read, write, ls, read_lines, insert_after, insert_before, replace_lines, delete_lines, search, replace_string, edit, list_directory, get_info, move, create_directory, read_multiple, list_symbols, read_symbol, search_symbols, glob, multi_replace, diff. 💡 Memory context is auto-included. Store new insights with `memory operation=store` after learning.",
+        "Sandboxed file operations with automatic memory context. Responses include related memories for accuracy. Operations: read, write, ls, read_lines, insert_after, insert_before, replace_lines, delete_lines, search, replace_string, edit, list_directory, get_info, move, create_directory, read_multiple, list_symbols, read_symbol, search_symbols, glob, multi_replace, diff. 💡 Memory context is auto-included. Store new insights in memory after learning.",
       input_schema: %{
         type: "object",
         properties: %{
@@ -163,7 +163,7 @@ defmodule Mimo.Tools.Definitions do
     %{
       name: "terminal",
       description:
-        "Executes shell commands and manages processes with automatic memory context. You MUST provide the 'command' string argument explicitly. Do not run this without a command. Operations: execute (default), start_process, read_output, interact, kill, force_kill, list_sessions, list_processes. Responses include related memories (past errors, patterns) for accuracy. 💡 Memory context is auto-included. Store important results with `memory operation=store category=action`.",
+        "Executes shell commands and manages processes with automatic memory context. You MUST provide the 'command' string argument explicitly. Do not run this without a command. Operations: execute (default), start_process, read_output, interact, kill, force_kill, list_sessions, list_processes. Responses include related memories (past errors, patterns) for accuracy. 💡 Memory context is auto-included. Store important results in memory (category: action).",
       input_schema: %{
         type: "object",
         properties: %{

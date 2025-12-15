@@ -37,7 +37,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
       dispatch(%{"operation" => "fetch", "url" => "...", "format" => "markdown"})
       dispatch(%{"operation" => "search", "query" => "...", "type" => "web"})
       dispatch(%{"operation" => "vision", "image" => "...", "prompt" => "..."})
-      
+
   ## Legacy Support
 
   Individual dispatch_* functions are preserved for backward compatibility
@@ -48,6 +48,15 @@ defmodule Mimo.Tools.Dispatchers.Web do
 
   alias Mimo.Tools.Helpers
   alias Mimo.Utils.InputValidation
+
+  # ==========================================================================
+  # HELPERS
+  # ==========================================================================
+
+  # Get the current vision model name for response messages
+  defp vision_model do
+    System.get_env("OPENROUTER_VISION_MODEL", "google/gemma-3-27b-it:free")
+  end
 
   # ==========================================================================
   # UNIFIED DISPATCHER
@@ -87,69 +96,47 @@ defmodule Mimo.Tools.Dispatchers.Web do
   """
   def dispatch(args) do
     operation = args["operation"] || "fetch"
+    do_dispatch(operation, args)
+  end
 
-    case operation do
-      # Content Retrieval
-      "fetch" ->
-        dispatch_fetch(args)
+  # ==========================================================================
+  # Multi-Head Dispatch by Operation
+  # ==========================================================================
 
-      "extract" ->
-        dispatch_web_extract(args)
+  # Content Retrieval
+  defp do_dispatch("fetch", args), do: dispatch_fetch(args)
+  defp do_dispatch("extract", args), do: dispatch_web_extract(args)
+  defp do_dispatch("parse", args), do: dispatch_web_parse(args)
 
-      "parse" ->
-        dispatch_web_parse(args)
+  # Search operations
+  defp do_dispatch("search", args), do: dispatch_search(args)
+  defp do_dispatch("code_search", args), do: dispatch_search(Map.put(args, "operation", "code"))
+  defp do_dispatch("image_search", args), do: dispatch_search(Map.put(args, "operation", "images"))
 
-      # Search operations
-      "search" ->
-        dispatch_search(args)
+  # Blink operations (HTTP-level browser emulation)
+  defp do_dispatch("blink", args), do: dispatch_blink(args)
+  defp do_dispatch("blink_analyze", args), do: dispatch_blink(Map.put(args, "operation", "analyze"))
+  defp do_dispatch("blink_smart", args), do: dispatch_blink(Map.put(args, "operation", "smart"))
 
-      "code_search" ->
-        dispatch_search(Map.put(args, "operation", "code"))
+  # Browser operations (Full Puppeteer)
+  defp do_dispatch("browser", args), do: dispatch_browser(args)
 
-      "image_search" ->
-        dispatch_search(Map.put(args, "operation", "images"))
+  defp do_dispatch("screenshot", args),
+    do: dispatch_browser(Map.put(args, "operation", "screenshot"))
 
-      # Blink operations (HTTP-level browser emulation)
-      "blink" ->
-        dispatch_blink(args)
+  defp do_dispatch("pdf", args), do: dispatch_browser(Map.put(args, "operation", "pdf"))
+  defp do_dispatch("evaluate", args), do: dispatch_browser(Map.put(args, "operation", "evaluate"))
+  defp do_dispatch("interact", args), do: dispatch_browser(Map.put(args, "operation", "interact"))
+  defp do_dispatch("test", args), do: dispatch_browser(Map.put(args, "operation", "test"))
 
-      "blink_analyze" ->
-        dispatch_blink(Map.put(args, "operation", "analyze"))
+  # Vision & Accessibility
+  defp do_dispatch("vision", args), do: dispatch_vision(args)
+  defp do_dispatch("sonar", args), do: dispatch_sonar(args)
 
-      "blink_smart" ->
-        dispatch_blink(Map.put(args, "operation", "smart"))
-
-      # Browser operations (Full Puppeteer)
-      "browser" ->
-        dispatch_browser(args)
-
-      "screenshot" ->
-        dispatch_browser(Map.put(args, "operation", "screenshot"))
-
-      "pdf" ->
-        dispatch_browser(Map.put(args, "operation", "pdf"))
-
-      "evaluate" ->
-        dispatch_browser(Map.put(args, "operation", "evaluate"))
-
-      "interact" ->
-        dispatch_browser(Map.put(args, "operation", "interact"))
-
-      "test" ->
-        dispatch_browser(Map.put(args, "operation", "test"))
-
-      # Vision & Accessibility
-      "vision" ->
-        dispatch_vision(args)
-
-      "sonar" ->
-        dispatch_sonar(args)
-
-      # Unknown operation
-      _ ->
-        {:error,
-         "Unknown web operation: #{operation}. Valid operations: fetch, extract, parse, search, code_search, image_search, blink, blink_analyze, blink_smart, browser, screenshot, pdf, evaluate, interact, test, vision, sonar"}
-    end
+  # Unknown operation
+  defp do_dispatch(op, _args) do
+    {:error,
+     "Unknown web operation: #{op}. Valid operations: fetch, extract, parse, search, code_search, image_search, blink, blink_analyze, blink_smart, browser, screenshot, pdf, evaluate, interact, test, vision, sonar"}
   end
 
   # ==========================================================================
@@ -185,7 +172,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
            url: url,
            type: "image",
            analysis: analysis,
-           model: "nvidia/nemotron-nano-12b-v2-vl:free",
+           model: vision_model(),
            note: "Image analyzed by vision AI for non-vision agents"
          }}
 
@@ -392,7 +379,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
              total_found: length(image_urls),
              analyzed_count: length(analyzed),
              images: analyzed,
-             note: "Images analyzed with NVIDIA vision for non-vision AI agents"
+             note: "Images analyzed with AI vision for non-vision agents"
            }}
         else
           {:ok,
@@ -449,57 +436,57 @@ defmodule Mimo.Tools.Dispatchers.Web do
   """
   def dispatch_blink(args) do
     url = args["url"]
-    op = args["operation"] || "fetch"
-    browser_input = args["browser"] || "chrome"
-
-    browser =
-      case browser_input do
-        "chrome" ->
-          :chrome_136
-
-        "firefox" ->
-          :firefox_135
-
-        "safari" ->
-          :safari_18
-
-        "random" ->
-          Enum.random([:chrome_136, :firefox_135, :safari_18])
-
-        other when is_atom(other) ->
-          if other in Helpers.allowed_browser_profiles(), do: other, else: :chrome_136
-
-        other when is_binary(other) ->
-          Helpers.safe_to_atom(other, Helpers.allowed_browser_profiles()) || :chrome_136
-
-        _ ->
-          :chrome_136
-      end
+    raw_op = args["operation"] || "fetch"
+    op = if raw_op == "blink", do: "fetch", else: raw_op
+    browser_input = args["browser_profile"] || args["browser"] || "chrome"
+    browser = resolve_browser_profile(browser_input)
 
     layer = args["layer"] || 1
     max_retries = args["max_retries"] || 3
     format = args["format"] || "raw"
 
-    if is_nil(url) or url == "" do
-      {:error, "URL is required"}
-    else
-      case op do
-        "fetch" ->
-          dispatch_blink_fetch(url, browser, layer, format, browser_input)
+    do_dispatch_blink(op, url, browser, layer, max_retries, format, browser_input)
+  end
 
-        "analyze" ->
-          case Mimo.Skills.Blink.analyze_protection(url) do
-            {:ok, analysis} -> {:ok, analysis}
-            {:error, reason} -> {:error, "Protection analysis failed: #{inspect(reason)}"}
-          end
+  # Browser profile resolution - extracted to reduce complexity
+  defp resolve_browser_profile("chrome"), do: :chrome_136
+  defp resolve_browser_profile("firefox"), do: :firefox_135
+  defp resolve_browser_profile("safari"), do: :safari_18
+  defp resolve_browser_profile("random"), do: Enum.random([:chrome_136, :firefox_135, :safari_18])
 
-        "smart" ->
-          dispatch_blink_smart(url, browser, max_retries, format, browser_input)
+  defp resolve_browser_profile(other) when is_atom(other) do
+    if other in Helpers.allowed_browser_profiles(), do: other, else: :chrome_136
+  end
 
-        _ ->
-          {:error, "Unknown blink operation: #{op}"}
-      end
+  defp resolve_browser_profile(other) when is_binary(other) do
+    Helpers.safe_to_atom(other, Helpers.allowed_browser_profiles()) || :chrome_136
+  end
+
+  defp resolve_browser_profile(_), do: :chrome_136
+
+  # Blink operation dispatch - multi-head pattern matching
+  defp do_dispatch_blink(_op, url, _browser, _layer, _max_retries, _format, _browser_input)
+       when is_nil(url) or url == "" do
+    {:error, "URL is required"}
+  end
+
+  defp do_dispatch_blink("fetch", url, browser, layer, _max_retries, format, browser_input) do
+    dispatch_blink_fetch(url, browser, layer, format, browser_input)
+  end
+
+  defp do_dispatch_blink("analyze", url, _browser, _layer, _max_retries, _format, _browser_input) do
+    case Mimo.Skills.Blink.analyze_protection(url) do
+      {:ok, analysis} -> {:ok, analysis}
+      {:error, reason} -> {:error, "Protection analysis failed: #{inspect(reason)}"}
     end
+  end
+
+  defp do_dispatch_blink("smart", url, browser, _layer, max_retries, format, browser_input) do
+    dispatch_blink_smart(url, browser, max_retries, format, browser_input)
+  end
+
+  defp do_dispatch_blink(op, _url, _browser, _layer, _max_retries, _format, _browser_input) do
+    {:error, "Unknown blink operation: #{op}"}
   end
 
   defp dispatch_blink_fetch(url, browser, layer, format, browser_input) do
@@ -641,83 +628,103 @@ defmodule Mimo.Tools.Dispatchers.Web do
   """
   def dispatch_browser(args) do
     url = args["url"]
-    op = args["operation"] || "fetch"
+    raw_op = args["operation"] || "fetch"
+    op = if raw_op == "browser", do: "fetch", else: raw_op
     profile = args["profile"] || "chrome"
-    # Validate timeout (default 60s, max 5min)
     timeout = InputValidation.validate_timeout(args["timeout"], default: 60_000, max: 300_000)
     force_browser = Map.get(args, "force_browser", false)
 
-    if is_nil(url) or url == "" do
-      {:error, "URL is required"}
-    else
-      opts = [
-        profile: profile,
-        timeout: timeout,
-        wait_for_selector: args["wait_for_selector"],
-        wait_for_challenge: Map.get(args, "wait_for_challenge", true),
-        force_browser: force_browser
-      ]
+    opts = [
+      profile: profile,
+      timeout: timeout,
+      wait_for_selector: args["wait_for_selector"],
+      wait_for_challenge: Map.get(args, "wait_for_challenge", true),
+      force_browser: force_browser
+    ]
 
-      case op do
-        "fetch" ->
-          Mimo.Skills.Browser.fetch(url, opts)
+    do_dispatch_browser(op, url, args, opts)
+  end
 
-        "screenshot" ->
-          screenshot_opts =
-            opts ++
-              [
-                full_page: Map.get(args, "full_page", true),
-                type: args["type"] || "png",
-                quality: args["quality"] || 80,
-                selector: args["selector"]
-              ]
+  # Browser operation dispatch - multi-head pattern matching to reduce complexity
+  defp do_dispatch_browser(_op, url, _args, _opts) when is_nil(url) or url == "" do
+    {:error, "URL is required"}
+  end
 
-          Mimo.Skills.Browser.screenshot(url, screenshot_opts)
+  defp do_dispatch_browser("fetch", url, _args, opts) do
+    Mimo.Skills.Browser.fetch(url, opts)
+  end
 
-        "pdf" ->
-          pdf_opts =
-            opts ++
-              [
-                format: args["format"] || "A4",
-                print_background: Map.get(args, "print_background", true),
-                margin: args["margin"]
-              ]
+  defp do_dispatch_browser("screenshot", url, args, opts) do
+    screenshot_opts =
+      opts ++
+        [
+          full_page: Map.get(args, "full_page", true),
+          type: args["type"] || "png",
+          quality: args["quality"] || 80,
+          selector: args["selector"]
+        ]
 
-          Mimo.Skills.Browser.pdf(url, pdf_opts)
+    Mimo.Skills.Browser.screenshot(url, screenshot_opts)
+  end
 
-        "evaluate" ->
-          script = args["script"]
+  defp do_dispatch_browser("pdf", url, args, opts) do
+    pdf_opts =
+      opts ++
+        [
+          format: args["format"] || "A4",
+          print_background: Map.get(args, "print_background", true),
+          margin: args["margin"]
+        ]
 
-          if is_nil(script) or script == "" do
-            {:error, "Script is required for evaluate operation"}
-          else
-            Mimo.Skills.Browser.evaluate(url, script, opts)
-          end
+    Mimo.Skills.Browser.pdf(url, pdf_opts)
+  end
 
-        "interact" ->
-          actions = args["actions"] || ""
+  defp do_dispatch_browser("evaluate", url, args, opts) do
+    script = args["script"]
+    do_browser_evaluate(url, script, opts)
+  end
 
-          if actions == "" or actions == [] do
-            {:error, "Actions list is required for interact operation"}
-          else
-            normalized_actions = normalize_browser_actions(actions)
-            Mimo.Skills.Browser.interact(url, normalized_actions, opts)
-          end
+  defp do_dispatch_browser("interact", url, args, opts) do
+    actions = args["actions"] || ""
+    do_browser_interact(url, actions, opts)
+  end
 
-        "test" ->
-          tests = args["tests"] || ""
+  defp do_dispatch_browser("test", url, args, opts) do
+    tests = args["tests"] || ""
+    do_browser_test(url, tests, opts)
+  end
 
-          if tests == "" or tests == [] do
-            {:error, "Tests list is required for test operation"}
-          else
-            normalized_tests = normalize_browser_tests(tests)
-            Mimo.Skills.Browser.test(url, normalized_tests, opts)
-          end
+  defp do_dispatch_browser(op, _url, _args, _opts) do
+    {:error, "Unknown browser operation: #{op}"}
+  end
 
-        _ ->
-          {:error, "Unknown browser operation: #{op}"}
-      end
-    end
+  # Browser evaluate - extracted for clarity
+  defp do_browser_evaluate(_url, script, _opts) when is_nil(script) or script == "" do
+    {:error, "Script is required for evaluate operation"}
+  end
+
+  defp do_browser_evaluate(url, script, opts) do
+    Mimo.Skills.Browser.evaluate(url, script, opts)
+  end
+
+  # Browser interact - extracted for clarity
+  defp do_browser_interact(_url, actions, _opts) when actions == "" or actions == [] do
+    {:error, "Actions list is required for interact operation"}
+  end
+
+  defp do_browser_interact(url, actions, opts) do
+    normalized_actions = normalize_browser_actions(actions)
+    Mimo.Skills.Browser.interact(url, normalized_actions, opts)
+  end
+
+  # Browser test - extracted for clarity
+  defp do_browser_test(_url, tests, _opts) when tests == "" or tests == [] do
+    {:error, "Tests list is required for test operation"}
+  end
+
+  defp do_browser_test(url, tests, opts) do
+    normalized_tests = normalize_browser_tests(tests)
+    Mimo.Skills.Browser.test(url, normalized_tests, opts)
   end
 
   defp normalize_browser_actions(actions) when is_binary(actions) do
@@ -792,7 +799,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
     else
       case Mimo.Brain.LLM.analyze_image(image, prompt, max_tokens: max_tokens) do
         {:ok, analysis} ->
-          {:ok, %{analysis: analysis, model: "nvidia/nemotron-nano-12b-v2-vl:free"}}
+          {:ok, %{analysis: analysis, model: vision_model()}}
 
         {:error, :no_api_key} ->
           {:error, "No OpenRouter API key configured. Set OPENROUTER_API_KEY environment variable."}
@@ -832,7 +839,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
                %{
                  accessibility_scan: basic_scan,
                  vision_analysis: vision_analysis,
-                 model: "nvidia/nemotron-nano-12b-v2-vl:free"
+                 model: vision_model()
                }}
 
             {:error, :no_api_key} ->
@@ -876,39 +883,42 @@ defmodule Mimo.Tools.Dispatchers.Web do
     if is_nil(url) or url == "" do
       {:error, "URL is required"}
     else
-      case Mimo.Skills.Network.fetch_html(url) do
-        {:ok, html} ->
-          case Mimo.Skills.Network.extract_content(html) do
-            {:ok, content} ->
-              result = %{
-                url: url,
-                title: content.title,
-                content: content.content,
-                description: content.description,
-                author: content.author,
-                date: content.date,
-                word_count: content.word_count
-              }
+      do_extract_content(url, include_structured)
+    end
+  end
 
-              if include_structured do
-                case Mimo.Skills.Network.extract_structured_data(html) do
-                  {:ok, structured} ->
-                    {:ok, Map.merge(result, %{structured_data: structured})}
+  defp do_extract_content(url, include_structured) do
+    with {:ok, html} <- Mimo.Skills.Network.fetch_html(url),
+         {:ok, content} <- Mimo.Skills.Network.extract_content(html) do
+      result = build_extract_result(url, content)
 
-                  _ ->
-                    {:ok, result}
-                end
-              else
-                {:ok, result}
-              end
-
-            {:error, reason} ->
-              {:error, "Content extraction failed: #{reason}"}
-          end
-
-        {:error, reason} ->
-          {:error, "Failed to fetch URL: #{reason}"}
+      if include_structured do
+        maybe_add_structured_data(result, html)
+      else
+        {:ok, result}
       end
+    else
+      {:error, reason} ->
+        {:error, "Content extraction failed: #{inspect(reason)}"}
+    end
+  end
+
+  defp build_extract_result(url, content) do
+    %{
+      url: url,
+      title: content.title,
+      content: content.content,
+      description: content.description,
+      author: content.author,
+      date: content.date,
+      word_count: content.word_count
+    }
+  end
+
+  defp maybe_add_structured_data(result, html) do
+    case Mimo.Skills.Network.extract_structured_data(html) do
+      {:ok, structured} -> {:ok, Map.merge(result, %{structured_data: structured})}
+      _ -> {:ok, result}
     end
   end
 

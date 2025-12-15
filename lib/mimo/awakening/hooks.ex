@@ -57,18 +57,13 @@ defmodule Mimo.Awakening.Hooks do
   @spec tool_executed(String.t(), :ok | :error | {:ok, any()} | {:error, any()}) :: :ok
   def tool_executed(tool_name, result) do
     spawn_fire_and_forget(fn ->
-      if awakening_available?() do
-        success? =
-          case result do
-            :ok -> true
-            {:ok, _} -> true
-            _ -> false
-          end
-
-        Mimo.Awakening.record_tool_call(tool_name, success?)
-      end
+      if awakening_available?(), do: Mimo.Awakening.record_tool_call(tool_name, success?(result))
     end)
   end
+
+  defp success?(:ok), do: true
+  defp success?({:ok, _}), do: true
+  defp success?(_), do: false
 
   @doc """
   Notify awakening system that an insight was generated.

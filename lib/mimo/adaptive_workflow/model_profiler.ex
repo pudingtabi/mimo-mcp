@@ -489,58 +489,66 @@ defmodule Mimo.AdaptiveWorkflow.ModelProfiler do
 
   defp normalize_model_id(_), do: ""
 
-  defp find_fuzzy_match(model_id) do
-    # Try to match known model families
-    cond do
-      String.contains?(model_id, "opus") and String.contains?(model_id, "4") ->
-        @known_models["claude-opus-4"]
+  @default_profile %{
+    tier: :tier2,
+    context_window: 32_000,
+    capabilities: %{
+      reasoning: 0.70,
+      coding: 0.68,
+      analysis: 0.70,
+      synthesis: 0.68,
+      tool_use: 0.65,
+      context_handling: 0.70
+    },
+    constraints: ["unknown_model"]
+  }
 
-      String.contains?(model_id, "opus") ->
-        @known_models["claude-3-opus"]
+  defp find_fuzzy_match(model_id), do: do_fuzzy_match(model_id)
 
-      String.contains?(model_id, "sonnet") and String.contains?(model_id, "3.5") ->
-        @known_models["claude-3.5-sonnet"]
+  # Multi-head fuzzy matching - order matters (more specific first)
+  defp do_fuzzy_match(id) when is_binary(id) do
+    check_opus_4(id) || check_opus(id) || check_sonnet_35(id) || check_sonnet(id) ||
+      check_haiku(id) || check_gpt4o(id) || check_gpt4_mini(id) || check_gpt4(id) ||
+      check_gpt35(id) || check_gemini_flash(id) || check_gemini_pro(id) || @default_profile
+  end
 
-      String.contains?(model_id, "sonnet") ->
-        @known_models["claude-3-sonnet"]
+  defp check_opus_4(id) do
+    if String.contains?(id, "opus") and String.contains?(id, "4"),
+      do: @known_models["claude-opus-4"]
+  end
 
-      String.contains?(model_id, "haiku") ->
-        @known_models["claude-3-haiku"]
+  defp check_opus(id) do
+    if String.contains?(id, "opus"), do: @known_models["claude-3-opus"]
+  end
 
-      String.contains?(model_id, "gpt-4o") ->
-        @known_models["gpt-4o"]
+  defp check_sonnet_35(id) do
+    if String.contains?(id, "sonnet") and String.contains?(id, "3.5"),
+      do: @known_models["claude-3.5-sonnet"]
+  end
 
-      String.contains?(model_id, "gpt-4") and String.contains?(model_id, "mini") ->
-        @known_models["gpt-4-mini"]
+  defp check_sonnet(id) do
+    if String.contains?(id, "sonnet"), do: @known_models["claude-3-sonnet"]
+  end
 
-      String.contains?(model_id, "gpt-4") ->
-        @known_models["gpt-4"]
+  defp check_haiku(id), do: if(String.contains?(id, "haiku"), do: @known_models["claude-3-haiku"])
+  defp check_gpt4o(id), do: if(String.contains?(id, "gpt-4o"), do: @known_models["gpt-4o"])
 
-      String.contains?(model_id, "gpt-3.5") ->
-        @known_models["gpt-3.5-turbo"]
+  defp check_gpt4_mini(id) do
+    if String.contains?(id, "gpt-4") and String.contains?(id, "mini"),
+      do: @known_models["gpt-4-mini"]
+  end
 
-      String.contains?(model_id, "gemini") and String.contains?(model_id, "flash") ->
-        @known_models["gemini-flash"]
+  defp check_gpt4(id), do: if(String.contains?(id, "gpt-4"), do: @known_models["gpt-4"])
+  defp check_gpt35(id), do: if(String.contains?(id, "gpt-3.5"), do: @known_models["gpt-3.5-turbo"])
 
-      String.contains?(model_id, "gemini") and String.contains?(model_id, "pro") ->
-        @known_models["gemini-pro"]
+  defp check_gemini_flash(id) do
+    if String.contains?(id, "gemini") and String.contains?(id, "flash"),
+      do: @known_models["gemini-flash"]
+  end
 
-      # Default: assume tier 2 medium capabilities
-      true ->
-        %{
-          tier: :tier2,
-          context_window: 32_000,
-          capabilities: %{
-            reasoning: 0.70,
-            coding: 0.68,
-            analysis: 0.70,
-            synthesis: 0.68,
-            tool_use: 0.65,
-            context_handling: 0.70
-          },
-          constraints: ["unknown_model"]
-        }
-    end
+  defp check_gemini_pro(id) do
+    if String.contains?(id, "gemini") and String.contains?(id, "pro"),
+      do: @known_models["gemini-pro"]
   end
 
   defp detect_tier_internal(model_id) do

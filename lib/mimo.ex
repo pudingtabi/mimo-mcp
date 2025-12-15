@@ -13,29 +13,7 @@ defmodule Mimo do
 
     case File.read(path) do
       {:ok, content} ->
-        case Jason.decode(content) do
-          {:ok, skills} when is_map(skills) ->
-            Logger.info("Bootstrapping #{map_size(skills)} skills...")
-
-            Enum.each(skills, fn {name, config} ->
-              _ =
-                Mimo.TaskHelper.safe_start_child(fn ->
-                  case start_skill(name, config) do
-                    {:ok, _pid} ->
-                      Logger.info("✓ Skill '#{name}' started")
-
-                    {:error, error} ->
-                      Logger.warning("✗ Skill '#{name}' failed: #{inspect(error)}")
-                  end
-                end)
-            end)
-
-          {:ok, _} ->
-            Logger.error("Invalid skills.json: must be a JSON object")
-
-          {:error, reason} ->
-            Logger.error("Failed to parse skills.json: #{inspect(reason)}")
-        end
+        parse_and_start_skills(content)
 
       {:error, :enoent} ->
         Logger.warning("No skills.json found at #{path}, starting with internal tools only")
@@ -43,6 +21,29 @@ defmodule Mimo do
       {:error, reason} ->
         Logger.error("Failed to read skills.json: #{inspect(reason)}")
     end
+  end
+
+  defp parse_and_start_skills(content) do
+    case Jason.decode(content) do
+      {:ok, skills} when is_map(skills) ->
+        Logger.info("Bootstrapping #{map_size(skills)} skills...")
+        Enum.each(skills, &start_skill_async/1)
+
+      {:ok, _} ->
+        Logger.error("Invalid skills.json: must be a JSON object")
+
+      {:error, reason} ->
+        Logger.error("Failed to parse skills.json: #{inspect(reason)}")
+    end
+  end
+
+  defp start_skill_async({name, config}) do
+    Mimo.TaskHelper.safe_start_child(fn ->
+      case start_skill(name, config) do
+        {:ok, _pid} -> Logger.info("✓ Skill '#{name}' started")
+        {:error, error} -> Logger.warning("✗ Skill '#{name}' failed: #{inspect(error)}")
+      end
+    end)
   end
 
   defp start_skill(name, config) do

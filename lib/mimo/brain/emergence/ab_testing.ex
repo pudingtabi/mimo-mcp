@@ -234,7 +234,7 @@ defmodule Mimo.Brain.Emergence.ABTesting do
   defp ensure_ets_table do
     case :ets.info(:emergence_ab_testing) do
       :undefined ->
-        :ets.new(:emergence_ab_testing, [:named_table, :public, :set])
+        Mimo.EtsSafe.ensure_table(:emergence_ab_testing, [:named_table, :public, :set])
 
       _ ->
         :ok

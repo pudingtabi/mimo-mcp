@@ -118,8 +118,8 @@ defmodule Mimo.Cognitive.UncertaintyTracker do
   @impl true
   def init(_opts) do
     # Create ETS tables for tracking
-    :ets.new(@table, [:named_table, :bag, :public, write_concurrency: true])
-    :ets.new(@stats_table, [:named_table, :set, :public, read_concurrency: true])
+    Mimo.EtsSafe.ensure_table(@table, [:named_table, :bag, :public, write_concurrency: true])
+    Mimo.EtsSafe.ensure_table(@stats_table, [:named_table, :set, :public, read_concurrency: true])
 
     # Initialize stats
     :ets.insert(@stats_table, {:global_stats, %__MODULE__{}})

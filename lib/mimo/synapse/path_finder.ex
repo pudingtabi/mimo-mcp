@@ -406,33 +406,30 @@ defmodule Mimo.Synapse.PathFinder do
 
     edges
     |> Enum.flat_map(fn edge ->
-      target = edge.target_node
-
-      if rest == [] do
-        # Last edge - check if target matches end criteria
-        if target && target.node_type == end_type do
-          if is_nil(end_name) or String.contains?(target.name, end_name) do
-            [
-              %{
-                start_node: format_node(start_node),
-                end_node: format_node(target),
-                path: [edge_type]
-              }
-            ]
-          else
-            []
-          end
-        else
-          []
-        end
-      else
-        # More edges to follow - recurse
-        follow_pattern(target, rest, end_type, end_name)
-        |> Enum.map(fn match ->
-          %{match | path: [edge_type | match.path]}
-        end)
-      end
+      process_edge_in_pattern(start_node, edge, edge_type, rest, end_type, end_name)
     end)
+  end
+
+  defp process_edge_in_pattern(start_node, edge, edge_type, [], end_type, end_name) do
+    target = edge.target_node
+
+    if matches_end_criteria?(target, end_type, end_name) do
+      [%{start_node: format_node(start_node), end_node: format_node(target), path: [edge_type]}]
+    else
+      []
+    end
+  end
+
+  defp process_edge_in_pattern(_start_node, edge, edge_type, rest, end_type, end_name) do
+    follow_pattern(edge.target_node, rest, end_type, end_name)
+    |> Enum.map(fn match -> %{match | path: [edge_type | match.path]} end)
+  end
+
+  defp matches_end_criteria?(nil, _, _), do: false
+  defp matches_end_criteria?(target, end_type, nil), do: target.node_type == end_type
+
+  defp matches_end_criteria?(target, end_type, end_name) do
+    target.node_type == end_type and String.contains?(target.name, end_name)
   end
 
   # ==========================================================================

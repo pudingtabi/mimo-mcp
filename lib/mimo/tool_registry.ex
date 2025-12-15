@@ -528,7 +528,7 @@ defmodule Mimo.ToolRegistry do
       %{
         "name" => "search_vibes",
         "description" =>
-          "[Deprecated: use memory operation=search] Vector similarity search in Mimo's episodic memory.",
+          "[Deprecated: use memory (search)] Vector similarity search in Mimo's episodic memory.",
         "inputSchema" => %{
           "type" => "object",
           "properties" => %{
@@ -552,7 +552,7 @@ defmodule Mimo.ToolRegistry do
       },
       %{
         "name" => "store_fact",
-        "description" => "[Deprecated: use memory operation=store] Store a fact in Mimo's memory.",
+        "description" => "[Deprecated: use memory (store)] Store a fact in Mimo's memory.",
         "inputSchema" => %{
           "type" => "object",
           "properties" => %{

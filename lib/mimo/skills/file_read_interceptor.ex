@@ -55,7 +55,7 @@ defmodule Mimo.Skills.FileReadInterceptor do
   def init do
     # Create stats table if it doesn't exist
     if :ets.whereis(@stats_table) == :undefined do
-      :ets.new(@stats_table, [:named_table, :set, :public, read_concurrency: true])
+      Mimo.EtsSafe.ensure_table(@stats_table, [:named_table, :set, :public, read_concurrency: true])
       :ets.insert(@stats_table, {:total, 0})
       :ets.insert(@stats_table, {:memory_hit, 0})
       :ets.insert(@stats_table, {:cache_hit, 0})
@@ -159,16 +159,19 @@ defmodule Mimo.Skills.FileReadInterceptor do
       Task.async(fn -> check_recent_reads(path, max_age) end)
     ]
 
-    # Wait for all tasks with 5s timeout
+    # Wait for all tasks with 5s timeout.
+    # IMPORTANT: Task.await_many/2 exits the caller on timeout; use yield_many to avoid crashing MCP under load.
     results =
-      try do
-        Task.await_many(tasks, 5000)
-      rescue
-        _ ->
-          # On timeout, kill tasks and return misses
-          Enum.each(tasks, &Task.shutdown(&1, :brutal_kill))
-          [{:miss, nil}, {:miss, nil}, {:miss, nil}]
-      end
+      tasks
+      |> Task.yield_many(5000)
+      |> Enum.map(fn
+        {_task, {:ok, result}} ->
+          result
+
+        {task, _} ->
+          Task.shutdown(task, :brutal_kill)
+          {:miss, nil}
+      end)
 
     [memory_result, symbol_result, cache_result] = results
 

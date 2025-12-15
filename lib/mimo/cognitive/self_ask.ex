@@ -294,9 +294,7 @@ defmodule Mimo.Cognitive.SelfAsk do
 
   defp synthesize(original_question, sub_answers, max_tokens) do
     context =
-      sub_answers
-      |> Enum.map(fn {q, a} -> "Q: #{q}\nA: #{a}" end)
-      |> Enum.join("\n\n")
+      Enum.map_join(sub_answers, "\n\n", fn {q, a} -> "Q: #{q}\nA: #{a}" end)
 
     prompt = """
     Based on these sub-questions and answers:

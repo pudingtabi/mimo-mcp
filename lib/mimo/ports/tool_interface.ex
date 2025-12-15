@@ -91,15 +91,15 @@ defmodule Mimo.ToolInterface do
   defp add_cognitive_suggestion(result, _tool, _query, _reason), do: result
 
   defp build_suggestion_hint(:reason, problem) do
-    "💡 Consider using: reason operation=guided problem=\"#{String.slice(problem, 0, 50)}...\""
+    "💡 Consider using structured reasoning (reason: guided) for: #{String.slice(problem, 0, 50)}..."
   end
 
   defp build_suggestion_hint(:knowledge, query) do
-    "💡 Consider using: knowledge operation=query query=\"#{String.slice(query, 0, 50)}...\""
+    "💡 Consider querying the knowledge graph for: #{String.slice(query, 0, 50)}..."
   end
 
   defp build_suggestion_hint(:prepare_context, query) do
-    "💡 Consider using: prepare_context query=\"#{String.slice(query, 0, 50)}...\""
+    "💡 Consider preparing context first (meta: prepare_context) for: #{String.slice(query, 0, 50)}..."
   end
 
   defp build_suggestion_hint(_, _), do: nil
@@ -566,8 +566,11 @@ defmodule Mimo.ToolInterface do
     end
   end
 
-  defp do_execute("ask_mimo", %{"query" => query}) do
-    case Mimo.QueryInterface.ask(query) do
+  defp do_execute("ask_mimo", %{"query" => query} = args) do
+    # Support optional timeout parameter (default: 45s from TimeoutConfig)
+    timeout = Map.get(args, "timeout", Mimo.TimeoutConfig.query_timeout())
+
+    case Mimo.QueryInterface.ask(query, nil, timeout_ms: timeout) do
       {:ok, result} ->
         # Sanitize result to ensure all structs are converted to maps for JSON encoding
         sanitized_result = sanitize_for_json(result)
@@ -578,6 +581,9 @@ defmodule Mimo.ToolInterface do
            status: "success",
            data: sanitized_result
          }}
+
+      {:error, :timeout} ->
+        {:error, "Query timed out after #{timeout}ms. Try a simpler query or increase timeout."}
 
       {:error, reason} ->
         {:error, "Query failed: #{inspect(reason)}"}
@@ -605,11 +611,11 @@ defmodule Mimo.ToolInterface do
             progress_percent: power["progress_percent"]
           },
           wisdom_stats: %{
-            total_sessions: stats["total_sessions"],
-            total_memories: stats["total_memories"],
-            total_relationships: stats["total_relationships"],
-            total_procedures: stats["total_procedures"],
-            active_days: stats["active_days"]
+            total_sessions: stats["sessions"],
+            total_memories: stats["memories"],
+            total_relationships: stats["relationships"],
+            total_procedures: stats["procedures"],
+            active_days: stats["days_active"]
           },
           unlocked_capabilities: status.unlocked_capabilities
         }

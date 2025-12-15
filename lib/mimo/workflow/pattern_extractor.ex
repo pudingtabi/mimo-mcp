@@ -200,23 +200,29 @@ defmodule Mimo.Workflow.PatternExtractor do
   end
 
   defp get_operation(entry) do
-    cond do
-      entry[:operation] ->
-        entry[:operation]
-
-      entry["operation"] ->
-        entry["operation"]
-
-      entry[:args] && is_map(entry[:args]) ->
-        entry[:args][:operation] || entry[:args]["operation"] || "default"
-
-      entry["args"] && is_map(entry["args"]) ->
-        entry["args"]["operation"] || "default"
-
-      true ->
-        "default"
-    end
+    do_get_operation(
+      entry[:operation],
+      entry["operation"],
+      entry[:args],
+      entry["args"]
+    )
   end
+
+  # Multi-head operation lookup
+  defp do_get_operation(op, _string_op, _args, _string_args) when not is_nil(op), do: op
+
+  defp do_get_operation(_op, string_op, _args, _string_args) when not is_nil(string_op),
+    do: string_op
+
+  defp do_get_operation(_op, _string_op, args, _string_args) when is_map(args) do
+    args[:operation] || args["operation"] || "default"
+  end
+
+  defp do_get_operation(_op, _string_op, _args, string_args) when is_map(string_args) do
+    string_args["operation"] || "default"
+  end
+
+  defp do_get_operation(_op, _string_op, _args, _string_args), do: "default"
 
   @doc """
   Gets sequences for a specific session.
@@ -409,10 +415,10 @@ defmodule Mimo.Workflow.PatternExtractor do
       sequence = Enum.map(window_logs, &tool_signature/1)
 
       # Only add if sequence is unique in current accumulator
-      if not Enum.member?(acc, sequence) do
-        detect_windows(tail, window_ms, [sequence | acc])
-      else
+      if Enum.member?(acc, sequence) do
         detect_windows(tail, window_ms, acc)
+      else
+        detect_windows(tail, window_ms, [sequence | acc])
       end
     else
       detect_windows(tail, window_ms, acc)

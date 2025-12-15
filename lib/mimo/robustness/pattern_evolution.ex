@@ -53,9 +53,8 @@ defmodule Mimo.Robustness.PatternEvolution do
         # Fallback to priv directory in dev
         fallback_path = Path.join([File.cwd!(), @patterns_path])
 
-        with {:ok, content} <- File.read(fallback_path),
-             {:ok, data} <- Jason.decode(content) do
-          {:ok, data}
+        with {:ok, content} <- File.read(fallback_path) do
+          Jason.decode(content)
         end
 
       error ->

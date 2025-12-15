@@ -856,29 +856,37 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
       total_items == 0 ->
         "💡 No context found. Consider running `onboard` to index the codebase first."
 
-      # DEMAND 5: Wisdom injection active - highlight it
-      (wisdom[:count] || 0) > 0 ->
-        failure_count = length(wisdom[:failures] || [])
-        warning_count = length(wisdom[:warnings] || [])
+      has_wisdom?(wisdom) ->
+        build_wisdom_suggestion(wisdom)
 
-        "🧠 WISDOM INJECTED: #{failure_count} past failures to avoid, #{warning_count} warnings. Read carefully!"
-
-      # DEMAND 3: Pattern matches found - highlight it  
-      (patterns[:count] || 0) > 0 ->
+      has_patterns?(patterns) ->
         "📚 #{patterns[:count]} matching patterns found from past sessions. Review for guidance."
 
-      (memory[:count] || 0) == 0 and total_items > 0 ->
-        "💡 No memory context found. Store insights with `memory operation=store` as you learn."
+      missing_memory?(memory, total_items) ->
+        "💡 No memory context found. Store insights in memory as you learn."
 
-      (code[:count] || 0) == 0 and total_items > 0 ->
-        "💡 No code context found. Run `knowledge operation=link path=\".\"` to index code."
+      missing_code?(code, total_items) ->
+        "💡 No code context found. Index code/relationships first (onboard or knowledge link)."
 
-      (knowledge[:count] || 0) == 0 and total_items > 0 ->
-        "💡 Knowledge graph is sparse. Use `knowledge operation=teach` to add relationships."
+      missing_knowledge?(knowledge, total_items) ->
+        "💡 Knowledge graph is sparse. Teach key relationships so future queries improve."
 
       true ->
         "✨ Rich context loaded! #{total_items} relevant items found."
     end
+  end
+
+  defp has_wisdom?(wisdom), do: (wisdom[:count] || 0) > 0
+  defp has_patterns?(patterns), do: (patterns[:count] || 0) > 0
+  defp missing_memory?(memory, total), do: (memory[:count] || 0) == 0 and total > 0
+  defp missing_code?(code, total), do: (code[:count] || 0) == 0 and total > 0
+  defp missing_knowledge?(knowledge, total), do: (knowledge[:count] || 0) == 0 and total > 0
+
+  defp build_wisdom_suggestion(wisdom) do
+    failure_count = length(wisdom[:failures] || [])
+    warning_count = length(wisdom[:warnings] || [])
+
+    "🧠 WISDOM INJECTED: #{failure_count} past failures to avoid, #{warning_count} warnings. Read carefully!"
   end
 
   # ==========================================================================

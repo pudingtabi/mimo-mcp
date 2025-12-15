@@ -18,7 +18,7 @@ defmodule Mimo.Cognitive.SelfDiscover do
 
       # Discover task-specific reasoning structure
       {:ok, structure} = SelfDiscover.discover("I'm going to ask you 5 trivia questions...")
-      
+
       # Use structure to solve
       {:ok, answer} = SelfDiscover.solve(task, structure.reasoning_structure)
   """
@@ -94,7 +94,13 @@ defmodule Mimo.Cognitive.SelfDiscover do
   def init_cache do
     case :ets.whereis(@cache_table) do
       :undefined ->
-        :ets.new(@cache_table, [:set, :public, :named_table, read_concurrency: true])
+        Mimo.EtsSafe.ensure_table(@cache_table, [
+          :set,
+          :public,
+          :named_table,
+          read_concurrency: true
+        ])
+
         :ok
 
       _ ->
@@ -234,11 +240,10 @@ defmodule Mimo.Cognitive.SelfDiscover do
     numbered_modules =
       @atomic_modules
       |> Enum.with_index(1)
-      |> Enum.map(fn {m, i} -> "#{i}. #{m}" end)
-      |> Enum.join("\n")
+      |> Enum.map_join("\n", fn {m, i} -> "#{i}. #{m}" end)
 
     prompt = """
-    Given the task below, select the reasoning modules that would be most 
+    Given the task below, select the reasoning modules that would be most
     useful for solving it. Consider which cognitive strategies would help.
 
     AVAILABLE REASONING MODULES:
@@ -308,8 +313,7 @@ defmodule Mimo.Cognitive.SelfDiscover do
     modules_text =
       selected_modules
       |> Enum.with_index(1)
-      |> Enum.map(fn {m, i} -> "#{i}. #{m}" end)
-      |> Enum.join("\n")
+      |> Enum.map_join("\n", fn {m, i} -> "#{i}. #{m}" end)
 
     prompt = """
     Adapt these general reasoning modules to be specific to the task.
@@ -341,8 +345,8 @@ defmodule Mimo.Cognitive.SelfDiscover do
 
   defp implement_structure(task, adapted_modules) do
     prompt = """
-    Convert these adapted reasoning steps into a JSON structure that can 
-    guide solving the task. Each key should be a step name, each value 
+    Convert these adapted reasoning steps into a JSON structure that can
+    guide solving the task. Each key should be a step name, each value
     should describe what to do in that step.
 
     ADAPTED REASONING MODULES:

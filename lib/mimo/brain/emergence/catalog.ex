@@ -196,7 +196,7 @@ defmodule Mimo.Brain.Emergence.Catalog do
 
   @impl true
   def init(_opts) do
-    :ets.new(@catalog_table, [:named_table, :set, :public, read_concurrency: true])
+    Mimo.EtsSafe.ensure_table(@catalog_table, [:named_table, :set, :public, read_concurrency: true])
 
     # Load existing promoted patterns from database
     load_promoted_patterns()

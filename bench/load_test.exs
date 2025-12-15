@@ -28,6 +28,15 @@ defmodule Mimo.LoadTest do
   @default_duration_seconds 60
   @base_url "http://localhost:4000"
 
+  defp auth_headers do
+    case System.get_env("MIMO_API_KEY") do
+      key when is_binary(key) and key != "" -> [{"authorization", "Bearer " <> key}]
+      _ -> []
+    end
+  end
+
+  defp authenticated_ops_enabled?, do: auth_headers() != []
+
   defmodule Stats do
     @moduledoc false
     defstruct [
@@ -55,10 +64,19 @@ defmodule Mimo.LoadTest do
     ramp_up = Keyword.get(opts, :ramp_up_seconds, 10)
     think_time = Keyword.get(opts, :think_time_ms, 100)
 
-    Logger.info("Starting load test: #{users} users for #{duration}s")
+    if authenticated_ops_enabled?() do
+      Logger.info("Starting load test: #{users} users for #{duration}s (authenticated endpoints enabled)")
+    else
+      Logger.info(
+        "Starting load test: #{users} users for #{duration}s (auth disabled; set MIMO_API_KEY to include /v1/mimo endpoints)"
+      )
+    end
     
     # Initialize stats collector
-    stats_pid = spawn_link(fn -> stats_collector(%Stats{start_time: System.monotonic_time(:millisecond)}) end)
+    stats_pid =
+      spawn_link(fn ->
+        stats_collector(%Stats{start_time: System.monotonic_time(:millisecond)})
+      end)
     
     # Start memory monitoring
     memory_monitor = spawn_link(fn -> memory_monitor(stats_pid, duration * 1000) end)
@@ -66,10 +84,12 @@ defmodule Mimo.LoadTest do
     # Ramp up users gradually
     user_delay_ms = div(ramp_up * 1000, users)
     
+    operations = available_operations()
+
     user_pids = for i <- 1..users do
       Process.sleep(user_delay_ms)
       spawn_link(fn -> 
-        run_user_session(stats_pid, duration * 1000 - i * user_delay_ms, think_time)
+        run_user_session(stats_pid, duration * 1000 - i * user_delay_ms, think_time, operations)
       end)
     end
     
@@ -124,62 +144,83 @@ defmodule Mimo.LoadTest do
   end
 
   # User session simulation
-  defp run_user_session(stats_pid, remaining_ms, think_time) when remaining_ms > 0 do
+  defp run_user_session(stats_pid, remaining_ms, think_time, operations) when remaining_ms > 0 do
     # Choose a random operation
-    operation = Enum.random([:health_check, :ask, :tool_list])
+    operation = Enum.random(operations)
     
     {latency_ms, result} = :timer.tc(fn -> execute_operation(operation) end, :millisecond)
     
     send(stats_pid, {:record, latency_ms, result})
     
     Process.sleep(think_time)
-    run_user_session(stats_pid, remaining_ms - latency_ms - think_time, think_time)
+    run_user_session(stats_pid, remaining_ms - latency_ms - think_time, think_time, operations)
   end
-  defp run_user_session(_stats_pid, _remaining_ms, _think_time), do: :ok
+  defp run_user_session(_stats_pid, _remaining_ms, _think_time, _operations), do: :ok
+
+  defp available_operations do
+    if authenticated_ops_enabled?() do
+      [:health_check, :ask, :tool_list]
+    else
+      [:health_check]
+    end
+  end
 
   # Execute different operations
   defp execute_operation(:health_check) do
-    case HTTPoison.get("#{@base_url}/health") do
-      {:ok, %{status_code: 200}} -> :success
-      _ -> :failure
+    case Req.request(method: :get, url: "#{@base_url}/health/live", retry: false) do
+      {:ok, %{status: 200}} -> {:success, 200}
+      {:ok, %{status: code}} -> {:failure, code}
+      {:error, _} -> {:failure, :network}
     end
   rescue
-    _ -> :failure
+    _ -> {:failure, :exception}
   end
 
   defp execute_operation(:ask) do
-    payload = Jason.encode!(%{query: "test query #{:rand.uniform(1000)}"})
-    headers = [{"Content-Type", "application/json"}]
-    
-    case HTTPoison.post("#{@base_url}/api/ask", payload, headers, timeout: 5000) do
-      {:ok, %{status_code: code}} when code in 200..299 -> :success
-      {:ok, %{status_code: 503}} -> :failure  # Expected under load
-      _ -> :failure
+    headers = [{"content-type", "application/json"} | auth_headers()]
+
+    case Req.request(
+           method: :post,
+           url: "#{@base_url}/v1/mimo/ask",
+           json: %{query: "test query #{:rand.uniform(1000)}"},
+           headers: headers,
+           retry: false,
+           receive_timeout: 5000
+         ) do
+      {:ok, %{status: code}} when code in 200..299 -> {:success, code}
+      {:ok, %{status: code}} -> {:failure, code}
+      {:error, _} -> {:failure, :network}
     end
   rescue
-    _ -> :failure
+    _ -> {:failure, :exception}
   end
 
   defp execute_operation(:tool_list) do
-    case HTTPoison.get("#{@base_url}/api/tools") do
-      {:ok, %{status_code: 200}} -> :success
-      _ -> :failure
+    case Req.request(
+           method: :get,
+           url: "#{@base_url}/v1/mimo/tools",
+           headers: auth_headers(),
+           retry: false
+         ) do
+      {:ok, %{status: 200}} -> {:success, 200}
+      {:ok, %{status: code}} -> {:failure, code}
+      {:error, _} -> {:failure, :network}
     end
   rescue
-    _ -> :failure
+    _ -> {:failure, :exception}
   end
 
   # Stats collector process
   defp stats_collector(stats) do
     receive do
-      {:record, latency_ms, :success} ->
+      {:record, latency_ms, {:success, _code}} ->
         stats_collector(%{stats | 
           requests: stats.requests + 1,
           successes: stats.successes + 1,
           latencies: [latency_ms | stats.latencies]
         })
         
-      {:record, latency_ms, :failure} ->
+      {:record, latency_ms, {:failure, _reason}} ->
         stats_collector(%{stats | 
           requests: stats.requests + 1,
           failures: stats.failures + 1,
@@ -275,7 +316,7 @@ defmodule Mimo.LoadTest do
   defp percentile(sorted_list, p) do
     index = round(length(sorted_list) * p) - 1
     index = max(0, index)
-    Enum.at(sorted_list, index, 0)
+    Enum.at(sorted_list, index, 0) / 1
   end
 
   defp evaluate_criteria(name, true), do: IO.puts("  ✅ #{name}")
@@ -289,21 +330,21 @@ defmodule Mimo.LoadTest do
   end
 end
 
-# Run if executed directly
-if System.argv() == [] or "--run" in System.argv() do
-  # Ensure HTTPoison is available
-  Application.ensure_all_started(:httpoison)
-  
-  # Parse arguments
-  args = System.argv()
-  users = case Enum.find_index(args, &(&1 == "--users")) do
-    nil -> 100
-    i -> String.to_integer(Enum.at(args, i + 1, "100"))
-  end
-  duration = case Enum.find_index(args, &(&1 == "--duration")) do
-    nil -> 60
-    i -> String.to_integer(Enum.at(args, i + 1, "60"))
-  end
-  
+# Run when executed directly (pass --no-run to only compile)
+args = System.argv()
+
+unless "--no-run" in args do
+  users =
+    case Enum.find_index(args, &(&1 == "--users")) do
+      nil -> 100
+      i -> String.to_integer(Enum.at(args, i + 1, "100"))
+    end
+
+  duration =
+    case Enum.find_index(args, &(&1 == "--duration")) do
+      nil -> 60
+      i -> String.to_integer(Enum.at(args, i + 1, "60"))
+    end
+
   Mimo.LoadTest.run(users: users, duration_seconds: duration)
 end

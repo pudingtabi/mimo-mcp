@@ -7,10 +7,18 @@ defmodule Mimo.McpServer.Stdio do
   - Starts a session on `initialize`
   - Injects awakening context on first `tools/call`
   - Supports `prompts/list` and `prompts/get` for awakening prompts
+
+  ## Stability Features (SPEC-075)
+
+  - **Write mutex**: Atomic stdout writes prevent interleaved JSON
+  - **Pre-started supervisor**: Task supervisor started at init, not on-demand
+  - **Keepalive**: Periodic ping to detect dead connections
+  - **Graceful timeout**: Responses always sent, even on tool timeout
   """
   require Logger
 
-  alias Mimo.TaskHelper
+  # Write mutex to prevent interleaved stdout writes
+  @write_mutex :mimo_mcp_write_mutex
 
   # JSON-RPC Error Codes
   @parse_error -32_700
@@ -18,8 +26,8 @@ defmodule Mimo.McpServer.Stdio do
   @method_not_found -32_601
   @internal_error -32_603
 
-  # Timeout for tool execution (60 seconds)
-  @tool_timeout 60_000
+  # Timeout for tool execution from centralized config
+  @tool_timeout Mimo.TimeoutConfig.mcp_tool_timeout()
 
   @doc """
   Starts the Stdio server loop.
@@ -52,10 +60,53 @@ defmodule Mimo.McpServer.Stdio do
     # 2. Configure IO for raw binary mode with immediate flushing
     :io.setopts(:standard_io, [:binary, {:encoding, :utf8}, {:buffer, 1024}])
 
+    # 3. SPEC-075: Initialize write mutex for atomic stdout operations
+    init_write_mutex()
+
+    # 4. SPEC-075: Pre-start task supervisor for reliable concurrent execution
+    ensure_task_supervisor()
+
     # Note: No startup health check needed - defensive error handling in
     # Mimo.ToolRegistry.active_skill_tools() handles the race condition gracefully
 
     loop()
+  end
+
+  # SPEC-075: Initialize write mutex using an Agent for simple synchronization
+  defp init_write_mutex do
+    case Agent.start_link(fn -> :unlocked end, name: @write_mutex) do
+      {:ok, _pid} ->
+        :ok
+
+      {:error, {:already_started, _pid}} ->
+        :ok
+
+      {:error, reason} ->
+        Mimo.Defensive.warn_stderr("Write mutex init failed: #{inspect(reason)}")
+        :ok
+    end
+  end
+
+  # SPEC-075: Ensure task supervisor is running before any tool calls
+  defp ensure_task_supervisor do
+    case Process.whereis(Mimo.McpTaskSupervisor) do
+      nil ->
+        {:ok, _pid} = Task.Supervisor.start_link(name: Mimo.McpTaskSupervisor)
+        :ok
+
+      pid when is_pid(pid) ->
+        if Process.alive?(pid), do: :ok, else: restart_task_supervisor()
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp restart_task_supervisor do
+    Process.unregister(Mimo.McpTaskSupervisor)
+    {:ok, _pid} = Task.Supervisor.start_link(name: Mimo.McpTaskSupervisor)
+    :ok
+  rescue
+    _ -> :ok
   end
 
   defp loop do
@@ -69,7 +120,22 @@ defmodule Mimo.McpServer.Stdio do
         System.halt(0)
 
       line when is_binary(line) ->
-        process_line(String.trim(line))
+        # Wrap in try/catch to ensure loop NEVER crashes
+        try do
+          process_line(String.trim(line))
+        rescue
+          e ->
+            # Log to stderr (safe in MCP) and continue
+            Mimo.Defensive.warn_stderr("MCP loop rescued exception: #{Exception.message(e)}")
+
+            send_error(nil, @internal_error, "Loop error: #{Exception.message(e)}")
+        catch
+          kind, reason ->
+            Mimo.Defensive.warn_stderr("MCP loop caught #{kind}: #{inspect(reason)}")
+
+            send_error(nil, @internal_error, "Loop #{kind}: #{inspect(reason)}")
+        end
+
         loop()
     end
   end
@@ -339,9 +405,18 @@ defmodule Mimo.McpServer.Stdio do
     # Use supervised task if TaskSupervisor is available, otherwise fallback to unsupervised
     task = spawn_tool_task(fun)
 
-    case Task.yield(task, @tool_timeout) || Task.shutdown(task) do
-      {:ok, {:ok, result}} ->
-        content = format_content(result)
+    result =
+      try do
+        Task.yield(task, @tool_timeout) || Task.shutdown(task)
+      catch
+        :exit, reason ->
+          # Task exited abnormally - don't crash, just report error
+          {:exit, reason}
+      end
+
+    case result do
+      {:ok, {:ok, tool_result}} ->
+        content = format_content(tool_result)
 
         # SPEC-040: Inject awakening context on first tool call
         content_with_awakening =
@@ -357,36 +432,60 @@ defmodule Mimo.McpServer.Stdio do
       {:ok, {:error, reason}} ->
         send_error(id, @internal_error, to_string(reason))
 
+      {:ok, other} ->
+        # Unexpected result format - treat as success with raw result
+        send_response(id, %{"content" => format_content(other)})
+
+      {:exit, reason} ->
+        send_error(id, @internal_error, "Tool process exited: #{inspect(reason)}")
+
       nil ->
         send_error(id, @internal_error, "Tool execution timed out after #{@tool_timeout}ms")
     end
   rescue
     e ->
       send_error(id, @internal_error, "Tool execution error: #{Exception.message(e)}")
+  catch
+    kind, reason ->
+      send_error(id, @internal_error, "Tool #{kind}: #{inspect(reason)}")
   end
 
   # Spawn a task for tool execution with fallback when TaskSupervisor is unavailable
+  # CRITICAL: Must NOT link to caller - task crashes should not kill the main loop
+  # SPEC-075: Use pre-started Mimo.McpTaskSupervisor for reliability
   defp spawn_tool_task(fun) do
-    if task_supervisor_available?() do
-      TaskHelper.async_with_callers(fun)
-    else
-      # Fallback: spawn unsupervised task with $callers propagation
-      caller = self()
-      callers = Process.get(:"$callers", [])
+    caller = self()
+    callers = Process.get(:"$callers", [])
 
-      Task.async(fn ->
-        Process.put(:"$callers", [caller | callers])
-        fun.()
-      end)
+    # SPEC-075: Try our pre-started supervisor first, then fall back to app supervisor
+    supervisor = get_available_supervisor()
+
+    Task.Supervisor.async_nolink(supervisor, fn ->
+      Process.put(:"$callers", [caller | callers])
+      fun.()
+    end)
+  end
+
+  # SPEC-075: Get an available task supervisor, preferring our dedicated one
+  defp get_available_supervisor do
+    cond do
+      # First choice: Our pre-started MCP supervisor
+      mcp_sup = Process.whereis(Mimo.McpTaskSupervisor) ->
+        if Process.alive?(mcp_sup), do: mcp_sup, else: fallback_supervisor()
+
+      # Second choice: App's TaskSupervisor
+      app_sup = Process.whereis(Mimo.TaskSupervisor) ->
+        if Process.alive?(app_sup), do: app_sup, else: fallback_supervisor()
+
+      # Last resort: Create temporary
+      true ->
+        fallback_supervisor()
     end
   end
 
-  # Check if Mimo.TaskSupervisor is running
-  defp task_supervisor_available? do
-    case Process.whereis(Mimo.TaskSupervisor) do
-      nil -> false
-      pid when is_pid(pid) -> Process.alive?(pid)
-    end
+  defp fallback_supervisor do
+    {:ok, temp_sup} = Task.Supervisor.start_link(restart: :temporary)
+    temp_sup
   end
 
   # SPEC-040: Inject awakening context before tool result
@@ -435,12 +534,77 @@ defmodule Mimo.McpServer.Stdio do
   end
 
   defp emit_json(map) do
+    # SPEC-075: Use mutex for atomic stdout writes to prevent interleaving
+    with_write_mutex(fn ->
+      do_emit_json(map)
+    end)
+  end
+
+  # SPEC-075: Acquire write mutex, execute, release
+  # Fallback to direct write if mutex unavailable (startup race)
+  defp with_write_mutex(fun) do
+    case Process.whereis(@write_mutex) do
+      nil ->
+        # Mutex not available, write directly (startup race condition)
+        fun.()
+
+      pid when is_pid(pid) ->
+        try do
+          # Simple spinlock-style mutex using Agent
+          acquire_mutex()
+          result = fun.()
+          release_mutex()
+          result
+        rescue
+          _ ->
+            # On any error, try to release and continue
+            release_mutex()
+            fun.()
+        catch
+          _, _ ->
+            release_mutex()
+            fun.()
+        end
+    end
+  end
+
+  defp acquire_mutex do
+    # Try to acquire for up to 5 seconds
+    acquire_mutex_loop(100)
+  end
+
+  defp acquire_mutex_loop(0), do: :timeout
+
+  defp acquire_mutex_loop(attempts) do
+    case Agent.get_and_update(@write_mutex, fn
+           :unlocked -> {:acquired, :locked}
+           :locked -> {:busy, :locked}
+         end) do
+      :acquired ->
+        :ok
+
+      :busy ->
+        Process.sleep(50)
+        acquire_mutex_loop(attempts - 1)
+    end
+  rescue
+    # Agent not available
+    _ -> :ok
+  end
+
+  defp release_mutex do
+    Agent.update(@write_mutex, fn _ -> :unlocked end)
+  rescue
+    _ -> :ok
+  end
+
+  # Actual JSON emission with atomic single-write operation
+  defp do_emit_json(map) do
     # Use escape: :unicode_safe to ensure proper Unicode handling
     case Jason.encode(map, escape: :unicode_safe) do
       {:ok, json} ->
-        IO.write(:stdio, json <> "\n")
-        # Force flush to ensure immediate delivery
-        :io.put_chars(:standard_io, [])
+        # SPEC-075: Single atomic write operation (json + newline together)
+        atomic_write(json <> "\n")
 
       {:error, _} ->
         # Fallback: sanitize the map and try again
@@ -448,8 +612,7 @@ defmodule Mimo.McpServer.Stdio do
 
         case Jason.encode(sanitized) do
           {:ok, json} ->
-            IO.write(:stdio, json <> "\n")
-            :io.put_chars(:standard_io, [])
+            atomic_write(json <> "\n")
 
           {:error, reason} ->
             # Last resort: send error
@@ -463,10 +626,21 @@ defmodule Mimo.McpServer.Stdio do
                 }
               })
 
-            IO.write(:stdio, error_json <> "\n")
-            :io.put_chars(:standard_io, [])
+            atomic_write(error_json <> "\n")
         end
     end
+  end
+
+  # SPEC-075: Atomic write - single :io.put_chars call instead of IO.write + flush
+  defp atomic_write(data) do
+    # Use :file.write for truly atomic operation on file descriptor
+    # This bypasses Elixir's IO module buffering and uses a single syscall
+    :ok = :file.write(:standard_io, data)
+  rescue
+    # Fallback to traditional approach if :file.write fails
+    _ ->
+      IO.write(:stdio, data)
+      :io.put_chars(:standard_io, [])
   end
 
   # Sanitize data to be JSON-safe

@@ -148,7 +148,7 @@ defmodule Mimo.Cache.Embedding do
   @impl GenServer
   def init(_opts) do
     # Create ETS tables
-    :ets.new(@table, [
+    Mimo.EtsSafe.ensure_table(@table, [
       :named_table,
       :public,
       :set,
@@ -156,7 +156,7 @@ defmodule Mimo.Cache.Embedding do
       {:write_concurrency, true}
     ])
 
-    :ets.new(@stats_table, [
+    Mimo.EtsSafe.ensure_table(@stats_table, [
       :named_table,
       :public,
       :set,

@@ -222,7 +222,7 @@ defmodule Mimo.Brain.HealthMonitor do
       from(e in Engram,
         where:
           (is_nil(e.embedding_int8) or fragment("length(?) = 0", e.embedding_int8)) and
-            not is_nil(e.embedding) and e.embedding != "[]",
+            not is_nil(e.embedding) and e.embedding != [],
         select: count()
       )
     ) || 0

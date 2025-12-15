@@ -335,8 +335,14 @@ defmodule Mimo.Fallback.ServiceRegistry do
   def init(_opts) do
     # Create ETS tables for fast lookups
     # Using :public so any process can read
-    :ets.new(@table, [:named_table, :public, :set, {:read_concurrency, true}])
-    :ets.new(@status_table, [:named_table, :public, :set, {:read_concurrency, true}])
+    Mimo.EtsSafe.ensure_table(@table, [:named_table, :public, :set, {:read_concurrency, true}])
+
+    Mimo.EtsSafe.ensure_table(@status_table, [
+      :named_table,
+      :public,
+      :set,
+      {:read_concurrency, true}
+    ])
 
     Logger.info("[ServiceRegistry] Started - tracking service initialization")
 

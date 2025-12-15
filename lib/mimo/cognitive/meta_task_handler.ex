@@ -187,7 +187,7 @@ defmodule Mimo.Cognitive.MetaTaskHandler do
     Enum.reduce_while(techniques, {:error, "All techniques failed"}, fn technique, _acc ->
       case apply_technique(task, technique, opts) do
         {:ok, result} = success ->
-          if is_valid_meta_task_result?(result, guidance) do
+          if valid_meta_task_result?(result, guidance) do
             {:halt, success}
           else
             {:cont, {:error, "#{technique} produced invalid result"}}
@@ -268,7 +268,7 @@ defmodule Mimo.Cognitive.MetaTaskHandler do
     end
   end
 
-  defp is_valid_meta_task_result?(result, %{type: :generate_questions}) do
+  defp valid_meta_task_result?(result, %{type: :generate_questions}) do
     answer = get_answer_text(result)
 
     not_waiting =
@@ -284,7 +284,7 @@ defmodule Mimo.Cognitive.MetaTaskHandler do
     not_waiting and has_content
   end
 
-  defp is_valid_meta_task_result?(result, %{type: :self_prediction}) do
+  defp valid_meta_task_result?(result, %{type: :self_prediction}) do
     answer = get_answer_text(result)
 
     String.contains?(String.downcase(answer), [
@@ -296,7 +296,7 @@ defmodule Mimo.Cognitive.MetaTaskHandler do
     ])
   end
 
-  defp is_valid_meta_task_result?(result, %{type: :generate_content}) do
+  defp valid_meta_task_result?(result, %{type: :generate_content}) do
     answer = get_answer_text(result)
 
     not String.contains?(String.downcase(answer), [
@@ -306,7 +306,7 @@ defmodule Mimo.Cognitive.MetaTaskHandler do
     ])
   end
 
-  defp is_valid_meta_task_result?(_result, _guidance), do: true
+  defp valid_meta_task_result?(_result, _guidance), do: true
 
   defp get_answer_text(%{answer: answer}) when is_binary(answer), do: answer
   defp get_answer_text(%{synthesis: synthesis}) when is_binary(synthesis), do: synthesis

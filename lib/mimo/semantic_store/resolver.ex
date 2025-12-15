@@ -44,46 +44,10 @@ defmodule Mimo.SemanticStore.Resolver do
     # If so, skip fuzzy matching and use/create directly
     result =
       if canonical_id?(normalized_text) do
-        if create_anchor do
-          ensure_entity_anchor(normalized_text, text, graph_id)
-        end
-
+        maybe_ensure_anchor(create_anchor, normalized_text, text, graph_id)
         {:ok, normalized_text}
       else
-        # Search for existing entity anchors (fuzzy matching)
-        case search_entity_anchors(normalized_text, expected_type, graph_id, min_score) do
-          {:ok, []} ->
-            # No matches - create new entity
-            create_new_entity(normalized_text, expected_type, graph_id)
-
-          {:ok, [{entity_id, score}]} when score >= min_score ->
-            # Single high-confidence match
-            if create_anchor do
-              ensure_entity_anchor(entity_id, text, graph_id)
-            end
-
-            {:ok, entity_id}
-
-          {:ok, [{_entity_id, score}]} when score < min_score ->
-            # Low confidence - create new entity
-            create_new_entity(normalized_text, expected_type, graph_id)
-
-          {:ok, candidates} when length(candidates) > 1 ->
-            # Multiple matches - check for clear winner
-            [{top_id, top_score}, {_, second_score} | _] = candidates
-
-            if top_score >= min_score and top_score - second_score > 0.1 do
-              # Clear winner
-              if create_anchor do
-                ensure_entity_anchor(top_id, text, graph_id)
-              end
-
-              {:ok, top_id}
-            else
-              # Ambiguous
-              {:error, :ambiguous, Enum.map(candidates, &elem(&1, 0))}
-            end
-        end
+        resolve_via_search(normalized_text, expected_type, graph_id, min_score, create_anchor, text)
       end
 
     # Emit telemetry
@@ -103,6 +67,40 @@ defmodule Mimo.SemanticStore.Resolver do
     )
 
     result
+  end
+
+  defp maybe_ensure_anchor(true, entity_id, text, graph_id) do
+    ensure_entity_anchor(entity_id, text, graph_id)
+  end
+
+  defp maybe_ensure_anchor(false, _, _, _), do: :ok
+
+  defp resolve_via_search(normalized_text, expected_type, graph_id, min_score, create_anchor, text) do
+    case search_entity_anchors(normalized_text, expected_type, graph_id, min_score) do
+      {:ok, []} ->
+        create_new_entity(normalized_text, expected_type, graph_id)
+
+      {:ok, [{entity_id, score}]} when score >= min_score ->
+        maybe_ensure_anchor(create_anchor, entity_id, text, graph_id)
+        {:ok, entity_id}
+
+      {:ok, [{_entity_id, score}]} when score < min_score ->
+        create_new_entity(normalized_text, expected_type, graph_id)
+
+      {:ok, candidates} when length(candidates) > 1 ->
+        resolve_multiple_candidates(candidates, min_score, create_anchor, text, graph_id)
+    end
+  end
+
+  defp resolve_multiple_candidates(candidates, min_score, create_anchor, text, graph_id) do
+    [{top_id, top_score}, {_, second_score} | _] = candidates
+
+    if top_score >= min_score and top_score - second_score > 0.1 do
+      maybe_ensure_anchor(create_anchor, top_id, text, graph_id)
+      {:ok, top_id}
+    else
+      {:error, :ambiguous, Enum.map(candidates, &elem(&1, 0))}
+    end
   end
 
   @doc """

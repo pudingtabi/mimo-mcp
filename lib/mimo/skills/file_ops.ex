@@ -302,42 +302,47 @@ defmodule Mimo.Skills.FileOps do
 
   defp find_symbols_recursive(path, pattern, max, acc) do
     cond do
-      File.dir?(path) ->
-        case File.ls(path) do
-          {:ok, entries} ->
-            # Skip hidden dirs and common non-code dirs
-            entries = Enum.reject(entries, &skip_directory?/1)
+      File.dir?(path) -> find_symbols_in_dir(path, pattern, max, acc)
+      code_file?(path) -> find_symbols_in_file(path, pattern, acc)
+      true -> acc
+    end
+  end
 
-            Enum.reduce(entries, acc, fn entry, current_acc ->
-              if length(current_acc) >= max do
-                current_acc
-              else
-                find_symbols_recursive(Path.join(path, entry), pattern, max, current_acc)
-              end
-            end)
+  defp find_symbols_in_dir(path, pattern, max, acc) do
+    case File.ls(path) do
+      {:ok, entries} ->
+        entries
+        |> Enum.reject(&skip_directory?/1)
+        |> Enum.reduce_while(acc, fn entry, current_acc ->
+          if length(current_acc) >= max do
+            {:halt, current_acc}
+          else
+            {:cont, find_symbols_recursive(Path.join(path, entry), pattern, max, current_acc)}
+          end
+        end)
 
-          {:error, _} ->
-            acc
-        end
-
-      code_file?(path) ->
-        case list_symbols(path) do
-          {:ok, symbols} ->
-            matches =
-              Enum.filter(symbols, fn s ->
-                String.contains?(String.downcase(s.name), String.downcase(pattern))
-              end)
-              |> Enum.map(&Map.put(&1, :file, path))
-
-            acc ++ matches
-
-          _ ->
-            acc
-        end
-
-      true ->
+      {:error, _} ->
         acc
     end
+  end
+
+  defp find_symbols_in_file(path, pattern, acc) do
+    case list_symbols(path) do
+      {:ok, symbols} ->
+        matches =
+          symbols
+          |> Enum.filter(&symbol_matches?(&1, pattern))
+          |> Enum.map(&Map.put(&1, :file, path))
+
+        acc ++ matches
+
+      _ ->
+        acc
+    end
+  end
+
+  defp symbol_matches?(symbol, pattern) do
+    String.contains?(String.downcase(symbol.name), String.downcase(pattern))
   end
 
   defp skip_directory?(name) do
@@ -446,29 +451,35 @@ defmodule Mimo.Skills.FileOps do
         entries = Enum.reject(entries, &skip_directory?/1)
 
         Enum.reduce(entries, acc, fn entry, current_acc ->
-          if length(current_acc) >= max do
-            current_acc
-          else
-            full_path = Path.join(path, entry)
-
-            cond do
-              File.dir?(full_path) ->
-                grep_recursive(full_path, pattern, max, ctx, current_acc)
-
-              text_file?(full_path) ->
-                case search_in_file(full_path, pattern, max - length(current_acc), ctx) do
-                  {:ok, matches} -> current_acc ++ matches
-                  _ -> current_acc
-                end
-
-              true ->
-                current_acc
-            end
-          end
+          process_entry(path, entry, pattern, max, ctx, current_acc)
         end)
 
       {:error, _} ->
         acc
+    end
+  end
+
+  defp process_entry(_path, _entry, _pattern, max, _ctx, acc) when length(acc) >= max, do: acc
+
+  defp process_entry(path, entry, pattern, max, ctx, acc) do
+    full_path = Path.join(path, entry)
+
+    cond do
+      File.dir?(full_path) ->
+        grep_recursive(full_path, pattern, max, ctx, acc)
+
+      text_file?(full_path) ->
+        search_and_accumulate(full_path, pattern, max, ctx, acc)
+
+      true ->
+        acc
+    end
+  end
+
+  defp search_and_accumulate(path, pattern, max, ctx, acc) do
+    case search_in_file(path, pattern, max - length(acc), ctx) do
+      {:ok, matches} -> acc ++ matches
+      _ -> acc
     end
   end
 
@@ -650,74 +661,85 @@ defmodule Mimo.Skills.FileOps do
 
     with {:ok, safe_path} <- expand_safe(path),
          {:ok, content} <- File.read(safe_path) do
-      # Count occurrences
       match_count = count_occurrences(content, old_str)
+      edit_opts = %{global: global, expected_count: expected_count, dry_run: dry_run}
 
-      cond do
-        match_count == 0 ->
-          # No matches found - provide context
-          {:error,
-           %{
-             reason: :pattern_not_found,
-             searched_for: truncate_string(old_str, 100),
-             file_size: byte_size(content),
-             suggestion: "Verify the exact text including whitespace and line endings"
-           }}
-
-        expected_count && match_count != expected_count ->
-          # Mismatch in expected count
-          {:error,
-           %{
-             reason: :unexpected_match_count,
-             expected: expected_count,
-             found: match_count,
-             suggestion:
-               if(match_count > expected_count,
-                 do: "Add more context to make the match unique",
-                 else: "Check if the pattern exists in the file"
-               )
-           }}
-
-        !global && match_count > 1 ->
-          # Multiple matches but not global - warn and provide options
-          {:error,
-           %{
-             reason: :multiple_matches,
-             match_count: match_count,
-             suggestion:
-               "Use global: true to replace all, or add more context to make the match unique",
-             preview: find_match_locations(content, old_str, 3)
-           }}
-
-        true ->
-          # Perform the replacement
-          replacement_count = if global, do: match_count, else: 1
-          new_content = String.replace(content, old_str, new_str, global: global)
-
-          if dry_run do
-            {:ok,
-             %{
-               dry_run: true,
-               would_replace: replacement_count,
-               diff_preview: generate_diff_preview(content, new_content)
-             }}
-          else
-            case File.write(safe_path, new_content) do
-              :ok ->
-                {:ok,
-                 %{
-                   status: :success,
-                   file: path,
-                   replacements: replacement_count,
-                   old_size: byte_size(content),
-                   new_size: byte_size(new_content)
-                 }}
-
-              {:error, reason} ->
-                {:error, %{reason: :write_failed, detail: reason}}
-            end
-          end
+      case validate_edit(match_count, edit_opts, old_str, content) do
+        :ok -> perform_edit(path, safe_path, content, old_str, new_str, match_count, edit_opts)
+        {:error, _} = error -> error
       end
+    end
+  end
+
+  # Validate edit preconditions
+  defp validate_edit(0, _opts, old_str, content) do
+    {:error,
+     %{
+       reason: :pattern_not_found,
+       searched_for: truncate_string(old_str, 100),
+       file_size: byte_size(content),
+       suggestion: "Verify the exact text including whitespace and line endings"
+     }}
+  end
+
+  defp validate_edit(match_count, %{expected_count: expected_count}, _old_str, _content)
+       when not is_nil(expected_count) and match_count != expected_count do
+    {:error,
+     %{
+       reason: :unexpected_match_count,
+       expected: expected_count,
+       found: match_count,
+       suggestion:
+         if(match_count > expected_count,
+           do: "Add more context to make the match unique",
+           else: "Check if the pattern exists in the file"
+         )
+     }}
+  end
+
+  defp validate_edit(match_count, %{global: false}, old_str, content) when match_count > 1 do
+    {:error,
+     %{
+       reason: :multiple_matches,
+       match_count: match_count,
+       suggestion: "Use global: true to replace all, or add more context to make the match unique",
+       preview: find_match_locations(content, old_str, 3)
+     }}
+  end
+
+  defp validate_edit(_match_count, _opts, _old_str, _content), do: :ok
+
+  # Perform the actual edit
+  defp perform_edit(path, safe_path, content, old_str, new_str, match_count, opts) do
+    replacement_count = if opts.global, do: match_count, else: 1
+    new_content = String.replace(content, old_str, new_str, global: opts.global)
+
+    if opts.dry_run do
+      {:ok,
+       %{
+         dry_run: true,
+         would_replace: replacement_count,
+         diff_preview: generate_diff_preview(content, new_content)
+       }}
+    else
+      write_edit_result(path, safe_path, content, new_content, replacement_count)
+    end
+  end
+
+  defp write_edit_result(path, safe_path, content, new_content, replacement_count) do
+    case File.write(safe_path, new_content) do
+      :ok ->
+        {:ok,
+         %{
+           status: :success,
+           file: path,
+           replacements: replacement_count,
+           old_size: byte_size(content),
+           new_size: byte_size(new_content)
+         }}
+
+      {:error, reason} ->
+        {:error, %{reason: :write_failed, detail: reason}}
     end
   end
 
@@ -959,8 +981,9 @@ defmodule Mimo.Skills.FileOps do
 
       results =
         all_matches
-        |> Enum.reject(&should_exclude?(&1, exclude))
-        |> Enum.reject(&matches_gitignore?(&1, gitignore_patterns, safe_base))
+        |> Enum.reject(
+          &(should_exclude?(&1, exclude) or matches_gitignore?(&1, gitignore_patterns, safe_base))
+        )
         |> Enum.take(limit)
         |> Enum.map(&Path.relative_to(&1, safe_base))
 

@@ -323,7 +323,7 @@ defmodule Mimo.Brain.ErrorPredictor do
               id: :rushing_detected,
               severity: :medium,
               message: "\"Quick\" language detected. Rushing leads to mistakes.",
-              suggestion: "Take time to verify. Use `reason operation=guided` first."
+              suggestion: "Take time to verify. Use reason (guided) first."
             }
           ]
 

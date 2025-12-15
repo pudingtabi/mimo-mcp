@@ -243,27 +243,28 @@ defmodule Mimo.Brain.TemporalMemoryChainsBenchmarkTest do
       |> Repo.insert()
 
     # Create subsequent nodes
-    Enum.reduce(2..length, first, fn i, prev ->
-      {:ok, current} =
-        %Engram{}
-        |> Engram.changeset(%{
-          content: "Chain node #{i}",
-          category: "fact",
-          importance: 0.5,
-          supersedes_id: prev.id
-        })
-        |> Repo.insert()
+    _last =
+      Enum.reduce(2..length, first, fn i, prev ->
+        {:ok, current} =
+          %Engram{}
+          |> Engram.changeset(%{
+            content: "Chain node #{i}",
+            category: "fact",
+            importance: 0.5,
+            supersedes_id: prev.id
+          })
+          |> Repo.insert()
 
-      # Mark previous as superseded
-      Repo.update!(
-        Engram.changeset(prev, %{
-          superseded_at: DateTime.utc_now(),
-          supersession_type: "update"
-        })
-      )
+        # Mark previous as superseded
+        Repo.update!(
+          Engram.changeset(prev, %{
+            superseded_at: DateTime.utc_now(),
+            supersession_type: "update"
+          })
+        )
 
-      current
-    end)
+        current
+      end)
 
     first.id
   end

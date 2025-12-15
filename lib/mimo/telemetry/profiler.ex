@@ -231,14 +231,14 @@ defmodule Mimo.Telemetry.Profiler do
   @impl GenServer
   def init(_opts) do
     # Create ETS tables
-    :ets.new(@stats_table, [
+    Mimo.EtsSafe.ensure_table(@stats_table, [
       :named_table,
       :public,
       :set,
       {:write_concurrency, true}
     ])
 
-    :ets.new(@slow_ops_table, [
+    Mimo.EtsSafe.ensure_table(@slow_ops_table, [
       :named_table,
       :public,
       :ordered_set,

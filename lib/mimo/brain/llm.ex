@@ -20,6 +20,7 @@ defmodule Mimo.Brain.LLM do
   require Logger
 
   alias Mimo.ErrorHandling.CircuitBreaker
+  alias Mimo.Retry
 
   # =============================================================================
   # Provider Configuration
@@ -39,10 +40,19 @@ defmodule Mimo.Brain.LLM do
                       "mistralai/mistral-small-3.1-24b-instruct:free"
                     )
   @openrouter_fallback System.get_env("OPENROUTER_FALLBACK_MODEL", "google/gemma-3-27b-it:free")
-  # Vision model - xAI Grok 4.1 Fast (FREE vision model with 2M context, no rate limits)
-  # Benchmarked at 5.8s latency with detailed, high-quality descriptions
-  # Previous models tested: nvidia/nemotron-nano (provider error), novai/bert-nebulon-alpha (removed from OpenRouter)
-  @vision_model System.get_env("OPENROUTER_VISION_MODEL", "x-ai/grok-4.1-fast:free")
+  # Vision model cascade - tested Dec 14 2025:
+  # - google/gemma-3-27b-it:free: 2.7s, best quality (CONFIRMED WORKING)
+  # - google/gemma-3-12b-it:free: 5.7s, good quality (CONFIRMED WORKING)
+  # - google/gemma-3-4b-it:free: 1.7s, fastest (CONFIRMED WORKING)
+  # NOT WORKING: llama-4-maverick (404), mistral-small-3.1 (404), qwen vision (404)
+  @vision_model System.get_env("OPENROUTER_VISION_MODEL", "google/gemma-3-27b-it:free")
+  @vision_fallback_model System.get_env("OPENROUTER_VISION_FALLBACK", "google/gemma-3-12b-it:free")
+  @vision_fast_model System.get_env("OPENROUTER_VISION_FAST", "google/gemma-3-4b-it:free")
+
+  # Groq - THIRD FALLBACK (fastest inference in industry - 10x faster than GPUs)
+  # Free tier: 30 req/min, 14,400 req/day, 40,000 tokens/min
+  @groq_url "https://api.groq.com/openai/v1/chat/completions"
+  @groq_model System.get_env("GROQ_MODEL", "llama-3.1-8b-instant")
 
   # Embedding model - local Ollama qwen3-embedding (1024 dims native, truncatable via MRL)
   @default_embedding_model System.get_env("OLLAMA_EMBEDDING_MODEL", "qwen3-embedding:0.6b")
@@ -91,8 +101,22 @@ defmodule Mimo.Brain.LLM do
   """
   @spec complete(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def complete(prompt, opts \\ []) do
+    # Support retry opt-out for performance-sensitive paths
+    skip_retry = Keyword.get(opts, :skip_retry, false)
+
     CircuitBreaker.call(:llm_service, fn ->
-      do_complete(prompt, opts)
+      if skip_retry do
+        do_complete(prompt, opts)
+      else
+        # Wrap with exponential backoff + jitter for rate limit resilience
+        Retry.with_backoff(
+          fn ->
+            do_complete(prompt, opts)
+          end,
+          max_attempts: 3,
+          base_delay: 1_000
+        )
+      end
     end)
   end
 
@@ -119,7 +143,7 @@ defmodule Mimo.Brain.LLM do
           @mimo_identity
       end
 
-    # Determine provider order
+    # Determine provider order (cloud-only, fail-closed)
     case provider do
       :cerebras ->
         call_cerebras_with_fallback(system_prompt, prompt, max_tokens, temperature)
@@ -128,21 +152,71 @@ defmodule Mimo.Brain.LLM do
         call_openrouter_with_fallback(system_prompt, prompt, max_tokens, temperature)
 
       :auto ->
-        # Try Cerebras first (faster), fall back to OpenRouter
-        case cerebras_api_key() do
-          nil ->
-            Logger.debug("No Cerebras key, using OpenRouter")
-            call_openrouter_with_fallback(system_prompt, prompt, max_tokens, temperature)
+        call_with_auto_fallback(system_prompt, prompt, max_tokens, temperature)
 
-          _key ->
-            case call_cerebras_with_fallback(system_prompt, prompt, max_tokens, temperature) do
-              {:ok, _} = success ->
-                success
+      other ->
+        Logger.error("Unknown LLM provider: #{inspect(other)} - failing closed")
+        {:error, {:unknown_provider, other}}
+    end
+  end
 
-              {:error, reason} ->
-                Logger.warning("Cerebras failed (#{inspect(reason)}), falling back to OpenRouter")
-                call_openrouter_with_fallback(system_prompt, prompt, max_tokens, temperature)
-            end
+  defp call_with_auto_fallback(system_prompt, prompt, max_tokens, temperature) do
+    case cerebras_api_key() do
+      nil -> call_without_cerebras(system_prompt, prompt, max_tokens, temperature)
+      _key -> call_with_cerebras_first(system_prompt, prompt, max_tokens, temperature)
+    end
+  end
+
+  defp call_without_cerebras(system_prompt, prompt, max_tokens, temperature) do
+    case openrouter_api_key() do
+      nil ->
+        # STRICT FAIL-CLOSED: No cloud providers available
+        Logger.error("No cloud LLM API keys configured - failing closed")
+        {:error, :no_api_key}
+
+      _key ->
+        # This will eventually fail and return error if OpenRouter fails
+        call_openrouter_with_fallback_strict(system_prompt, prompt, max_tokens, temperature)
+    end
+  end
+
+  defp call_with_cerebras_first(system_prompt, prompt, max_tokens, temperature) do
+    case call_cerebras_with_fallback(system_prompt, prompt, max_tokens, temperature) do
+      {:ok, _} = success ->
+        success
+
+      {:error, reason} ->
+        Logger.warning("Cerebras failed (#{inspect(reason)}), falling back to OpenRouter")
+        call_openrouter_with_fallback_strict(system_prompt, prompt, max_tokens, temperature)
+    end
+  end
+
+  defp call_openrouter_with_fallback_strict(system_prompt, prompt, max_tokens, temperature) do
+    case call_openrouter_with_fallback(system_prompt, prompt, max_tokens, temperature) do
+      {:ok, _} = success ->
+        success
+
+      {:error, reason} ->
+        # Try Groq as third fallback before failing
+        Logger.warning("OpenRouter failed (#{inspect(reason)}), falling back to Groq")
+        call_groq_with_fallback(system_prompt, prompt, max_tokens, temperature)
+    end
+  end
+
+  defp call_groq_with_fallback(system_prompt, prompt, max_tokens, temperature) do
+    case groq_api_key() do
+      nil ->
+        Logger.error("All LLM providers failed - no Groq API key configured")
+        {:error, :all_providers_unavailable}
+
+      key ->
+        case call_groq(system_prompt, prompt, key, max_tokens, temperature) do
+          {:ok, _} = success ->
+            success
+
+          {:error, reason} ->
+            Logger.error("Groq also failed (#{inspect(reason)}) - all providers exhausted")
+            {:error, :all_providers_unavailable}
         end
     end
   end
@@ -201,31 +275,76 @@ defmodule Mimo.Brain.LLM do
     - If asked about context/status, use ONLY the stats from MANDATORY FACTS above
     """
 
-    # Use Cerebras for speed, fall back to OpenRouter
+    call_with_chief_fallback(system_prompt, query)
+  end
+
+  defp call_with_chief_fallback(system_prompt, query) do
     case cerebras_api_key() do
+      nil -> call_chief_without_cerebras(system_prompt, query)
+      _key -> call_chief_with_cerebras(system_prompt, query)
+    end
+  end
+
+  defp call_chief_without_cerebras(system_prompt, query) do
+    case openrouter_api_key() do
       nil ->
-        case openrouter_api_key() do
-          nil ->
-            Logger.error("No API keys configured - LLM synthesis unavailable")
-            {:error, :no_api_key}
+        # Try Groq directly if no OpenRouter key
+        Logger.warning("No Cerebras/OpenRouter keys, trying Groq directly")
+        call_groq_chief_with_fallback(system_prompt, query)
 
-          key ->
-            call_openrouter(system_prompt, query, key, @openrouter_model, @openrouter_fallback)
-        end
+      key ->
+        call_openrouter_chief_with_fallback(system_prompt, query, key)
+    end
+  end
 
-      _key ->
-        case call_cerebras_with_fallback(system_prompt, query, 200, 0.1) do
+  defp call_chief_with_cerebras(system_prompt, query) do
+    case call_cerebras_with_fallback(system_prompt, query, 200, 0.1) do
+      {:ok, _} = success ->
+        success
+
+      {:error, _} ->
+        call_chief_cerebras_fallback(system_prompt, query)
+    end
+  end
+
+  defp call_chief_cerebras_fallback(system_prompt, query) do
+    case openrouter_api_key() do
+      nil ->
+        # STRICT FAIL-CLOSED: No OpenRouter key, all providers exhausted
+        Logger.error("Cerebras failed, no OpenRouter key - failing closed")
+        {:error, :all_providers_unavailable}
+
+      key ->
+        call_openrouter_chief_with_fallback(system_prompt, query, key)
+    end
+  end
+
+  defp call_openrouter_chief_with_fallback(system_prompt, query, key) do
+    case call_openrouter(system_prompt, query, key, @openrouter_model, @openrouter_fallback) do
+      {:ok, _} = success ->
+        success
+
+      {:error, reason} ->
+        # Try Groq as third fallback
+        Logger.warning("OpenRouter chief failed (#{inspect(reason)}), trying Groq")
+        call_groq_chief_with_fallback(system_prompt, query)
+    end
+  end
+
+  defp call_groq_chief_with_fallback(system_prompt, query) do
+    case groq_api_key() do
+      nil ->
+        Logger.error("All LLM providers failed - no Groq API key configured")
+        {:error, :all_providers_unavailable}
+
+      key ->
+        case call_groq(system_prompt, query, key, 200, 0.1) do
           {:ok, _} = success ->
             success
 
-          {:error, _} ->
-            case openrouter_api_key() do
-              nil ->
-                {:error, :no_api_key}
-
-              key ->
-                call_openrouter(system_prompt, query, key, @openrouter_model, @openrouter_fallback)
-            end
+          {:error, reason} ->
+            Logger.error("Groq chief also failed (#{inspect(reason)}) - all providers exhausted")
+            {:error, :all_providers_unavailable}
         end
     end
   end
@@ -247,8 +366,15 @@ defmodule Mimo.Brain.LLM do
   """
   @spec analyze_image(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def analyze_image(image_data, prompt, opts \\ []) do
+    # Vision calls are slower, so use longer delays
     CircuitBreaker.call(:llm_service, fn ->
-      do_analyze_image(image_data, prompt, opts)
+      Retry.with_backoff(
+        fn ->
+          do_analyze_image(image_data, prompt, opts)
+        end,
+        max_attempts: 2,
+        base_delay: 2_000
+      )
     end)
   end
 
@@ -260,63 +386,96 @@ defmodule Mimo.Brain.LLM do
         {:error, :no_api_key}
 
       key ->
-        # Determine if it's a URL or base64 data
-        image_content =
-          if String.starts_with?(image_data, "http") do
-            %{"type" => "image_url", "image_url" => %{"url" => image_data}}
-          else
-            # Assume base64, detect format or default to png
-            mime_type = detect_image_mime(image_data)
+        # Vision model cascade: primary → fallback → fast
+        models = [@vision_model, @vision_fallback_model, @vision_fast_model]
+        try_vision_cascade(key, models, image_data, prompt, max_tokens)
+    end
+  end
 
-            %{
-              "type" => "image_url",
-              "image_url" => %{"url" => "data:#{mime_type};base64,#{image_data}"}
-            }
-          end
+  # Try vision models in cascade until one succeeds
+  defp try_vision_cascade(_key, [], _image_data, _prompt, _max_tokens) do
+    {:error,
+     {:all_vision_models_failed, "All vision models exhausted (rate limited or unavailable)"}}
+  end
 
-        payload = %{
-          "model" => @vision_model,
-          "messages" => [
-            %{
-              "role" => "user",
-              "content" => [
-                %{"type" => "text", "text" => prompt},
-                image_content
-              ]
-            }
-          ],
-          "max_tokens" => max_tokens
+  defp try_vision_cascade(key, [model | remaining], image_data, prompt, max_tokens) do
+    case call_vision_model(key, model, image_data, prompt, max_tokens) do
+      {:ok, _} = success ->
+        success
+
+      {:error, {:openrouter_error, 429, _}} ->
+        # Rate limited - try next model
+        Logger.warning("[Vision] #{model} rate limited, trying next model...")
+        try_vision_cascade(key, remaining, image_data, prompt, max_tokens)
+
+      {:error, {:openrouter_error, 404, _}} ->
+        # Model not found - try next model
+        Logger.warning("[Vision] #{model} not found, trying next model...")
+        try_vision_cascade(key, remaining, image_data, prompt, max_tokens)
+
+      error ->
+        error
+    end
+  end
+
+  defp call_vision_model(key, model, image_data, prompt, max_tokens) do
+    # Determine if it's a URL or base64 data
+    image_content =
+      if String.starts_with?(image_data, "http") do
+        %{"type" => "image_url", "image_url" => %{"url" => image_data}}
+      else
+        # Assume base64, detect format or default to png
+        mime_type = detect_image_mime(image_data)
+
+        %{
+          "type" => "image_url",
+          "image_url" => %{"url" => "data:#{mime_type};base64,#{image_data}"}
         }
+      end
 
-        headers = [
-          {"Authorization", "Bearer #{key}"},
-          {"HTTP-Referer", "https://mimo.local"},
-          {"X-Title", "Mimo-MCP-Gateway"},
-          {"Content-Type", "application/json"}
-        ]
+    payload = %{
+      "model" => model,
+      "messages" => [
+        %{
+          "role" => "user",
+          "content" => [
+            %{"type" => "text", "text" => prompt},
+            image_content
+          ]
+        }
+      ],
+      "max_tokens" => max_tokens
+    }
 
-        case Req.post(@openrouter_url,
-               json: payload,
-               headers: headers,
-               receive_timeout: 60_000
-             ) do
-          {:ok, %Req.Response{status: 200, body: body}} ->
-            case body do
-              %{"choices" => [%{"message" => %{"content" => content}} | _]} ->
-                {:ok, String.trim(content)}
+    headers = [
+      {"Authorization", "Bearer #{key}"},
+      {"HTTP-Referer", "https://mimo.local"},
+      {"X-Title", "Mimo-MCP-Gateway"},
+      {"Content-Type", "application/json"}
+    ]
 
-              _ ->
-                {:error, {:openrouter_error, "Unexpected response format"}}
-            end
+    case Req.post(@openrouter_url,
+           json: payload,
+           headers: headers,
+           receive_timeout: Mimo.TimeoutConfig.llm_timeout(),
+           connect_options: [timeout: Mimo.TimeoutConfig.connect_timeout()]
+         ) do
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        case body do
+          %{"choices" => [%{"message" => %{"content" => content}} | _]} ->
+            {:ok, String.trim(content)}
 
-          {:ok, %Req.Response{status: status, body: body}} ->
-            Logger.error("OpenRouter vision error #{status}: #{inspect(body)}")
-            {:error, {:openrouter_error, status, body}}
-
-          {:error, reason} ->
-            Logger.error("OpenRouter vision request failed: #{inspect(reason)}")
-            {:error, {:request_failed, reason}}
+          _ ->
+            {:error, {:openrouter_error, "Unexpected response format"}}
         end
+
+      {:ok, %Req.Response{status: status, body: body}} ->
+        Logger.error("OpenRouter vision error #{status}: #{inspect(body)}")
+        {:error, {:openrouter_error, status, body}}
+
+      {:error, reason} ->
+        Logger.error("OpenRouter vision request failed: #{inspect(reason)}")
+        {:error, {:request_failed, reason}}
     end
   end
 
@@ -380,7 +539,7 @@ defmodule Mimo.Brain.LLM do
     case Req.post(@cerebras_url,
            json: body,
            headers: headers,
-           receive_timeout: 30_000
+           receive_timeout: Mimo.TimeoutConfig.http_timeout()
          ) do
       {:ok, %Req.Response{status: 200, body: body}} ->
         case body do
@@ -490,7 +649,7 @@ defmodule Mimo.Brain.LLM do
     case Req.post(@openrouter_url,
            json: body,
            headers: headers,
-           receive_timeout: 30_000
+           receive_timeout: Mimo.TimeoutConfig.http_timeout()
          ) do
       {:ok, %Req.Response{status: 200, body: body}} ->
         case body do
@@ -518,6 +677,69 @@ defmodule Mimo.Brain.LLM do
       {:error, reason} ->
         Logger.error("OpenRouter request failed: #{inspect(reason)}")
         {:error, {:request_failed, reason}}
+    end
+  end
+
+  # =============================================================================
+  # Groq Provider (third fallback - blazing fast inference)
+  # =============================================================================
+
+  # Call Groq API with OpenAI-compatible endpoint
+  # Groq uses custom LPU hardware for 10x faster inference than GPUs
+  defp call_groq(system_prompt, prompt, key, max_tokens, temperature) do
+    body = %{
+      "model" => @groq_model,
+      "messages" => [
+        %{"role" => "system", "content" => system_prompt},
+        %{"role" => "user", "content" => prompt}
+      ],
+      "max_tokens" => max_tokens,
+      "temperature" => temperature
+    }
+
+    headers = [
+      {"Authorization", "Bearer #{key}"},
+      {"Content-Type", "application/json"}
+    ]
+
+    # Groq is fastest LLM (~200ms), but use standard timeout for reliability
+    case Req.post(@groq_url,
+           json: body,
+           headers: headers,
+           receive_timeout: Mimo.TimeoutConfig.llm_timeout(),
+           connect_options: [timeout: Mimo.TimeoutConfig.connect_timeout()]
+         ) do
+      {:ok,
+       %Req.Response{
+         status: 200,
+         body: %{"choices" => [%{"message" => %{"content" => content}} | _]}
+       }} ->
+        Logger.info("[LLM] Groq succeeded with model: #{@groq_model}")
+        {:ok, String.trim(content)}
+
+      {:ok, %Req.Response{status: 429, body: body}} ->
+        Logger.warning("[LLM] Groq rate limited: #{inspect(body)}")
+        {:error, {:groq_rate_limited, "Rate limit exceeded"}}
+
+      {:ok, %Req.Response{status: 401}} ->
+        Logger.error("[LLM] Groq unauthorized - check GROQ_API_KEY")
+        {:error, :groq_unauthorized}
+
+      {:ok, %Req.Response{status: status, body: body}} ->
+        Logger.warning("[LLM] Groq error #{status}: #{inspect(body)}")
+        {:error, {:groq_error, status}}
+
+      {:error, %Req.TransportError{reason: :timeout}} ->
+        Logger.warning("[LLM] Groq request timed out")
+        {:error, :groq_timeout}
+
+      {:error, %Req.TransportError{reason: reason}} ->
+        Logger.error("[LLM] Groq transport error: #{inspect(reason)}")
+        {:error, {:groq_unavailable, reason}}
+
+      {:error, reason} ->
+        Logger.error("[LLM] Groq request failed: #{inspect(reason)}")
+        {:error, {:groq_unavailable, reason}}
     end
   end
 
@@ -561,7 +783,8 @@ defmodule Mimo.Brain.LLM do
       dim = min(dim, @max_embedding_dim)
       {:ok, List.duplicate(0.1, dim)}
     else
-      CircuitBreaker.call(:ollama_service, fn ->
+      # Note: Circuit breaker is registered as :ollama, not :ollama_service
+      CircuitBreaker.call(:ollama, fn ->
         do_get_embedding(sanitized, opts)
       end)
     end
@@ -614,8 +837,7 @@ defmodule Mimo.Brain.LLM do
 
     text
     |> String.graphemes()
-    |> Enum.map(&limit_combining_chars/1)
-    |> Enum.join()
+    |> Enum.map_join(&limit_combining_chars/1)
   end
 
   defp limit_combining_chars(grapheme) do
@@ -656,7 +878,7 @@ defmodule Mimo.Brain.LLM do
 
     case Req.post("#{ollama_url}/api/embed",
            json: body,
-           receive_timeout: 30_000
+           receive_timeout: Mimo.TimeoutConfig.http_timeout()
          ) do
       {:ok, %Req.Response{status: 200, body: %{"embeddings" => [embedding | _]}}}
       when is_list(embedding) ->
@@ -697,7 +919,8 @@ defmodule Mimo.Brain.LLM do
       dim = min(dim, @max_embedding_dim)
       {:ok, Enum.map(sanitized, fn _ -> List.duplicate(0.1, dim) end)}
     else
-      CircuitBreaker.call(:ollama_service, fn ->
+      # Note: Circuit breaker is registered as :ollama, not :ollama_service
+      CircuitBreaker.call(:ollama, fn ->
         do_get_embeddings(sanitized, opts)
       end)
     end
@@ -717,7 +940,8 @@ defmodule Mimo.Brain.LLM do
 
     case Req.post("#{ollama_url}/api/embed",
            json: body,
-           receive_timeout: 60_000
+           receive_timeout: Mimo.TimeoutConfig.embedding_timeout(),
+           connect_options: [timeout: Mimo.TimeoutConfig.connect_timeout()]
          ) do
       {:ok, %Req.Response{status: 200, body: %{"embeddings" => embeddings}}}
       when is_list(embeddings) ->
@@ -735,14 +959,58 @@ defmodule Mimo.Brain.LLM do
   end
 
   # =============================================================================
+  # =============================================================================
   # Utility Functions
   # =============================================================================
 
   @doc """
   Check if LLM services are available.
+  Returns true if at least one cloud LLM provider (Cerebras/OpenRouter/Groq) is configured.
+  3-tier failover: Cerebras → OpenRouter → Groq
   """
   def available? do
-    cerebras_api_key() != nil or openrouter_api_key() != nil
+    cerebras_api_key() != nil or openrouter_api_key() != nil or groq_api_key() != nil
+  end
+
+  @doc """
+  Check if Ollama embedding service is available.
+  """
+  def ollama_available? do
+    ollama_url = Application.get_env(:mimo_mcp, :ollama_url, "http://localhost:11434")
+
+    try do
+      case Req.get("#{ollama_url}/api/tags", receive_timeout: 5_000) do
+        {:ok, %Req.Response{status: 200}} -> true
+        _ -> false
+      end
+    rescue
+      _ -> false
+    catch
+      _, _ -> false
+    end
+  end
+
+  @doc """
+  Comprehensive check if Mimo has required LLM services configured.
+  Returns {:ok, status} or {:error, reason} with detailed message.
+  """
+  def check_configuration do
+    llm_available = available?()
+    ollama_available = ollama_available?()
+
+    cond do
+      llm_available and ollama_available ->
+        {:ok, :fully_configured}
+
+      llm_available and not ollama_available ->
+        {:ok, :partial_no_embeddings}
+
+      not llm_available and ollama_available ->
+        {:ok, :partial_no_llm}
+
+      true ->
+        {:error, :not_configured}
+    end
   end
 
   @doc """
@@ -764,7 +1032,8 @@ defmodule Mimo.Brain.LLM do
       ollama: %{
         url: Application.get_env(:mimo_mcp, :ollama_url, "http://localhost:11434"),
         embedding_model: @default_embedding_model,
-        embedding_dim: @default_embedding_dim
+        embedding_dim: @default_embedding_dim,
+        available: ollama_available?()
       }
     }
   end
@@ -784,6 +1053,7 @@ defmodule Mimo.Brain.LLM do
   # API key accessors
   defp cerebras_api_key, do: System.get_env("CEREBRAS_API_KEY")
   defp openrouter_api_key, do: Application.get_env(:mimo_mcp, :openrouter_api_key)
+  defp groq_api_key, do: System.get_env("GROQ_API_KEY")
 
   # =============================================================================
   # Legacy API Compatibility

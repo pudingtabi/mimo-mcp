@@ -481,57 +481,68 @@ defmodule Mimo.Cognitive.Reasoner do
   """
   @spec backtrack(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def backtrack(session_id, opts \\ []) do
-    with {:ok, session} <- ReasoningSession.get(session_id) do
-      if session.strategy != :tot do
-        {:error, "Backtracking is only supported for Tree-of-Thoughts (tot) strategy"}
+    with {:ok, session} <- ReasoningSession.get(session_id),
+         :ok <- validate_tot_strategy(session) do
+      do_backtrack(session_id, session, opts)
+    end
+  end
+
+  defp validate_tot_strategy(%{strategy: :tot}), do: :ok
+
+  defp validate_tot_strategy(_),
+    do: {:error, "Backtracking is only supported for Tree-of-Thoughts (tot) strategy"}
+
+  defp do_backtrack(session_id, session, opts) do
+    target_branch_id = Keyword.get(opts, :to_branch)
+
+    if session.current_branch_id do
+      ReasoningSession.mark_branch_dead_end(session_id, session.current_branch_id)
+    end
+
+    case ReasoningSession.get(session_id) do
+      {:ok, updated_session} ->
+        find_and_switch_branch(session_id, session, updated_session, target_branch_id)
+
+      {:error, reason} ->
+        {:error, "Failed to get session: #{inspect(reason)}"}
+    end
+  end
+
+  defp find_and_switch_branch(session_id, session, updated_session, target_branch_id) do
+    next_branch =
+      if target_branch_id do
+        Enum.find(updated_session.branches, &(&1.id == target_branch_id))
       else
-        target_branch_id = Keyword.get(opts, :to_branch)
-
-        # Mark current branch as dead end if not specified otherwise
-        if session.current_branch_id do
-          ReasoningSession.mark_branch_dead_end(session_id, session.current_branch_id)
-        end
-
-        # Find next branch
-        case ReasoningSession.get(session_id) do
-          {:ok, updated_session} ->
-            next_branch =
-              if target_branch_id do
-                Enum.find(updated_session.branches, &(&1.id == target_branch_id))
-              else
-                ReasoningSession.find_best_unexplored_branch(updated_session)
-              end
-
-            if next_branch do
-              case ReasoningSession.switch_branch(session_id, next_branch.id) do
-                {:ok, final_session} ->
-                  {:ok,
-                   %{
-                     session_id: session_id,
-                     backtracked_from: session.current_branch_id,
-                     now_on_branch: next_branch.id,
-                     branch_status: next_branch.evaluation,
-                     remaining_unexplored: count_unexplored_branches(final_session.branches)
-                   }}
-
-                {:error, reason} ->
-                  {:error, "Failed to switch branch: #{inspect(reason)}"}
-              end
-            else
-              # No more branches to explore
-              {:ok,
-               %{
-                 session_id: session_id,
-                 no_more_branches: true,
-                 all_explored: true,
-                 suggestion: "All branches explored. Use 'conclude' to synthesize the best answer."
-               }}
-            end
-
-          {:error, reason} ->
-            {:error, "Failed to get session: #{inspect(reason)}"}
-        end
+        ReasoningSession.find_best_unexplored_branch(updated_session)
       end
+
+    switch_to_branch(session_id, session, next_branch)
+  end
+
+  defp switch_to_branch(session_id, _session, nil) do
+    {:ok,
+     %{
+       session_id: session_id,
+       no_more_branches: true,
+       all_explored: true,
+       suggestion: "All branches explored. Use 'conclude' to synthesize the best answer."
+     }}
+  end
+
+  defp switch_to_branch(session_id, session, next_branch) do
+    case ReasoningSession.switch_branch(session_id, next_branch.id) do
+      {:ok, final_session} ->
+        {:ok,
+         %{
+           session_id: session_id,
+           backtracked_from: session.current_branch_id,
+           now_on_branch: next_branch.id,
+           branch_status: next_branch.evaluation,
+           remaining_unexplored: count_unexplored_branches(final_session.branches)
+         }}
+
+      {:error, reason} ->
+        {:error, "Failed to switch branch: #{inspect(reason)}"}
     end
   end
 

@@ -11,7 +11,7 @@ defmodule Mimo.Context.BudgetAllocator do
   ## Model Types
 
   - `:small` - Haiku, GPT-4-mini, Gemini Flash (4K-8K effective context)
-  - `:medium` - Opus 4, Sonnet, GPT-4 (16K-32K effective context)  
+  - `:medium` - Opus 4, Sonnet, GPT-4 (16K-32K effective context)
   - `:large` - GPT-4 Turbo, Claude 3.5 (128K+ effective context)
 
   ## Examples
@@ -73,7 +73,7 @@ defmodule Mimo.Context.BudgetAllocator do
   @default_max_tokens %{
     small: 2000,
     medium: 8000,
-    large: 40000
+    large: 40_000
   }
 
   # ==========================================================================

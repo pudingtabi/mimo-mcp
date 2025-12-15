@@ -176,34 +176,7 @@ defmodule Mimo.AutoMemory do
   defp store_browser_memory(action, arguments, {:ok, result}) do
     Logger.debug("AutoMemory browser: action=#{action}, url=#{inspect(arguments["url"])}")
     url = arguments["url"] || ""
-
-    content =
-      cond do
-        # Blink tool - record URL visits with protection info
-        String.contains?(action, "blink") ->
-          operation = arguments["operation"] || "fetch"
-          status = get_in_result(result, ["status"]) || get_in_result(result, ["data", "status"])
-          protection = get_in_result(result, ["data", "protection"])
-
-          status_str = if status, do: " (status: #{status})", else: ""
-          protection_str = if protection, do: " [protected by: #{protection}]", else: ""
-
-          "Blink #{operation}: #{url}#{status_str}#{protection_str}"
-
-        String.contains?(action, "navigate") and url != "" ->
-          "Visited URL: #{url}"
-
-        String.contains?(action, "screenshot") ->
-          "Took screenshot#{if url != "", do: " of #{url}", else: ""}"
-
-        String.contains?(action, "click") ->
-          selector = arguments["selector"] || "element"
-          "Clicked: #{selector}#{if url != "", do: " on #{url}", else: ""}"
-
-        true ->
-          Logger.debug("AutoMemory browser: No content match for action=#{action}")
-          nil
-      end
+    content = build_browser_content(action, arguments, result, url)
 
     if content do
       Logger.debug("AutoMemory browser: Storing content=#{content}")
@@ -216,38 +189,84 @@ defmodule Mimo.AutoMemory do
     :ok
   end
 
+  # Build browser action content - multi-head helpers
+  defp build_browser_content(action, arguments, result, url) do
+    browser_action_content(action, arguments, result, url)
+  end
+
+  defp browser_action_content(action, arguments, result, url) when is_binary(action) do
+    cond do
+      String.contains?(action, "blink") ->
+        format_blink_action(arguments, result, url)
+
+      String.contains?(action, "navigate") and url != "" ->
+        "Visited URL: #{url}"
+
+      String.contains?(action, "screenshot") ->
+        format_screenshot(url)
+
+      String.contains?(action, "click") ->
+        format_click(arguments, url)
+
+      true ->
+        Logger.debug("AutoMemory browser: No content match for action=#{action}")
+        nil
+    end
+  end
+
+  defp format_blink_action(arguments, result, url) do
+    operation = arguments["operation"] || "fetch"
+    status = get_in_result(result, ["status"]) || get_in_result(result, ["data", "status"])
+    protection = get_in_result(result, ["data", "protection"])
+
+    status_str = if status, do: " (status: #{status})", else: ""
+    protection_str = if protection, do: " [protected by: #{protection}]", else: ""
+
+    "Blink #{operation}: #{url}#{status_str}#{protection_str}"
+  end
+
+  defp format_screenshot(url) do
+    "Took screenshot#{if url != "", do: " of #{url}", else: ""}"
+  end
+
+  defp format_click(arguments, url) do
+    selector = arguments["selector"] || "element"
+    "Clicked: #{selector}#{if url != "", do: " on #{url}", else: ""}"
+  end
+
   # Helper to safely get nested values from result maps (handles both atom and string keys)
   # SECURITY FIX: Use String.to_existing_atom instead of String.to_atom to prevent atom exhaustion
   defp get_in_result(result, keys) when is_map(result) and is_list(keys) do
     Enum.reduce_while(keys, result, fn key, acc ->
-      cond do
-        is_map(acc) and Map.has_key?(acc, key) ->
-          {:cont, Map.get(acc, key)}
-
-        is_map(acc) and is_binary(key) ->
-          # Try existing atom, don't create new ones
-          try do
-            atom_key = String.to_existing_atom(key)
-
-            if Map.has_key?(acc, atom_key) do
-              {:cont, Map.get(acc, atom_key)}
-            else
-              {:halt, nil}
-            end
-          rescue
-            ArgumentError -> {:halt, nil}
-          end
-
-        is_map(acc) and is_atom(key) and Map.has_key?(acc, Atom.to_string(key)) ->
-          {:cont, Map.get(acc, Atom.to_string(key))}
-
-        true ->
-          {:halt, nil}
-      end
+      get_nested_value(acc, key)
     end)
   end
 
   defp get_in_result(_, _), do: nil
+
+  # Multi-head pattern for nested value lookup
+  defp get_nested_value(acc, key) when is_map(acc) and is_map_key(acc, key) do
+    {:cont, Map.get(acc, key)}
+  end
+
+  defp get_nested_value(acc, key) when is_map(acc) and is_binary(key) do
+    try_atom_key(acc, key)
+  end
+
+  defp get_nested_value(acc, key) when is_map(acc) and is_atom(key) do
+    string_key = Atom.to_string(key)
+    if Map.has_key?(acc, string_key), do: {:cont, Map.get(acc, string_key)}, else: {:halt, nil}
+  end
+
+  defp get_nested_value(_, _), do: {:halt, nil}
+
+  # Try existing atom key (don't create new ones for security)
+  defp try_atom_key(acc, key) do
+    atom_key = String.to_existing_atom(key)
+    if Map.has_key?(acc, atom_key), do: {:cont, Map.get(acc, atom_key)}, else: {:halt, nil}
+  rescue
+    ArgumentError -> {:halt, nil}
+  end
 
   # Store memory for process/command execution
   # Category: "action" - recording commands executed

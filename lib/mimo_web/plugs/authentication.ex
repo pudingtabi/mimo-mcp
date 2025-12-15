@@ -20,44 +20,64 @@ defmodule MimoWeb.Plugs.Authentication do
   def call(conn, _opts) do
     api_key = get_configured_key()
 
-    # PRODUCTION SAFETY: Always require authentication in prod
-    if production?() and (is_nil(api_key) or api_key == "") do
-      Logger.error("[SECURITY] No API key configured in production - blocking all requests")
+    cond do
+      prod_missing_key?(api_key) ->
+        handle_missing_prod_key(conn)
 
-      conn
-      |> put_resp_content_type("application/json")
-      |> send_resp(
-        503,
-        Jason.encode!(%{
-          error: "Service misconfigured",
-          security: "API key required in production"
-        })
-      )
-      |> halt()
+      true ->
+        handle_auth_validation(conn, api_key)
+    end
+  end
+
+  defp prod_missing_key?(api_key) do
+    production?() and (is_nil(api_key) or api_key == "")
+  end
+
+  defp handle_missing_prod_key(conn) do
+    Logger.error("[SECURITY] No API key configured in production - blocking all requests")
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(
+      503,
+      Jason.encode!(%{
+        error: "Service misconfigured",
+        security: "API key required in production"
+      })
+    )
+    |> halt()
+  end
+
+  defp handle_auth_validation(conn, api_key) do
+    case validate_bearer_token(conn) do
+      {:ok, token} ->
+        handle_token_validation(conn, token, api_key)
+
+      {:error, :missing_header} ->
+        handle_missing_header(conn, api_key)
+
+      {:error, :invalid_format} ->
+        log_auth_failure(conn, :malformed_auth)
+        authentication_error(conn, :malformed_credentials)
+    end
+  end
+
+  defp handle_token_validation(conn, token, api_key) do
+    if secure_compare(token, api_key) do
+      register_authenticated_conn(conn)
     else
-      case validate_bearer_token(conn) do
-        {:ok, token} ->
-          if secure_compare(token, api_key) do
-            register_authenticated_conn(conn)
-          else
-            log_auth_failure(conn, :invalid_token)
-            authentication_error(conn, :invalid_credentials)
-          end
+      log_auth_failure(conn, :invalid_token)
+      authentication_error(conn, :invalid_credentials)
+    end
+  end
 
-        {:error, :missing_header} ->
-          # Allow in dev mode only if no key configured
-          if not production?() and (is_nil(api_key) or api_key == "") do
-            Logger.debug("No API key configured in dev mode, allowing request")
-            conn
-          else
-            log_auth_failure(conn, :missing_auth)
-            authentication_error(conn, :missing_credentials)
-          end
-
-        {:error, :invalid_format} ->
-          log_auth_failure(conn, :malformed_auth)
-          authentication_error(conn, :malformed_credentials)
-      end
+  defp handle_missing_header(conn, api_key) do
+    if not production?() and (is_nil(api_key) or api_key == "") do
+      Logger.debug("No API key configured in dev mode, allowing request")
+      conn
+    else
+      log_auth_failure(conn, :missing_auth)
+      authentication_error(conn, :missing_credentials)
     end
   end
 

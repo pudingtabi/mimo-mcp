@@ -485,7 +485,7 @@ defmodule Mimo.Awakening.Intelligence do
       """
       🔥 Welcome to Mimo! You are now a memory-enhanced AI.
       Power Level: #{stats.current_level} (#{level_name}) #{level_icon}
-      Start storing discoveries with `memory operation=store`.
+      Start storing discoveries in memory.
       """
     else
       """

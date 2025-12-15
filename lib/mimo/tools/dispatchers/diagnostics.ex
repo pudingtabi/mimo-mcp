@@ -21,38 +21,22 @@ defmodule Mimo.Tools.Dispatchers.Diagnostics do
   """
   def dispatch(args) do
     path = args["path"]
-    opts = []
 
     opts =
-      if args["operation"] do
-        case Helpers.safe_to_atom(args["operation"], Helpers.allowed_diagnostic_ops()) do
-          nil -> opts
-          op -> Keyword.put(opts, :operation, op)
-        end
-      else
-        opts
-      end
-
-    opts =
-      if args["language"] do
-        case Helpers.safe_to_atom(args["language"], Helpers.allowed_languages()) do
-          nil -> opts
-          lang -> Keyword.put(opts, :language, lang)
-        end
-      else
-        opts
-      end
-
-    opts =
-      if args["severity"] do
-        case Helpers.safe_to_atom(args["severity"], Helpers.allowed_severities()) do
-          nil -> opts
-          sev -> Keyword.put(opts, :severity, sev)
-        end
-      else
-        opts
-      end
+      []
+      |> maybe_add_opt(:operation, args["operation"], Helpers.allowed_diagnostic_ops())
+      |> maybe_add_opt(:language, args["language"], Helpers.allowed_languages())
+      |> maybe_add_opt(:severity, args["severity"], Helpers.allowed_severities())
 
     Mimo.Skills.Diagnostics.check(path, opts)
+  end
+
+  defp maybe_add_opt(opts, _key, nil, _allowed), do: opts
+
+  defp maybe_add_opt(opts, key, value, allowed) do
+    case Helpers.safe_to_atom(value, allowed) do
+      nil -> opts
+      atom -> Keyword.put(opts, key, atom)
+    end
   end
 end

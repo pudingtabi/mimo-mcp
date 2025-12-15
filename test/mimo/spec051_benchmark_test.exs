@@ -255,7 +255,7 @@ defmodule Mimo.SPEC051.BenchmarkTest do
         tier1_kept = Enum.count(kept_tiers, &(&1 == :tier1))
 
         # tier1 items should be prioritized
-        assert tier1_kept > 0 or Enum.count(items, &(&1.tier == :tier1)) == 0,
+        assert tier1_kept > 0 or not Enum.any?(items, &(&1.tier == :tier1)),
                "tier1 items should be prioritized in budget fitting"
       end
     end

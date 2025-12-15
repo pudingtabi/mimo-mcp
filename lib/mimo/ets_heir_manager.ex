@@ -79,7 +79,25 @@ defmodule Mimo.EtsHeirManager do
     heir_opts = [{:heir, Process.whereis(__MODULE__), name}]
     full_opts = ets_opts ++ heir_opts
 
-    table = :ets.new(name, full_opts)
+    # Handle multi-instance case: if table already exists, reuse it
+    table =
+      case :ets.whereis(name) do
+        :undefined ->
+          try do
+            :ets.new(name, full_opts)
+          rescue
+            ArgumentError ->
+              # Race condition: table created between check and new
+              case :ets.whereis(name) do
+                :undefined -> reraise ArgumentError, "Cannot create table #{name}", __STACKTRACE__
+                tid -> tid
+              end
+          end
+
+        tid ->
+          Logger.debug("[EtsHeirManager] Reusing existing table #{name}")
+          tid
+      end
 
     # Register the table in our registry
     GenServer.cast(__MODULE__, {:register_table, name, owner_pid, table})
@@ -123,7 +141,7 @@ defmodule Mimo.EtsHeirManager do
   @impl true
   def init(_opts) do
     # Registry for tracking tables: %{name => %{owner: pid, table: tid, orphaned_at: nil | DateTime}}
-    :ets.new(@table_name, [:named_table, :set, :protected])
+    Mimo.EtsSafe.ensure_table(@table_name, [:named_table, :set, :protected])
 
     Logger.info("✅ EtsHeirManager started")
     schedule_cleanup()

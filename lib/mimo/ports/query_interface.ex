@@ -26,7 +26,7 @@ defmodule Mimo.QueryInterface do
   """
   @spec ask(String.t(), String.t() | nil, keyword()) :: {:ok, map()} | {:error, term()}
   def ask(query, context_id \\ nil, opts \\ []) do
-    timeout_ms = Keyword.get(opts, :timeout_ms, 30_000)
+    timeout_ms = Keyword.get(opts, :timeout_ms, Mimo.TimeoutConfig.query_timeout())
 
     task =
       TaskHelper.async_with_callers(fn ->
@@ -41,22 +41,17 @@ defmodule Mimo.QueryInterface do
         entities = extract_entities_from_query(query)
         proactive_suggestions = get_observer_suggestions(entities, [])
 
-        # If LLM services are unavailable, return memory-only results without error
+        # STRICT FAIL-CLOSED: If LLM services are unavailable, return explicit error
+        # We don't want sudden quality drops - quality or nothing
         if not Mimo.Brain.LLM.available?() or
              Application.get_env(:mimo_mcp, :skip_external_apis, false) do
-          {:ok,
-           %{
-             query_id: UUID.uuid4(),
-             router_decision: router_decision,
-             results: memories,
-             synthesis: nil,
-             synthesis_error: ":no_api_key",
-             proactive_suggestions: proactive_suggestions,
-             context_id: context_id
-           }}
+          Logger.error("LLM services not available - failing closed (no degradation)")
+          {:error, :llm_unavailable}
         else
-          # Prefer LLM synthesis when available to enrich answers
-          synthesis_result = Mimo.Brain.LLM.consult_chief_of_staff(query, memories.episodic || [])
+          # Call LLM synthesis - fail if it fails
+          llm_timeout = Mimo.TimeoutConfig.llm_synthesis_timeout()
+
+          synthesis_result = safe_llm_synthesis(query, memories.episodic || [], llm_timeout)
 
           case synthesis_result do
             {:ok, response} ->
@@ -72,39 +67,38 @@ defmodule Mimo.QueryInterface do
                  router_decision: router_decision,
                  results: memories,
                  synthesis: response,
+                 # FULL QUALITY - the only acceptable outcome
+                 quality_status: :full,
                  # Add contradiction check results
                  contradiction_check: contradiction_check,
                  proactive_suggestions: proactive_suggestions,
                  context_id: context_id
                }}
 
-            {:error, :no_api_key} ->
-              Logger.warning("LLM unavailable (no API key); returning memories only")
+            {:error, :synthesis_timeout} ->
+              # STRICT FAIL-CLOSED: Timeout means failure, not degradation
+              Logger.error("LLM synthesis timed out after #{llm_timeout}ms - failing closed")
+              {:error, {:llm_timeout, llm_timeout}}
 
-              {:ok,
-               %{
-                 query_id: UUID.uuid4(),
-                 router_decision: router_decision,
-                 results: memories,
-                 synthesis: nil,
-                 synthesis_error: ":no_api_key",
-                 proactive_suggestions: proactive_suggestions,
-                 context_id: context_id
-               }}
+            {:error, :no_api_key} ->
+              # STRICT FAIL-CLOSED: No API key is a configuration error
+              Logger.error("LLM unavailable (no API key) - failing closed")
+              {:error, :llm_no_api_key}
+
+            {:error, :circuit_breaker_open} ->
+              # STRICT FAIL-CLOSED: Circuit breaker open means service is unhealthy
+              Logger.error("LLM circuit breaker open - failing closed")
+              {:error, :llm_circuit_breaker_open}
+
+            {:error, :all_providers_unavailable} ->
+              # STRICT FAIL-CLOSED: All cloud providers failed
+              Logger.error("All LLM providers unavailable - failing closed")
+              {:error, :llm_all_providers_unavailable}
 
             {:error, reason} ->
-              Logger.warning("LLM synthesis failed: #{inspect(reason)}, returning memories only")
-              # Return memories without synthesis if LLM fails (circuit breaker, timeout, etc.)
-              {:ok,
-               %{
-                 query_id: UUID.uuid4(),
-                 router_decision: router_decision,
-                 results: memories,
-                 synthesis: nil,
-                 synthesis_error: inspect(reason),
-                 proactive_suggestions: proactive_suggestions,
-                 context_id: context_id
-               }}
+              # STRICT FAIL-CLOSED: Any LLM error is a failure
+              Logger.error("LLM synthesis failed: #{inspect(reason)} - failing closed")
+              {:error, {:llm_synthesis_failed, reason}}
           end
         end
       end)
@@ -116,6 +110,29 @@ defmodule Mimo.QueryInterface do
     end
   rescue
     e -> {:error, Exception.message(e)}
+  end
+
+  # Wrap LLM synthesis with its own timeout for graceful degradation
+  # Returns {:ok, response}, {:error, :synthesis_timeout}, or {:error, reason}
+  defp safe_llm_synthesis(query, memories, timeout_ms) do
+    task =
+      TaskHelper.async_with_callers(fn ->
+        Mimo.Brain.LLM.consult_chief_of_staff(query, memories)
+      end)
+
+    case Task.yield(task, timeout_ms) || Task.shutdown(task) do
+      {:ok, {:ok, response}} ->
+        {:ok, response}
+
+      {:ok, {:error, reason}} ->
+        {:error, reason}
+
+      nil ->
+        # Task timed out - this is the key graceful degradation path
+        {:error, :synthesis_timeout}
+    end
+  rescue
+    e -> {:error, {:synthesis_exception, Exception.message(e)}}
   end
 
   defp search_by_decision(query, decision) do

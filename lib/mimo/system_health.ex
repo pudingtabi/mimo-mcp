@@ -19,7 +19,7 @@ defmodule Mimo.SystemHealth do
 
       # Get current metrics
       Mimo.SystemHealth.get_metrics()
-      
+
       # Check health status
       Mimo.SystemHealth.healthy?()
   """
@@ -78,7 +78,7 @@ defmodule Mimo.SystemHealth do
   def healthy? do
     case get_metrics() do
       %{alerts: []} -> true
-      %{alerts: alerts} when is_list(alerts) -> length(alerts) == 0
+      %{alerts: alerts} when is_list(alerts) -> alerts == []
       _ -> false
     end
   end
@@ -313,11 +313,9 @@ defmodule Mimo.SystemHealth do
   end
 
   defp format_alerts(alerts) do
-    alerts
-    |> Enum.map(fn {metric, value, threshold} ->
+    Enum.map_join(alerts, "\n", fn {metric, value, threshold} ->
       "  - #{metric}: #{value} (threshold: #{threshold})"
     end)
-    |> Enum.join("\n")
   end
 
   defp schedule_check do

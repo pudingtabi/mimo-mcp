@@ -190,19 +190,34 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ContextWindow do
   # Model Family Estimation
   # =============================================================================
 
+  # Model family context windows - ordered by specificity (most specific patterns first)
+  @model_context_windows [
+    {"gpt-4", "turbo", 128_000},
+    {"gemini", "flash", 1_000_000},
+    {"opus", nil, 200_000},
+    {"sonnet", nil, 200_000},
+    {"haiku", nil, 200_000},
+    {"gpt-4", nil, 32_000},
+    {"gpt-3.5", nil, 16_000},
+    {"gemini-pro", nil, 32_000}
+  ]
+
   defp estimate_from_model_id(model_id) do
     model_lower = String.downcase(model_id)
+    find_model_context_window(model_lower, @model_context_windows)
+  end
 
-    cond do
-      String.contains?(model_lower, "opus") -> 200_000
-      String.contains?(model_lower, "sonnet") -> 200_000
-      String.contains?(model_lower, "haiku") -> 200_000
-      String.contains?(model_lower, "gpt-4") and String.contains?(model_lower, "turbo") -> 128_000
-      String.contains?(model_lower, "gpt-4") -> 32_000
-      String.contains?(model_lower, "gpt-3.5") -> 16_000
-      String.contains?(model_lower, "gemini-pro") -> 32_000
-      String.contains?(model_lower, "gemini-flash") -> 1_000_000
-      true -> 8_000
+  defp find_model_context_window(_model, []), do: 8_000
+
+  defp find_model_context_window(model, [{pattern, nil, size} | rest]) do
+    if String.contains?(model, pattern), do: size, else: find_model_context_window(model, rest)
+  end
+
+  defp find_model_context_window(model, [{pattern1, pattern2, size} | rest]) do
+    if String.contains?(model, pattern1) and String.contains?(model, pattern2) do
+      size
+    else
+      find_model_context_window(model, rest)
     end
   end
 

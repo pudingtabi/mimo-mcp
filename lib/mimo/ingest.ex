@@ -40,6 +40,9 @@ defmodule Mimo.Ingest do
   # Minimum characters per chunk
   @min_chunk_size 10
 
+  # Ingest cache for file-level deduplication
+  @ingest_cache_table :mimo_ingest_cache
+
   @type strategy :: :auto | :paragraphs | :markdown | :lines | :sentences | :whole
   @type ingest_opts :: [
           strategy: strategy(),
@@ -92,13 +95,18 @@ defmodule Mimo.Ingest do
     importance = Keyword.get(opts, :importance, 0.5)
     tags = Keyword.get(opts, :tags, [])
     metadata = Keyword.get(opts, :metadata, %{})
+    force = Keyword.get(opts, :force, false)
 
     with :ok <- check_attached_doc_warning(path),
          :ok <- check_sandbox(path),
          {:ok, content} <- read_file_safe(path),
+         :ok <- check_already_ingested(path, content, force),
          {:ok, actual_strategy} <- resolve_strategy(strategy, path),
          {:ok, chunks} <- chunk_content(content, actual_strategy, opts),
          {:ok, ids} <- store_chunks(chunks, category, importance, tags, path, metadata) do
+      # Cache file hash to skip future re-ingests
+      cache_file_hash(path, content)
+
       :telemetry.execute(
         [:mimo, :ingest, :file],
         %{chunks: length(ids), file_size: byte_size(content)},
@@ -160,7 +168,7 @@ defmodule Mimo.Ingest do
       Ingesting it will create duplicate chunks that pollute memory search results.
 
       Consider:
-      1. Using `memory operation=store` for specific insights instead
+      1. Using memory store for specific insights instead
       2. Using `knowledge operation=teach` for relationships
       3. The content is already available in agent context
       """)
@@ -422,5 +430,52 @@ defmodule Mimo.Ingest do
   rescue
     e ->
       {:error, Exception.message(e)}
+  end
+
+  # ==========================================================================
+  # File-Level Deduplication Cache
+  # ==========================================================================
+
+  @doc false
+  def ensure_cache_table do
+    if :ets.whereis(@ingest_cache_table) == :undefined do
+      :ets.new(@ingest_cache_table, [:named_table, :set, :public, read_concurrency: true])
+    end
+
+    :ok
+  end
+
+  defp check_already_ingested(_path, _content, true), do: :ok
+
+  defp check_already_ingested(path, content, false) do
+    ensure_cache_table()
+    hash = content_hash(content)
+
+    case :ets.lookup(@ingest_cache_table, path) do
+      [{^path, ^hash, _timestamp}] ->
+        {:error, {:already_ingested, path, "Use force: true to re-ingest"}}
+
+      [{^path, _old_hash, _timestamp}] ->
+        # Content changed, allow re-ingest
+        :ok
+
+      [] ->
+        :ok
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp cache_file_hash(path, content) do
+    ensure_cache_table()
+    hash = content_hash(content)
+    :ets.insert(@ingest_cache_table, {path, hash, System.system_time(:second)})
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  defp content_hash(content) do
+    :crypto.hash(:sha256, content) |> Base.encode16(case: :lower) |> binary_part(0, 16)
   end
 end

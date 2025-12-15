@@ -61,6 +61,17 @@ export MIX_ENV="${MIX_ENV:-dev}"
 export ELIXIR_ERL_OPTIONS="+fnu"
 export LOGGER_LEVEL=none
 export MIMO_DISABLE_HTTP=true
+export MIX_QUIET=1
+
+# IMPORTANT: MCP stdio requires stdout to be JSON-RPC only.
+# If Mix compiles during startup it prints lines like "==> exqlite" to stdout,
+# which VS Code then fails to parse as JSON.
+APP_FILE="$MIMO_DIR/_build/${MIX_ENV}/lib/mimo_mcp/ebin/mimo_mcp.app"
+if [ ! -f "$APP_FILE" ]; then
+  # Redirect all build output to stderr so stdout stays protocol-clean.
+  mix deps.get 1>&2
+  mix compile 1>&2
+fi
 
 # Run the MCP server in stdio mode
-exec mix run --no-halt -e "Mimo.McpServer.Stdio.start()"
+exec mix run --no-halt --no-compile -e "Mimo.McpServer.Stdio.start()"

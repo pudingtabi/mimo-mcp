@@ -188,8 +188,7 @@ defmodule Mimo.Tools.Dispatchers.DebugError do
         "🔍 Found relevant symbol definitions. Check the source code for potential issues."
 
       true ->
-        "📝 No past solutions found. After fixing, store the solution with:\n" <>
-          "`memory operation=store content=\"Fixed [error]: [solution]\" category=fact importance=0.8`"
+        "📝 No past solutions found. After fixing, store the solution in memory (category: fact, importance: ~0.8) so it persists."
     end
   end
 

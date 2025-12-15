@@ -238,28 +238,8 @@ defmodule Mimo.Cognitive.ReasoningSession do
           })
 
         updated_thoughts = session.thoughts ++ [thought_with_defaults]
-
-        # Also add to current branch if ToT
-        updated_branches =
-          if session.strategy == :tot and session.current_branch_id do
-            Enum.map(session.branches, fn branch ->
-              if branch.id == session.current_branch_id do
-                %{branch | thoughts: branch.thoughts ++ [thought_with_defaults]}
-              else
-                branch
-              end
-            end)
-          else
-            session.branches
-          end
-
-        # Update confidence history
-        confidence_history =
-          if thought_with_defaults[:confidence] do
-            session.confidence_history ++ [thought_with_defaults.confidence]
-          else
-            session.confidence_history
-          end
+        updated_branches = update_branch_thoughts(session, thought_with_defaults)
+        confidence_history = update_confidence_history(session, thought_with_defaults)
 
         updated = %{
           session
@@ -276,6 +256,25 @@ defmodule Mimo.Cognitive.ReasoningSession do
         error
     end
   end
+
+  defp update_branch_thoughts(%{strategy: :tot, current_branch_id: branch_id} = session, thought)
+       when not is_nil(branch_id) do
+    Enum.map(session.branches, fn branch ->
+      if branch.id == branch_id do
+        %{branch | thoughts: branch.thoughts ++ [thought]}
+      else
+        branch
+      end
+    end)
+  end
+
+  defp update_branch_thoughts(session, _thought), do: session.branches
+
+  defp update_confidence_history(session, %{confidence: conf}) when not is_nil(conf) do
+    session.confidence_history ++ [conf]
+  end
+
+  defp update_confidence_history(session, _thought), do: session.confidence_history
 
   @doc """
   Add a new branch to the session (ToT strategy).

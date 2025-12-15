@@ -463,44 +463,45 @@ defmodule Mimo.Cognitive.ConfidenceAssessor do
   end
 
   defp identify_gaps(evidence, query) do
-    gaps = []
+    []
+    |> add_library_gaps(evidence[:library] || [])
+    |> add_code_gaps(evidence[:code] || [], query)
+    |> add_memory_gaps(evidence[:memories] || [])
+  end
 
-    # Check for library mentions without cached docs
+  defp add_library_gaps(gaps, libraries) do
     library_gaps =
-      (evidence[:library] || [])
+      libraries
       |> Enum.reject(& &1.cached)
       |> Enum.map(fn lib -> "Missing documentation for #{lib.ecosystem}:#{lib.name}" end)
 
-    gaps = gaps ++ library_gaps
+    gaps ++ library_gaps
+  end
 
-    # Check for code-related queries without code matches
-    is_code_query = String.match?(query, ~r/function|module|class|method|def|implement/i)
+  defp add_code_gaps(gaps, [], query) do
+    if String.match?(query, ~r/function|module|class|method|def|implement/i) do
+      ["No code symbols found for code-related query" | gaps]
+    else
+      gaps
+    end
+  end
 
-    gaps =
-      if is_code_query and (evidence[:code] || []) == [] do
-        ["No code symbols found for code-related query" | gaps]
-      else
-        gaps
-      end
+  defp add_code_gaps(gaps, _code, _query), do: gaps
 
-    # Check for very low memory relevance
-    memories = evidence[:memories] || []
+  defp add_memory_gaps(gaps, []), do: gaps
 
+  defp add_memory_gaps(gaps, memories) do
     avg_relevance =
-      if memories != [] do
-        Enum.sum(Enum.map(memories, fn m -> m[:similarity] || 0.0 end)) / length(memories)
-      else
-        0.0
-      end
+      memories
+      |> Enum.map(fn m -> m[:similarity] || 0.0 end)
+      |> Enum.sum()
+      |> Kernel./(length(memories))
 
-    gaps =
-      if avg_relevance < 0.4 and length(memories) > 0 do
-        ["Low relevance in available memories (avg: #{Float.round(avg_relevance, 2)})" | gaps]
-      else
-        gaps
-      end
-
-    gaps
+    if avg_relevance < 0.4 do
+      ["Low relevance in available memories (avg: #{Float.round(avg_relevance, 2)})" | gaps]
+    else
+      gaps
+    end
   end
 
   defp build_sources(evidence) do

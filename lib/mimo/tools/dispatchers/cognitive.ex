@@ -29,257 +29,178 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   alias Mimo.Tools.Helpers
   alias Mimo.Cognitive.Reasoner
 
+  # =============================================================================
+  # Operation Group Definitions (for pattern matching guards)
+  # =============================================================================
+
+  @epistemic_ops ~w[assess gaps query can_answer suggest stats]
+  @verification_ops ~w[verification_stats verification_overconfidence verification_success_by_type verification_brier_score]
+  @verify_ops ~w[verify_count verify_math verify_logic verify_compare verify_self_check]
+  @emergence_ops ~w[emergence_detect emergence_dashboard emergence_alerts emergence_amplify emergence_promote emergence_cycle emergence_list emergence_search emergence_suggest emergence_status]
+  @reflector_ops ~w[reflector_reflect reflector_evaluate reflector_confidence reflector_errors reflector_format reflector_config]
+  @lifecycle_ops ~w[lifecycle_stats lifecycle_distribution lifecycle_warnings]
+  @optimizer_ops ~w[optimizer_stats optimizer_metrics optimizer_recommendations optimizer_record_outcome optimizer_optimize]
+  @calibration_ops ~w[calibration_log_claim calibration_log_outcome calibration_brier_score calibration_stats calibration_overconfidence calibration_curve]
+  @meta_task_ops ~w[meta_task_detect meta_task_enhance]
+  @injection_ops ~w[injection_feedback injection_feedback_stats]
+  @procedure_ops ~w[auto_generate_procedure procedure_candidates procedure_suitability]
+  @docs_ops ~w[docs_validate docs_validate_file]
+  @misc_ops ~w[adoption_metrics system_health memory_audit workflow_health file_interception_stats]
+
+  @all_ops @epistemic_ops ++
+             @verification_ops ++
+             @verify_ops ++
+             @emergence_ops ++
+             @reflector_ops ++
+             @lifecycle_ops ++
+             @optimizer_ops ++
+             @calibration_ops ++
+             @meta_task_ops ++
+             @injection_ops ++
+             @procedure_ops ++
+             @docs_ops ++
+             @misc_ops
+
+  # =============================================================================
+  # Main Dispatch Function - Multi-head with Guards
+  # =============================================================================
+
   @doc """
   Dispatch cognitive operation based on args.
+  Uses pattern matching with guards for cleaner routing.
   """
   def dispatch(args) do
     op = args["operation"] || "assess"
+    do_dispatch(op, args)
+  end
 
-    case op do
-      "assess" ->
-        dispatch_assess(args)
+  # --- Epistemic Operations (Core Cognitive) ---
+  defp do_dispatch("assess", args), do: dispatch_assess(args)
+  defp do_dispatch("gaps", args), do: dispatch_gaps(args)
+  defp do_dispatch("query", args), do: dispatch_query(args)
+  defp do_dispatch("can_answer", args), do: dispatch_can_answer(args)
+  defp do_dispatch("suggest", args), do: dispatch_suggest(args)
+  defp do_dispatch("stats", _args), do: dispatch_stats()
 
-      "gaps" ->
-        dispatch_gaps(args)
+  # --- Verification Tracking Operations (SPEC-AI-TEST) ---
+  defp do_dispatch("verification_stats", _args), do: dispatch_verification_stats()
 
-      "query" ->
-        dispatch_query(args)
+  defp do_dispatch("verification_overconfidence", args),
+    do: dispatch_verification_overconfidence(args)
 
-      "can_answer" ->
-        dispatch_can_answer(args)
+  defp do_dispatch("verification_success_by_type", _args),
+    do: dispatch_verification_success_by_type()
 
-      "suggest" ->
-        dispatch_suggest(args)
+  defp do_dispatch("verification_brier_score", _args), do: dispatch_verification_brier_score()
 
-      "stats" ->
-        dispatch_stats()
+  # --- Verify Tool Operations (SPEC-AI-TEST) ---
+  defp do_dispatch(op, args) when op in @verify_ops do
+    # Extract the actual operation (e.g., "verify_count" -> "count")
+    actual_op = String.replace_prefix(op, "verify_", "")
+    Mimo.Tools.Dispatchers.Verify.dispatch(Map.put(args, "operation", actual_op))
+  end
 
-      # SPEC-AI-TEST: Verification tracking operations
-      "verification_stats" ->
-        dispatch_verification_stats()
+  # --- Emergence Tool Operations (SPEC-044) ---
+  defp do_dispatch(op, args) when op in @emergence_ops do
+    actual_op = String.replace_prefix(op, "emergence_", "")
+    Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", actual_op))
+  end
 
-      "verification_overconfidence" ->
-        dispatch_verification_overconfidence(args)
+  # --- Reflector Tool Operations (SPEC-043) ---
+  defp do_dispatch(op, args) when op in @reflector_ops do
+    actual_op = String.replace_prefix(op, "reflector_", "")
+    Mimo.Tools.Dispatchers.Reflector.dispatch(Map.put(args, "operation", actual_op))
+  end
 
-      "verification_success_by_type" ->
-        dispatch_verification_success_by_type()
+  # --- Lifecycle Tool Operations (SPEC-042) ---
+  defp do_dispatch("lifecycle_stats", _args), do: dispatch_lifecycle_stats()
+  defp do_dispatch("lifecycle_distribution", args), do: dispatch_lifecycle_distribution(args)
+  defp do_dispatch("lifecycle_warnings", args), do: dispatch_lifecycle_warnings(args)
 
-      "verification_brier_score" ->
-        dispatch_verification_brier_score()
+  # --- Optimizer Tool Operations (Evaluator-Optimizer Pattern) ---
+  defp do_dispatch("optimizer_stats", _args), do: dispatch_optimizer_stats()
+  defp do_dispatch("optimizer_metrics", _args), do: dispatch_optimizer_metrics()
+  defp do_dispatch("optimizer_recommendations", _args), do: dispatch_optimizer_recommendations()
+  defp do_dispatch("optimizer_record_outcome", args), do: dispatch_optimizer_record_outcome(args)
+  defp do_dispatch("optimizer_optimize", args), do: dispatch_optimizer_optimize(args)
 
-      # === VERIFY TOOL OPERATIONS (SPEC-AI-TEST) ===
-      # Direct access to verify operations for MCP cache workaround
-      "verify_count" ->
-        Mimo.Tools.Dispatchers.Verify.dispatch(Map.put(args, "operation", "count"))
+  # --- Calibration Operations (SPEC-062) ---
+  defp do_dispatch("calibration_log_claim", args), do: dispatch_calibration_log_claim(args)
+  defp do_dispatch("calibration_log_outcome", args), do: dispatch_calibration_log_outcome(args)
+  defp do_dispatch("calibration_brier_score", _args), do: dispatch_calibration_brier_score()
+  defp do_dispatch("calibration_stats", _args), do: dispatch_calibration_stats()
+  defp do_dispatch("calibration_overconfidence", _args), do: dispatch_calibration_overconfidence()
+  defp do_dispatch("calibration_curve", _args), do: dispatch_calibration_curve()
 
-      "verify_math" ->
-        Mimo.Tools.Dispatchers.Verify.dispatch(Map.put(args, "operation", "math"))
+  # --- Meta-Task Detection Operations (SPEC-062) ---
+  defp do_dispatch("meta_task_detect", args), do: dispatch_meta_task_detect(args)
+  defp do_dispatch("meta_task_enhance", args), do: dispatch_meta_task_enhance(args)
 
-      "verify_logic" ->
-        Mimo.Tools.Dispatchers.Verify.dispatch(Map.put(args, "operation", "logic"))
+  # --- Injection Feedback Operations (SPEC-065) ---
+  defp do_dispatch("injection_feedback", args), do: dispatch_injection_feedback(args)
+  defp do_dispatch("injection_feedback_stats", _args), do: dispatch_injection_feedback_stats()
 
-      "verify_compare" ->
-        Mimo.Tools.Dispatchers.Verify.dispatch(Map.put(args, "operation", "compare"))
+  # --- Misc Operations ---
+  defp do_dispatch("adoption_metrics", _args), do: dispatch_adoption_metrics()
+  defp do_dispatch("system_health", _args), do: dispatch_system_health()
+  defp do_dispatch("memory_audit", args), do: dispatch_memory_audit(args)
+  defp do_dispatch("file_interception_stats", _args), do: dispatch_file_interception_stats()
 
-      "verify_self_check" ->
-        Mimo.Tools.Dispatchers.Verify.dispatch(Map.put(args, "operation", "self_check"))
+  # --- Procedure Generation Operations (Q1 2026 Phase 2) ---
+  defp do_dispatch("auto_generate_procedure", args), do: dispatch_auto_generate_procedure(args)
+  defp do_dispatch("procedure_candidates", args), do: dispatch_procedure_candidates(args)
+  defp do_dispatch("procedure_suitability", args), do: dispatch_procedure_suitability(args)
 
-      # === EMERGENCE TOOL OPERATIONS (SPEC-044) ===
-      # Direct access to emergence operations for MCP cache workaround
-      "emergence_detect" ->
-        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "detect"))
+  # --- Documentation Validation (Q1 2026 Phase 4) ---
+  defp do_dispatch("docs_validate", args), do: dispatch_docs_validate(args)
+  defp do_dispatch("docs_validate_file", args), do: dispatch_docs_validate_file(args)
 
-      "emergence_dashboard" ->
-        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "dashboard"))
+  # --- Workflow Health (Q1 2026 Phase 4) ---
+  defp do_dispatch("workflow_health", args), do: dispatch_workflow_health(args)
 
-      "emergence_alerts" ->
-        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "alerts"))
-
-      "emergence_amplify" ->
-        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "amplify"))
-
-      "emergence_promote" ->
-        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "promote"))
-
-      "emergence_cycle" ->
-        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "cycle"))
-
-      "emergence_list" ->
-        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "list"))
-
-      "emergence_search" ->
-        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "search"))
-
-      "emergence_suggest" ->
-        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "suggest"))
-
-      "emergence_status" ->
-        Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", "status"))
-
-      # === REFLECTOR TOOL OPERATIONS (SPEC-043) ===
-      # Direct access to reflector operations for MCP cache workaround
-      "reflector_reflect" ->
-        Mimo.Tools.Dispatchers.Reflector.dispatch(Map.put(args, "operation", "reflect"))
-
-      "reflector_evaluate" ->
-        Mimo.Tools.Dispatchers.Reflector.dispatch(Map.put(args, "operation", "evaluate"))
-
-      "reflector_confidence" ->
-        Mimo.Tools.Dispatchers.Reflector.dispatch(Map.put(args, "operation", "confidence"))
-
-      "reflector_errors" ->
-        Mimo.Tools.Dispatchers.Reflector.dispatch(Map.put(args, "operation", "errors"))
-
-      "reflector_format" ->
-        Mimo.Tools.Dispatchers.Reflector.dispatch(Map.put(args, "operation", "format"))
-
-      "reflector_config" ->
-        Mimo.Tools.Dispatchers.Reflector.dispatch(Map.put(args, "operation", "config"))
-
-      # === LIFECYCLE TOOL OPERATIONS (SPEC-042) ===
-      # Cognitive lifecycle tracking operations
-      "lifecycle_stats" ->
-        dispatch_lifecycle_stats()
-
-      "lifecycle_distribution" ->
-        dispatch_lifecycle_distribution(args)
-
-      "lifecycle_warnings" ->
-        dispatch_lifecycle_warnings(args)
-
-      # === OPTIMIZER TOOL OPERATIONS (Evaluator-Optimizer Pattern) ===
-      # Self-improving evaluation feedback loop
-      "optimizer_stats" ->
-        dispatch_optimizer_stats()
-
-      "optimizer_metrics" ->
-        dispatch_optimizer_metrics()
-
-      "optimizer_recommendations" ->
-        dispatch_optimizer_recommendations()
-
-      "optimizer_record_outcome" ->
-        dispatch_optimizer_record_outcome(args)
-
-      "optimizer_optimize" ->
-        dispatch_optimizer_optimize(args)
-
-      # === SPEC-062: CALIBRATION OPERATIONS ===
-      # Confidence calibration and tracking
-      "calibration_log_claim" ->
-        dispatch_calibration_log_claim(args)
-
-      "calibration_log_outcome" ->
-        dispatch_calibration_log_outcome(args)
-
-      "calibration_brier_score" ->
-        dispatch_calibration_brier_score()
-
-      "calibration_stats" ->
-        dispatch_calibration_stats()
-
-      "calibration_overconfidence" ->
-        dispatch_calibration_overconfidence()
-
-      "calibration_curve" ->
-        dispatch_calibration_curve()
-
-      # === SPEC-064: FILE INTERCEPTION STATS ===
-      "file_interception_stats" ->
-        dispatch_file_interception_stats()
-
-      # === SPEC-062: META-TASK DETECTION OPERATIONS ===
-      "meta_task_detect" ->
-        dispatch_meta_task_detect(args)
-
-      "meta_task_enhance" ->
-        dispatch_meta_task_enhance(args)
-
-      # === SPEC-065: INJECTION FEEDBACK OPERATIONS ===
-      # Track when injected memories are helpful vs ignored
-      "injection_feedback" ->
-        dispatch_injection_feedback(args)
-
-      "injection_feedback_stats" ->
-        dispatch_injection_feedback_stats()
-
-      # === AUTO-REASONING ADOPTION METRICS ===
-      # Track when cognitive assess is used as first tool (measures AUTO-REASONING adoption)
-      "adoption_metrics" ->
-        dispatch_adoption_metrics()
-
-      # === SYSTEM HEALTH MONITORING (Q1 2026 Phase 1) ===
-      # Track memory corpus size, query latency, ETS usage
-      "system_health" ->
-        dispatch_system_health()
-
-      # === MEMORY QUALITY AUDIT (Q1 2026 Phase 1) ===
-      # Detect contradictions, duplicates, obsolete facts
-      "memory_audit" ->
-        dispatch_memory_audit(args)
-
-      # === AUTO PROCEDURE GENERATION (Q1 2026 Phase 2) ===
-      # Convert successful reasoning sessions to procedures
-      "auto_generate_procedure" ->
-        dispatch_auto_generate_procedure(args)
-
-      "procedure_candidates" ->
-        dispatch_procedure_candidates(args)
-
-      "procedure_suitability" ->
-        dispatch_procedure_suitability(args)
-
-      # === DOCUMENTATION VALIDATION (Q1 2026 Phase 4) ===
-      "docs_validate" ->
-        dispatch_docs_validate(args)
-
-      "docs_validate_file" ->
-        dispatch_docs_validate_file(args)
-
-      # === WORKFLOW HEALTH (Q1 2026 Phase 4) ===
-      "workflow_health" ->
-        dispatch_workflow_health(args)
-
-      _ ->
-        {:error,
-         "Unknown cognitive operation: #{op}. Available: assess, gaps, query, can_answer, suggest, stats, verification_*, verify_*, emergence_*, reflector_*, lifecycle_*, optimizer_*, calibration_*, meta_task_*, injection_feedback*, adoption_metrics, file_interception_stats, system_health, memory_audit, auto_generate_procedure, procedure_candidates, procedure_suitability, docs_validate, docs_validate_file, workflow_health"}
-    end
+  # --- Fallback for Unknown Operations ---
+  defp do_dispatch(op, _args) do
+    {:error, "Unknown cognitive operation: #{op}. Available: #{Enum.join(@all_ops, ", ")}"}
   end
 
   @doc """
   Dispatch think tool operations.
+  Uses multi-head function pattern matching.
   """
   def dispatch_think(args) do
     op = args["operation"] || "thought"
+    do_dispatch_think(op, args)
+  end
 
-    case op do
-      "thought" ->
-        Mimo.Skills.Cognition.think(args["thought"] || "")
+  defp do_dispatch_think("thought", args) do
+    Mimo.Skills.Cognition.think(args["thought"] || "")
+  end
 
-      "plan" ->
-        Mimo.Skills.Cognition.plan(args["steps"] || [])
+  defp do_dispatch_think("plan", args) do
+    Mimo.Skills.Cognition.plan(args["steps"] || [])
+  end
 
-      "sequential" ->
-        Mimo.Skills.Cognition.sequential_thinking(%{
-          "thought" => args["thought"] || "",
-          "thoughtNumber" => args["thoughtNumber"] || 1,
-          "totalThoughts" => args["totalThoughts"] || 1,
-          "nextThoughtNeeded" => args["nextThoughtNeeded"] || false
-        })
+  defp do_dispatch_think("sequential", args) do
+    Mimo.Skills.Cognition.sequential_thinking(%{
+      "thought" => args["thought"] || "",
+      "thoughtNumber" => args["thoughtNumber"] || 1,
+      "totalThoughts" => args["totalThoughts"] || 1,
+      "nextThoughtNeeded" => args["nextThoughtNeeded"] || false
+    })
+  end
 
-      "template" ->
-        # Think with template guidance (Anthropic Think Tool pattern)
-        scenario = String.to_atom(args["scenario"] || "debug")
-        Mimo.Skills.Cognition.think_with_template(args["thought"] || "", scenario)
+  defp do_dispatch_think("template", args) do
+    scenario = String.to_atom(args["scenario"] || "debug")
+    Mimo.Skills.Cognition.think_with_template(args["thought"] || "", scenario)
+  end
 
-      "templates" ->
-        # List available thinking templates
-        Mimo.Skills.Cognition.list_templates()
+  defp do_dispatch_think("templates", _args) do
+    Mimo.Skills.Cognition.list_templates()
+  end
 
-      _ ->
-        {:error,
-         "Unknown think operation: #{op}. Available: thought, plan, sequential, template, templates"}
-    end
+  defp do_dispatch_think(op, _args) do
+    {:error,
+     "Unknown think operation: #{op}. Available: thought, plan, sequential, template, templates"}
   end
 
   # ==========================================================================
@@ -410,45 +331,27 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
 
   @doc """
   Dispatch reason tool operations for unified reasoning engine.
+  Uses multi-head function pattern matching.
   """
   def dispatch_reason(args) do
     op = args["operation"] || "guided"
+    do_dispatch_reason(op, args)
+  end
 
-    case op do
-      "guided" ->
-        dispatch_reason_guided(args)
+  defp do_dispatch_reason("guided", args), do: dispatch_reason_guided(args)
+  defp do_dispatch_reason("decompose", args), do: dispatch_reason_decompose(args)
+  defp do_dispatch_reason("step", args), do: dispatch_reason_step(args)
+  defp do_dispatch_reason("verify", args), do: dispatch_reason_verify(args)
+  defp do_dispatch_reason("reflect", args), do: dispatch_reason_reflect(args)
+  defp do_dispatch_reason("branch", args), do: dispatch_reason_branch(args)
+  defp do_dispatch_reason("backtrack", args), do: dispatch_reason_backtrack(args)
+  defp do_dispatch_reason("conclude", args), do: dispatch_reason_conclude(args)
+  defp do_dispatch_reason("enrich", args), do: dispatch_reason_enrich(args)
+  defp do_dispatch_reason("steps", args), do: dispatch_reason_steps(args)
 
-      "decompose" ->
-        dispatch_reason_decompose(args)
-
-      "step" ->
-        dispatch_reason_step(args)
-
-      "verify" ->
-        dispatch_reason_verify(args)
-
-      "reflect" ->
-        dispatch_reason_reflect(args)
-
-      "branch" ->
-        dispatch_reason_branch(args)
-
-      "backtrack" ->
-        dispatch_reason_backtrack(args)
-
-      "conclude" ->
-        dispatch_reason_conclude(args)
-
-      "enrich" ->
-        dispatch_reason_enrich(args)
-
-      "steps" ->
-        dispatch_reason_steps(args)
-
-      _ ->
-        {:error,
-         "Unknown reason operation: #{op}. Available: guided, decompose, step, enrich, steps, verify, reflect, branch, backtrack, conclude"}
-    end
+  defp do_dispatch_reason(op, _args) do
+    {:error,
+     "Unknown reason operation: #{op}. Available: guided, decompose, step, enrich, steps, verify, reflect, branch, backtrack, conclude"}
   end
 
   defp dispatch_reason_guided(args) do
@@ -825,26 +728,23 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
     alias Mimo.Brain.Reflector.Optimizer
 
     try do
-      case Optimizer.get_metrics() do
-        {:ok, metrics} ->
-          {:ok,
-           %{
-             type: "optimizer_metrics",
-             description: "Optimization metrics for self-improvement feedback loop",
-             metrics: metrics,
-             dimensions: Map.keys(metrics.dimension_accuracy),
-             summary: %{
-               avg_dimension_accuracy: average(Map.values(metrics.dimension_accuracy)),
-               total_predictions: metrics.total_predictions,
-               total_outcomes: metrics.total_outcomes,
-               threshold_current: metrics.threshold_performance.current,
-               last_optimization: metrics.last_optimization
-             }
-           }}
+      # Optimizer.get_metrics() always returns {:ok, metrics}
+      {:ok, metrics} = Optimizer.get_metrics()
 
-        {:error, reason} ->
-          {:error, "Failed to get metrics: #{inspect(reason)}"}
-      end
+      {:ok,
+       %{
+         type: "optimizer_metrics",
+         description: "Optimization metrics for self-improvement feedback loop",
+         metrics: metrics,
+         dimensions: Map.keys(metrics.dimension_accuracy),
+         summary: %{
+           avg_dimension_accuracy: average(Map.values(metrics.dimension_accuracy)),
+           total_predictions: metrics.total_predictions,
+           total_outcomes: metrics.total_outcomes,
+           threshold_current: metrics.threshold_performance.current,
+           last_optimization: metrics.last_optimization
+         }
+       }}
     rescue
       e ->
         {:error, "Failed to retrieve optimizer metrics: #{inspect(e)}"}
@@ -863,20 +763,17 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
     alias Mimo.Brain.Reflector.Optimizer
 
     try do
-      case Optimizer.get_recommendations() do
-        {:ok, recommendations} ->
-          {:ok,
-           %{
-             type: "optimizer_recommendations",
-             description: "Self-improvement recommendations based on prediction accuracy",
-             recommendation_count: length(recommendations),
-             recommendations: recommendations,
-             action_needed: Enum.any?(recommendations, &(&1.priority == :high))
-           }}
+      # Optimizer.get_recommendations() always returns {:ok, list}
+      {:ok, recommendations} = Optimizer.get_recommendations()
 
-        {:error, reason} ->
-          {:error, "Failed to get recommendations: #{inspect(reason)}"}
-      end
+      {:ok,
+       %{
+         type: "optimizer_recommendations",
+         description: "Self-improvement recommendations based on prediction accuracy",
+         recommendation_count: length(recommendations),
+         recommendations: recommendations,
+         action_needed: Enum.any?(recommendations, &(&1.priority == :high))
+       }}
     rescue
       e ->
         {:error, "Failed to retrieve optimizer recommendations: #{inspect(e)}"}
@@ -897,25 +794,14 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
     context_hash = args["context_hash"]
     outcome = args["outcome"]
 
-    if is_nil(context_hash) or is_nil(outcome) do
-      {:error,
-       "Both context_hash and outcome are required. outcome should be 'success', 'partial', or 'failure'."}
-    else
-      outcome_atom =
-        case outcome do
-          "success" -> :success
-          "partial" -> :partial
-          "failure" -> :failure
-          _ -> :partial
-        end
-
+    with {:ok, hash, outcome_atom} <- validate_outcome_args(context_hash, outcome) do
       try do
-        case Optimizer.record_outcome(context_hash, outcome_atom) do
+        case Optimizer.record_outcome(hash, outcome_atom) do
           {:ok, count} ->
             {:ok,
              %{
                type: "optimizer_record_outcome",
-               context_hash: context_hash,
+               context_hash: hash,
                outcome: outcome,
                predictions_updated: count,
                message: "Recorded outcome for #{count} prediction(s)"
@@ -933,6 +819,23 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
       end
     end
   end
+
+  defp validate_outcome_args(nil, _),
+    do:
+      {:error,
+       "Both context_hash and outcome are required. outcome should be 'success', 'partial', or 'failure'."}
+
+  defp validate_outcome_args(_, nil),
+    do:
+      {:error,
+       "Both context_hash and outcome are required. outcome should be 'success', 'partial', or 'failure'."}
+
+  defp validate_outcome_args(hash, outcome), do: {:ok, hash, parse_outcome(outcome)}
+
+  defp parse_outcome("success"), do: :success
+  defp parse_outcome("partial"), do: :partial
+  defp parse_outcome("failure"), do: :failure
+  defp parse_outcome(_), do: :partial
 
   defp dispatch_optimizer_optimize(args) do
     alias Mimo.Brain.Reflector.Optimizer
@@ -976,44 +879,44 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   defp dispatch_calibration_log_claim(args) do
     alias Mimo.Cognitive.Calibration
 
-    claim = args["claim"] || ""
-    confidence = args["confidence"]
-    answer = args["answer"] || ""
+    with {:ok, claim} <- validate_required_string(args["claim"], "claim"),
+         {:ok, confidence} <- validate_confidence(args["confidence"]),
+         {:ok, answer} <- validate_required_string(args["answer"], "answer") do
+      # Convert confidence from 0.0-1.0 to percentage for log_claim
+      confidence_pct = confidence * 100
 
-    cond do
-      claim == "" ->
-        {:error, "claim is required for calibration_log_claim"}
+      case Calibration.log_claim(claim, confidence_pct, answer) do
+        {:ok, result} ->
+          {:ok,
+           %{
+             type: "calibration_claim_logged",
+             claim_id: result[:memory_id] || result["memory_id"],
+             claim: claim,
+             confidence: confidence,
+             answer: answer,
+             message: "Claim logged. Use calibration_log_outcome to record result."
+           }}
 
-      confidence == nil ->
-        {:error, "confidence (0.0-1.0) is required for calibration_log_claim"}
-
-      not is_number(confidence) or confidence < 0.0 or confidence > 1.0 ->
-        {:error, "confidence must be a number between 0.0 and 1.0"}
-
-      answer == "" ->
-        {:error, "answer is required for calibration_log_claim"}
-
-      true ->
-        # Convert confidence from 0.0-1.0 to percentage for log_claim
-        confidence_pct = confidence * 100
-
-        case Calibration.log_claim(claim, confidence_pct, answer) do
-          {:ok, result} ->
-            {:ok,
-             %{
-               type: "calibration_claim_logged",
-               claim_id: result[:memory_id] || result["memory_id"],
-               claim: claim,
-               confidence: confidence,
-               answer: answer,
-               message: "Claim logged. Use calibration_log_outcome to record result."
-             }}
-
-          {:error, reason} ->
-            {:error, "Failed to log claim: #{inspect(reason)}"}
-        end
+        {:error, reason} ->
+          {:error, "Failed to log claim: #{inspect(reason)}"}
+      end
     end
   end
+
+  # Validation helpers for calibration operations
+  defp validate_required_string(nil, field),
+    do: {:error, "#{field} is required for calibration_log_claim"}
+
+  defp validate_required_string("", field),
+    do: {:error, "#{field} is required for calibration_log_claim"}
+
+  defp validate_required_string(value, _field) when is_binary(value), do: {:ok, value}
+
+  defp validate_confidence(nil),
+    do: {:error, "confidence (0.0-1.0) is required for calibration_log_claim"}
+
+  defp validate_confidence(c) when is_number(c) and c >= 0.0 and c <= 1.0, do: {:ok, c}
+  defp validate_confidence(_), do: {:error, "confidence must be a number between 0.0 and 1.0"}
 
   defp dispatch_calibration_log_outcome(args) do
     alias Mimo.Cognitive.Calibration
@@ -1032,11 +935,11 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
         outcome_bool = outcome == true or outcome == "true"
 
         case Calibration.log_outcome(claim_id, outcome_bool) do
-          :ok ->
+          {:ok, result} ->
             {:ok,
              %{
                type: "calibration_outcome_logged",
-               claim_id: claim_id,
+               claim_id: result[:claim_id] || claim_id,
                outcome: outcome_bool,
                message: "Outcome recorded. Brier score updated."
              }}
@@ -1054,16 +957,16 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
       {:ok, score} ->
         interpretation =
           cond do
-            score < 0.1 -> "Excellent calibration"
-            score < 0.2 -> "Good calibration"
-            score < 0.3 -> "Moderate calibration"
+            score.brier_score < 0.1 -> "Excellent calibration"
+            score.brier_score < 0.2 -> "Good calibration"
+            score.brier_score < 0.3 -> "Moderate calibration"
             true -> "Poor calibration - consider adjusting confidence levels"
           end
 
         {:ok,
          %{
            type: "calibration_brier_score",
-           brier_score: Float.round(score, 4),
+           brier_score: Float.round(score.brier_score, 4),
            interpretation: interpretation,
            note: "Lower is better. Perfect calibration = 0.0"
          }}
@@ -1088,48 +991,37 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
            average_confidence: stats[:average_confidence],
            accuracy_rate: stats[:accuracy_rate]
          }}
-
-      {:error, reason} ->
-        {:error, "Failed to get calibration stats: #{inspect(reason)}"}
     end
   end
 
   defp dispatch_calibration_overconfidence do
     alias Mimo.Cognitive.Calibration
 
-    case Calibration.overconfidence_analysis() do
-      {:ok, analysis} ->
-        {:ok,
-         %{
-           type: "calibration_overconfidence",
-           is_overconfident: analysis[:is_overconfident] || false,
-           overconfidence_ratio: analysis[:overconfidence_ratio],
-           high_confidence_accuracy: analysis[:high_confidence_accuracy],
-           recommendations: analysis[:recommendations] || [],
-           sample_size: analysis[:sample_size] || 0
-         }}
+    {:ok, analysis} = Calibration.overconfidence_analysis()
 
-      {:error, reason} ->
-        {:error, "Failed to analyze overconfidence: #{inspect(reason)}"}
-    end
+    {:ok,
+     %{
+       type: "calibration_overconfidence",
+       is_overconfident: analysis[:is_overconfident] || analysis[:detected] || false,
+       overconfidence_ratio: analysis[:overconfidence_ratio],
+       high_confidence_accuracy: analysis[:high_confidence_accuracy],
+       recommendations: analysis[:recommendations] || [analysis[:recommendation]] || [],
+       sample_size: analysis[:sample_size] || analysis[:pattern_count] || 0
+     }}
   end
 
   defp dispatch_calibration_curve do
     alias Mimo.Cognitive.Calibration
 
-    case Calibration.calibration_curve() do
-      {:ok, curve} ->
-        {:ok,
-         %{
-           type: "calibration_curve",
-           buckets: curve[:buckets] || [],
-           perfect_calibration_note: "When predicted confidence matches actual accuracy",
-           usage: "Compare predicted vs actual in each bucket to assess calibration"
-         }}
+    {:ok, curve} = Calibration.calibration_curve()
 
-      {:error, reason} ->
-        {:error, "Failed to generate calibration curve: #{inspect(reason)}"}
-    end
+    {:ok,
+     %{
+       type: "calibration_curve",
+       buckets: curve[:buckets] || curve,
+       perfect_calibration_note: "When predicted confidence matches actual accuracy",
+       usage: "Compare predicted vs actual in each bucket to assess calibration"
+     }}
   end
 
   # ==========================================================================
@@ -1145,23 +1037,29 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
       {:error, "task or problem is required for meta_task_detect"}
     else
       case MetaTaskDetector.detect(task) do
-        {:ok, result} ->
+        {:meta_task, guidance} ->
           {:ok,
            %{
              type: "meta_task_detection",
-             is_meta_task: result.is_meta_task,
-             meta_task_type: result.type,
-             confidence: result.confidence,
+             is_meta_task: true,
+             meta_task_type: guidance.type,
+             confidence: guidance.confidence,
+             instruction: guidance.instruction,
              task: task,
-             warning:
-               if(result.is_meta_task,
-                 do: "Meta-task detected. Self-generated content requires verification.",
-                 else: nil
-               )
+             warning: "Meta-task detected. Self-generated content requires verification."
            }}
 
-        {:error, reason} ->
-          {:error, "Failed to detect meta-task: #{inspect(reason)}"}
+        {:standard, info} ->
+          {:ok,
+           %{
+             type: "meta_task_detection",
+             is_meta_task: false,
+             meta_task_type: nil,
+             confidence: 1.0,
+             method: info[:method],
+             task: task,
+             warning: nil
+           }}
       end
     end
   end
@@ -1174,22 +1072,23 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
     if task == "" do
       {:error, "task or problem is required for meta_task_enhance"}
     else
-      case MetaTaskDetector.enhance_if_meta_task(task) do
-        {:ok, enhanced} ->
-          {:ok,
-           %{
-             type: "meta_task_enhanced",
-             original_task: task,
-             enhanced_task: enhanced.enhanced_task,
-             is_meta_task: enhanced.is_meta_task,
-             meta_task_type: enhanced.type,
-             enhancements_applied: enhanced.enhancements || [],
-             verification_guidance: enhanced.verification_guidance
-           }}
+      # enhance_if_meta_task returns a binary string (enhanced task or original)
+      enhanced_task = MetaTaskDetector.enhance_if_meta_task(task)
 
-        {:error, reason} ->
-          {:error, "Failed to enhance meta-task: #{inspect(reason)}"}
-      end
+      # Detect if it was a meta-task by checking if the result differs from original
+      is_meta_task = enhanced_task != task
+
+      {:ok,
+       %{
+         type: "meta_task_enhanced",
+         original_task: task,
+         enhanced_task: enhanced_task,
+         is_meta_task: is_meta_task,
+         meta_task_type: if(is_meta_task, do: :detected, else: nil),
+         enhancements_applied: if(is_meta_task, do: ["meta_task_warning"], else: []),
+         verification_guidance:
+           if(is_meta_task, do: "Self-generated content requires verification", else: nil)
+       }}
     end
   end
 
@@ -1249,38 +1148,36 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
     injection_id = args["injection_id"]
     feedback_type = args["feedback_type"] || args["type"] || "used"
 
-    if injection_id == nil or injection_id == "" do
-      {:error, "injection_id is required for injection_feedback"}
-    else
-      feedback_atom =
-        case feedback_type do
-          type when is_atom(type) -> type
-          "used" -> :used
-          "referenced" -> :referenced
-          "helpful" -> :helpful
-          "ignored" -> :ignored
-          other -> String.to_atom(other)
-        end
+    with {:ok, id} <- validate_injection_id(injection_id) do
+      feedback_atom = parse_feedback_type(feedback_type)
 
-      case PreToolInjector.record_feedback(injection_id, feedback_atom) do
+      case PreToolInjector.record_feedback(id, feedback_atom) do
         :ok ->
           {:ok,
            %{
              type: "injection_feedback_recorded",
-             injection_id: injection_id,
+             injection_id: id,
              feedback_type: feedback_atom,
              spec: "SPEC-065",
              description: "Feedback recorded. Positive feedback reinforces memory access patterns."
            }}
 
-        {:error, :injection_not_found} ->
-          {:error, "Injection not found: #{injection_id}. May have expired from tracking."}
-
-        {:error, reason} ->
-          {:error, "Failed to record feedback: #{inspect(reason)}"}
+        {:error, :not_found} ->
+          {:error, "Injection not found: #{id}. May have expired from tracking."}
       end
     end
   end
+
+  defp validate_injection_id(nil), do: {:error, "injection_id is required for injection_feedback"}
+  defp validate_injection_id(""), do: {:error, "injection_id is required for injection_feedback"}
+  defp validate_injection_id(id) when is_binary(id), do: {:ok, id}
+
+  defp parse_feedback_type(type) when is_atom(type), do: type
+  defp parse_feedback_type("used"), do: :used
+  defp parse_feedback_type("referenced"), do: :referenced
+  defp parse_feedback_type("helpful"), do: :helpful
+  defp parse_feedback_type("ignored"), do: :ignored
+  defp parse_feedback_type(other), do: String.to_atom(other)
 
   # Get statistics on injection feedback to see what's working.
   defp dispatch_injection_feedback_stats do
@@ -1365,7 +1262,7 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
          Enum.map(metrics.alerts || [], fn {key, value, threshold} ->
            %{metric: key, current: value, threshold: threshold}
          end),
-       healthy: length(metrics.alerts || []) == 0,
+       healthy: (metrics.alerts || []) == [],
        thresholds: %{
          memory_count: 50_000,
          relationship_count: 100_000,
@@ -1543,32 +1440,28 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   defp dispatch_docs_validate(_args) do
     alias Mimo.Docs.Validator
 
-    case Validator.validate_all() do
-      {:ok, result} ->
-        {:ok,
-         %{
-           type: "docs_validation",
-           files_checked: result.stats.files_checked,
-           issues: format_docs_issues(result.issues),
-           warnings: format_docs_issues(result.warnings),
-           suggestions: format_docs_issues(result.suggestions),
-           summary: %{
-             total_issues: result.stats.total_issues,
-             total_warnings: result.stats.total_warnings,
-             total_suggestions: result.stats.total_suggestions,
-             status:
-               if(result.stats.total_issues == 0 and result.stats.total_warnings == 0,
-                 do: :healthy,
-                 else: :needs_attention
-               )
-           },
-           hint:
-             "Use 'cognitive operation=docs_validate_file' with path parameter for single file validation"
-         }}
+    {:ok, result} = Validator.validate_all()
 
-      {:error, reason} ->
-        {:error, "Documentation validation failed: #{inspect(reason)}"}
-    end
+    {:ok,
+     %{
+       type: "docs_validation",
+       files_checked: result.stats.files_checked,
+       issues: format_docs_issues(result.issues),
+       warnings: format_docs_issues(result.warnings),
+       suggestions: format_docs_issues(result.suggestions),
+       summary: %{
+         total_issues: result.stats.total_issues,
+         total_warnings: result.stats.total_warnings,
+         total_suggestions: result.stats.total_suggestions,
+         status:
+           if(result.stats.total_issues == 0 and result.stats.total_warnings == 0,
+             do: :healthy,
+             else: :needs_attention
+           )
+       },
+       hint:
+         "Use 'cognitive operation=docs_validate_file' with path parameter for single file validation"
+     }}
   end
 
   # Validate a specific documentation file.

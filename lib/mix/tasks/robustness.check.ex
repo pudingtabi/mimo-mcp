@@ -11,13 +11,13 @@ defmodule Mix.Tasks.Robustness.Check do
 
       # Check single file
       mix robustness.check lib/mimo/file.ex
-      
+
       # Check multiple files
       mix robustness.check lib/file1.ex lib/file2.ex
-      
+
       # CI mode with exit code
       mix robustness.check --strict lib/file.ex
-      
+
       # Output PR comment format
       mix robustness.check --pr-comment lib/file.ex
 
@@ -223,11 +223,10 @@ defmodule Mix.Tasks.Robustness.Check do
     grouped = Enum.group_by(flags, & &1.id)
 
     flag_list =
-      Enum.map(grouped, fn {id, instances} ->
+      Enum.map_join(grouped, "\n", fn {id, instances} ->
         fix = List.first(instances).fix_template
         "- **#{id}** (#{length(instances)}x): #{fix}"
       end)
-      |> Enum.join("\n")
 
     """
     ### Red Flags Detected (#{length(flags)})
@@ -247,10 +246,9 @@ defmodule Mix.Tasks.Robustness.Check do
       ""
     else
       recs =
-        Enum.map(all_recommendations, fn r ->
+        Enum.map_join(all_recommendations, "\n", fn r ->
           "1. #{r.message}"
         end)
-        |> Enum.join("\n")
 
       """
       ### Recommendations

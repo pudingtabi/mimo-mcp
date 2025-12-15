@@ -203,7 +203,7 @@ defmodule Mimo.Brain.Reflector.Optimizer do
   @impl true
   def init(_opts) do
     # Create ETS table for fast access
-    :ets.new(@table_name, [:named_table, :set, :public, read_concurrency: true])
+    Mimo.EtsSafe.ensure_table(@table_name, [:named_table, :set, :public, read_concurrency: true])
 
     state = %{
       # context_hash => [prediction_records]

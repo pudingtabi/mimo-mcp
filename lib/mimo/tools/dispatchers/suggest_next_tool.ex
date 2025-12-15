@@ -140,7 +140,7 @@ defmodule Mimo.Tools.Dispatchers.SuggestNextTool do
       if phase == :learning and
            "memory" not in recent_tools and
            length(recent_tools) > 5 do
-        ["⚠️ Consider storing discoveries with memory operation=store" | warnings]
+        ["⚠️ Consider storing discoveries in memory so they persist" | warnings]
       else
         warnings
       end
@@ -184,7 +184,7 @@ defmodule Mimo.Tools.Dispatchers.SuggestNextTool do
         {"file", "Context gathered, ready for file operations", ["terminal", "multi_replace"]}
 
       phase == :learning ->
-        {"memory", "Store your discoveries with memory operation=store", ["knowledge teach"]}
+        {"memory", "Store your discoveries in memory", ["knowledge teach"]}
 
       # Default to context if nothing else matches
       true ->
@@ -206,7 +206,7 @@ defmodule Mimo.Tools.Dispatchers.SuggestNextTool do
   end
 
   defp get_phase_guidance(:learning) do
-    "📝 LEARNING PHASE: Store discoveries! Use memory operation=store or knowledge operation=teach."
+    "📝 LEARNING PHASE: Store discoveries in memory and teach key relationships in the knowledge graph."
   end
 
   # Helper to check if string contains any of the keywords

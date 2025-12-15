@@ -555,8 +555,7 @@ defmodule Mimo.Autonomous.TaskRunner do
     hint_text =
       context.similar_tasks
       |> Enum.take(3)
-      |> Enum.map(fn hint -> "- #{Map.get(hint, :content, "")}" end)
-      |> Enum.join("\n")
+      |> Enum.map_join("\n", fn hint -> "- #{Map.get(hint, :content, "")}" end)
 
     if hint_text != "" do
       Logger.debug("[TaskRunner] Hints for task:\n#{hint_text}")

@@ -48,7 +48,7 @@ defmodule Mimo.NeuroSymbolic.InferenceEngineE2ETest do
 
       assert length(persisted_for_pred) > 0, "No persisted rule found for predicate 'reports_to'"
 
-      IO.inspect(persisted_for_pred, label: "persisted_for_pred")
+      # persisted_for_pred contains validated rules for 'reports_to' predicate
 
       parsed_preds =
         Enum.map(persisted_for_pred, fn r ->
@@ -58,7 +58,7 @@ defmodule Mimo.NeuroSymbolic.InferenceEngineE2ETest do
           end
         end)
 
-      IO.inspect(parsed_preds, label: "parsed_preds")
+      # parsed_preds contains extracted predicate names from rules
 
       # sanity: confirm symbolic inference returns A->C
       {:ok, symbolic} =
@@ -77,7 +77,7 @@ defmodule Mimo.NeuroSymbolic.InferenceEngineE2ETest do
           min_confidence: 0.0
         )
 
-      IO.inspect(inferred, label: "inferred output")
+      # inferred contains the forward-chained inference results
 
       # We expect A->C inference with SOME valid rule id (could be any validated rule for reports_to)
       # The key is that inferred_by_rule_id is present and is a valid UUID

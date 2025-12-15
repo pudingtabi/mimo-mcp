@@ -338,6 +338,7 @@ defmodule Mimo.Cognitive.AdvancedReasoningTest do
 
   describe "Q9 meta-task test (from SPEC-063)" do
     @tag :llm_required
+    @tag :external
     test "handles meta-task requiring self-generation" do
       task = """
       I'm going to ask you 5 trivia questions. Before answering each, 

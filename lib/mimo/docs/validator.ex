@@ -437,8 +437,8 @@ defmodule Mimo.Docs.Validator do
       {~r/diagnostics\s+operation=/, "diagnostics is deprecated, use 'code operation=diagnose'"},
       {~r/library\s+operation=/, "library is deprecated, use 'code operation=library_get'"},
       {~r/graph\s+operation=/, "graph is deprecated, use 'knowledge operation='"},
-      {~r/store_fact\s+/, "store_fact is deprecated, use 'memory operation=store'"},
-      {~r/search_vibes\s+/, "search_vibes is deprecated, use 'memory operation=search'"},
+      {~r/store_fact\s+/, "store_fact is deprecated, use 'memory (store)'"},
+      {~r/search_vibes\s+/, "search_vibes is deprecated, use 'memory (search)'"},
       {~r/fetch\s+url=/, "fetch is deprecated, use 'web operation=fetch'"},
       {~r/blink\s+url=/, "blink is deprecated, use 'web operation=blink'"},
       {~r/browser\s+url=/, "browser is deprecated, use 'web operation=browser'"},
@@ -554,22 +554,18 @@ defmodule Mimo.Docs.Validator do
   """
   @spec summary() :: String.t()
   def summary do
-    case validate_all() do
-      {:ok, result} ->
-        """
-        📋 Documentation Validation Summary
-        ===================================
-        Files checked: #{result.stats.files_checked}
-        Issues: #{result.stats.total_issues}
-        Warnings: #{result.stats.total_warnings}
-        Suggestions: #{result.stats.total_suggestions}
+    {:ok, result} = validate_all()
 
-        #{format_issues(result.issues ++ result.warnings)}
-        """
+    """
+    📋 Documentation Validation Summary
+    ===================================
+    Files checked: #{result.stats.files_checked}
+    Issues: #{result.stats.total_issues}
+    Warnings: #{result.stats.total_warnings}
+    Suggestions: #{result.stats.total_suggestions}
 
-      {:error, reason} ->
-        "❌ Validation failed: #{inspect(reason)}"
-    end
+    #{format_issues(result.issues ++ result.warnings)}
+    """
   end
 
   defp format_issues([]), do: "✅ No issues found!"
@@ -577,10 +573,9 @@ defmodule Mimo.Docs.Validator do
   defp format_issues(issues) do
     issues
     |> Enum.take(10)
-    |> Enum.map(fn issue ->
+    |> Enum.map_join("\n", fn issue ->
       line_info = if issue.line, do: ":#{issue.line}", else: ""
       "• #{issue.file}#{line_info}: #{issue.message}"
     end)
-    |> Enum.join("\n")
   end
 end

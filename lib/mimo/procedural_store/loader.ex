@@ -17,7 +17,7 @@ defmodule Mimo.ProceduralStore.Loader do
   Initializes the procedure cache.
   """
   def init do
-    :ets.new(@cache_table, [:named_table, :set, :public, read_concurrency: true])
+    Mimo.EtsSafe.ensure_table(@cache_table, [:named_table, :set, :public, read_concurrency: true])
     :ok
   end
 

@@ -276,27 +276,9 @@ defmodule Mimo.Tools.Helpers do
   Format package info for output.
   """
   def format_package(package) do
-    # Count modules from different sources depending on ecosystem
     modules = package[:modules] || package["modules"] || []
     types = package[:types] || package["types"]
-
-    # For NPM packages, count types.modules if modules is empty
-    modules_count =
-      cond do
-        length(modules) > 0 ->
-          length(modules)
-
-        is_map(types) ->
-          type_modules = types[:modules] || types["modules"] || []
-          # Count total exports across all type modules
-          Enum.reduce(type_modules, 0, fn mod, acc ->
-            exports = mod[:exports] || mod["exports"] || []
-            acc + length(exports)
-          end)
-
-        true ->
-          0
-      end
+    modules_count = count_modules(modules, types)
 
     %{
       name: package[:name] || package["name"],
@@ -308,6 +290,20 @@ defmodule Mimo.Tools.Helpers do
       dependencies: package[:dependencies] || package["dependencies"] || []
     }
   end
+
+  # Multi-head module counting
+  defp count_modules(modules, _types) when length(modules) > 0, do: length(modules)
+
+  defp count_modules(_modules, types) when is_map(types) do
+    type_modules = types[:modules] || types["modules"] || []
+
+    Enum.reduce(type_modules, 0, fn mod, acc ->
+      exports = mod[:exports] || mod["exports"] || []
+      acc + length(exports)
+    end)
+  end
+
+  defp count_modules(_modules, _types), do: 0
 
   # ==========================================================================
   # UNCERTAINTY FORMATTING (for cognitive dispatcher)

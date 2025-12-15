@@ -100,47 +100,53 @@ defmodule Mix.Tasks.Mimo.BuildHnsw do
 
     """)
 
-    cond do
-      dry_run ->
-        Mix.shell().info("Dry run complete. Use without --dry-run to build index.")
+    execute_action(dry_run, total_count, index_exists, force, index_path, dimensions)
+  end
 
-      total_count == 0 ->
-        Mix.shell().error(
-          "No engrams with int8 embeddings found. Run `mix mimo.vectorize_int8` first."
-        )
+  defp execute_action(true, _total_count, _index_exists, _force, _index_path, _dimensions) do
+    Mix.shell().info("Dry run complete. Use without --dry-run to build index.")
+  end
 
-      index_exists and not force ->
+  defp execute_action(_dry_run, 0, _index_exists, _force, _index_path, _dimensions) do
+    Mix.shell().error("No engrams with int8 embeddings found. Run `mix mimo.vectorize_int8` first.")
+  end
+
+  defp execute_action(_dry_run, total_count, true, false, index_path, _dimensions) do
+    Mix.shell().info("""
+    Index already exists. Use --force to rebuild.
+
+    Current index stats:
+    """)
+
+    show_existing_index_stats(index_path, total_count)
+  end
+
+  defp execute_action(_dry_run, total_count, _index_exists, _force, index_path, dimensions) do
+    build_index(index_path, dimensions, total_count)
+  end
+
+  defp show_existing_index_stats(index_path, total_count) do
+    case Math.hnsw_load(index_path) do
+      {:ok, index} ->
+        {:ok, size} = Math.hnsw_size(index)
+        {:ok, capacity} = Math.hnsw_capacity(index)
+
         Mix.shell().info("""
-        Index already exists. Use --force to rebuild.
-
-        Current index stats:
+        - Size: #{size} vectors
+        - Capacity: #{capacity}
+        - Up to date: #{size == total_count}
         """)
 
-        case Math.hnsw_load(index_path) do
-          {:ok, index} ->
-            {:ok, size} = Math.hnsw_size(index)
-            {:ok, capacity} = Math.hnsw_capacity(index)
-
-            Mix.shell().info("""
-            - Size: #{size} vectors
-            - Capacity: #{capacity}
-            - Up to date: #{size == total_count}
-            """)
-
-            if size != total_count do
-              Mix.shell().info("""
-              Note: Index has #{size} vectors but database has #{total_count} engrams.
-              Consider running with --force to rebuild.
-              """)
-            end
-
-          {:error, reason} ->
-            Mix.shell().error("Failed to load existing index: #{inspect(reason)}")
-            Mix.shell().info("Run with --force to rebuild.")
+        if size != total_count do
+          Mix.shell().info("""
+          Note: Index has #{size} vectors but database has #{total_count} engrams.
+          Consider running with --force to rebuild.
+          """)
         end
 
-      true ->
-        build_index(index_path, dimensions, total_count)
+      {:error, reason} ->
+        Mix.shell().error("Failed to load existing index: #{inspect(reason)}")
+        Mix.shell().info("Run with --force to rebuild.")
     end
   end
 

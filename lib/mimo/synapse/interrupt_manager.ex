@@ -86,7 +86,7 @@ defmodule Mimo.Synapse.InterruptManager do
 
   @impl true
   def init(_opts) do
-    :ets.new(@table, [:named_table, :set, :public, read_concurrency: true])
+    Mimo.EtsSafe.ensure_table(@table, [:named_table, :set, :public, read_concurrency: true])
     Logger.info("✅ Synapse Interrupt Manager initialized")
     {:ok, %{}}
   end

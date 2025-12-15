@@ -29,45 +29,27 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
   """
   def dispatch(args) do
     op = args["operation"] || "query"
+    do_dispatch(op, args)
+  end
 
-    case op do
-      "query" ->
-        dispatch_query(args)
+  # ==========================================================================
+  # Multi-Head Dispatch by Operation
+  # ==========================================================================
+  defp do_dispatch("query", args), do: dispatch_query(args)
+  defp do_dispatch("teach", args), do: dispatch_teach(args)
+  defp do_dispatch("traverse", args), do: dispatch_traverse(args)
+  defp do_dispatch("explore", args), do: dispatch_explore(args)
+  defp do_dispatch("node", args), do: dispatch_node(args)
+  defp do_dispatch("path", args), do: dispatch_path(args)
+  defp do_dispatch("stats", _args), do: dispatch_stats()
+  defp do_dispatch("link", args), do: dispatch_link(args)
+  defp do_dispatch("link_memory", args), do: dispatch_link_memory(args)
+  defp do_dispatch("sync_dependencies", args), do: dispatch_sync_dependencies(args)
+  defp do_dispatch("neighborhood", args), do: dispatch_neighborhood(args)
 
-      "teach" ->
-        dispatch_teach(args)
-
-      "traverse" ->
-        dispatch_traverse(args)
-
-      "explore" ->
-        dispatch_explore(args)
-
-      "node" ->
-        dispatch_node(args)
-
-      "path" ->
-        dispatch_path(args)
-
-      "stats" ->
-        dispatch_stats()
-
-      "link" ->
-        dispatch_link(args)
-
-      "link_memory" ->
-        dispatch_link_memory(args)
-
-      "sync_dependencies" ->
-        dispatch_sync_dependencies(args)
-
-      "neighborhood" ->
-        dispatch_neighborhood(args)
-
-      _ ->
-        {:error,
-         "Unknown knowledge operation: #{op}. Available: query, teach, traverse, explore, node, path, stats, link, link_memory, sync_dependencies, neighborhood"}
-    end
+  defp do_dispatch(op, _args) do
+    {:error,
+     "Unknown knowledge operation: #{op}. Available: query, teach, traverse, explore, node, path, stats, link, link_memory, sync_dependencies, neighborhood"}
   end
 
   @doc """
@@ -135,9 +117,6 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
 
       {:error, :ambiguous, candidates} ->
         %{found: false, ambiguous: true, candidates: candidates}
-
-      _ ->
-        %{found: false}
     end
   rescue
     _ -> %{found: false, error: "semantic_store_unavailable"}
@@ -157,7 +136,7 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
           count: length(result.nodes)
         }
 
-      _ ->
+      {:error, _reason} ->
         %{found: false}
     end
   rescue
@@ -198,51 +177,45 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
     object = args["object"]
     source = args["source"] || "user_input"
 
-    cond do
-      subject && predicate && object ->
-        case Mimo.SemanticStore.Ingestor.ingest_triple(
-               %{subject: subject, predicate: predicate, object: object},
-               source
-             ) do
-          {:ok, id} ->
-            {:ok, %{status: "learned", triple_id: id, store: "semantic"}}
+    do_dispatch_teach(subject, predicate, object, text, source)
+  end
 
-          {:error, :ambiguous, candidates} ->
-            {:error,
-             "Ambiguous entity reference. Multiple matches found: #{Enum.join(candidates, ", ")}. Please be more specific."}
+  # Teaching a triple (subject, predicate, object)
+  defp do_dispatch_teach(subject, predicate, object, _text, source)
+       when not is_nil(subject) and not is_nil(predicate) and not is_nil(object) do
+    case Mimo.SemanticStore.Ingestor.ingest_triple(
+           %{subject: subject, predicate: predicate, object: object},
+           source
+         ) do
+      {:ok, id} ->
+        {:ok, %{status: "learned", triple_id: id, store: "semantic"}}
 
-          {:error, reason} when is_binary(reason) ->
-            {:error, reason}
+      {:error, reason} when is_binary(reason) ->
+        {:error, reason}
 
-          {:error, reason} ->
-            {:error, "Failed to ingest triple: #{inspect(reason)}"}
-
-          error ->
-            {:error, "Unexpected error: #{inspect(error)}"}
-        end
-
-      text && text != "" ->
-        case Mimo.SemanticStore.Ingestor.ingest_text(text, source) do
-          {:ok, count} ->
-            {:ok, %{status: "learned", triples_created: count, store: "semantic"}}
-
-          {:error, :ambiguous, candidates} ->
-            {:error,
-             "Ambiguous entity references in text. Multiple matches found: #{Enum.join(candidates, ", ")}. Please be more specific."}
-
-          {:error, reason} when is_binary(reason) ->
-            {:error, reason}
-
-          {:error, reason} ->
-            {:error, "Failed to ingest text: #{inspect(reason)}"}
-
-          error ->
-            {:error, "Unexpected error: #{inspect(error)}"}
-        end
-
-      true ->
-        {:error, "Text or subject+predicate+object required for teaching"}
+      {:error, reason} ->
+        {:error, "Failed to ingest triple: #{inspect(reason)}"}
     end
+  end
+
+  # Teaching from text
+  defp do_dispatch_teach(_subject, _predicate, _object, text, source)
+       when not is_nil(text) and text != "" do
+    case Mimo.SemanticStore.Ingestor.ingest_text(text, source) do
+      {:ok, count} ->
+        {:ok, %{status: "learned", triples_created: count, store: "semantic"}}
+
+      {:error, reason} when is_binary(reason) ->
+        {:error, reason}
+
+      {:error, reason} ->
+        {:error, "Failed to ingest text: #{inspect(reason)}"}
+    end
+  end
+
+  # No valid input
+  defp do_dispatch_teach(_subject, _predicate, _object, _text, _source) do
+    {:error, "Text or subject+predicate+object required for teaching"}
   end
 
   # ==========================================================================
@@ -251,50 +224,61 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
 
   defp dispatch_traverse(args) do
     node_id = args["node_id"] || args["node_name"]
+    do_dispatch_traverse(node_id, args)
+  end
 
-    if is_nil(node_id) or node_id == "" do
-      {:error, "node_id or node_name is required"}
-    else
-      actual_node_id = resolve_node_id(args)
+  defp do_dispatch_traverse(node_id, _args) when is_nil(node_id) or node_id == "" do
+    {:error, "node_id or node_name is required"}
+  end
 
-      if actual_node_id do
-        opts = []
-
-        # Validate max_depth to prevent expensive recursive queries
-        max_depth = InputValidation.validate_depth(args["max_depth"])
-
-        opts =
-          if args["max_depth"], do: Keyword.put(opts, :max_depth, max_depth), else: opts
-
-        opts =
-          if args["direction"] do
-            case Helpers.safe_to_atom(args["direction"], Helpers.allowed_directions()) do
-              nil -> opts
-              dir -> Keyword.put(opts, :direction, dir)
-            end
-          else
-            opts
-          end
-
-        results = Mimo.Synapse.Traversal.bfs(actual_node_id, opts)
-
-        {:ok,
-         %{
-           start_node: actual_node_id,
-           results:
-             Enum.map(results, fn r ->
-               %{
-                 node: Helpers.format_graph_node(r.node),
-                 depth: r.depth,
-                 path: r.path
-               }
-             end),
-           total: length(results)
-         }}
-      else
+  defp do_dispatch_traverse(_node_id, args) do
+    case resolve_node_id(args) do
+      nil ->
         {:error, "Node not found"}
-      end
+
+      actual_node_id ->
+        opts = build_traverse_opts(args)
+        results = Mimo.Synapse.Traversal.bfs(actual_node_id, opts)
+        format_traverse_results(actual_node_id, results)
     end
+  end
+
+  defp build_traverse_opts(args) do
+    []
+    |> maybe_add_depth_opt(args["max_depth"])
+    |> maybe_add_direction_opt(args["direction"])
+  end
+
+  defp maybe_add_depth_opt(opts, nil), do: opts
+
+  defp maybe_add_depth_opt(opts, depth) do
+    validated = InputValidation.validate_depth(depth)
+    Keyword.put(opts, :max_depth, validated)
+  end
+
+  defp maybe_add_direction_opt(opts, nil), do: opts
+
+  defp maybe_add_direction_opt(opts, direction) do
+    case Helpers.safe_to_atom(direction, Helpers.allowed_directions()) do
+      nil -> opts
+      dir -> Keyword.put(opts, :direction, dir)
+    end
+  end
+
+  defp format_traverse_results(start_node, results) do
+    {:ok,
+     %{
+       start_node: start_node,
+       results:
+         Enum.map(results, fn r ->
+           %{
+             node: Helpers.format_graph_node(r.node),
+             depth: r.depth,
+             path: r.path
+           }
+         end),
+       total: length(results)
+     }}
   end
 
   defp dispatch_explore(args) do
@@ -464,46 +448,47 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
   end
 
   defp dispatch_neighborhood(args) do
-    node_id = args["node_id"]
-    node_name = args["node_name"]
-    node_type = args["node_type"]
-    # Validate depth and limit to prevent expensive operations
     depth = InputValidation.validate_depth(args["depth"], default: 2)
     limit = InputValidation.validate_limit(args["limit"], default: 50, max: 500)
 
-    # Find node by ID or by name/type
-    node =
-      cond do
-        not is_nil(node_id) ->
-          Mimo.Repo.get(Mimo.Synapse.GraphNode, node_id)
+    node = find_neighborhood_node(args["node_id"], args["node_name"], args["node_type"])
+    do_dispatch_neighborhood(node, depth, limit)
+  end
 
-        not is_nil(node_name) ->
-          type = Helpers.parse_node_type(node_type)
-          Mimo.Synapse.Graph.get_node(type, node_name)
+  defp find_neighborhood_node(node_id, _node_name, _node_type) when not is_nil(node_id) do
+    Mimo.Repo.get(Mimo.Synapse.GraphNode, node_id)
+  end
 
-        true ->
-          nil
-      end
+  defp find_neighborhood_node(_node_id, node_name, node_type) when not is_nil(node_name) do
+    type = Helpers.parse_node_type(node_type)
+    Mimo.Synapse.Graph.get_node(type, node_name)
+  end
 
-    if is_nil(node) do
-      {:error, "Node not found. Provide node_id or node_name (with optional node_type)"}
-    else
-      case Mimo.Synapse.PathFinder.neighborhood(node.id, depth: depth, limit: limit) do
-        {:ok, result} ->
-          {:ok,
-           %{
-             center_node: Helpers.format_graph_node(node),
-             depth: depth,
-             nodes: Helpers.format_graph_nodes(result[:nodes] || []),
-             edges: Helpers.format_edges(result[:edges] || []),
-             node_count: length(result[:nodes] || []),
-             edge_count: length(result[:edges] || [])
-           }}
+  defp find_neighborhood_node(_node_id, _node_name, _node_type), do: nil
 
-        {:error, reason} ->
-          {:error, "Failed to get neighborhood: #{inspect(reason)}"}
-      end
+  defp do_dispatch_neighborhood(nil, _depth, _limit) do
+    {:error, "Node not found. Provide node_id or node_name (with optional node_type)"}
+  end
+
+  defp do_dispatch_neighborhood(node, depth, limit) do
+    case Mimo.Synapse.PathFinder.neighborhood(node.id, depth: depth, limit: limit) do
+      {:ok, result} ->
+        {:ok, format_neighborhood_result(node, depth, result)}
+
+      {:error, reason} ->
+        {:error, "Failed to get neighborhood: #{inspect(reason)}"}
     end
+  end
+
+  defp format_neighborhood_result(node, depth, result) do
+    %{
+      center_node: Helpers.format_graph_node(node),
+      depth: depth,
+      nodes: Helpers.format_graph_nodes(result[:nodes] || []),
+      edges: Helpers.format_edges(result[:edges] || []),
+      node_count: length(result[:nodes] || []),
+      edge_count: length(result[:edges] || [])
+    }
   end
 
   # ==========================================================================

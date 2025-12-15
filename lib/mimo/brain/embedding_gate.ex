@@ -48,7 +48,7 @@ defmodule Mimo.Brain.EmbeddingGate do
   @cache_table :embedding_gate_cache
   @max_cache_size 1000
   # 1 hour
-  @cache_ttl_ms 3600_000
+  @cache_ttl_ms 3_600_000
 
   # Similarity thresholds
   # Nearly identical prompts
@@ -68,7 +68,7 @@ defmodule Mimo.Brain.EmbeddingGate do
   """
   def init do
     if :ets.whereis(@cache_table) == :undefined do
-      :ets.new(@cache_table, [:set, :public, :named_table, read_concurrency: true])
+      Mimo.EtsSafe.ensure_table(@cache_table, [:set, :public, :named_table, read_concurrency: true])
     end
 
     :ok
@@ -137,8 +137,8 @@ defmodule Mimo.Brain.EmbeddingGate do
   Check if content is novel enough to process.
   Compares against provided reference embeddings.
   """
-  @spec is_novel?(String.t(), [[float()]]) :: boolean()
-  def is_novel?(content, reference_embeddings) when is_list(reference_embeddings) do
+  @spec novel?(String.t(), [[float()]]) :: boolean()
+  def novel?(content, reference_embeddings) when is_list(reference_embeddings) do
     case get_prompt_embedding(content) do
       {:ok, embedding} ->
         max_similarity =

@@ -254,50 +254,44 @@ defmodule Mimo.Workflow.Executor.StepRunner do
     success_status = validation[:success_status] || validation["success_status"]
     custom = validation[:custom] || validation["custom"]
 
-    cond do
-      # Check for required keys
-      required_keys != nil ->
-        missing =
-          Enum.filter(required_keys, fn key ->
-            not (Map.has_key?(output, key) or Map.has_key?(output, to_string(key)))
-          end)
+    do_validate(output, required_keys, non_empty, success_status, custom)
+  end
 
-        if Enum.empty?(missing) do
-          :ok
-        else
-          {:error, {:missing_keys, missing}}
-        end
+  # Multi-head validation dispatch
+  defp do_validate(output, required_keys, _non_empty, _success_status, _custom)
+       when required_keys != nil do
+    missing =
+      Enum.filter(required_keys, fn key ->
+        not (Map.has_key?(output, key) or Map.has_key?(output, to_string(key)))
+      end)
 
-      # Check for non-empty result
-      non_empty == true ->
-        if empty_result?(output) do
-          {:error, :empty_result}
-        else
-          :ok
-        end
+    if Enum.empty?(missing), do: :ok, else: {:error, {:missing_keys, missing}}
+  end
 
-      # Check for success status
-      success_status == true ->
-        if output[:status] == "success" or output["status"] == "success" do
-          :ok
-        else
-          {:error, {:unexpected_status, output[:status] || output["status"]}}
-        end
+  defp do_validate(output, _required_keys, true, _success_status, _custom) do
+    if empty_result?(output), do: {:error, :empty_result}, else: :ok
+  end
 
-      # Custom validation function
-      is_tuple(custom) and tuple_size(custom) == 2 ->
-        {mod, fun} = custom
-
-        case apply(mod, fun, [output]) do
-          true -> :ok
-          false -> {:error, :custom_validation_failed}
-          {:error, _} = err -> err
-        end
-
-      true ->
-        :ok
+  defp do_validate(output, _required_keys, _non_empty, true, _custom) do
+    if output[:status] == "success" or output["status"] == "success" do
+      :ok
+    else
+      {:error, {:unexpected_status, output[:status] || output["status"]}}
     end
   end
+
+  defp do_validate(output, _required_keys, _non_empty, _success_status, custom)
+       when is_tuple(custom) and tuple_size(custom) == 2 do
+    {mod, fun} = custom
+
+    case apply(mod, fun, [output]) do
+      true -> :ok
+      false -> {:error, :custom_validation_failed}
+      {:error, _} = err -> err
+    end
+  end
+
+  defp do_validate(_output, _required_keys, _non_empty, _success_status, _custom), do: :ok
 
   defp empty_result?(nil), do: true
   defp empty_result?(""), do: true

@@ -25,15 +25,40 @@ console.log = function (...args) {
 
 // SILENT mode - suppress all wrapper logging to ensure clean MCP transport
 const SILENT_MODE = process.env.MCP_SILENT !== '0';
-const log = SILENT_MODE ? () => { } : (...args) => log('', ...args);
+const log = SILENT_MODE ? () => { } : (...args) => console.error('[Mimo Wrapper]', ...args);
 
-const { spawn, execSync } = require('child_process');
+function normalizeLocaleEnv(baseEnv) {
+  return {
+    ...baseEnv,
+    LC_ALL: baseEnv.LC_ALL || 'C.UTF-8',
+    LANG: baseEnv.LANG || 'C.UTF-8'
+  };
+}
+
+const { spawn, spawnSync, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-// Dynamically determine MIMO_DIR from script location (bin/ -> parent)
-const MIMO_DIR = path.resolve(__dirname, '..');
+function isValidMimoDir(dir) {
+  if (!dir) return false;
+
+  try {
+    return fs.existsSync(path.join(dir, 'mix.exs'));
+  } catch (_e) {
+    return false;
+  }
+}
+
+// MIMO_DIR: Prefer env var, but only if it points to a real checkout.
+// This prevents stale environments from breaking MCP with EOF on startup.
+const MIMO_DIR_FROM_ENV = process.env.MIMO_DIR ? path.resolve(process.env.MIMO_DIR) : null;
+const MIMO_DIR_FROM_SCRIPT = path.resolve(__dirname, '..');
+const MIMO_DIR = isValidMimoDir(MIMO_DIR_FROM_ENV) ? MIMO_DIR_FROM_ENV : MIMO_DIR_FROM_SCRIPT;
+
+if (MIMO_DIR_FROM_ENV && MIMO_DIR !== MIMO_DIR_FROM_ENV) {
+  log(`Ignoring invalid MIMO_DIR=${MIMO_DIR_FROM_ENV}; using ${MIMO_DIR}`);
+}
 
 // Find Elixir/OTP paths dynamically
 function findElixirPaths() {
@@ -51,6 +76,7 @@ function findElixirPaths() {
   }
 
   // Also check elixir-install (alternative installer)
+  // IMPORTANT: Prefer OTP 27 over OTP 28 to avoid Hex.State errors
   const elixirInstallDir = path.join(homeDir, '.elixir-install', 'installs');
 
   try {
@@ -58,16 +84,22 @@ function findElixirPaths() {
     const otpDir = path.join(elixirInstallDir, 'otp');
 
     if (fs.existsSync(elixirDir)) {
-      const versions = fs.readdirSync(elixirDir);
-      if (versions.length > 0) {
-        paths.push(path.join(elixirDir, versions[versions.length - 1], 'bin'));
+      const versions = fs.readdirSync(elixirDir).sort();
+      // Prefer otp-27 versions over otp-28 (Hex compatibility)
+      const otp27Version = versions.find(v => v.includes('otp-27'));
+      const selectedVersion = otp27Version || versions[0]; // Fallback to first
+      if (selectedVersion) {
+        paths.push(path.join(elixirDir, selectedVersion, 'bin'));
       }
     }
 
     if (fs.existsSync(otpDir)) {
-      const versions = fs.readdirSync(otpDir);
-      if (versions.length > 0) {
-        paths.push(path.join(otpDir, versions[versions.length - 1], 'bin'));
+      const versions = fs.readdirSync(otpDir).sort();
+      // Prefer OTP 27.x over 28.x
+      const otp27Version = versions.find(v => v.startsWith('27'));
+      const selectedVersion = otp27Version || versions[0]; // Fallback to first
+      if (selectedVersion) {
+        paths.push(path.join(otpDir, selectedVersion, 'bin'));
       }
     }
   } catch (e) {
@@ -82,6 +114,69 @@ const STARTUP_TIMEOUT = 60000; // 60 seconds to start
 let startupTimer = null;
 let elixir = null;
 let isShuttingDown = false;
+
+// Use configured MIX_ENV (default: dev)
+const mixEnv = process.env.MIX_ENV || 'dev';
+
+// Multi-instance stability: avoid background compilation storms / build-lock waits by default.
+// Enable only when you explicitly want the wrapper to rebuild automatically.
+const AUTO_COMPILE = ['1', 'true', 'TRUE', 'yes', 'YES'].includes(process.env.MIMO_WRAPPER_AUTO_COMPILE || '0');
+
+function resolveMixBuildPath() {
+  const raw = process.env.MIX_BUILD_PATH;
+  if (!raw) return path.join(MIMO_DIR, '_build');
+  return path.isAbsolute(raw) ? raw : path.resolve(MIMO_DIR, raw);
+}
+
+function buildArtefactPath(mixEnv) {
+  return path.join(resolveMixBuildPath(), mixEnv, 'lib', 'mimo_mcp', 'ebin', 'mimo_mcp.app');
+}
+
+/**
+ * Ensure build artefacts exist BEFORE starting MCP stdio.
+ * If Mix compiles during MCP startup, it may print non-JSON lines to stdout
+ * (e.g. "==> exqlite"), which corrupts VS Code MCP stdio parsing.
+ */
+function ensureCompiledSync(mixEnv) {
+  const appPath = buildArtefactPath(mixEnv);
+  if (fs.existsSync(appPath)) {
+    return true;
+  }
+
+  log(` Build artifacts missing for MIX_ENV=${mixEnv}; compiling synchronously...`);
+
+  const compileResult = spawnSync('/bin/bash', ['-c', `
+    set -euo pipefail
+    cd "${MIMO_DIR}"
+    export PATH="${ELIXIR_PATH}:$PATH"
+    export LC_ALL="C.UTF-8"
+    export LANG="C.UTF-8"
+    export ELIXIR_ERL_OPTIONS="+fnu"
+    if [ -f .env ]; then
+      set -a
+      . .env 2>/dev/null || true
+      set +a
+    fi
+    export MIX_ENV="${mixEnv}"
+    export MIX_QUIET=1
+
+    echo "[Mimo Compile] mix deps.get" >&2
+    timeout 600s mix deps.get 2>&1 | while IFS= read -r line; do echo "[Mimo Compile] $line" >&2; done
+    echo "[Mimo Compile] mix compile" >&2
+    timeout 600s mix compile 2>&1 | while IFS= read -r line; do echo "[Mimo Compile] $line" >&2; done
+  `], {
+    cwd: MIMO_DIR,
+    stdio: ['ignore', 'ignore', 'inherit'],
+    env: normalizeLocaleEnv(process.env)
+  });
+
+  if (compileResult.status !== 0) {
+    log(` Synchronous compilation failed (exit=${compileResult.status})`);
+    return false;
+  }
+
+  return fs.existsSync(appPath);
+}
 
 // Kill any existing Mimo MCP processes BEFORE starting
 function killExisting() {
@@ -123,7 +218,7 @@ function needsCompilation() {
     walkDir(libDir);
 
     // Find oldest BEAM file mtime
-    const beamDir = path.join(MIMO_DIR, '_build/dev/lib/mimo_mcp/ebin');
+    const beamDir = path.join(resolveMixBuildPath(), mixEnv, 'lib', 'mimo_mcp', 'ebin');
     if (!fs.existsSync(beamDir)) {
       // No BEAM files exist - need compilation
       log(' No BEAM files found - compilation needed');
@@ -180,17 +275,18 @@ function asyncCompile() {
       if [ -f .env ]; then
         export $(grep -v '^#' .env | xargs 2>/dev/null)
       fi
-      export MIX_ENV=dev
+      export MIX_ENV="${mixEnv}"
       
       echo "[Mimo Compile] Async compilation started..." >&2
-      mix compile 2>&1 | while IFS= read -r line; do
+      timeout 600s mix compile 2>&1 | while IFS= read -r line; do
         echo "[Mimo Compile] $line" >&2
       done
       echo "[Mimo Compile] Compilation complete - ready for next startup" >&2
     `], {
       stdio: ['ignore', 'ignore', 'pipe'],
       cwd: MIMO_DIR,
-      detached: true  // Detached so it runs independently
+      detached: true,  // Detached so it runs independently
+      env: normalizeLocaleEnv(process.env)
     });
 
     compile.stderr.on('data', (data) => {
@@ -256,7 +352,8 @@ function reinstallHex() {
     `, {
       stdio: 'pipe',
       timeout: 60000,
-      cwd: MIMO_DIR
+      cwd: MIMO_DIR,
+      env: normalizeLocaleEnv(process.env)
     });
     log(' Hex and Rebar reinstalled successfully');
     return true;
@@ -284,7 +381,8 @@ function checkHexOtpCompatibility() {
     `, {
       stdio: 'pipe',
       timeout: 30000,
-      cwd: MIMO_DIR
+      cwd: MIMO_DIR,
+      env: normalizeLocaleEnv(process.env)
     }).toString();
 
     // Check for OTP mismatch or missing Hex patterns
@@ -308,8 +406,12 @@ function checkHexOtpCompatibility() {
   }
 }
 
-// Kill existing instances first
-killExisting();
+// Multi-instance stability: do NOT kill other instances by default.
+// Set MIMO_WRAPPER_KILL_EXISTING=1 if you explicitly want singleton behavior.
+const KILL_EXISTING = ['1', 'true', 'TRUE', 'yes', 'YES'].includes(process.env.MIMO_WRAPPER_KILL_EXISTING || '0');
+if (KILL_EXISTING) {
+  killExisting();
+}
 
 // Check for Hex OTP compatibility BEFORE compilation check
 // This fixes "Hex.State module not found" errors
@@ -318,11 +420,19 @@ if (!hexCompatible) {
   reinstallHex();
 }
 
+// Ensure we have build artifacts before starting MCP stdio
+// This avoids Mix compiling during startup and leaking non-JSON to stdout.
+ensureCompiledSync(mixEnv);
+
 // Check if compilation is needed and trigger async compile if stale
 // CRITICAL: This doesn't block startup - server starts immediately with cached BEAM
 const stale = needsCompilation();
 if (stale) {
-  asyncCompile(); // Non-blocking - runs in background for next startup
+  if (AUTO_COMPILE) {
+    asyncCompile(); // Non-blocking - runs in background for next startup
+  } else {
+    log(' Compilation appears stale, but background compile is disabled (set MIMO_WRAPPER_AUTO_COMPILE=1 to enable)');
+  }
 }
 
 // Spawn the Elixir process immediately with cached BEAM files
@@ -337,18 +447,20 @@ elixir = spawn('/bin/bash', ['-c', `
     . .env 2>/dev/null || true
     set +a
   fi
-  export MIX_ENV=dev
+  export MIX_ENV="${mixEnv}"
+  export MIX_QUIET=1
   export ELIXIR_ERL_OPTIONS="+fnu"
   export MIMO_HTTP_PORT=$((50000 + $$ % 10000))
   export MCP_PORT=$((40000 + $$ % 10000))
   export PROMETHEUS_DISABLED=true
   export MIMO_DISABLE_HTTP=true
   export LOGGER_LEVEL=none
-  exec mix run --no-halt --no-compile -e "Mimo.McpServer.Stdio.start()" 2>/dev/null
+  exec mix run --no-halt --no-compile -e "Mimo.McpServer.Stdio.start()"
 `], {
   stdio: ['pipe', 'pipe', 'pipe'],
   cwd: MIMO_DIR,
-  detached: false
+  detached: false,
+  env: normalizeLocaleEnv(process.env)
 });
 
 // Startup timeout
@@ -365,23 +477,65 @@ process.stdin.on('data', (data) => {
   }
 });
 
+let stdinShutdownScheduled = false;
+function scheduleStdinShutdown() {
+  if (stdinShutdownScheduled) return;
+  stdinShutdownScheduled = true;
+
+  // Give the child a moment to react to EOF, then ensure cleanup.
+  setTimeout(() => {
+    cleanup();
+    process.exit(0);
+  }, 500);
+}
+
 process.stdin.on('end', () => {
-  cleanup();
-  setTimeout(() => process.exit(0), 500);
+  // Don’t hard-kill the child immediately; allow it to flush final JSON-RPC.
+  if (elixir && elixir.stdin && !elixir.stdin.destroyed) {
+    try { elixir.stdin.end(); } catch (_) { /* ignore */ }
+  }
+
+  scheduleStdinShutdown();
 });
 
 process.stdin.on('close', () => {
-  cleanup();
-  setTimeout(() => process.exit(0), 500);
+  if (elixir && elixir.stdin && !elixir.stdin.destroyed) {
+    try { elixir.stdin.end(); } catch (_) { /* ignore */ }
+  }
+
+  scheduleStdinShutdown();
 });
 
-// Forward stdout
+// Forward stdout, but ONLY JSON-RPC lines.
+// Any non-JSON line is redirected to stderr to prevent VS Code MCP parse failures.
+let stdoutBuffer = '';
 elixir.stdout.on('data', (data) => {
-  if (startupTimer) {
-    clearTimeout(startupTimer);
-    startupTimer = null;
+  stdoutBuffer += data.toString();
+  const lines = stdoutBuffer.split('\n');
+  stdoutBuffer = lines.pop() || '';
+
+  for (const line of lines) {
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith('{')) {
+      if (startupTimer) {
+        clearTimeout(startupTimer);
+        startupTimer = null;
+      }
+      process.stdout.write(line + '\n');
+    } else if (trimmed.length > 0) {
+      process.stderr.write(`[Mimo Stdout Noise] ${line}\n`);
+    }
   }
-  process.stdout.write(data);
+});
+
+elixir.stdout.on('end', () => {
+  const trimmed = stdoutBuffer.trimStart();
+  if (trimmed.startsWith('{')) {
+    process.stdout.write(stdoutBuffer + '\n');
+  } else if (trimmed.length > 0) {
+    process.stderr.write(`[Mimo Stdout Noise] ${stdoutBuffer}\n`);
+  }
+  stdoutBuffer = '';
 });
 
 // Track if we've already attempted Hex reinstall this session

@@ -50,16 +50,7 @@ defmodule Mix.Tasks.Mimo.TruncateEmbeddings do
     target_dim = Keyword.get(opts, :dim, @default_dim)
 
     # Validate dimension
-    cond do
-      target_dim < @min_dim ->
-        Mix.raise("Invalid dimension #{target_dim}. Minimum is #{@min_dim}.")
-
-      target_dim > @max_dim ->
-        Mix.raise("Invalid dimension #{target_dim}. Maximum is #{@max_dim}.")
-
-      true ->
-        :ok
-    end
+    validate_dimension!(target_dim)
 
     # Start the application
     Mix.Task.run("app.start")
@@ -178,4 +169,14 @@ defmodule Mix.Tasks.Mimo.TruncateEmbeddings do
       IO.puts("✓ All embeddings now at #{target_dim} dimensions or smaller")
     end
   end
+
+  defp validate_dimension!(dim) when dim < @min_dim do
+    Mix.raise("Invalid dimension #{dim}. Minimum is #{@min_dim}.")
+  end
+
+  defp validate_dimension!(dim) when dim > @max_dim do
+    Mix.raise("Invalid dimension #{dim}. Maximum is #{@max_dim}.")
+  end
+
+  defp validate_dimension!(_dim), do: :ok
 end

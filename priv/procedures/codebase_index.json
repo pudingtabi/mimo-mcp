@@ -1,0 +1,14 @@
+{
+  "name": "codebase_index",
+  "description": "Full codebase indexing for knowledge graph population",
+  "steps": [
+    {
+      "tool": "code",
+      "args": { "operation": "index", "path": "." }
+    },
+    {
+      "tool": "knowledge",
+      "args": { "operation": "sync_dependencies", "path": "." }
+    }
+  ]
+}

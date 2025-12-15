@@ -20,27 +20,16 @@ defmodule Mimo.Tools.Dispatchers.Library do
   """
   def dispatch(args) do
     op = args["operation"] || "get"
-
-    case op do
-      "get" ->
-        dispatch_get(args)
-
-      "search" ->
-        dispatch_search(args)
-
-      "ensure" ->
-        dispatch_ensure(args)
-
-      "discover" ->
-        dispatch_discover(args)
-
-      "stats" ->
-        {:ok, Mimo.Library.CacheManager.stats()}
-
-      _ ->
-        {:error, "Unknown library operation: #{op}"}
-    end
+    do_dispatch(op, args)
   end
+
+  # Multi-head dispatch
+  defp do_dispatch("get", args), do: dispatch_get(args)
+  defp do_dispatch("search", args), do: dispatch_search(args)
+  defp do_dispatch("ensure", args), do: dispatch_ensure(args)
+  defp do_dispatch("discover", args), do: dispatch_discover(args)
+  defp do_dispatch("stats", _args), do: {:ok, Mimo.Library.CacheManager.stats()}
+  defp do_dispatch(op, _args), do: {:error, "Unknown library operation: #{op}"}
 
   # ==========================================================================
   # PRIVATE HELPERS
@@ -98,38 +87,12 @@ defmodule Mimo.Tools.Dispatchers.Library do
 
   # Search external package registry and cache top results
   defp search_external_and_cache(query, ecosystem, limit) do
-    fetcher =
-      case ecosystem do
-        :hex -> Mimo.Library.Fetchers.HexFetcher
-        :pypi -> Mimo.Library.Fetchers.PyPIFetcher
-        :npm -> Mimo.Library.Fetchers.NPMFetcher
-        :crates -> Mimo.Library.Fetchers.CratesFetcher
-      end
+    fetcher = fetcher_for_ecosystem(ecosystem)
 
     case fetcher.search(query, size: limit, per_page: limit) do
       {:ok, results} when is_list(results) ->
-        # Cache top results in background for future searches
-        spawn(fn ->
-          results
-          |> Enum.take(3)
-          |> Enum.each(fn pkg ->
-            name = pkg[:name] || pkg["name"]
-            if name, do: Mimo.Library.Index.ensure_cached(name, ecosystem, [])
-          end)
-        end)
-
-        # Format results consistently
-        formatted =
-          Enum.map(results, fn pkg ->
-            %{
-              name: pkg[:name] || pkg["name"],
-              description: pkg[:description] || pkg["description"] || "",
-              version:
-                pkg[:version] || pkg["version"] || pkg[:latest_version] || pkg["latest_version"],
-              url: pkg[:url] || pkg["url"],
-              type: :package
-            }
-          end)
+        cache_top_results_async(results, ecosystem)
+        formatted = Enum.map(results, &format_search_result/1)
 
         {:ok,
          %{
@@ -144,7 +107,6 @@ defmodule Mimo.Tools.Dispatchers.Library do
         {:ok, %{query: query, ecosystem: ecosystem, results: [], count: 0, source: :external}}
 
       {:error, reason} ->
-        # Fallback to empty result with error info
         {:ok,
          %{
            query: query,
@@ -155,6 +117,33 @@ defmodule Mimo.Tools.Dispatchers.Library do
            error: inspect(reason)
          }}
     end
+  end
+
+  # Multi-head fetcher lookup
+  defp fetcher_for_ecosystem(:hex), do: Mimo.Library.Fetchers.HexFetcher
+  defp fetcher_for_ecosystem(:pypi), do: Mimo.Library.Fetchers.PyPIFetcher
+  defp fetcher_for_ecosystem(:npm), do: Mimo.Library.Fetchers.NPMFetcher
+  defp fetcher_for_ecosystem(:crates), do: Mimo.Library.Fetchers.CratesFetcher
+
+  defp cache_top_results_async(results, ecosystem) do
+    spawn(fn ->
+      results
+      |> Enum.take(3)
+      |> Enum.each(fn pkg ->
+        name = pkg[:name] || pkg["name"]
+        if name, do: Mimo.Library.Index.ensure_cached(name, ecosystem, [])
+      end)
+    end)
+  end
+
+  defp format_search_result(pkg) do
+    %{
+      name: pkg[:name] || pkg["name"],
+      description: pkg[:description] || pkg["description"] || "",
+      version: pkg[:version] || pkg["version"] || pkg[:latest_version] || pkg["latest_version"],
+      url: pkg[:url] || pkg["url"],
+      type: :package
+    }
   end
 
   defp dispatch_ensure(args) do

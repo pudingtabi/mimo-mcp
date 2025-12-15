@@ -177,7 +177,7 @@ defmodule Mimo.Benchmark.Performance do
     ensure_test_memories(1000)
 
     # Create ETS table for results
-    results_table = :ets.new(:bench_results, [:public, :bag])
+    results_table = Mimo.EtsSafe.ensure_table(:bench_results, [:public, :bag])
 
     start_time = System.monotonic_time(:millisecond)
 

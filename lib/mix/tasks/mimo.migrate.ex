@@ -17,7 +17,9 @@ defmodule Mix.Tasks.Mimo.Migrate do
     # Parse args to check if --skip-backup is provided
     {opts, remaining_args} = OptionParser.parse!(args, strict: [skip_backup: :boolean])
 
-    unless opts[:skip_backup] do
+    if opts[:skip_backup] do
+      Mix.shell().info("⚠️  Skipping automatic backup (--skip-backup flag)")
+    else
       Mix.shell().info("🔒 Creating automatic backup before migration...")
 
       try do
@@ -34,8 +36,6 @@ defmodule Mix.Tasks.Mimo.Migrate do
             exit({:shutdown, 1})
           end
       end
-    else
-      Mix.shell().info("⚠️  Skipping automatic backup (--skip-backup flag)")
     end
 
     # Run the actual Ecto migration

@@ -29,21 +29,21 @@ defmodule Mimo.Context.BudgetAllocatorTest do
     end
 
     test "allocates budgets for large models" do
-      budget = BudgetAllocator.allocate(:large, 40000)
+      budget = BudgetAllocator.allocate(:large, 40_000)
 
       # 10%
       assert budget.tier1 == 4000
       # 25%
-      assert budget.tier2 == 10000
+      assert budget.tier2 == 10_000
       # 65%
-      assert budget.tier3 == 26000
-      assert budget.total == 40000
+      assert budget.tier3 == 26_000
+      assert budget.total == 40_000
     end
 
     test "accepts model name strings" do
       budget_haiku = BudgetAllocator.allocate("haiku", 2000)
       budget_opus = BudgetAllocator.allocate("opus", 8000)
-      budget_gpt4 = BudgetAllocator.allocate("gpt-4-turbo-128k", 40000)
+      budget_gpt4 = BudgetAllocator.allocate("gpt-4-turbo-128k", 40_000)
 
       # Haiku is small
       assert budget_haiku.tier1 == 100

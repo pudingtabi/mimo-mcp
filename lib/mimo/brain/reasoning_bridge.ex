@@ -173,8 +173,7 @@ defmodule Mimo.Brain.ReasoningBridge do
       existing_summaries =
         similar_memories
         |> Enum.take(5)
-        |> Enum.map(fn m -> "- [ID:#{m.id}] #{String.slice(m.content, 0, 100)}" end)
-        |> Enum.join("\n")
+        |> Enum.map_join("\n", fn m -> "- [ID:#{m.id}] #{String.slice(m.content, 0, 100)}" end)
 
       prompt = """
       Analyze relationships between NEW content and EXISTING memories:
@@ -311,8 +310,7 @@ defmodule Mimo.Brain.ReasoningBridge do
       summaries =
         results
         |> Enum.with_index()
-        |> Enum.map(fn {r, i} -> "#{i}. #{String.slice(r.content, 0, 150)}" end)
-        |> Enum.join("\n")
+        |> Enum.map_join("\n", fn {r, i} -> "#{i}. #{String.slice(r.content, 0, 150)}" end)
 
       prompt = """
       Rerank these search results for the query.
@@ -379,7 +377,7 @@ defmodule Mimo.Brain.ReasoningBridge do
     similar_summary =
       if Enum.empty?(similar),
         do: "None",
-        else: similar |> Enum.take(3) |> Enum.map(& &1.content) |> Enum.join("; ")
+        else: similar |> Enum.take(3) |> Enum.map_join("; ", & &1.content)
 
     """
     Analyze this new memory for storage:

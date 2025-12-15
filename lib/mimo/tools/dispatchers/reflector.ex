@@ -75,34 +75,26 @@ defmodule Mimo.Tools.Dispatchers.Reflector do
            %{
              operation: :reflect,
              original: output,
-             refined: result.refined_output || result[:output] || output,
-             iterations: result.iterations || result[:iterations] || 0,
-             final_score: result.final_score || result[:evaluation][:aggregate_score] || 0.0,
-             passed_threshold: result.passed_threshold || false,
-             improvements: result.improvements || []
-           }}
-
-        {:uncertain, result} ->
-          # Handle uncertain results - still return success but with warning
-          {:ok,
-           %{
-             operation: :reflect,
-             status: :uncertain,
-             original: output,
-             refined: result[:output] || output,
-             iterations: result[:iterations] || 0,
-             final_score:
-               result[:evaluation][:aggregate_score] || result[:confidence][:score] || 0.0,
-             passed_threshold: false,
-             warning:
-               result[:warning] || "Response quality is uncertain - verification recommended",
-             confidence: result[:confidence],
-             improvements: []
+             refined: Map.get(result, :refined_output) || Map.get(result, :output) || output,
+             iterations: Map.get(result, :iterations, 0),
+             final_score: get_aggregate_score(result),
+             passed_threshold: Map.get(result, :passed_threshold, false),
+             improvements: Map.get(result, :improvements, [])
            }}
 
         {:error, reason} ->
           {:error, "Reflection failed: #{inspect(reason)}"}
       end
+    end
+  end
+
+  # Helper to safely extract aggregate score from result
+  defp get_aggregate_score(result) do
+    cond do
+      Map.has_key?(result, :final_score) -> result.final_score
+      Map.has_key?(result, :evaluation) -> Map.get(result.evaluation, :aggregate_score, 0.0)
+      Map.has_key?(result, :confidence) -> Map.get(result.confidence, :score, 0.0)
+      true -> 0.0
     end
   end
 
@@ -122,8 +114,8 @@ defmodule Mimo.Tools.Dispatchers.Reflector do
          aggregate_score: evaluation.aggregate_score,
          scores: evaluation.scores,
          passed_threshold: evaluation.aggregate_score >= Config.get().default_threshold,
-         issues: evaluation.issues || [],
-         suggestions: evaluation.suggestions || []
+         issues: Map.get(evaluation, :issues, []),
+         suggestions: Map.get(evaluation, :suggestions, [])
        }}
     end
   end
@@ -178,7 +170,10 @@ defmodule Mimo.Tools.Dispatchers.Reflector do
       context = build_context(args)
       format_type = parse_format_type(args["format_type"])
 
-      formatted = ConfidenceOutput.format(output, context, format_type)
+      # ConfidenceOutput.format expects (output, confidence, opts)
+      # First estimate confidence, then format
+      confidence = ConfidenceEstimator.estimate(output, context)
+      formatted = ConfidenceOutput.format(output, confidence, format: format_type)
 
       {:ok,
        %{

@@ -8,8 +8,8 @@ defmodule Mimo.Tools.Dispatchers.Onboard do
   1. Check memory for project fingerprint (hash of file tree)
   2. If exists & !force → return cached profile
   3. Run IN BACKGROUND via Tracker:
-     - code_symbols operation=index
-     - library operation=discover
+     - code operation=index
+     - code operation=library_discover
      - knowledge operation=link
   4. Return immediate "started" status
   5. User can check status via `onboard status=true`

@@ -216,19 +216,28 @@ defmodule Mimo.Skills.Sonar do
   end
 
   defp scan_headless do
-    # For headless servers, return process/terminal info instead
+    # For headless servers, explain the limitation and suggest alternatives
     {ps_output, _} = System.cmd("ps", ["aux", "--sort=-pcpu"], stderr_to_stdout: true)
-    {who_output, _} = System.cmd("who", [], stderr_to_stdout: true)
+    top_procs = ps_output |> String.split("\n") |> Enum.take(10) |> Enum.join("\n")
 
     output = """
-    Headless Server Scan (no display detected)
-    ==========================================
+    Headless Server Environment Detected
+    =====================================
 
-    Active Sessions:
-    #{who_output}
+    This server is running without a display (no X11/Wayland).
+    UI accessibility scanning requires a graphical environment.
 
-    Top Processes:
-    #{ps_output |> String.split("\n") |> Enum.take(15) |> Enum.join("\n")}
+    ALTERNATIVES FOR WEB ACCESSIBILITY:
+    - Use `web operation=browser url="..." operation=screenshot` to capture a page
+    - Use `web operation=vision image="screenshot_base64"` to analyze the screenshot
+    - Use browser-based accessibility testing tools like axe-core or pa11y
+
+    SERVER STATUS:
+    #{top_procs}
+
+    For web-based accessibility testing, consider:
+    1. `web operation=screenshot url="https://yoursite.com"` - captures the page
+    2. `web operation=vision image="[screenshot_data]" prompt="Analyze this UI for accessibility issues"`
     """
 
     {:ok, output}

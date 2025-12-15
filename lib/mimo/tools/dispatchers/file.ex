@@ -26,6 +26,14 @@ defmodule Mimo.Tools.Dispatchers.File do
 
   require Logger
 
+  # Operation categories:
+  # - Read: read, read_lines, read_multiple, read_symbol
+  # - Write: write, edit, replace_string, multi_replace
+  # - Search: search, list_symbols, search_symbols, glob
+  # - Nav: ls, list_directory, get_info, move, create_directory
+  # - Line: insert_after, insert_before, replace_lines, delete_lines
+  # - Diff: diff
+
   @doc """
   Dispatch file operation based on args.
   """
@@ -33,126 +41,127 @@ defmodule Mimo.Tools.Dispatchers.File do
     path = args["path"] || "."
     skip_context = Map.get(args, "skip_memory_context", true)
 
-    result =
-      case op do
-        "read" ->
-          dispatch_read(path, args, skip_context)
-
-        "write" ->
-          content = args["content"] || ""
-          mode = if args["mode"] == "append", do: :append, else: :rewrite
-          result = Mimo.Skills.FileOps.write(path, content, mode: mode)
-          # Invalidate cache on write
-          FileReadCache.invalidate(path)
-          result
-
-        "ls" ->
-          Mimo.Skills.FileOps.ls(path)
-
-        "read_lines" ->
-          start_line = args["start_line"] || 1
-          end_line = args["end_line"] || -1
-          Mimo.Skills.FileOps.read_lines(path, start_line, end_line)
-
-        "insert_after" ->
-          result =
-            Mimo.Skills.FileOps.insert_after_line(
-              path,
-              args["line_number"] || 0,
-              args["content"] || ""
-            )
-
-          FileReadCache.invalidate(path)
-          result
-
-        "insert_before" ->
-          result =
-            Mimo.Skills.FileOps.insert_before_line(
-              path,
-              args["line_number"] || 1,
-              args["content"] || ""
-            )
-
-          FileReadCache.invalidate(path)
-          result
-
-        "replace_lines" ->
-          start_line = args["start_line"] || 1
-          end_line = args["end_line"] || start_line
-
-          result =
-            Mimo.Skills.FileOps.replace_lines(path, start_line, end_line, args["content"] || "")
-
-          FileReadCache.invalidate(path)
-          result
-
-        "delete_lines" ->
-          start_line = args["start_line"] || 1
-          end_line = args["end_line"] || start_line
-          result = Mimo.Skills.FileOps.delete_lines(path, start_line, end_line)
-          FileReadCache.invalidate(path)
-          result
-
-        "search" ->
-          opts = [max_results: args["max_results"] || 50]
-          Mimo.Skills.FileOps.search(path, args["pattern"] || "", opts)
-
-        "replace_string" ->
-          result =
-            Mimo.Skills.FileOps.replace_string(path, args["old_str"] || "", args["new_str"] || "")
-
-          FileReadCache.invalidate(path)
-          result
-
-        "edit" ->
-          dispatch_edit(path, args, skip_context)
-
-        "list_directory" ->
-          Mimo.Skills.FileOps.list_directory(path, depth: args["depth"] || 1)
-
-        "get_info" ->
-          Mimo.Skills.FileOps.get_info(path)
-
-        "move" ->
-          result = Mimo.Skills.FileOps.move(path, args["destination"] || "")
-          FileReadCache.invalidate(path)
-          if args["destination"], do: FileReadCache.invalidate(args["destination"])
-          result
-
-        "create_directory" ->
-          Mimo.Skills.FileOps.create_directory(path)
-
-        "read_multiple" ->
-          Mimo.Skills.FileOps.read_multiple(args["paths"] || [])
-
-        "list_symbols" ->
-          Mimo.Skills.FileOps.list_symbols(path)
-
-        "read_symbol" ->
-          dispatch_read_symbol(path, args)
-
-        "search_symbols" ->
-          opts = [max_results: args["max_results"] || 50]
-          Mimo.Skills.FileOps.search_symbols(path, args["pattern"] || "", opts)
-
-        "glob" ->
-          dispatch_glob(args)
-
-        "multi_replace" ->
-          dispatch_multi_replace(args)
-
-        "diff" ->
-          dispatch_diff(args)
-
-        _ ->
-          {:error, "Unknown file operation: #{op}"}
-      end
+    result = do_dispatch(op, path, args, skip_context)
 
     # Add cross-tool suggestions (SPEC-031 Phase 2)
     Suggestions.maybe_add_suggestion(result, "file", args)
   end
 
   def dispatch(_), do: {:error, "Operation required"}
+
+  # ==========================================================================
+  # Multi-Head Dispatch by Operation Category
+  # ==========================================================================
+
+  # Read operations
+  defp do_dispatch("read", path, args, skip_context), do: dispatch_read(path, args, skip_context)
+
+  defp do_dispatch("read_lines", path, args, _skip_context) do
+    start_line = args["start_line"] || 1
+    end_line = args["end_line"] || -1
+    Mimo.Skills.FileOps.read_lines(path, start_line, end_line)
+  end
+
+  defp do_dispatch("read_multiple", _path, args, _skip_context) do
+    Mimo.Skills.FileOps.read_multiple(args["paths"] || [])
+  end
+
+  defp do_dispatch("read_symbol", path, args, _skip_context), do: dispatch_read_symbol(path, args)
+
+  # Write operations
+  defp do_dispatch("write", path, args, _skip_context) do
+    content = args["content"] || ""
+    mode = if args["mode"] == "append", do: :append, else: :rewrite
+    result = Mimo.Skills.FileOps.write(path, content, mode: mode)
+    FileReadCache.invalidate(path)
+    result
+  end
+
+  defp do_dispatch("edit", path, args, skip_context), do: dispatch_edit(path, args, skip_context)
+
+  defp do_dispatch("replace_string", path, args, _skip_context) do
+    result = Mimo.Skills.FileOps.replace_string(path, args["old_str"] || "", args["new_str"] || "")
+    FileReadCache.invalidate(path)
+    result
+  end
+
+  defp do_dispatch("multi_replace", _path, args, _skip_context), do: dispatch_multi_replace(args)
+
+  # Search operations
+  defp do_dispatch("search", path, args, _skip_context) do
+    opts = [max_results: args["max_results"] || 50]
+    Mimo.Skills.FileOps.search(path, args["pattern"] || "", opts)
+  end
+
+  defp do_dispatch("list_symbols", path, _args, _skip_context) do
+    Mimo.Skills.FileOps.list_symbols(path)
+  end
+
+  defp do_dispatch("search_symbols", path, args, _skip_context) do
+    opts = [max_results: args["max_results"] || 50]
+    Mimo.Skills.FileOps.search_symbols(path, args["pattern"] || "", opts)
+  end
+
+  defp do_dispatch("glob", _path, args, _skip_context), do: dispatch_glob(args)
+
+  # Navigation operations
+  defp do_dispatch("ls", path, _args, _skip_context), do: Mimo.Skills.FileOps.ls(path)
+
+  defp do_dispatch("list_directory", path, args, _skip_context) do
+    Mimo.Skills.FileOps.list_directory(path, depth: args["depth"] || 1)
+  end
+
+  defp do_dispatch("get_info", path, _args, _skip_context), do: Mimo.Skills.FileOps.get_info(path)
+
+  defp do_dispatch("move", path, args, _skip_context) do
+    result = Mimo.Skills.FileOps.move(path, args["destination"] || "")
+    FileReadCache.invalidate(path)
+    if args["destination"], do: FileReadCache.invalidate(args["destination"])
+    result
+  end
+
+  defp do_dispatch("create_directory", path, _args, _skip_context) do
+    Mimo.Skills.FileOps.create_directory(path)
+  end
+
+  # Line operations
+  defp do_dispatch("insert_after", path, args, _skip_context) do
+    result =
+      Mimo.Skills.FileOps.insert_after_line(path, args["line_number"] || 0, args["content"] || "")
+
+    FileReadCache.invalidate(path)
+    result
+  end
+
+  defp do_dispatch("insert_before", path, args, _skip_context) do
+    result =
+      Mimo.Skills.FileOps.insert_before_line(path, args["line_number"] || 1, args["content"] || "")
+
+    FileReadCache.invalidate(path)
+    result
+  end
+
+  defp do_dispatch("replace_lines", path, args, _skip_context) do
+    start_line = args["start_line"] || 1
+    end_line = args["end_line"] || start_line
+    result = Mimo.Skills.FileOps.replace_lines(path, start_line, end_line, args["content"] || "")
+    FileReadCache.invalidate(path)
+    result
+  end
+
+  defp do_dispatch("delete_lines", path, args, _skip_context) do
+    start_line = args["start_line"] || 1
+    end_line = args["end_line"] || start_line
+    result = Mimo.Skills.FileOps.delete_lines(path, start_line, end_line)
+    FileReadCache.invalidate(path)
+    result
+  end
+
+  # Diff operations
+  defp do_dispatch("diff", _path, args, _skip_context), do: dispatch_diff(args)
+
+  # Unknown operation
+  defp do_dispatch(op, _path, _args, _skip_context), do: {:error, "Unknown file operation: #{op}"}
 
   # ==========================================================================
   # PRIVATE HELPERS
@@ -245,7 +254,7 @@ defmodule Mimo.Tools.Dispatchers.File do
 
   # Add symbol suggestion to result
   defp add_symbol_suggestion({:ok, result}, symbols, metadata) do
-    symbol_names = symbols |> Enum.take(5) |> Enum.map(& &1.name) |> Enum.join(", ")
+    symbol_names = symbols |> Enum.take(5) |> Enum.map_join(", ", & &1.name)
 
     suggestion =
       Map.get(metadata, :suggestion, "") <>

@@ -12,14 +12,14 @@ defmodule Mimo.SafeCall do
   ## Usage
 
       # Safe GenServer call with fallback
-      SafeCall.genserver(Mimo.Brain.WorkingMemory, {:search, query}, 
+      SafeCall.genserver(Mimo.Brain.WorkingMemory, {:search, query},
         fallback: [],
         timeout: 5000
       )
-      
+
       # Safe task spawning (falls back to sync if supervisor down)
       SafeCall.task(fn -> expensive_work() end)
-      
+
       # Safe embedding with multi-backend fallback
       SafeCall.embedding("some text")
 
@@ -33,7 +33,7 @@ defmodule Mimo.SafeCall do
 
   require Logger
 
-  @default_timeout 5_000
+  @default_timeout Mimo.TimeoutConfig.genserver_default()
   @task_supervisor Mimo.TaskSupervisor
 
   # ============================================================================
@@ -127,7 +127,7 @@ defmodule Mimo.SafeCall do
 
       {:ok, task} = SafeCall.task(fn -> expensive_work() end)
       result = Task.await(task)
-      
+
       # Or with immediate await
       {:ok, result} = SafeCall.task_await(fn -> work() end, timeout: 10_000)
   """

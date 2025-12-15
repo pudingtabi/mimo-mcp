@@ -193,7 +193,7 @@ defmodule Mimo.Brain.WisdomInjector do
           %{
             type: :low_confidence,
             message:
-              "⚠️ Very low confidence (#{Float.round(confidence * 100, 1)}%). Consider using `reason operation=guided` before proceeding."
+              "⚠️ Very low confidence (#{Float.round(confidence * 100, 1)}%). Consider using reason (guided) before proceeding."
           }
           | warnings
         ]

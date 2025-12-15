@@ -449,10 +449,10 @@ defmodule Mimo.Skills.Verify do
            method: "executable_reasoning",
            error: "Reasoning failed: #{inspect(reason)}",
            fallback_workflow: [
-             "1. Call: reason operation=guided problem='#{problem}' strategy=cot",
+             "1. Start a reasoning session (reason: guided) for this problem",
              "2. Work through reasoning steps",
-             "3. Call: reason operation=conclude session_id=...",
-             "4. Compare conclusion with claimed_answer: #{claimed}"
+             "3. Conclude the session (reason: conclude)",
+             "4. Compare the conclusion with claimed_answer: #{claimed}"
            ]
          }}
 
@@ -470,10 +470,10 @@ defmodule Mimo.Skills.Verify do
            method: "executable_reasoning",
            error: "Self-check timed out after #{div(@self_check_timeout_ms, 1000)}s",
            fallback_workflow: [
-             "1. Call: reason operation=guided problem='#{problem}' strategy=cot",
+             "1. Start a reasoning session (reason: guided) for this problem",
              "2. Work through reasoning steps manually",
-             "3. Call: reason operation=conclude session_id=...",
-             "4. Compare conclusion with claimed_answer: #{claimed}"
+             "3. Conclude the session (reason: conclude)",
+             "4. Compare the conclusion with claimed_answer: #{claimed}"
            ]
          }}
     end

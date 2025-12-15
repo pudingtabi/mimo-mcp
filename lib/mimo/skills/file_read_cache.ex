@@ -180,7 +180,7 @@ defmodule Mimo.Skills.FileReadCache do
   @impl true
   def init(_opts) do
     # Create ETS table
-    :ets.new(@cache_table, [:named_table, :set, :public, read_concurrency: true])
+    Mimo.EtsSafe.ensure_table(@cache_table, [:named_table, :set, :public, read_concurrency: true])
 
     # Schedule periodic cleanup
     schedule_cleanup()

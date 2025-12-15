@@ -120,16 +120,15 @@ defmodule Mimo.Cognitive.Calibration do
   @spec log_outcome(String.t(), boolean()) :: {:ok, map()} | {:error, term()}
   def log_outcome(topic, correct?) when is_boolean(correct?) do
     # Find the original claim in memory
-    case Memory.search("Confidence: % on '#{topic}'", limit: 1, category: :observation) do
-      {:ok, [claim | _]} ->
+    {:ok, results} = Memory.search("Confidence: % on '#{topic}'", limit: 1, category: :observation)
+
+    case results do
+      [claim | _] ->
         # Update the metadata with outcome
         update_claim_outcome(claim, correct?)
 
-      {:ok, []} ->
+      [] ->
         {:error, "No claim found for topic: #{topic}"}
-
-      {:error, reason} ->
-        {:error, reason}
     end
   end
 
@@ -302,34 +301,26 @@ defmodule Mimo.Cognitive.Calibration do
 
   defp get_claims_with_outcomes do
     # Get calibration claims from memory
-    case Memory.search("Calibration outcome", limit: 100, category: :observation) do
-      {:ok, outcomes} ->
-        Enum.map(outcomes, fn outcome ->
-          metadata = outcome.metadata || %{}
+    {:ok, outcomes} = Memory.search("Calibration outcome", limit: 100, category: :observation)
 
-          %{
-            confidence: metadata["original_confidence"] || 50,
-            outcome: metadata["outcome"] == true
-          }
-        end)
-        |> Enum.filter(&(&1.confidence != nil))
+    Enum.map(outcomes, fn outcome ->
+      metadata = outcome.metadata || %{}
 
-      {:error, _} ->
-        []
-    end
+      %{
+        confidence: metadata["original_confidence"] || 50,
+        outcome: metadata["outcome"] == true
+      }
+    end)
+    |> Enum.filter(&(&1.confidence != nil))
   end
 
   defp get_pending_claims do
-    case Memory.search("Confidence:", limit: 50, category: :observation) do
-      {:ok, claims} ->
-        Enum.filter(claims, fn claim ->
-          metadata = claim.metadata || %{}
-          metadata["type"] == "calibration_claim" and metadata["outcome"] == nil
-        end)
+    {:ok, claims} = Memory.search("Confidence:", limit: 50, category: :observation)
 
-      {:error, _} ->
-        []
-    end
+    Enum.filter(claims, fn claim ->
+      metadata = claim.metadata || %{}
+      metadata["type"] == "calibration_claim" and metadata["outcome"] == nil
+    end)
   end
 
   defp calculate_brier(claims) do

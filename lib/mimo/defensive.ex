@@ -7,7 +7,7 @@ defmodule Mimo.Defensive do
 
   ## Design Principles (Learned from Dec 6 2025 Incident)
 
-  1. External entry points cannot safely make synchronous GenServer calls during 
+  1. External entry points cannot safely make synchronous GenServer calls during
      initialization because the supervision tree only guarantees process existence,
      not fully initialized state.
 
@@ -26,7 +26,7 @@ defmodule Mimo.Defensive do
 
       case safe_genserver_call(Mimo.ToolRegistry, {:lookup, tool_name}) do
         {:ok, result} -> handle_result(result)
-        {:error, :not_ready} -> 
+        {:error, :not_ready} ->
           warn_stderr("ToolRegistry not ready")
           handle_degraded_mode()
       end
@@ -37,14 +37,14 @@ defmodule Mimo.Defensive do
 
   Handles:
   - Process not started yet → {:error, :not_ready}
-  - Process crashed → {:error, :not_alive}  
+  - Process crashed → {:error, :not_alive}
   - Timeout → {:error, :timeout}
   - Any other error → {:error, reason}
 
   This is the recommended pattern for external interfaces to call internal services.
   """
   @spec safe_genserver_call(atom() | pid(), term(), timeout()) :: {:ok, term()} | {:error, term()}
-  def safe_genserver_call(server, message, timeout \\ 5000)
+  def safe_genserver_call(server, message, timeout \\ Mimo.TimeoutConfig.genserver_default())
 
   def safe_genserver_call(pid, message, timeout) when is_pid(pid) do
     if Process.alive?(pid) do

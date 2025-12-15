@@ -172,8 +172,7 @@ defmodule Mimo.RequestInterceptor do
     error_summary =
       errors
       |> Enum.take(3)
-      |> Enum.map(fn e -> "#{e.tool}: #{String.slice(e.message, 0, 50)}" end)
-      |> Enum.join("; ")
+      |> Enum.map_join("; ", fn e -> "#{e.tool}: #{String.slice(e.message, 0, 50)}" end)
 
     "Debug session with errors: #{error_summary}"
   end

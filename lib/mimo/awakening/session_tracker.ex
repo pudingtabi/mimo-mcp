@@ -178,7 +178,7 @@ defmodule Mimo.Awakening.SessionTracker do
   @impl true
   def init(_opts) do
     # Create ETS table for fast session lookup
-    :ets.new(@ets_table, [:named_table, :public, :set, read_concurrency: true])
+    Mimo.EtsSafe.ensure_table(@ets_table, [:named_table, :public, :set, read_concurrency: true])
 
     # Schedule periodic cleanup
     schedule_cleanup()

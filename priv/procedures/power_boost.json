@@ -1,0 +1,18 @@
+{
+  "name": "power_boost",
+  "description": "Rapid knowledge accumulation and power level enhancement",
+  "steps": [
+    {
+      "tool": "memory",
+      "args": { "operation": "stats" }
+    },
+    {
+      "tool": "knowledge",
+      "args": { "operation": "stats" }
+    },
+    {
+      "tool": "awakening_status",
+      "args": { "include_achievements": true, "include_guidance": true }
+    }
+  ]
+}

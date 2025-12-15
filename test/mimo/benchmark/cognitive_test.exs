@@ -148,9 +148,9 @@ defmodule Mimo.Benchmark.CognitiveTest do
     test "evaluates temporal validity when data exists" do
       now = DateTime.utc_now() |> DateTime.truncate(:second)
       # 1 day ago
-      past = DateTime.add(now, -86400, :second)
+      past = DateTime.add(now, -86_400, :second)
       # 1 day ahead
-      future = DateTime.add(now, 86400, :second)
+      future = DateTime.add(now, 86_400, :second)
 
       # Create memory with temporal validity
       {:ok, _} =

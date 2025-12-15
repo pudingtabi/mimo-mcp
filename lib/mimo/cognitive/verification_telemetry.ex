@@ -263,7 +263,7 @@ defmodule Mimo.Cognitive.VerificationTelemetry do
   defp ensure_stats_table do
     case :ets.whereis(@stats_table) do
       :undefined ->
-        :ets.new(@stats_table, [:named_table, :public, :set])
+        Mimo.EtsSafe.ensure_table(@stats_table, [:named_table, :public, :set])
 
       _ ->
         :ok

@@ -13,7 +13,7 @@ defmodule Mimo.RequestInterceptorTest do
     error_map = %{
       reason: :pattern_not_found,
       suggestion: "Verify the exact text including whitespace and line endings",
-      file_size: 13943,
+      file_size: 13_943,
       searched_for: "some interpolated string content"
     }
 

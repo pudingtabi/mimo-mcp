@@ -154,22 +154,13 @@ defmodule Mimo.Benchmark.LOCOMO do
     strategy = Keyword.get(opts, :strategy, :semantic)
     threshold = Keyword.get(opts, :threshold, 0.7)
 
-    memories =
-      case Memory.search(question["text"], limit: limit) do
-        {:ok, list} when is_list(list) ->
-          list
-
-        {:error, reason} ->
-          Logger.error("Memory search failed: #{inspect(reason)}")
-          []
-      end
+    {:ok, memories} = Memory.search(question["text"], limit: limit)
 
     latency_ms = System.monotonic_time(:millisecond) - start_time
 
     predicted =
       memories
-      |> Enum.map(&(&1[:content] || ""))
-      |> Enum.join(" ")
+      |> Enum.map_join(" ", &(&1[:content] || ""))
 
     expected = question["answer"] || ""
 
@@ -231,36 +222,29 @@ defmodule Mimo.Benchmark.LOCOMO do
         |> Enum.map_reduce(%{memories: 0, tokens: 0}, fn {conv, idx}, acc ->
           if show_progress?, do: IO.write("\r  Processing conversation #{idx}/#{total}...")
 
-          case ingest_conversation(conv, run_id,
-                 context_id: conv["conversation_id"],
-                 concurrency: concurrency
-               ) do
-            {:ok, ingest_info} ->
-              question_results =
-                conv["questions"]
-                |> List.wrap()
-                |> Enum.flat_map(fn
-                  list when is_list(list) -> list
-                  item when is_map(item) -> [item]
-                  _ -> []
-                end)
-                |> Enum.map(
-                  &evaluate_question(&1, limit: limit, strategy: strategy, threshold: threshold)
-                )
+          {:ok, ingest_info} =
+            ingest_conversation(conv, run_id,
+              context_id: conv["conversation_id"],
+              concurrency: concurrency
+            )
 
-              {%{conversation_id: conv["conversation_id"], results: question_results},
-               %{
-                 memories: acc.memories + ingest_info.count,
-                 tokens: acc.tokens + ingest_info.tokens
-               }}
+          question_results =
+            conv["questions"]
+            |> List.wrap()
+            |> Enum.flat_map(fn
+              list when is_list(list) -> list
+              item when is_map(item) -> [item]
+              _ -> []
+            end)
+            |> Enum.map(
+              &evaluate_question(&1, limit: limit, strategy: strategy, threshold: threshold)
+            )
 
-            {:error, reason} ->
-              Logger.error(
-                "Failed to ingest conversation #{conv["conversation_id"]}: #{inspect(reason)}"
-              )
-
-              {%{conversation_id: conv["conversation_id"], results: [], error: reason}, acc}
-          end
+          {%{conversation_id: conv["conversation_id"], results: question_results},
+           %{
+             memories: acc.memories + ingest_info.count,
+             tokens: acc.tokens + ingest_info.tokens
+           }}
         end)
 
       if show_progress?, do: IO.puts("\r  Processing complete.                    ")

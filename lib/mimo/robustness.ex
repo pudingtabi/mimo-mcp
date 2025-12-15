@@ -22,13 +22,13 @@ defmodule Mimo.Robustness do
 
       # Analyze a single file
       {:ok, result} = Mimo.Robustness.analyze("/path/to/file.ex")
-      
+
       # Get robustness score
       score = result.score  # 0-100, higher is better
-      
+
       # Check for red flags
       red_flags = result.red_flags  # List of detected issues
-      
+
       # Audit entire codebase
       {:ok, report} = Mimo.Robustness.audit("/path/to/project")
 
@@ -245,7 +245,7 @@ defmodule Mimo.Robustness do
     """
     # 🛡️ Robustness Audit Report
 
-    **Path:** #{report.path}  
+    **Path:** #{report.path}
     **Generated:** #{report.generated_at}
 
     ## Summary
@@ -277,11 +277,9 @@ defmodule Mimo.Robustness do
   defp format_high_risk_files([]), do: "_No high risk files found. ✅_"
 
   defp format_high_risk_files(files) do
-    files
-    |> Enum.map(fn file ->
+    Enum.map_join(files, "\n", fn file ->
       "- **#{file.file}** - Score: #{file.score}/100 (#{length(file.red_flags)} red flags)"
     end)
-    |> Enum.join("\n")
   end
 
   defp format_red_flags([]), do: "_No red flags detected. ✅_"
@@ -289,9 +287,8 @@ defmodule Mimo.Robustness do
   defp format_red_flags(flags) do
     flags
     |> Enum.group_by(& &1.id)
-    |> Enum.map(fn {id, instances} ->
+    |> Enum.map_join("\n", fn {id, instances} ->
       "- **#{id}** (#{length(instances)} instances)"
     end)
-    |> Enum.join("\n")
   end
 end

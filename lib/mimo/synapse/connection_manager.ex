@@ -88,7 +88,7 @@ defmodule Mimo.Synapse.ConnectionManager do
   @impl true
   def init(_opts) do
     # Create ETS table for connection tracking
-    :ets.new(@table, [:named_table, :set, :public, read_concurrency: true])
+    Mimo.EtsSafe.ensure_table(@table, [:named_table, :set, :public, read_concurrency: true])
 
     Logger.info("✅ Synapse Connection Manager initialized")
     {:ok, %{}}

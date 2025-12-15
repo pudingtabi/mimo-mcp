@@ -189,13 +189,11 @@ defmodule Mimo.Brain.ContradictionGuard do
   defp check_against_memories(claim, memories) do
     # Format memories for prompt
     knowledge_text =
-      memories
-      |> Enum.map(fn m ->
+      Enum.map_join(memories, "\n", fn m ->
         content = Map.get(m, :content, "")
         category = Map.get(m, :category, "unknown")
         "[#{category}] #{content}"
       end)
-      |> Enum.join("\n")
 
     prompt =
       @contradiction_check_prompt

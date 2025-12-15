@@ -148,26 +148,27 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.TokenEfficiency do
   @doc """
   Calculate token budget recommendation for a task.
   """
+  @budget_table %{
+    {:coding, :low} => 300,
+    {:coding, :medium} => 700,
+    {:coding, :high} => 1500,
+    {:analysis, :low} => 200,
+    {:analysis, :medium} => 500,
+    {:analysis, :high} => 1100,
+    {:refactoring, :low} => 400,
+    {:refactoring, :medium} => 900,
+    {:refactoring, :high} => 1800,
+    {:debugging, :low} => 350,
+    {:debugging, :medium} => 800,
+    {:debugging, :high} => 1400,
+    {:documentation, :low} => 250,
+    {:documentation, :medium} => 600,
+    {:documentation, :high} => 1200
+  }
+
   @spec recommended_budget(task_type(), atom()) :: pos_integer()
   def recommended_budget(task_type, complexity) do
-    case {task_type, complexity} do
-      {:coding, :low} -> 300
-      {:coding, :medium} -> 700
-      {:coding, :high} -> 1500
-      {:analysis, :low} -> 200
-      {:analysis, :medium} -> 500
-      {:analysis, :high} -> 1100
-      {:refactoring, :low} -> 400
-      {:refactoring, :medium} -> 900
-      {:refactoring, :high} -> 1800
-      {:debugging, :low} -> 350
-      {:debugging, :medium} -> 800
-      {:debugging, :high} -> 1400
-      {:documentation, :low} -> 250
-      {:documentation, :medium} -> 600
-      {:documentation, :high} -> 1200
-      _ -> 500
-    end
+    Map.get(@budget_table, {task_type, complexity}, 500)
   end
 
   @doc """
@@ -176,22 +177,16 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.TokenEfficiency do
   @spec estimate_quality(task_type(), pos_integer(), pos_integer()) :: float()
   def estimate_quality(task_type, tokens_used, expected_tokens) do
     ratio = tokens_used / expected_tokens
-
-    cond do
-      # Too few tokens - likely incomplete
-      ratio < 0.5 -> 0.5 * ratio
-      # Optimal range
-      ratio >= 0.8 and ratio <= 1.2 -> 1.0
-      # Slightly over
-      ratio > 1.2 and ratio <= 1.5 -> 0.95
-      # Too verbose
-      ratio > 1.5 and ratio <= 2.0 -> 0.85
-      ratio > 2.0 -> max(0.5, 1.0 - (ratio - 2.0) * 0.15)
-      # Just right
-      true -> 0.9
-    end
-    |> adjust_for_task_type(task_type)
+    quality_for_ratio(ratio) |> adjust_for_task_type(task_type)
   end
+
+  # Multi-head pattern: quality based on token ratio
+  defp quality_for_ratio(ratio) when ratio < 0.5, do: 0.5 * ratio
+  defp quality_for_ratio(ratio) when ratio >= 0.8 and ratio <= 1.2, do: 1.0
+  defp quality_for_ratio(ratio) when ratio > 1.2 and ratio <= 1.5, do: 0.95
+  defp quality_for_ratio(ratio) when ratio > 1.5 and ratio <= 2.0, do: 0.85
+  defp quality_for_ratio(ratio) when ratio > 2.0, do: max(0.5, 1.0 - (ratio - 2.0) * 0.15)
+  defp quality_for_ratio(_ratio), do: 0.9
 
   # Docs can be longer
   defp adjust_for_task_type(quality, :documentation), do: quality
@@ -279,44 +274,37 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.TokenEfficiency do
   # Model Family Estimation
   # =============================================================================
 
+  # Model efficiency profiles: {efficiency, peak_eff, quality_at_budget, overhead, avg_tokens}
+  # Ordered by specificity (most specific patterns first)
+  @model_efficiency_profiles [
+    {"gpt-4", "turbo", {0.82, 0.85, 0.80, 0.14, 580}},
+    {"gemini", "flash", {0.90, 0.92, 0.75, 0.08, 380}},
+    {"opus", nil, {0.85, 0.88, 0.82, 0.12, 600}},
+    {"sonnet", nil, {0.80, 0.82, 0.78, 0.15, 550}},
+    {"haiku", nil, {0.88, 0.90, 0.75, 0.10, 400}},
+    {"gpt-4", nil, {0.75, 0.78, 0.82, 0.18, 700}},
+    {"gpt-3.5", nil, {0.85, 0.88, 0.72, 0.12, 450}},
+    {"gemini-pro", nil, {0.78, 0.80, 0.78, 0.16, 620}}
+  ]
+
+  @default_efficiency_profile {0.70, 0.72, 0.68, 0.20, 650}
+
   defp estimate_from_model_id(model_id) do
     model_lower = String.downcase(model_id)
+    find_model_efficiency(model_lower, @model_efficiency_profiles)
+  end
 
-    cond do
-      String.contains?(model_lower, "opus") ->
-        # Opus is thorough but efficient
-        {0.85, 0.88, 0.82, 0.12, 600}
+  defp find_model_efficiency(_model, []), do: @default_efficiency_profile
 
-      String.contains?(model_lower, "sonnet") ->
-        # Sonnet is balanced
-        {0.80, 0.82, 0.78, 0.15, 550}
+  defp find_model_efficiency(model, [{pattern, nil, profile} | rest]) do
+    if String.contains?(model, pattern), do: profile, else: find_model_efficiency(model, rest)
+  end
 
-      String.contains?(model_lower, "haiku") ->
-        # Haiku is concise
-        {0.88, 0.90, 0.75, 0.10, 400}
-
-      String.contains?(model_lower, "gpt-4") and String.contains?(model_lower, "turbo") ->
-        # GPT-4 Turbo is balanced
-        {0.82, 0.85, 0.80, 0.14, 580}
-
-      String.contains?(model_lower, "gpt-4") ->
-        # GPT-4 can be verbose
-        {0.75, 0.78, 0.82, 0.18, 700}
-
-      String.contains?(model_lower, "gpt-3.5") ->
-        # GPT-3.5 is concise
-        {0.85, 0.88, 0.72, 0.12, 450}
-
-      String.contains?(model_lower, "gemini-flash") ->
-        # Flash is designed for efficiency
-        {0.90, 0.92, 0.75, 0.08, 380}
-
-      String.contains?(model_lower, "gemini-pro") ->
-        # Pro is balanced
-        {0.78, 0.80, 0.78, 0.16, 620}
-
-      true ->
-        {0.70, 0.72, 0.68, 0.20, 650}
+  defp find_model_efficiency(model, [{pattern1, pattern2, profile} | rest]) do
+    if String.contains?(model, pattern1) and String.contains?(model, pattern2) do
+      profile
+    else
+      find_model_efficiency(model, rest)
     end
   end
 

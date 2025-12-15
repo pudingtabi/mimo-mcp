@@ -82,7 +82,7 @@ defmodule Mimo.Awakening.ContextInjector do
   def build_behavioral_hints(level) do
     # Library-first reminder (HIGHEST PRIORITY)
     library_hint =
-      "📚 LIBRARY FIRST: For package docs, use library operation=get name='package' ecosystem=hex|npm|pypi BEFORE web search"
+      "📚 LIBRARY FIRST: For package docs, use code library_get (ecosystem=hex|npm|pypi|crates) BEFORE web search"
 
     # Anti-overconfidence warnings (CRITICAL - applies to ALL levels)
     anti_overconfidence = [
@@ -93,7 +93,8 @@ defmodule Mimo.Awakening.ContextInjector do
 
     base_hints = [
       "Always check memory before reading files - you may already know what you need",
-      "Store discoveries immediately using memory operation=store",
+      "Store discoveries immediately (use the memory tool)",
+      "(MCP) Prefer direct tools: mimo-memory/mimo-ask_mimo/mimo-meta/mimo-reason; gateway: mimo-cognitive-agent",
       "Use knowledge graph for relationship questions"
     ]
 
@@ -101,23 +102,23 @@ defmodule Mimo.Awakening.ContextInjector do
       case level do
         l when l >= 4 ->
           [
-            "Use code_symbols for code navigation instead of file search",
-            "Use diagnostics instead of terminal for error checking",
+            "Use code symbols/definition/references for code navigation instead of file search",
+            "Use code diagnose/check/lint/typecheck instead of terminal for error checking",
             "Create procedures for repetitive workflows",
             "Use multi_replace for atomic multi-file edits",
-            "Use prepare_context for complex tasks to gather all relevant context"
+            "Use meta prepare_context for complex tasks to gather all relevant context"
           ]
 
         l when l >= 3 ->
           [
-            "Use code_symbols for code navigation instead of file search",
-            "Use diagnostics instead of terminal for error checking",
+            "Use code symbols/definition/references for code navigation instead of file search",
+            "Use code diagnose/check/lint/typecheck instead of terminal for error checking",
             "Create procedures for repetitive workflows"
           ]
 
         l when l >= 2 ->
           [
-            "Build relationships with knowledge operation=teach",
+            "Build relationships with knowledge teach (store architecture as triples)",
             "Query the knowledge graph before architecture questions"
           ]
 
@@ -184,7 +185,7 @@ defmodule Mimo.Awakening.ContextInjector do
     #{recent_context}
 
     You have access to #{stats.total_memories} memories from previous sessions.
-    Use `memory operation=search query="..."` to find relevant context.
+    Use memory search to find relevant context (MCP: mimo-memory search; gateway: mimo-cognitive-agent prompt="Search memory for ...").
     """
   end
 
@@ -233,7 +234,7 @@ defmodule Mimo.Awakening.ContextInjector do
 
     1. CONTEXT FIRST: Check memory/knowledge BEFORE file/terminal
     2. ACT WITH WISDOM: Use intelligent tools (code, web, knowledge)
-    3. LEARN ALWAYS: Store discoveries with `memory operation=store`
+    3. LEARN ALWAYS: Store discoveries with the memory tool (MCP: mimo-memory store; gateway: mimo-cognitive-agent)
 
     UNIFIED TOOLS (v2.7):
     - `web` for ALL web ops (fetch, search, browser, vision)
@@ -252,32 +253,31 @@ defmodule Mimo.Awakening.ContextInjector do
   @spec generate_reinforcement_suggestion(String.t(), String.t()) :: String.t() | nil
   def generate_reinforcement_suggestion(session_id, tool_name) do
     case SessionTracker.get_tool_balance(session_id) do
-      {:ok, balance} ->
-        cond do
-          # High priority: consecutive actions without context
-          balance.consecutive_action_without_context >= 3 and tool_name in ["file", "terminal"] ->
-            "⚠️ #{balance.consecutive_action_without_context} consecutive file/terminal calls. Consider: `memory search \"#{get_topic_hint(tool_name)}\"`"
-
-          # After file read with no recent memory search
-          tool_name == "file" and is_nil(balance.last_memory_search_at) ->
-            "💡 Tip: Search memory BEFORE reading files - you may already know what you need!"
-
-          # Low context ratio warning
-          balance.context_ratio < 0.15 and balance.total_calls >= 10 ->
-            "📊 Tool balance: #{Float.round(balance.context_ratio * 100, 1)}% context-first. Target: 20%+. Try `ask_mimo` or `memory search`."
-
-          # Encourage storing after terminal errors or file edits
-          tool_name == "terminal" ->
-            "💡 If you found something important, store it: `memory operation=store content=\"...\" category=fact`"
-
-          true ->
-            nil
-        end
-
-      {:error, _} ->
-        nil
+      {:ok, balance} -> do_generate_suggestion(balance, tool_name)
+      {:error, _} -> nil
     end
   end
+
+  # Multi-head pattern for suggestion generation
+  defp do_generate_suggestion(%{consecutive_action_without_context: n} = _balance, tool_name)
+       when n >= 3 and tool_name in ["file", "terminal"] do
+    "⚠️ #{n} consecutive file/terminal calls. Consider searching memory for: #{get_topic_hint(tool_name)}"
+  end
+
+  defp do_generate_suggestion(%{last_memory_search_at: nil}, "file") do
+    "💡 Tip: Search memory BEFORE reading files - you may already know what you need!"
+  end
+
+  defp do_generate_suggestion(%{context_ratio: r, total_calls: t}, _tool_name)
+       when r < 0.15 and t >= 10 do
+    "📊 Tool balance: #{Float.round(r * 100, 1)}% context-first. Target: 20%+. Try ask_mimo or memory search before more actions."
+  end
+
+  defp do_generate_suggestion(_balance, "terminal") do
+    "💡 If you found something important, store it in memory (category: fact/action) so it persists."
+  end
+
+  defp do_generate_suggestion(_balance, _tool_name), do: nil
 
   defp get_topic_hint("file"), do: "relevant patterns"
   defp get_topic_hint("terminal"), do: "similar commands or errors"
@@ -316,9 +316,9 @@ defmodule Mimo.Awakening.ContextInjector do
 
           hint_text =
             if cached_count > 0 do
-              "[Library] #{cached_count} packages cached - use library operation=get"
+              "[Library] #{cached_count} packages cached - use code library_get"
             else
-              "[Library] Cache empty - run library operation=discover"
+              "[Library] Cache empty - run code library_discover"
             end
 
           %{
@@ -330,7 +330,7 @@ defmodule Mimo.Awakening.ContextInjector do
         _ ->
           %{
             "cached_packages" => 0,
-            "hint" => "[Library] Run library operation=discover first",
+            "hint" => "[Library] Run code library_discover first",
             "status" => "unavailable"
           }
       end

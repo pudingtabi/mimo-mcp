@@ -186,7 +186,7 @@ defmodule Mimo.ErrorHandling.RetryStrategies do
   @spec with_timeout_and_retry((-> {:ok, any()} | {:error, any()}), keyword()) ::
           {:ok, any()} | {:error, any()}
   def with_timeout_and_retry(operation, opts \\ []) when is_function(operation, 0) do
-    timeout = Keyword.get(opts, :timeout, 30_000)
+    timeout = Keyword.get(opts, :timeout, Mimo.TimeoutConfig.genserver_default())
     max_retries = Keyword.get(opts, :max_retries, 2)
     base_delay = Keyword.get(opts, :base_delay, @base_delay_ms)
     on_retry = Keyword.get(opts, :on_retry)
@@ -212,7 +212,7 @@ defmodule Mimo.ErrorHandling.RetryStrategies do
   """
   @spec safe_genserver_call(GenServer.server(), term(), non_neg_integer()) ::
           {:ok, any()} | {:error, :timeout | :noproc | term()}
-  def safe_genserver_call(server, request, timeout \\ 30_000) do
+  def safe_genserver_call(server, request, timeout \\ Mimo.TimeoutConfig.genserver_default()) do
     try do
       result = GenServer.call(server, request, timeout)
       {:ok, result}

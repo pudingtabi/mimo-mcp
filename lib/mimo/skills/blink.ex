@@ -155,6 +155,18 @@ defmodule Mimo.Skills.Blink do
     }
   }
 
+  # Helper to get browser profile with fallback
+  defp get_profile(browser) do
+    case Map.get(@browser_profiles, browser) do
+      nil ->
+        Logger.debug("[Blink] Unknown browser profile #{inspect(browser)}, using chrome_136")
+        Map.get(@browser_profiles, :chrome_136)
+
+      profile ->
+        profile
+    end
+  end
+
   @doc """
   Smart fetch with automatic response handling and adaptive retries.
 
@@ -266,7 +278,7 @@ defmodule Mimo.Skills.Blink do
   end
 
   defp basic_fetch(url, browser) do
-    profile = Map.get(@browser_profiles, browser)
+    profile = get_profile(browser)
     headers = build_basic_headers(profile)
 
     case Req.get(url,
@@ -288,7 +300,7 @@ defmodule Mimo.Skills.Blink do
   end
 
   defp layer_1_fetch(url, browser) do
-    profile = Map.get(@browser_profiles, browser)
+    profile = get_profile(browser)
     headers = build_ordered_headers(profile, url)
 
     case Req.get(url,
@@ -310,7 +322,7 @@ defmodule Mimo.Skills.Blink do
   end
 
   defp layer_2_fetch(url, browser) do
-    profile = Map.get(@browser_profiles, browser)
+    profile = get_profile(browser)
     headers = build_ordered_headers(profile, url)
     tls_opts = build_tls_options(profile.tls_config)
 
@@ -337,45 +349,51 @@ defmodule Mimo.Skills.Blink do
   # Decompress body based on content-encoding header
   # Uses direct NIF access for brotli to avoid streaming issues
   defp decompress_body(body, headers) when is_binary(body) do
-    # Headers can be a list or string
-    encoding =
-      case Map.get(headers, "content-encoding", "") do
-        [enc | _] -> enc
-        enc when is_binary(enc) -> enc
-        _ -> ""
-      end
-
-    case encoding do
-      "br" ->
-        # Use direct NIF for brotli (streaming API has issues)
-        decoder = :brotli_nif.decoder_create()
-
-        case :brotli_nif.decoder_decompress_stream(decoder, body) do
-          :ok -> :brotli_nif.decoder_take_output(decoder)
-          :more -> :brotli_nif.decoder_take_output(decoder)
-          _ -> body
-        end
-
-      "gzip" ->
-        try do
-          :zlib.gunzip(body)
-        catch
-          _, _ -> body
-        end
-
-      "deflate" ->
-        try do
-          :zlib.uncompress(body)
-        catch
-          _, _ -> body
-        end
-
-      _ ->
-        body
-    end
+    encoding = extract_encoding(headers)
+    do_decompress(encoding, body)
   end
 
   defp decompress_body(body, _headers), do: body
+
+  defp extract_encoding(headers) do
+    case Map.get(headers, "content-encoding", "") do
+      [enc | _] -> enc
+      enc when is_binary(enc) -> enc
+      _ -> ""
+    end
+  end
+
+  # Brotli decompression using direct NIF
+  defp do_decompress("br", body) do
+    decoder = :brotli_nif.decoder_create()
+
+    case :brotli_nif.decoder_decompress_stream(decoder, body) do
+      :ok -> :brotli_nif.decoder_take_output(decoder)
+      :more -> :brotli_nif.decoder_take_output(decoder)
+      _ -> body
+    end
+  end
+
+  # Gzip decompression
+  defp do_decompress("gzip", body) do
+    try do
+      :zlib.gunzip(body)
+    catch
+      _, _ -> body
+    end
+  end
+
+  # Deflate decompression
+  defp do_decompress("deflate", body) do
+    try do
+      :zlib.uncompress(body)
+    catch
+      _, _ -> body
+    end
+  end
+
+  # No compression or unknown encoding
+  defp do_decompress(_encoding, body), do: body
 
   defp build_basic_headers(profile) do
     base = [

@@ -29,40 +29,27 @@ defmodule Mimo.Utils.TimeParser do
   def parse(expression) when is_binary(expression) do
     now = DateTime.utc_now()
     normalized = String.downcase(String.trim(expression))
-
-    case normalized do
-      "today" ->
-        {:ok, {start_of_day(now), now}}
-
-      "yesterday" ->
-        yesterday = DateTime.add(now, -1, :day)
-        {:ok, {start_of_day(yesterday), end_of_day(yesterday)}}
-
-      "last week" ->
-        {:ok, {DateTime.add(now, -7, :day), now}}
-
-      "last month" ->
-        {:ok, {DateTime.add(now, -30, :day), now}}
-
-      "this week" ->
-        {:ok, {start_of_week(now), now}}
-
-      "this month" ->
-        {:ok, {start_of_month(now), now}}
-
-      "last hour" ->
-        {:ok, {DateTime.add(now, -1, :hour), now}}
-
-      "last 24 hours" ->
-        {:ok, {DateTime.add(now, -24, :hour), now}}
-
-      _ ->
-        parse_relative(normalized, now)
-    end
+    do_parse(normalized, now)
   end
 
   def parse(nil), do: {:error, "Time expression cannot be nil"}
   def parse(_), do: {:error, "Time expression must be a string"}
+
+  # Multi-head time parsing
+  defp do_parse("today", now), do: {:ok, {start_of_day(now), now}}
+
+  defp do_parse("yesterday", now) do
+    yesterday = DateTime.add(now, -1, :day)
+    {:ok, {start_of_day(yesterday), end_of_day(yesterday)}}
+  end
+
+  defp do_parse("last week", now), do: {:ok, {DateTime.add(now, -7, :day), now}}
+  defp do_parse("last month", now), do: {:ok, {DateTime.add(now, -30, :day), now}}
+  defp do_parse("this week", now), do: {:ok, {start_of_week(now), now}}
+  defp do_parse("this month", now), do: {:ok, {start_of_month(now), now}}
+  defp do_parse("last hour", now), do: {:ok, {DateTime.add(now, -1, :hour), now}}
+  defp do_parse("last 24 hours", now), do: {:ok, {DateTime.add(now, -24, :hour), now}}
+  defp do_parse(expr, now), do: parse_relative(expr, now)
 
   @doc """
   Parse and return the "from" date only.

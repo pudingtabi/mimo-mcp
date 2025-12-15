@@ -125,15 +125,20 @@ defmodule Mimo.Knowledge.PreToolInjector do
       # Build task list based on profile
       tasks = build_search_tasks(context, profile)
 
-      # Await with timeout to avoid blocking tool execution too long
+      # Wait for tasks with timeout.
+      # IMPORTANT: Task.await_many/2 can exit the caller on timeout and also leaves timed-out tasks running.
+      # Under multi-instance load (SQLite locks), those runaway tasks can accumulate and cause long "hangs".
       results =
-        try do
-          Task.await_many(tasks, @parallel_timeout_ms)
-        catch
-          :exit, _ ->
-            Logger.debug("[PreToolInjector] Parallel search timeout, using empty results")
-            Enum.map(tasks, fn _ -> empty_result() end)
-        end
+        tasks
+        |> Task.yield_many(@parallel_timeout_ms)
+        |> Enum.map(fn
+          {_task, {:ok, result}} ->
+            result
+
+          {task, _} ->
+            Task.shutdown(task, :brutal_kill)
+            empty_result()
+        end)
 
       # Unpack results based on what was included
       {memories, patterns, warnings} = unpack_search_results(results, profile)
@@ -457,7 +462,7 @@ defmodule Mimo.Knowledge.PreToolInjector do
     rescue
       ArgumentError ->
         # ETS table doesn't exist yet, create it
-        :ets.new(:mimo_injection_events, [:named_table, :public, :set])
+        Mimo.EtsSafe.ensure_table(:mimo_injection_events, [:named_table, :public, :set])
 
         :ets.insert(:mimo_injection_events, {
           injection_id,

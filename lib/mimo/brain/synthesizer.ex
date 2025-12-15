@@ -303,8 +303,7 @@ defmodule Mimo.Brain.Synthesizer do
     # Format memories for prompt
     memory_texts =
       cluster
-      |> Enum.map(fn m -> "- #{m.content}" end)
-      |> Enum.join("\n")
+      |> Enum.map_join("\n", fn m -> "- #{m.content}" end)
 
     prompt = String.replace(@synthesis_prompt, "{{memories}}", memory_texts)
 
@@ -314,11 +313,7 @@ defmodule Mimo.Brain.Synthesizer do
         Logger.debug("[Synthesizer] Using cached synthesis")
         store_synthesis_result(cached_response, cluster)
 
-      {:skip, reason} ->
-        Logger.debug("[Synthesizer] Skipping synthesis: #{reason}")
-        {:error, :skipped}
-
-      {:pass, _} ->
+      {:pass, _reason} ->
         # Use InferenceScheduler with :low priority (background task)
         # Fall back to direct LLM if scheduler unavailable
         result =
@@ -368,7 +363,7 @@ defmodule Mimo.Brain.Synthesizer do
       |> ensure_synthesis_prefix()
 
     # Store as high-importance fact
-    source_ids = Enum.map(cluster, & &1.id) |> Enum.join(",")
+    source_ids = Enum.map_join(cluster, ",", & &1.id)
 
     metadata = %{
       "source" => "autonomous_synthesis",

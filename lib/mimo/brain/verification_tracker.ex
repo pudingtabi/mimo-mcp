@@ -127,8 +127,8 @@ defmodule Mimo.Brain.VerificationTracker do
   @impl true
   def init(_opts) do
     # Create ETS tables
-    :ets.new(@table, [:named_table, :public, :duplicate_bag])
-    :ets.new(@stats_table, [:named_table, :public, :set])
+    Mimo.EtsSafe.ensure_table(@table, [:named_table, :public, :duplicate_bag])
+    Mimo.EtsSafe.ensure_table(@stats_table, [:named_table, :public, :set])
 
     # Initialize stats
     :ets.insert(@stats_table, {:stats, %__MODULE__{}})

@@ -68,7 +68,18 @@ defmodule MimoWeb.Plugs.RateLimiter do
   defp ensure_table_exists do
     case :ets.whereis(@table_name) do
       :undefined ->
-        :ets.new(@table_name, [:set, :public, :named_table, read_concurrency: true])
+        try do
+          Mimo.EtsSafe.ensure_table(@table_name, [
+            :set,
+            :public,
+            :named_table,
+            read_concurrency: true
+          ])
+        rescue
+          # Concurrent requests may race to create the same named table.
+          ArgumentError ->
+            :ok
+        end
 
       _ ->
         :ok
@@ -80,23 +91,45 @@ defmodule MimoWeb.Plugs.RateLimiter do
     # Window bucket
     key = {client_ip, div(now, window_ms)}
 
-    case :ets.lookup(@table_name, key) do
-      [] ->
-        # First request in this window
-        :ets.insert(@table_name, {key, 1, now})
-        cleanup_old_entries(now, window_ms)
-        {:ok, 1}
+    try do
+      case :ets.lookup(@table_name, key) do
+        [] ->
+          # First request in this window
+          :ets.insert(@table_name, {key, 1, now})
+          cleanup_old_entries(now, window_ms)
+          {:ok, 1}
 
-      [{^key, count, _started}] when count < limit ->
-        # Under limit, increment
-        :ets.update_counter(@table_name, key, {2, 1})
-        {:ok, count + 1}
+        [{^key, count, _started}] when count < limit ->
+          # Under limit, increment
+          :ets.update_counter(@table_name, key, {2, 1})
+          {:ok, count + 1}
 
-      [{^key, count, started}] when count >= limit ->
-        # Over limit
-        window_end = started + window_ms
-        retry_after = max(0, window_end - now)
-        {:error, :rate_limited, retry_after}
+        [{^key, count, started}] when count >= limit ->
+          # Over limit
+          window_end = started + window_ms
+          retry_after = max(0, window_end - now)
+          {:error, :rate_limited, retry_after}
+      end
+    rescue
+      # If the ETS table isn't ready yet (e.g. early boot / race), create it and retry once.
+      ArgumentError ->
+        ensure_table_exists()
+
+        case :ets.lookup(@table_name, key) do
+          [] ->
+            :ets.insert(@table_name, {key, 1, now})
+            cleanup_old_entries(now, window_ms)
+            {:ok, 1}
+
+          [{^key, count, _started}] when count < limit ->
+            :ets.update_counter(@table_name, key, {2, 1})
+            {:ok, count + 1}
+
+          [{^key, count, started}] when count >= limit ->
+            window_end = started + window_ms
+            retry_after = max(0, window_end - now)
+            {:error, :rate_limited, retry_after}
+        end
     end
   end
 

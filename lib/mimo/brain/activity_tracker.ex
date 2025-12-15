@@ -100,7 +100,7 @@ defmodule Mimo.Brain.ActivityTracker do
   @impl true
   def init(_opts) do
     # Create ETS table for fast activity lookups
-    :ets.new(@table, [:named_table, :set, :public, read_concurrency: true])
+    Mimo.EtsSafe.ensure_table(@table, [:named_table, :set, :public, read_concurrency: true])
 
     # Load activity history from database
     state = %{

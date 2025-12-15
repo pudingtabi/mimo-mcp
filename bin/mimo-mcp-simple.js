@@ -7,17 +7,39 @@
  * This filters out any Elixir/Erlang warnings that leak to stdout
  * 
  * Supports multiple environments: /root, /workspace (GitHub Codespaces)
+ * 
+ * MIMO_DIR resolution priority:
+ * 1. MIMO_DIR environment variable (if set)
+ * 2. Script location (bin/ -> parent directory)
  */
 
 // Force all console output to stderr
 console.log = console.error;
 
-const { spawn, execSync } = require('child_process');
+const { spawn, spawnSync, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-const MIMO_DIR = path.resolve(__dirname, '..');
+function isValidMimoDir(dir) {
+  if (!dir) return false;
+
+  try {
+    return fs.existsSync(path.join(dir, 'mix.exs'));
+  } catch (_e) {
+    return false;
+  }
+}
+
+// MIMO_DIR: Prefer env var, but only if it points to a real checkout.
+// This prevents stale environments from breaking MCP with EOF on startup.
+const MIMO_DIR_FROM_ENV = process.env.MIMO_DIR ? path.resolve(process.env.MIMO_DIR) : null;
+const MIMO_DIR_FROM_SCRIPT = path.resolve(__dirname, '..');
+const MIMO_DIR = isValidMimoDir(MIMO_DIR_FROM_ENV) ? MIMO_DIR_FROM_ENV : MIMO_DIR_FROM_SCRIPT;
+
+if (MIMO_DIR_FROM_ENV && MIMO_DIR !== MIMO_DIR_FROM_ENV) {
+  console.error(`[mimo-mcp] Ignoring invalid MIMO_DIR=${MIMO_DIR_FROM_ENV}; using ${MIMO_DIR}`);
+}
 
 // Dynamic path detection for multiple environments
 // CRITICAL: We must use actual install paths, NOT shims
@@ -78,23 +100,27 @@ function findElixirPaths() {
       const elixirDir = path.join(elixirInstallDir, 'elixir');
       const otpDir = path.join(elixirInstallDir, 'otp');
 
-      if (fs.existsSync(elixirDir)) {
-        const versions = fs.readdirSync(elixirDir);
-        // Prefer OTP 27 versions (Mimo compiled with OTP 27)
-        const otp27Version = versions.find(v => v.includes('otp-27'));
-        const selectedVersion = otp27Version || versions[versions.length - 1];
-        if (selectedVersion) {
-          paths.push(path.join(elixirDir, selectedVersion, 'bin'));
-        }
-      }
-
+      // OTP/Erlang must come FIRST in PATH
       if (fs.existsSync(otpDir)) {
         const versions = fs.readdirSync(otpDir);
         // Prefer OTP 27 versions
         const otp27Version = versions.find(v => v.startsWith('27'));
         const selectedVersion = otp27Version || versions[versions.length - 1];
         if (selectedVersion) {
-          paths.push(path.join(otpDir, selectedVersion, 'bin'));
+          const otpBin = path.join(otpDir, selectedVersion, 'bin');
+          if (fs.existsSync(otpBin)) paths.push(otpBin);
+        }
+      }
+
+      // Elixir comes AFTER OTP
+      if (fs.existsSync(elixirDir)) {
+        const versions = fs.readdirSync(elixirDir);
+        // Prefer OTP 27 versions (Mimo compiled with OTP 27)
+        const otp27Version = versions.find(v => v.includes('otp-27'));
+        const selectedVersion = otp27Version || versions[versions.length - 1];
+        if (selectedVersion) {
+          const elixirBin = path.join(elixirDir, selectedVersion, 'bin');
+          if (fs.existsSync(elixirBin)) paths.push(elixirBin);
         }
       }
     } catch (e) { /* ignore */ }
@@ -172,17 +198,127 @@ const env = {
   ...process.env,
   ...dotEnv,
   PATH: `${ELIXIR_PATHS.join(':')}:${process.env.PATH}`,
-  MIX_ENV: 'prod',
+  // Default to dev, but allow explicit override per-environment.
+  MIX_ENV: process.env.MIX_ENV || dotEnv.MIX_ENV || 'dev',
   ELIXIR_ERL_OPTIONS: '+fnu',
   PROMETHEUS_DISABLED: 'true',
   MIMO_DISABLE_HTTP: 'true',
-  LOGGER_LEVEL: 'none'  // Suppress logs - MCP expects clean JSON-RPC on stdout
+  LOGGER_LEVEL: 'none' // Suppress logs - MCP expects clean JSON-RPC on stdout
 };
+
+function resolveMixBuildPath() {
+  const raw = env.MIX_BUILD_PATH;
+  if (!raw) return path.join(MIMO_DIR, '_build');
+  return path.isAbsolute(raw) ? raw : path.resolve(MIMO_DIR, raw);
+}
+
+function buildArtefactPath(mixEnv) {
+  return path.join(resolveMixBuildPath(), mixEnv, 'lib', 'mimo_mcp', 'ebin', 'mimo_mcp.app');
+}
+
+function wantsAutoCompile() {
+  const v = env.MIMO_WRAPPER_AUTO_COMPILE;
+  return v === '1' || v === 'true' || v === 'TRUE' || v === 'yes' || v === 'YES';
+}
+
+function ensureCompiledSync(mixEnv) {
+  const appPath = buildArtefactPath(mixEnv);
+  if (fs.existsSync(appPath)) return true;
+
+  if (!wantsAutoCompile()) return false;
+
+  console.error(`[mimo-mcp] Build artifacts missing for MIX_ENV=${mixEnv}; attempting mix compile (stderr-only)...`);
+
+  const baseEnv = {
+    ...env,
+    MIX_ENV: mixEnv,
+    MIX_QUIET: '1',
+    LC_ALL: env.LC_ALL || 'C.UTF-8',
+    LANG: env.LANG || 'C.UTF-8'
+  };
+
+  const deps = spawnSync(MIX_PATH, ['deps.get'], {
+    cwd: MIMO_DIR,
+    env: baseEnv,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  if (deps.stdout && deps.stdout.length) console.error(deps.stdout.toString());
+  if (deps.stderr && deps.stderr.length) console.error(deps.stderr.toString());
+  if (deps.status !== 0) return false;
+
+  const compile = spawnSync(MIX_PATH, ['compile'], {
+    cwd: MIMO_DIR,
+    env: baseEnv,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  if (compile.stdout && compile.stdout.length) console.error(compile.stdout.toString());
+  if (compile.stderr && compile.stderr.length) console.error(compile.stderr.toString());
+  if (compile.status !== 0) return false;
+
+  return fs.existsSync(appPath);
+}
+
+// ============================================================================
+// PRE-FLIGHT VALIDATION (CRITICAL: Prevents silent failures causing EOF errors)
+// Added per Mimo memory analysis - recurring EOF root cause was missing validation
+// ============================================================================
+function validateEnvironment() {
+  const errors = [];
+  const mixEnv = env.MIX_ENV || 'dev';
+
+  // 1. Check Elixir paths found
+  if (ELIXIR_PATHS.length === 0) {
+    errors.push('No Elixir installation found. Check .elixir-install or .asdf installs.');
+  }
+
+  // 2. Check mix exists and is not just a fallback string
+  if (MIX_PATH === 'mix') {
+    errors.push('Mix binary not found in any known path. Install Elixir or fix PATH.');
+  } else if (!fs.existsSync(MIX_PATH)) {
+    errors.push(`Mix not found at: ${MIX_PATH}`);
+  }
+
+  // 3. Check build artefact exists (respect MIX_BUILD_PATH if set)
+  const appPath = buildArtefactPath(mixEnv);
+  if (!fs.existsSync(appPath)) {
+    const compiled = ensureCompiledSync(mixEnv);
+    if (!compiled) {
+      const hint = wantsAutoCompile()
+        ? `Tried auto-compile but still missing. Run: cd ${MIMO_DIR} && MIX_ENV=${mixEnv} mix compile`
+        : `Run: cd ${MIMO_DIR} && MIX_ENV=${mixEnv} mix compile (or set MIMO_WRAPPER_AUTO_COMPILE=1)`;
+
+      errors.push(`Build artifacts missing for MIX_ENV=${mixEnv}. Expected: ${appPath}. ${hint}`);
+    }
+  }
+
+  // 4. Report errors to stderr and exit with clear message
+  if (errors.length > 0) {
+    console.error('');
+    console.error('╔═══════════════════════════════════════════════════════════╗');
+    console.error('║         MCP WRAPPER PRE-FLIGHT VALIDATION FAILED          ║');
+    console.error('╚═══════════════════════════════════════════════════════════╝');
+    console.error('');
+    errors.forEach(e => console.error('  ✗ ' + e));
+    console.error('');
+    console.error('Detected paths:', ELIXIR_PATHS.length > 0 ? ELIXIR_PATHS : '(none)');
+    console.error('Mix path:', MIX_PATH);
+    console.error('MIX_ENV:', mixEnv);
+    console.error('MIMO_DIR:', MIMO_DIR);
+    console.error('MIX_BUILD_PATH:', env.MIX_BUILD_PATH || '(default: _build under MIMO_DIR)');
+    console.error('');
+    process.exit(1);
+  }
+}
+
+// Run validation BEFORE spawning Elixir
+validateEnvironment();
 
 // Spawn mix directly (no bash)
 
 const elixir = spawn(MIX_PATH, [
-  'run', '--no-halt', '--no-compile',
+  'run', '--no-halt',
   '-e', 'Mimo.McpServer.Stdio.start()'
 ], {
   cwd: MIMO_DIR,

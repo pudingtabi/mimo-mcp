@@ -103,11 +103,15 @@ Add to `~/.vscode/mcp.json`:
 
 ## Core Tools
 
-Mimo exposes 19 unified tools via MCP (with deprecated aliases hidden but working for backward compatibility). Here are the most used:
+Mimo exposes 19 unified tools via MCP (with deprecated aliases hidden but working for backward compatibility).
+
+**MCP clients vary:** if your client exposes direct tools (e.g. `mimo-memory`, `mimo-meta`, `mimo-reason`), use them; if it only exposes the gateway, use `mimo-cognitive-agent` (see `.github/copilot-mcp-instructions.md`).
+
+Here are the most used:
 
 | Tool | Example | Purpose |
 |------|---------|---------|
-| `memory` | `memory operation=store content="User likes TypeScript"` | Store/search memories |
+| `memory` | `memory (store) content="User likes TypeScript"` | Store/search memories |
 | `file` | `file operation=edit path="app.ts" old_str="x" new_str="y"` | Read, write, edit files |
 | `terminal` | `terminal command="npm test"` | Run shell commands |
 | `web` | `web operation=search query="React hooks best practices"` | All web/network operations |

@@ -151,10 +151,10 @@ defmodule Mimo.Synapse.GraphCache do
   @impl true
   def init(_opts) do
     # Create ETS tables
-    :ets.new(@node_cache, [:set, :public, :named_table, read_concurrency: true])
-    :ets.new(@node_pending, [:set, :public, :named_table])
-    :ets.new(@edge_pending, [:set, :public, :named_table])
-    :ets.new(@node_id_map, [:set, :public, :named_table, read_concurrency: true])
+    Mimo.EtsSafe.ensure_table(@node_cache, [:set, :public, :named_table, read_concurrency: true])
+    Mimo.EtsSafe.ensure_table(@node_pending, [:set, :public, :named_table])
+    Mimo.EtsSafe.ensure_table(@edge_pending, [:set, :public, :named_table])
+    Mimo.EtsSafe.ensure_table(@node_id_map, [:set, :public, :named_table, read_concurrency: true])
 
     # Schedule periodic flush
     schedule_flush()

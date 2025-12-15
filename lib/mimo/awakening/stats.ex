@@ -89,40 +89,38 @@ defmodule Mimo.Awakening.Stats do
   @spec get_or_create(String.t() | nil, String.t() | nil) :: {:ok, t()} | {:error, term()}
   def get_or_create(user_id \\ nil, project_id \\ nil) do
     case get_stats(user_id, project_id) do
-      nil ->
-        # Create new stats record
-        case create_stats(user_id, project_id) do
-          {:ok, stats} ->
-            # Bootstrap XP from existing data
-            bootstrap_from_existing(stats)
+      nil -> create_and_bootstrap(user_id, project_id)
+      stats -> ensure_level_correct(stats)
+    end
+  end
 
-          error ->
-            error
-        end
+  defp create_and_bootstrap(user_id, project_id) do
+    case create_stats(user_id, project_id) do
+      {:ok, stats} -> bootstrap_from_existing(stats)
+      error -> error
+    end
+  end
 
-      stats ->
-        # SPEC-040 v1.2: Level drift correction
-        # If thresholds changed (recalibration), the stored level might not match XP
-        # Always recalculate and fix if needed
-        correct_level = Mimo.Awakening.PowerCalculator.calculate_level(stats.total_xp)
+  defp ensure_level_correct(stats) do
+    correct_level = Mimo.Awakening.PowerCalculator.calculate_level(stats.total_xp)
 
-        if stats.current_level != correct_level do
-          Logger.warning("""
-          [Awakening] Level drift detected! Correcting...
-          - Stored level: #{stats.current_level}
-          - Correct level (from #{stats.total_xp} XP): #{correct_level}
-          """)
+    if stats.current_level != correct_level do
+      correct_level_drift(stats, correct_level)
+    else
+      {:ok, stats}
+    end
+  end
 
-          case stats
-               |> changeset(%{current_level: correct_level})
-               |> Repo.update() do
-            {:ok, corrected_stats} -> {:ok, corrected_stats}
-            # Return uncorrected if update fails
-            {:error, _} -> {:ok, stats}
-          end
-        else
-          {:ok, stats}
-        end
+  defp correct_level_drift(stats, correct_level) do
+    Logger.warning("""
+    [Awakening] Level drift detected! Correcting...
+    - Stored level: #{stats.current_level}
+    - Correct level (from #{stats.total_xp} XP): #{correct_level}
+    """)
+
+    case stats |> changeset(%{current_level: correct_level}) |> Repo.update() do
+      {:ok, corrected_stats} -> {:ok, corrected_stats}
+      {:error, _} -> {:ok, stats}
     end
   end
 

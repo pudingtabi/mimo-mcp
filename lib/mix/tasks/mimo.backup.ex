@@ -103,9 +103,7 @@ defmodule Mix.Tasks.Mimo.Backup do
   end
 
   defp list_backups do
-    if not File.exists?(@backup_dir) do
-      Mix.shell().info("No backups found (#{@backup_dir} does not exist)")
-    else
+    if File.exists?(@backup_dir) do
       backups =
         @backup_dir
         |> File.ls!()
@@ -144,6 +142,8 @@ defmodule Mix.Tasks.Mimo.Backup do
           Mix.shell().info("")
         end
       end
+    else
+      Mix.shell().info("No backups found (#{@backup_dir} does not exist)")
     end
   end
 

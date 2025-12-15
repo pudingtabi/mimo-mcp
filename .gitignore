@@ -20,6 +20,7 @@ priv/mimo_mcp.db
 .env.*.local
 .env.production
 .env.development
+.envrc
 *.pem
 *.key
 *.crt
@@ -72,6 +73,7 @@ native/vector_math/target/
 debug_*.py
 extract_*.py
 scripts/
+start.sh
 
 # Database backups
 *.db.backup-*

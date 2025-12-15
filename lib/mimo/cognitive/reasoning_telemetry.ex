@@ -39,7 +39,13 @@ defmodule Mimo.Cognitive.ReasoningTelemetry do
   def init do
     case :ets.whereis(@stats_table) do
       :undefined ->
-        :ets.new(@stats_table, [:set, :public, :named_table, read_concurrency: true])
+        Mimo.EtsSafe.ensure_table(@stats_table, [
+          :set,
+          :public,
+          :named_table,
+          read_concurrency: true
+        ])
+
         :ok
 
       _ ->

@@ -144,22 +144,19 @@ defmodule Mimo.Tools.Dispatchers.AnalyzeFile do
   end
 
   defp get_diagnostics(path) do
-    case Diagnostics.dispatch(%{"operation" => "all", "path" => path}) do
-      {:ok, result} ->
-        issues = result[:issues] || result[:diagnostics] || []
-        errors = Enum.filter(issues, &(&1[:severity] == :error or &1["severity"] == "error"))
-        warnings = Enum.filter(issues, &(&1[:severity] == :warning or &1["severity"] == "warning"))
+    # Diagnostics.dispatch always returns {:ok, result}
+    {:ok, result} = Diagnostics.dispatch(%{"operation" => "all", "path" => path})
 
-        %{
-          total: length(issues),
-          errors: length(errors),
-          warnings: length(warnings),
-          issues: Enum.take(issues, 10)
-        }
+    issues = result[:issues] || result[:diagnostics] || []
+    errors = Enum.filter(issues, &(&1[:severity] == :error or &1["severity"] == "error"))
+    warnings = Enum.filter(issues, &(&1[:severity] == :warning or &1["severity"] == "warning"))
 
-      {:error, reason} ->
-        %{total: 0, error: inspect(reason)}
-    end
+    %{
+      total: length(issues),
+      errors: length(errors),
+      warnings: length(warnings),
+      issues: Enum.take(issues, 10)
+    }
   end
 
   defp get_knowledge_context(path) do
@@ -283,6 +280,7 @@ defmodule Mimo.Tools.Dispatchers.AnalyzeFile do
     end
   end
 
+  # Only called with list argument (guard ensures this)
   defp summarize_symbols(symbols) when is_list(symbols) do
     symbols
     |> Enum.take(20)
@@ -295,14 +293,11 @@ defmodule Mimo.Tools.Dispatchers.AnalyzeFile do
     end)
   end
 
-  defp summarize_symbols(_), do: []
-
+  # Only called with list argument (guard ensures this)
   defp group_symbols_by_kind(symbols) when is_list(symbols) do
     symbols
     |> Enum.group_by(&(&1[:kind] || &1["kind"] || "unknown"))
     |> Enum.map(fn {kind, items} -> {kind, length(items)} end)
     |> Enum.into(%{})
   end
-
-  defp group_symbols_by_kind(_), do: %{}
 end

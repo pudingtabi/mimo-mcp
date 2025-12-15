@@ -120,8 +120,8 @@ paths:
         - `mimo_reload_skills`: Hot-reload skills from disk
         
         Deprecated tools (still work, redirect to memory):
-        - `search_vibes`: Use `memory operation=search` instead
-        - `store_fact`: Use `memory operation=store` instead
+        - `search_vibes`: Use `memory (search)` instead
+        - `store_fact`: Use `memory (store)` instead
       operationId: executeTool
       tags:
         - Mimo API

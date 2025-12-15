@@ -39,74 +39,44 @@ defmodule Mimo.Tools.Dispatchers.Code do
   """
   def dispatch(args) do
     op = args["operation"] || "symbols"
+    do_dispatch(op, args)
+  end
 
-    case op do
-      # === Code Symbols Operations ===
-      "parse" ->
-        dispatch_parse(args)
+  # ==========================================================================
+  # Multi-Head Dispatch by Operation
+  # ==========================================================================
 
-      "symbols" ->
-        dispatch_symbols(args)
+  # Code Symbols Operations
+  defp do_dispatch("parse", args), do: dispatch_parse(args)
+  defp do_dispatch("symbols", args), do: dispatch_symbols(args)
+  defp do_dispatch("references", args), do: dispatch_references(args)
+  defp do_dispatch("search", args), do: dispatch_search(args)
+  defp do_dispatch("definition", args), do: dispatch_definition(args)
+  defp do_dispatch("call_graph", args), do: dispatch_call_graph(args)
+  defp do_dispatch("index", args), do: dispatch_index(args)
 
-      "references" ->
-        dispatch_references(args)
+  # Library Operations
+  defp do_dispatch("library", args), do: dispatch_library_get(args)
+  defp do_dispatch("library_get", args), do: dispatch_library_get(args)
+  defp do_dispatch("library_search", args), do: dispatch_library_search(args)
+  defp do_dispatch("library_ensure", args), do: dispatch_library_ensure(args)
+  defp do_dispatch("library_discover", args), do: dispatch_library_discover(args)
+  defp do_dispatch("library_stats", _args), do: {:ok, Mimo.Library.CacheManager.stats()}
 
-      "search" ->
-        dispatch_search(args)
+  # Diagnostics Operations
+  defp do_dispatch("check", args), do: dispatch_diagnostics(args, :check)
+  defp do_dispatch("lint", args), do: dispatch_diagnostics(args, :lint)
+  defp do_dispatch("typecheck", args), do: dispatch_diagnostics(args, :typecheck)
+  defp do_dispatch("diagnose", args), do: dispatch_diagnostics(args, :all)
+  defp do_dispatch("diagnostics_all", args), do: dispatch_diagnostics(args, :all)
 
-      "definition" ->
-        dispatch_definition(args)
-
-      "call_graph" ->
-        dispatch_call_graph(args)
-
-      "index" ->
-        dispatch_index(args)
-
-      # === Library Operations ===
-      "library" ->
-        # Shorthand: code operation=library name="..." → get package
-        dispatch_library_get(args)
-
-      "library_get" ->
-        dispatch_library_get(args)
-
-      "library_search" ->
-        dispatch_library_search(args)
-
-      "library_ensure" ->
-        dispatch_library_ensure(args)
-
-      "library_discover" ->
-        dispatch_library_discover(args)
-
-      "library_stats" ->
-        {:ok, Mimo.Library.CacheManager.stats()}
-
-      # === Diagnostics Operations ===
-      "check" ->
-        dispatch_diagnostics(args, :check)
-
-      "lint" ->
-        dispatch_diagnostics(args, :lint)
-
-      "typecheck" ->
-        dispatch_diagnostics(args, :typecheck)
-
-      "diagnose" ->
-        # Alias for diagnostics_all
-        dispatch_diagnostics(args, :all)
-
-      "diagnostics_all" ->
-        dispatch_diagnostics(args, :all)
-
-      _ ->
-        {:error,
-         "Unknown code operation: #{op}. Valid operations: " <>
-           "symbols, parse, references, search, definition, call_graph, index, " <>
-           "library, library_get, library_search, library_ensure, library_discover, library_stats, " <>
-           "check, lint, typecheck, diagnose, diagnostics_all"}
-    end
+  # Unknown operation
+  defp do_dispatch(op, _args) do
+    {:error,
+     "Unknown code operation: #{op}. Valid operations: " <>
+       "symbols, parse, references, search, definition, call_graph, index, " <>
+       "library, library_get, library_search, library_ensure, library_discover, library_stats, " <>
+       "check, lint, typecheck, diagnose, diagnostics_all"}
   end
 
   # ==========================================================================
@@ -114,33 +84,26 @@ defmodule Mimo.Tools.Dispatchers.Code do
   # ==========================================================================
 
   defp dispatch_parse(args) do
-    cond do
-      args["path"] ->
-        case Mimo.Code.TreeSitter.parse_file(args["path"]) do
-          {:ok, tree} ->
-            case Mimo.Code.TreeSitter.get_sexp(tree) do
-              {:ok, sexp} -> {:ok, %{parsed: true, sexp: String.slice(sexp, 0, 2000)}}
-              error -> error
-            end
+    do_parse(args["path"], args["source"], args["language"])
+  end
 
-          error ->
-            error
-        end
-
-      args["source"] && args["language"] ->
-        case Mimo.Code.TreeSitter.parse(args["source"], args["language"]) do
-          {:ok, tree} ->
-            {:ok, symbols} = Mimo.Code.TreeSitter.get_symbols(tree)
-            {:ok, refs} = Mimo.Code.TreeSitter.get_references(tree)
-            {:ok, %{parsed: true, symbols: symbols, references: refs}}
-
-          error ->
-            error
-        end
-
-      true ->
-        {:error, "Either path or source+language is required"}
+  defp do_parse(path, _source, _lang) when is_binary(path) and path != "" do
+    with {:ok, tree} <- Mimo.Code.TreeSitter.parse_file(path),
+         {:ok, sexp} <- Mimo.Code.TreeSitter.get_sexp(tree) do
+      {:ok, %{parsed: true, sexp: String.slice(sexp, 0, 2000)}}
     end
+  end
+
+  defp do_parse(_path, source, lang) when is_binary(source) and is_binary(lang) do
+    with {:ok, tree} <- Mimo.Code.TreeSitter.parse(source, lang),
+         {:ok, symbols} <- Mimo.Code.TreeSitter.get_symbols(tree),
+         {:ok, refs} <- Mimo.Code.TreeSitter.get_references(tree) do
+      {:ok, %{parsed: true, symbols: symbols, references: refs}}
+    end
+  end
+
+  defp do_parse(_path, _source, _lang) do
+    {:error, "Either path or source+language is required"}
   end
 
   defp dispatch_symbols(args) do
@@ -327,38 +290,12 @@ defmodule Mimo.Tools.Dispatchers.Code do
 
   # Search external package registry and cache top results
   defp search_external_and_cache(query, ecosystem, limit) do
-    fetcher =
-      case ecosystem do
-        :hex -> Mimo.Library.Fetchers.HexFetcher
-        :pypi -> Mimo.Library.Fetchers.PyPIFetcher
-        :npm -> Mimo.Library.Fetchers.NPMFetcher
-        :crates -> Mimo.Library.Fetchers.CratesFetcher
-      end
+    fetcher = fetcher_for_ecosystem(ecosystem)
 
     case fetcher.search(query, size: limit, per_page: limit) do
       {:ok, results} when is_list(results) ->
-        # Cache top results in background for future searches
-        spawn(fn ->
-          results
-          |> Enum.take(3)
-          |> Enum.each(fn pkg ->
-            name = pkg[:name] || pkg["name"]
-            if name, do: Mimo.Library.Index.ensure_cached(name, ecosystem, [])
-          end)
-        end)
-
-        # Format results consistently
-        formatted =
-          Enum.map(results, fn pkg ->
-            %{
-              name: pkg[:name] || pkg["name"],
-              description: pkg[:description] || pkg["description"] || "",
-              version:
-                pkg[:version] || pkg["version"] || pkg[:latest_version] || pkg["latest_version"],
-              url: pkg[:url] || pkg["url"],
-              type: :package
-            }
-          end)
+        cache_top_results_async(results, ecosystem)
+        formatted = Enum.map(results, &format_search_result/1)
 
         {:ok,
          %{
@@ -373,7 +310,6 @@ defmodule Mimo.Tools.Dispatchers.Code do
         {:ok, %{query: query, ecosystem: ecosystem, results: [], count: 0, source: :external}}
 
       {:error, reason} ->
-        # Fallback to empty result with error info
         {:ok,
          %{
            query: query,
@@ -384,6 +320,33 @@ defmodule Mimo.Tools.Dispatchers.Code do
            error: inspect(reason)
          }}
     end
+  end
+
+  # Multi-head fetcher lookup
+  defp fetcher_for_ecosystem(:hex), do: Mimo.Library.Fetchers.HexFetcher
+  defp fetcher_for_ecosystem(:pypi), do: Mimo.Library.Fetchers.PyPIFetcher
+  defp fetcher_for_ecosystem(:npm), do: Mimo.Library.Fetchers.NPMFetcher
+  defp fetcher_for_ecosystem(:crates), do: Mimo.Library.Fetchers.CratesFetcher
+
+  defp cache_top_results_async(results, ecosystem) do
+    spawn(fn ->
+      results
+      |> Enum.take(3)
+      |> Enum.each(fn pkg ->
+        name = pkg[:name] || pkg["name"]
+        if name, do: Mimo.Library.Index.ensure_cached(name, ecosystem, [])
+      end)
+    end)
+  end
+
+  defp format_search_result(pkg) do
+    %{
+      name: pkg[:name] || pkg["name"],
+      description: pkg[:description] || pkg["description"] || "",
+      version: pkg[:version] || pkg["version"] || pkg[:latest_version] || pkg["latest_version"],
+      url: pkg[:url] || pkg["url"],
+      type: :package
+    }
   end
 
   defp dispatch_library_ensure(args) do

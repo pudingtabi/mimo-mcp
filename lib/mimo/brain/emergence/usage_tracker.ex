@@ -120,7 +120,7 @@ defmodule Mimo.Brain.Emergence.UsageTracker do
   @impl true
   def init(_opts) do
     # Create ETS table for tracking
-    table = :ets.new(@usage_table, [:set, :public, :named_table])
+    table = Mimo.EtsSafe.ensure_table(@usage_table, [:set, :public, :named_table])
 
     Logger.info("[Emergence.UsageTracker] Started pattern usage tracking")
 

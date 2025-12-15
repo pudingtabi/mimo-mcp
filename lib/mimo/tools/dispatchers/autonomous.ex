@@ -36,44 +36,22 @@ defmodule Mimo.Tools.Dispatchers.Autonomous do
   """
   def dispatch(args) do
     op = Map.get(args, "operation", "status")
+    do_dispatch(op, args)
+  end
 
-    result =
-      case op do
-        "queue" ->
-          dispatch_queue(args)
+  # Multi-head dispatch
+  defp do_dispatch("queue", args), do: dispatch_queue(args)
+  defp do_dispatch("status", _args), do: dispatch_status()
+  defp do_dispatch("pause", _args), do: dispatch_pause()
+  defp do_dispatch("resume", _args), do: dispatch_resume()
+  defp do_dispatch("reset_circuit", _args), do: dispatch_reset_circuit()
+  defp do_dispatch("list_queue", _args), do: dispatch_list_queue()
+  defp do_dispatch("clear_queue", _args), do: dispatch_clear_queue()
+  defp do_dispatch("check_safety", args), do: dispatch_check_safety(args)
 
-        "status" ->
-          dispatch_status()
-
-        "pause" ->
-          dispatch_pause()
-
-        "resume" ->
-          dispatch_resume()
-
-        "reset_circuit" ->
-          dispatch_reset_circuit()
-
-        "list_queue" ->
-          dispatch_list_queue()
-
-        "clear_queue" ->
-          dispatch_clear_queue()
-
-        "check_safety" ->
-          dispatch_check_safety(args)
-
-        _ ->
-          {:error,
-           "Unknown autonomous operation: #{op}. Valid: queue, status, pause, resume, reset_circuit, list_queue, clear_queue"}
-      end
-
-    # Wrap result in standard format
-    case result do
-      {:ok, data} -> {:ok, data}
-      {:error, reason} -> {:error, format_error(reason)}
-      other -> {:ok, other}
-    end
+  defp do_dispatch(op, _args) do
+    {:error,
+     "Unknown autonomous operation: #{op}. Valid: queue, status, pause, resume, reset_circuit, list_queue, clear_queue"}
   end
 
   # =============================================================================
@@ -265,17 +243,5 @@ defmodule Mimo.Tools.Dispatchers.Autonomous do
       "#{status.queued} queued, #{status.running} running, " <>
       "#{status.completed} completed, #{status.failed} failed." <>
       circuit_msg
-  end
-
-  defp format_error(reason) when is_atom(reason) do
-    SafetyGuard.explain_block(reason)
-  end
-
-  defp format_error(reason) when is_binary(reason) do
-    reason
-  end
-
-  defp format_error(reason) do
-    inspect(reason)
   end
 end

@@ -199,7 +199,7 @@ defmodule Mimo.SPEC051.IntegrationTest do
     end
 
     test "large model gets generous allocation" do
-      allocation = BudgetAllocator.allocate(:large, 40000)
+      allocation = BudgetAllocator.allocate(:large, 40_000)
 
       # Tier1 should be ~10% for large models
       tier1_percentage = allocation.tier1 / allocation.total

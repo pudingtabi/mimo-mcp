@@ -101,32 +101,35 @@ defmodule Mimo.Awakening do
 
     # Auto-discover library dependencies if cache is empty
     Mimo.Sandbox.run_async(Mimo.Repo, fn ->
-      case Mimo.Library.cache_stats() do
-        %{hot_cache_entries: 0} ->
-          Logger.info("🚀 [Awakening] Library cache empty - triggering auto-discover")
-          project_path = System.get_env("MIMO_ROOT", ".")
-
-          case Mimo.Library.cache_project_deps(project_path) do
-            {:ok, results} ->
-              Logger.info(
-                "✅ [Awakening] Library auto-discover complete: #{length(results.success)} packages cached"
-              )
-
-            _ ->
-              Logger.warning("[Awakening] Library auto-discover returned unexpected result")
-          end
-
-        stats when is_map(stats) ->
-          Logger.debug(
-            "📚 [Awakening] Library cache already populated: #{stats.hot_cache_entries} entries"
-          )
-
-        _ ->
-          Logger.debug("[Awakening] Library cache stats unavailable")
-      end
+      handle_library_cache_status(Mimo.Library.cache_stats())
     end)
 
     result
+  end
+
+  defp handle_library_cache_status(%{hot_cache_entries: 0}) do
+    Logger.info("🚀 [Awakening] Library cache empty - triggering auto-discover")
+    project_path = System.get_env("MIMO_ROOT", ".")
+
+    case Mimo.Library.cache_project_deps(project_path) do
+      {:ok, results} ->
+        Logger.info(
+          "✅ [Awakening] Library auto-discover complete: #{length(results.success)} packages cached"
+        )
+
+      _ ->
+        Logger.warning("[Awakening] Library auto-discover returned unexpected result")
+    end
+  end
+
+  defp handle_library_cache_status(stats) when is_map(stats) do
+    Logger.debug(
+      "📚 [Awakening] Library cache already populated: #{stats.hot_cache_entries} entries"
+    )
+  end
+
+  defp handle_library_cache_status(_) do
+    Logger.debug("[Awakening] Library cache stats unavailable")
   end
 
   @doc """
@@ -469,19 +472,17 @@ defmodule Mimo.Awakening do
   @spec record_knowledge_activity(atom()) :: :ok
   def record_knowledge_activity(activity_type) when is_atom(activity_type) do
     unless Code.ensure_loaded?(ExUnit) do
-      Mimo.Sandbox.run_async(Mimo.Repo, fn ->
-        case activity_type do
-          :query -> award_xp(:graph_query)
-          :traverse -> award_xp(:graph_query)
-          :teach -> award_xp(:knowledge_taught)
-          :link -> award_xp(:graph_link)
-          _ -> :ok
-        end
-      end)
+      Mimo.Sandbox.run_async(Mimo.Repo, fn -> award_for_activity(activity_type) end)
     end
 
     :ok
   end
+
+  defp award_for_activity(:query), do: award_xp(:graph_query)
+  defp award_for_activity(:traverse), do: award_xp(:graph_query)
+  defp award_for_activity(:teach), do: award_xp(:knowledge_taught)
+  defp award_for_activity(:link), do: award_xp(:graph_link)
+  defp award_for_activity(_), do: :ok
 
   @doc """
   Record a procedure created.

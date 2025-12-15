@@ -600,34 +600,37 @@ defmodule Mimo.Workflow.Executor do
   end
 
   defp check_single_precondition(%{check: check_type} = precondition, context) do
-    case check_type do
-      :context_has_key ->
-        key = precondition.key || precondition[:params][:key]
-        Map.has_key?(context, key) or Map.has_key?(context, to_string(key))
+    do_check_precondition(check_type, precondition, context)
+  end
 
-      :file_exists ->
-        path = context[precondition.key] || context[to_string(precondition.key)]
-        path && File.exists?(path)
+  # Multi-head precondition checking
+  defp do_check_precondition(:context_has_key, precondition, context) do
+    key = precondition.key || precondition[:params][:key]
+    Map.has_key?(context, key) or Map.has_key?(context, to_string(key))
+  end
 
-      :project_indexed ->
-        # Check if project has been indexed via onboard
-        case context["project_path"] || context[:project_path] do
-          nil -> false
-          # Simplified check
-          _path -> true
-        end
+  defp do_check_precondition(:file_exists, precondition, context) do
+    path = context[precondition.key] || context[to_string(precondition.key)]
+    path && File.exists?(path)
+  end
 
-      :custom ->
-        # Allow custom check functions
-        case precondition[:function] do
-          {mod, fun} -> apply(mod, fun, [context])
-          _ -> true
-        end
-
-      _ ->
-        Logger.warning("Unknown precondition check type: #{inspect(check_type)}")
-        true
+  defp do_check_precondition(:project_indexed, _precondition, context) do
+    case context["project_path"] || context[:project_path] do
+      nil -> false
+      _path -> true
     end
+  end
+
+  defp do_check_precondition(:custom, precondition, context) do
+    case precondition[:function] do
+      {mod, fun} -> apply(mod, fun, [context])
+      _ -> true
+    end
+  end
+
+  defp do_check_precondition(check_type, _precondition, _context) do
+    Logger.warning("Unknown precondition check type: #{inspect(check_type)}")
+    true
   end
 
   # =============================================================================

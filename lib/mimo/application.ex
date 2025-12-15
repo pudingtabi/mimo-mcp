@@ -20,6 +20,10 @@ defmodule Mimo.Application do
 
   @impl true
   def start(_type, _args) do
+    # ===== LLM CONFIGURATION CHECK =====
+    # Mimo requires LLM services to function. Check early and fail clearly.
+    check_llm_configuration()
+
     children =
       [
         # Start Repo
@@ -34,6 +38,8 @@ defmodule Mimo.Application do
           start: {__MODULE__, :start_pg, []},
           type: :worker
         },
+        # Phoenix PubSub (required for WebSocket Synapse + Channels)
+        {Phoenix.PubSub, name: Mimo.PubSub},
         # ===== GRACEFUL DEGRADATION FRAMEWORK (TASK 5 - Dec 6 2025) =====
         # ServiceRegistry: Tracks service initialization status and dependencies
         # Must start before other services so they can register
@@ -47,6 +53,11 @@ defmodule Mimo.Application do
         Supervisor.child_spec(
           {Mimo.ErrorHandling.CircuitBreaker, name: :ollama, failure_threshold: 3},
           id: :circuit_breaker_ollama
+        ),
+        # Circuit breaker for external web requests (Phase 1 Stability - Task 1.4)
+        Supervisor.child_spec(
+          {Mimo.ErrorHandling.CircuitBreaker, name: :web_service, failure_threshold: 10},
+          id: :circuit_breaker_web
         ),
         # Thread-safe tool registry with distributed coordination
         {Mimo.ToolRegistry, []},
@@ -291,6 +302,76 @@ defmodule Mimo.Application do
     Application.fetch_env!(:mimo_mcp, :mcp_port)
   end
 
+  # LLM Configuration Check - Mimo requires LLM to function
+  defp check_llm_configuration do
+    alias Mimo.Brain.LLM
+
+    case LLM.check_configuration() do
+      {:ok, :fully_configured} ->
+        Logger.info("✅ LLM services configured (LLM + Ollama)")
+        :ok
+
+      {:ok, :partial_no_embeddings} ->
+        Logger.warning("""
+        ⚠️ LLM configured but Ollama not available.
+        Embeddings will not be generated. Memory search may be degraded.
+
+        To fix: Start Ollama with 'ollama serve' or configure OLLAMA_URL in .env
+        """)
+
+        :ok
+
+      {:ok, :partial_no_llm} ->
+        Logger.warning("""
+        ⚠️ Ollama available but no LLM API keys configured.
+        AI reasoning features will not work.
+
+        To fix: Add CEREBRAS_API_KEY or OPENROUTER_API_KEY to .env
+        """)
+
+        :ok
+
+      {:error, :not_configured} ->
+        error_message = """
+
+        ═══════════════════════════════════════════════════════════════════════════════
+        ❌ LLM NOT CONFIGURED
+        ═══════════════════════════════════════════════════════════════════════════════
+
+        Mimo requires LLM services to function. Please configure before using Mimo.
+
+        REQUIRED - At least ONE of:
+        ┌─────────────────────────────────────────────────────────────────────────────┐
+        │ CEREBRAS_API_KEY=your_key    # Get free at https://cerebras.ai             │
+        │ OPENROUTER_API_KEY=your_key  # Get free at https://openrouter.ai           │
+        └─────────────────────────────────────────────────────────────────────────────┘
+
+        RECOMMENDED - For embeddings:
+        ┌─────────────────────────────────────────────────────────────────────────────┐
+        │ Run: ollama serve                                                           │
+        │ Or set: OLLAMA_URL=http://your-ollama-host:11434                           │
+        └─────────────────────────────────────────────────────────────────────────────┘
+
+        Add these to your .env file in the mimo-mcp directory and restart.
+
+        ═══════════════════════════════════════════════════════════════════════════════
+        """
+
+        Logger.error(error_message)
+
+        # In test mode, don't halt
+        if Application.get_env(:mimo_mcp, :skip_external_apis, false) do
+          Logger.warning("Continuing in test mode (skip_external_apis=true)")
+          :ok
+        else
+          # Print to stderr for MCP clients
+          IO.puts(:stderr, error_message)
+          # Don't crash, allow degraded startup
+          :ok
+        end
+    end
+  end
+
   # Minimal supervisor for degraded mode when full startup fails
   defp start_minimal_supervisor do
     Logger.warning("\u26A0\uFE0F Starting in minimal/degraded mode...")
@@ -301,6 +382,21 @@ defmodule Mimo.Application do
       %{id: :pg, start: {:pg, :start_link, []}},
       Mimo.Repo,
       {Registry, keys: :unique, name: Mimo.Skills.Registry},
+      # Circuit breaker registry - needed for network/LLM calls
+      {Registry, keys: :unique, name: Mimo.CircuitBreaker.Registry},
+      # Essential circuit breakers for degraded mode
+      Supervisor.child_spec(
+        {Mimo.ErrorHandling.CircuitBreaker, name: :llm_service, failure_threshold: 5},
+        id: :circuit_breaker_llm_service
+      ),
+      Supervisor.child_spec(
+        {Mimo.ErrorHandling.CircuitBreaker, name: :ollama, failure_threshold: 3},
+        id: :circuit_breaker_ollama
+      ),
+      Supervisor.child_spec(
+        {Mimo.ErrorHandling.CircuitBreaker, name: :web_service, failure_threshold: 10},
+        id: :circuit_breaker_web
+      ),
       {Mimo.ToolRegistry, []},
       {Task.Supervisor, name: Mimo.TaskSupervisor}
     ]

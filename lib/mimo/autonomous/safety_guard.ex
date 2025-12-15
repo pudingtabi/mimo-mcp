@@ -111,9 +111,8 @@ defmodule Mimo.Autonomous.SafetyGuard do
   @spec check_allowed(map()) :: :ok | {:error, atom()}
   def check_allowed(task_spec) when is_map(task_spec) do
     with :ok <- check_command(task_spec),
-         :ok <- check_file_paths(task_spec),
-         :ok <- check_description(task_spec) do
-      :ok
+         :ok <- check_file_paths(task_spec) do
+      check_description(task_spec)
     end
   end
 

@@ -164,7 +164,7 @@ defmodule Mimo.Brain.InferenceScheduler do
 
   @impl true
   def handle_call(:idle?, _from, state) do
-    idle = is_idle?(state)
+    idle = idle?(state)
     {:reply, idle, state}
   end
 
@@ -178,7 +178,7 @@ defmodule Mimo.Brain.InferenceScheduler do
         },
         pending_batch: length(state.pending_batch),
         rate_limited: rate_limited?(state),
-        idle: is_idle?(state)
+        idle: idle?(state)
       })
 
     {:reply, stats, state}
@@ -205,7 +205,7 @@ defmodule Mimo.Brain.InferenceScheduler do
   @impl true
   def handle_info(:process, state) do
     new_state =
-      if is_idle?(state) and length(state.pending_batch) > 0 do
+      if idle?(state) and length(state.pending_batch) > 0 do
         process_batch(state)
       else
         state
@@ -296,7 +296,7 @@ defmodule Mimo.Brain.InferenceScheduler do
     )
   end
 
-  defp is_idle?(state) do
+  defp idle?(state) do
     last = state.last_high_priority
     now = DateTime.utc_now()
     DateTime.diff(now, last, :millisecond) > @idle_threshold_ms

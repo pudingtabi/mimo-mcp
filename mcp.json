@@ -2,14 +2,19 @@
   "mcpServers": {
     "mimo": {
       "type": "stdio",
-      "command": "/workspace/mrc-server/mimo-mcp/bin/mimo",
-      "args": ["stdio"],
+      "command": "bun",
+      "args": ["${workspaceFolder}/bin/mimo-bun-wrapper.js"],
       "env": {
-        "PATH": "/root/.asdf/shims:/root/.asdf/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "PATH": "/root/.bun/bin:/root/.asdf/shims:/root/.asdf/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "ASDF_DIR": "/root/.asdf",
         "LC_ALL": "C.UTF-8",
         "LANG": "C.UTF-8",
-        "ELIXIR_ERL_OPTIONS": "+fnu"
+        "ELIXIR_ERL_OPTIONS": "+fnu",
+        "MIMO_DIR": "${workspaceFolder}",
+        "MIX_ENV": "dev",
+        "PROMETHEUS_DISABLED": "true",
+        "MIMO_DISABLE_HTTP": "true",
+        "MIMO_WRAPPER_KILL_EXISTING": "0"
       }
     }
   }

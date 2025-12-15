@@ -33,57 +33,31 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
   """
   def dispatch(args) do
     op = args["operation"] || "dashboard"
+    do_dispatch(op, args)
+  end
 
-    case op do
-      "detect" ->
-        dispatch_detect(args)
+  # ==========================================================================
+  # Multi-Head Dispatch by Operation
+  # ==========================================================================
+  defp do_dispatch("detect", args), do: dispatch_detect(args)
+  defp do_dispatch("dashboard", _args), do: dispatch_dashboard()
+  defp do_dispatch("alerts", _args), do: dispatch_alerts()
+  defp do_dispatch("amplify", _args), do: dispatch_amplify()
+  defp do_dispatch("promote", args), do: dispatch_promote(args)
+  defp do_dispatch("cycle", args), do: dispatch_cycle(args)
+  defp do_dispatch("list", args), do: dispatch_list(args)
+  defp do_dispatch("search", args), do: dispatch_search(args)
+  defp do_dispatch("suggest", args), do: dispatch_suggest(args)
+  defp do_dispatch("status", _args), do: dispatch_status()
+  defp do_dispatch("pattern", args), do: dispatch_pattern(args)
+  defp do_dispatch("impact", args), do: dispatch_impact(args)
+  defp do_dispatch("track_usage", args), do: dispatch_track_usage(args)
+  defp do_dispatch("usage_stats", _args), do: dispatch_usage_stats()
+  defp do_dispatch("ab_stats", _args), do: dispatch_ab_stats()
 
-      "dashboard" ->
-        dispatch_dashboard()
-
-      "alerts" ->
-        dispatch_alerts()
-
-      "amplify" ->
-        dispatch_amplify()
-
-      "promote" ->
-        dispatch_promote(args)
-
-      "cycle" ->
-        dispatch_cycle(args)
-
-      "list" ->
-        dispatch_list(args)
-
-      "search" ->
-        dispatch_search(args)
-
-      "suggest" ->
-        dispatch_suggest(args)
-
-      "status" ->
-        dispatch_status()
-
-      "pattern" ->
-        dispatch_pattern(args)
-
-      "impact" ->
-        dispatch_impact(args)
-
-      "track_usage" ->
-        dispatch_track_usage(args)
-
-      "usage_stats" ->
-        dispatch_usage_stats()
-
-      "ab_stats" ->
-        dispatch_ab_stats()
-
-      _ ->
-        {:error,
-         "Unknown emergence operation: #{op}. Available: detect, dashboard, alerts, amplify, promote, cycle, list, search, suggest, status, pattern, impact, track_usage, usage_stats, ab_stats"}
-    end
+  defp do_dispatch(op, _args) do
+    {:error,
+     "Unknown emergence operation: #{op}. Available: detect, dashboard, alerts, amplify, promote, cycle, list, search, suggest, status, pattern, impact, track_usage, usage_stats, ab_stats"}
   end
 
   # ============================================================================
@@ -97,18 +71,15 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
     opts = [days: days]
     opts = if modes, do: Keyword.put(opts, :modes, modes), else: opts
 
-    case Emergence.detect_patterns(opts) do
-      {:ok, result} ->
-        {:ok,
-         %{
-           operation: :detect,
-           days_analyzed: days,
-           detection_modes: map_detection_results(result)
-         }}
+    # detect_patterns always returns {:ok, result}
+    {:ok, result} = Emergence.detect_patterns(opts)
 
-      {:error, reason} ->
-        {:error, "Detection failed: #{inspect(reason)}"}
-    end
+    {:ok,
+     %{
+       operation: :detect,
+       days_analyzed: days,
+       detection_modes: map_detection_results(result)
+     }}
   end
 
   defp dispatch_dashboard do
@@ -139,18 +110,15 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
   end
 
   defp dispatch_amplify do
-    case Emergence.amplify() do
-      {:ok, result} ->
-        {:ok,
-         %{
-           operation: :amplify,
-           strategies_run: Map.keys(result),
-           results: result
-         }}
+    # amplify always returns {:ok, result}
+    {:ok, result} = Emergence.amplify()
 
-      {:error, reason} ->
-        {:error, "Amplification failed: #{inspect(reason)}"}
-    end
+    {:ok,
+     %{
+       operation: :amplify,
+       strategies_run: Map.keys(result),
+       results: result
+     }}
   end
 
   defp dispatch_promote(args) do
@@ -330,22 +298,18 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
           {:error, "Failed to get pattern impact: #{reason}"}
       end
     else
-      # Get all pattern impacts
-      case UsageTracker.get_all_impacts() do
-        {:ok, impacts} ->
-          {:ok,
-           %{
-             operation: :impact,
-             all_patterns: true,
-             impacts:
-               Enum.map(impacts, fn {pid, impact} ->
-                 %{pattern_id: pid, impact: format_impact(impact)}
-               end)
-           }}
+      # Get all pattern impacts - returns map directly, not tuple
+      impacts = UsageTracker.get_all_impacts()
 
-        {:error, reason} ->
-          {:error, "Failed to get pattern impacts: #{reason}"}
-      end
+      {:ok,
+       %{
+         operation: :impact,
+         all_patterns: true,
+         impacts:
+           Enum.map(impacts, fn {pid, impact} ->
+             %{pattern_id: pid, impact: format_impact(impact)}
+           end)
+       }}
     end
   end
 
@@ -355,40 +319,34 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
     with {:ok, pattern_id} <- validate_required(args, "pattern_id"),
          {:ok, context} <- validate_required(args, "context") do
       session_id = args["session_id"] || generate_session_id()
+      context_with_session = Map.put(context, :session_id, session_id)
 
-      case UsageTracker.track_usage(pattern_id, context, session_id: session_id) do
-        :ok ->
-          {:ok,
-           %{
-             operation: :track_usage,
-             pattern_id: pattern_id,
-             session_id: session_id,
-             status: :tracked
-           }}
+      :ok = UsageTracker.track_usage(pattern_id, :unknown, context_with_session)
 
-        {:error, reason} ->
-          {:error, "Failed to track usage: #{reason}"}
-      end
+      {:ok,
+       %{
+         operation: :track_usage,
+         pattern_id: pattern_id,
+         session_id: session_id,
+         status: :tracked
+       }}
     end
   end
 
   defp dispatch_usage_stats do
     alias Mimo.Brain.Emergence.UsageTracker
 
-    case UsageTracker.stats() do
-      {:ok, stats} ->
-        {:ok,
-         %{
-           operation: :usage_stats,
-           total_patterns_tracked: stats.total_patterns,
-           total_usages: stats.total_usages,
-           patterns_with_outcomes: stats.patterns_with_outcomes,
-           average_success_rate: stats.average_success_rate
-         }}
+    # UsageTracker.stats() returns a map directly, not {:ok, stats}
+    stats = UsageTracker.stats()
 
-      {:error, reason} ->
-        {:error, "Failed to get usage stats: #{reason}"}
-    end
+    {:ok,
+     %{
+       operation: :usage_stats,
+       total_patterns_tracked: Map.get(stats, :total_patterns, 0),
+       total_usages: Map.get(stats, :total_usages, 0),
+       patterns_with_outcomes: Map.get(stats, :patterns_with_outcomes, 0),
+       average_success_rate: Map.get(stats, :average_success_rate, 0.0)
+     }}
   end
 
   defp dispatch_ab_stats do
@@ -467,6 +425,7 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
 
   defp parse_modes(_), do: nil
 
+  # map_detection_results only accepts maps
   defp map_detection_results(detection) when is_map(detection) do
     Enum.map(detection, fn {mode, result} ->
       %{
@@ -476,8 +435,6 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
       }
     end)
   end
-
-  defp map_detection_results(_), do: []
 
   defp format_alert(alert) do
     %{

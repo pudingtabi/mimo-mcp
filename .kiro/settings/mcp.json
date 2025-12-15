@@ -2,10 +2,19 @@
   "mcpServers": {
     "mimo": {
       "type": "stdio",
-      "command": "node",
-      "args": ["/workspace/mrc-server/mimo-mcp/bin/mimo-node-wrapper.js"],
-      "disabled": false,
-      "allowedTools": ["ask_mimo", "awakening_status", "code", "cognitive", "file", "ingest", "knowledge", "list_procedures", "memory", "meta", "mimo_reload_skills", "onboard", "reason", "run_procedure", "terminal", "think", "tool_usage", "web"]
+      "command": "bun",
+      "args": ["/root/mrc-server/mimo-mcp/bin/mimo-bun-wrapper.js"],
+      "env": {
+        "LC_ALL": "C.UTF-8",
+        "LANG": "C.UTF-8",
+        "ELIXIR_ERL_OPTIONS": "+fnu",
+        "MIX_ENV": "dev",
+        "MIMO_DIR": "/root/mrc-server/mimo-mcp",
+        "PROMETHEUS_DISABLED": "true",
+        "MIMO_DISABLE_HTTP": "true",
+        "MIMO_WRAPPER_KILL_EXISTING": "0"
+      },
+      "disabled": false
     }
   }
 }

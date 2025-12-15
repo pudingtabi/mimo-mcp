@@ -180,25 +180,9 @@ defmodule Mimo.SemanticStore.InferenceEngine do
 
   # Apply a rule to infer transitive triples, returning results with inferred_by_rule_id
   defp apply_rule_for_inference(rule, predicate, max_depth, min_confidence, opts) do
-    # Support both persisted Ecto struct and raw maps
-    rule_id = if is_map(rule), do: Map.get(rule, :id) || Map.get(rule, "id"), else: rule.id
-    rule_conf = if is_map(rule), do: Map.get(rule, :confidence) || 0.5, else: rule.confidence
-    conclusion_field = if is_map(rule), do: Map.get(rule, :conclusion), else: rule.conclusion
-
-    conclusion_pred =
-      cond do
-        is_map(conclusion_field) ->
-          Map.get(conclusion_field, "predicate") || Map.get(conclusion_field, :predicate)
-
-        is_binary(conclusion_field) ->
-          case Jason.decode(conclusion_field) do
-            {:ok, m} when is_map(m) -> Map.get(m, "predicate") || Map.get(m, :predicate)
-            _ -> conclusion_field
-          end
-
-        true ->
-          conclusion_field
-      end
+    rule_id = get_rule_field(rule, :id)
+    rule_conf = get_rule_field(rule, :confidence) || 0.5
+    conclusion_pred = extract_conclusion_predicate(rule)
 
     if to_string(conclusion_pred) == to_string(predicate) do
       graph = build_digraph(predicate, min_confidence)
@@ -209,20 +193,7 @@ defmodule Mimo.SemanticStore.InferenceEngine do
           find_transitive_paths(graph, vertex, max_depth)
         end)
         |> Enum.map(fn {from, to, depth} ->
-          confidence =
-            max(0.0, (rule_conf || 0.5) * (1.0 - depth * Keyword.get(opts, :confidence_decay, 0.1)))
-
-          %{
-            subject_id: elem(from, 0),
-            subject_type: elem(from, 1),
-            predicate: predicate,
-            object_id: elem(to, 0),
-            object_type: elem(to, 1),
-            confidence: confidence,
-            source: "neuro_symbolic:rule:#{rule_id}",
-            metadata: %{inferred: true, depth: depth, rule_id: rule_id},
-            inferred_by_rule_id: rule_id
-          }
+          build_inferred_triple(from, to, depth, predicate, rule_id, rule_conf, opts)
         end)
         |> filter_existing_triples()
 
@@ -231,6 +202,51 @@ defmodule Mimo.SemanticStore.InferenceEngine do
     else
       []
     end
+  end
+
+  defp get_rule_field(rule, field) when is_map(rule) do
+    Map.get(rule, field) || Map.get(rule, to_string(field))
+  end
+
+  defp get_rule_field(rule, field), do: Map.get(rule, field)
+
+  defp extract_conclusion_predicate(rule) do
+    conclusion_field = get_rule_field(rule, :conclusion)
+
+    cond do
+      is_map(conclusion_field) ->
+        Map.get(conclusion_field, "predicate") || Map.get(conclusion_field, :predicate)
+
+      is_binary(conclusion_field) ->
+        parse_conclusion_predicate(conclusion_field)
+
+      true ->
+        conclusion_field
+    end
+  end
+
+  defp parse_conclusion_predicate(json_str) do
+    case Jason.decode(json_str) do
+      {:ok, m} when is_map(m) -> Map.get(m, "predicate") || Map.get(m, :predicate)
+      _ -> json_str
+    end
+  end
+
+  defp build_inferred_triple(from, to, depth, predicate, rule_id, rule_conf, opts) do
+    decay = Keyword.get(opts, :confidence_decay, 0.1)
+    confidence = max(0.0, rule_conf * (1.0 - depth * decay))
+
+    %{
+      subject_id: elem(from, 0),
+      subject_type: elem(from, 1),
+      predicate: predicate,
+      object_id: elem(to, 0),
+      object_type: elem(to, 1),
+      confidence: confidence,
+      source: "neuro_symbolic:rule:#{rule_id}",
+      metadata: %{inferred: true, depth: depth, rule_id: rule_id},
+      inferred_by_rule_id: rule_id
+    }
   end
 
   # End of file
@@ -381,35 +397,29 @@ defmodule Mimo.SemanticStore.InferenceEngine do
     if current_depth >= max_depth do
       acc
     else
-      # Get direct neighbors
       neighbors = :digraph.out_neighbours(graph, current)
 
       {_new_visited, new_acc} =
         Enum.reduce(neighbors, {visited, acc}, fn neighbor, {vis, a} ->
-          if Map.has_key?(vis, neighbor) do
-            {vis, a}
-          else
-            depth = current_depth + 1
-            new_vis = Map.put(vis, neighbor, depth)
-
-            # Get the start vertex (first vertex with depth 0)
-            start = Enum.find(vis, fn {_v, d} -> d == 0 end) |> elem(0)
-
-            new_a =
-              if depth > 1 do
-                [{start, neighbor, depth} | a]
-              else
-                a
-              end
-
-            # Continue BFS - recurse and get back updated state
-            recursive_acc = bfs_traverse(graph, neighbor, max_depth, new_vis, new_a)
-            {new_vis, recursive_acc}
-          end
+          process_bfs_neighbor(graph, neighbor, current_depth, max_depth, vis, a)
         end)
 
       new_acc
     end
+  end
+
+  defp process_bfs_neighbor(_graph, neighbor, _current_depth, _max_depth, vis, acc)
+       when is_map_key(vis, neighbor) do
+    {vis, acc}
+  end
+
+  defp process_bfs_neighbor(graph, neighbor, current_depth, max_depth, vis, acc) do
+    depth = current_depth + 1
+    new_vis = Map.put(vis, neighbor, depth)
+    start = Enum.find(vis, fn {_v, d} -> d == 0 end) |> elem(0)
+    new_acc = if depth > 1, do: [{start, neighbor, depth} | acc], else: acc
+    recursive_acc = bfs_traverse(graph, neighbor, max_depth, new_vis, new_acc)
+    {new_vis, recursive_acc}
   end
 
   defp find_proof_chain(subject_id, predicate, object_id, max_depth) do

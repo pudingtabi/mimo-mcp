@@ -50,11 +50,11 @@ defmodule Mimo.ProceduralStore.AutoGenerator do
   """
   def generate_from_session(session_id, opts \\ []) do
     case ReasoningSession.get(session_id) do
-      nil ->
-        {:error, :session_not_found}
-
-      session ->
+      {:ok, session} ->
         do_generate(session, opts)
+
+      {:error, :not_found} ->
+        {:error, :session_not_found}
     end
   end
 
@@ -64,20 +64,15 @@ defmodule Mimo.ProceduralStore.AutoGenerator do
   Looks up associated reasoning sessions for the pattern and generates
   a procedure from the most successful one.
   """
-  def generate_from_pattern(pattern_id, opts \\ []) do
+  def generate_from_pattern(pattern_id, _opts \\ []) do
     alias Mimo.Brain.Emergence.UsageTracker
 
     # Get pattern usage data to find successful sessions
     case UsageTracker.get_impact(pattern_id) do
       {:ok, impact} when impact.success_rate > 0.7 ->
-        # Find associated sessions and generate from best one
-        case find_best_session_for_pattern(pattern_id) do
-          {:ok, session} ->
-            do_generate(session, opts)
-
-          {:error, reason} ->
-            {:error, reason}
-        end
+        # find_best_session_for_pattern is not yet implemented
+        # When implemented, this will find associated sessions and generate from best one
+        find_best_session_for_pattern(pattern_id)
 
       {:ok, _} ->
         {:error, :pattern_not_successful_enough}
@@ -98,11 +93,11 @@ defmodule Mimo.ProceduralStore.AutoGenerator do
   """
   def analyze_suitability(session_id) do
     case ReasoningSession.get(session_id) do
-      nil ->
-        {:error, :session_not_found}
-
-      session ->
+      {:ok, session} ->
         analyze_session_suitability(session)
+
+      {:error, :not_found} ->
+        {:error, :session_not_found}
     end
   end
 
@@ -166,12 +161,12 @@ defmodule Mimo.ProceduralStore.AutoGenerator do
 
   defp extract_tool_steps(thoughts) do
     thoughts
-    |> Enum.filter(&is_tool_call?/1)
+    |> Enum.filter(&tool_call?/1)
     |> Enum.map(&parse_tool_call/1)
     |> Enum.reject(&is_nil/1)
   end
 
-  defp is_tool_call?(thought) do
+  defp tool_call?(thought) do
     content = thought.content || ""
 
     # Look for common tool call patterns in thought content
@@ -355,7 +350,7 @@ defmodule Mimo.ProceduralStore.AutoGenerator do
        total_thoughts: total_thoughts,
        extractable_ratio: Float.round(extractable_ratio, 2),
        strategy: session.strategy,
-       suggested_improvements: if(not suitable, do: suggest_improvements(reasons), else: [])
+       suggested_improvements: if(suitable, do: [], else: suggest_improvements(reasons))
      }}
   end
 
@@ -363,7 +358,7 @@ defmodule Mimo.ProceduralStore.AutoGenerator do
     Enum.flat_map(reasons, fn reason ->
       case reason do
         "Session not completed" ->
-          ["Complete the reasoning session with `reason operation=conclude`"]
+          ["Complete the reasoning session (reason: conclude)"]
 
         "Too few extractable steps" ->
           ["Add more tool-based steps to the reasoning"]

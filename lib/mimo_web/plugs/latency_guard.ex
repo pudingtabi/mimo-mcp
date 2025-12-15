@@ -15,7 +15,12 @@ defmodule MimoWeb.Plugs.LatencyGuard do
   def init(opts) do
     # Initialize ETS table for latency samples if it doesn't exist
     if :ets.whereis(@latency_table) == :undefined do
-      :ets.new(@latency_table, [:named_table, :ordered_set, :public, write_concurrency: true])
+      Mimo.EtsSafe.ensure_table(@latency_table, [
+        :named_table,
+        :ordered_set,
+        :public,
+        write_concurrency: true
+      ])
     end
 
     opts

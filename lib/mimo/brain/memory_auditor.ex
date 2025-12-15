@@ -13,7 +13,7 @@ defmodule Mimo.Brain.MemoryAuditor do
 
       # Full audit
       Mimo.Brain.MemoryAuditor.audit()
-      
+
       # Find specific issues
       Mimo.Brain.MemoryAuditor.find_exact_duplicates()
       Mimo.Brain.MemoryAuditor.find_contradictions(limit: 20)
@@ -157,7 +157,7 @@ defmodule Mimo.Brain.MemoryAuditor do
 
     # Calculate age for each result
     Enum.map(results, fn r ->
-      age_days = NaiveDateTime.diff(NaiveDateTime.utc_now(), r.inserted_at, :second) / 86400
+      age_days = NaiveDateTime.diff(NaiveDateTime.utc_now(), r.inserted_at, :second) / 86_400
       Map.put(r, :age_days, Float.round(age_days, 1))
     end)
   rescue
@@ -271,47 +271,23 @@ defmodule Mimo.Brain.MemoryAuditor do
 
   defp find_contradicting_pairs(memory) do
     # Use Memory.search to find semantically similar memories
-    case Memory.search(memory.content, limit: 5, threshold: 0.65) do
-      {:ok, similar_memories} ->
-        # Filter to memories that might contradict
-        similar_memories
-        |> Enum.filter(fn sim ->
-          sim.id != memory.id and potentially_contradicts?(memory.content, sim.content)
-        end)
-        |> Enum.map(fn sim ->
-          %{
-            memory_a_id: memory.id,
-            memory_b_id: sim.id,
-            content_a: truncate(memory.content, 100),
-            content_b: truncate(sim.content, 100),
-            similarity: sim.similarity,
-            reason: "Memory A has negation, Memory B does not"
-          }
-        end)
+    {:ok, similar_memories} = Memory.search(memory.content, limit: 5, threshold: 0.65)
 
-      {:error, _} ->
-        []
-
-      # Handle list return format
-      memories when is_list(memories) ->
-        memories
-        |> Enum.filter(fn sim ->
-          Map.get(sim, :id) != memory.id and
-            potentially_contradicts?(memory.content, Map.get(sim, :content, ""))
-        end)
-        |> Enum.map(fn sim ->
-          %{
-            memory_a_id: memory.id,
-            memory_b_id: Map.get(sim, :id),
-            content_a: truncate(memory.content, 100),
-            content_b: truncate(Map.get(sim, :content, ""), 100),
-            similarity: Map.get(sim, :similarity, 0.0),
-            reason: "Memory A has negation, Memory B does not"
-          }
-        end)
-    end
-  rescue
-    _ -> []
+    # Filter to memories that might contradict
+    similar_memories
+    |> Enum.filter(fn sim ->
+      sim.id != memory.id and potentially_contradicts?(memory.content, sim.content)
+    end)
+    |> Enum.map(fn sim ->
+      %{
+        memory_a_id: memory.id,
+        memory_b_id: sim.id,
+        content_a: truncate(memory.content, 100),
+        content_b: truncate(sim.content, 100),
+        similarity: sim.similarity,
+        reason: "Memory A has negation, Memory B does not"
+      }
+    end)
   end
 
   defp potentially_contradicts?(content_a, content_b) do

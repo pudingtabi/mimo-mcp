@@ -98,8 +98,19 @@ defmodule Mimo.Library.CacheManager do
     File.mkdir_p!(cache_dir)
 
     # Initialize ETS tables for hot cache
-    :ets.new(:library_cache_hot, [:named_table, :set, :public, read_concurrency: true])
-    :ets.new(:library_cache_meta, [:named_table, :set, :public, read_concurrency: true])
+    Mimo.EtsSafe.ensure_table(:library_cache_hot, [
+      :named_table,
+      :set,
+      :public,
+      read_concurrency: true
+    ])
+
+    Mimo.EtsSafe.ensure_table(:library_cache_meta, [
+      :named_table,
+      :set,
+      :public,
+      read_concurrency: true
+    ])
 
     # Schedule periodic cleanup
     schedule_cleanup()

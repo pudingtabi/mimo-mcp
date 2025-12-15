@@ -8,16 +8,16 @@ defmodule Mix.Tasks.Robustness.Audit do
 
       # Audit current project
       mix robustness.audit
-      
+
       # Audit specific path
       mix robustness.audit lib/mimo
-      
+
       # Output to file
       mix robustness.audit --output report.md
-      
+
       # JSON output
       mix robustness.audit --format json
-      
+
       # Fail if score below threshold
       mix robustness.audit --threshold 60
 
@@ -38,10 +38,10 @@ defmodule Mix.Tasks.Robustness.Audit do
 
       # Basic audit
       $ mix robustness.audit
-      
+
       # CI integration with threshold
       $ mix robustness.audit --threshold 60 --format json
-      
+
       # Store findings for learning
       $ mix robustness.audit --store-graph
   """
@@ -75,22 +75,17 @@ defmodule Mix.Tasks.Robustness.Audit do
     Mix.shell().info("Scanning: #{path}")
     Mix.shell().info("Concurrency: #{concurrency} workers\n")
 
-    case Mimo.Robustness.audit(path, format: format, concurrency: concurrency) do
-      {:ok, report} ->
-        output_report(report, opts, format)
+    {:ok, report} = Mimo.Robustness.audit(path, format: format, concurrency: concurrency)
 
-        # Optionally store in knowledge graph
-        if store_graph do
-          store_in_graph(report)
-        end
+    output_report(report, opts, format)
 
-        # Check threshold
-        check_threshold(report, threshold)
-
-      {:error, reason} ->
-        Mix.shell().error("Audit failed: #{inspect(reason)}")
-        exit({:shutdown, 1})
+    # Optionally store in knowledge graph
+    if store_graph do
+      store_in_graph(report)
     end
+
+    # Check threshold
+    check_threshold(report, threshold)
   end
 
   defp output_report(report, opts, format) do
@@ -118,7 +113,7 @@ defmodule Mix.Tasks.Robustness.Audit do
     """
     # 🛡️ Robustness Audit Report
 
-    **Path:** #{report.path}  
+    **Path:** #{report.path}
     **Generated:** #{report.generated_at}
 
     ## Summary
@@ -149,10 +144,9 @@ defmodule Mix.Tasks.Robustness.Audit do
     file_list =
       files
       |> Enum.take(10)
-      |> Enum.map(fn f ->
+      |> Enum.map_join("\n", fn f ->
         "- **#{f.file}** - Score: #{f.score}/100 (#{length(f.red_flags)} red flags)"
       end)
-      |> Enum.join("\n")
 
     "## High Risk Files (Top 10)\n\n#{file_list}"
   end
@@ -166,10 +160,9 @@ defmodule Mix.Tasks.Robustness.Audit do
       grouped
       |> Enum.sort_by(fn {_id, instances} -> -length(instances) end)
       |> Enum.take(10)
-      |> Enum.map(fn {id, instances} ->
+      |> Enum.map_join("\n", fn {id, instances} ->
         "- **#{id}** (#{length(instances)} instances)"
       end)
-      |> Enum.join("\n")
 
     "## Red Flags (Top 10)\n\n#{flag_list}"
   end
@@ -177,13 +170,8 @@ defmodule Mix.Tasks.Robustness.Audit do
   defp store_in_graph(report) do
     Mix.shell().info("\nStoring findings in knowledge graph...")
 
-    case Mimo.Robustness.KnowledgeIntegration.store_audit_findings(report) do
-      {:ok, result} ->
-        Mix.shell().info("✅ Stored #{result.files} files, #{result.patterns} patterns")
-
-      {:error, reason} ->
-        Mix.shell().error("Failed to store: #{inspect(reason)}")
-    end
+    {:ok, result} = Mimo.Robustness.KnowledgeIntegration.store_audit_findings(report)
+    Mix.shell().info("✅ Stored #{result.files} files, #{result.patterns} patterns")
   end
 
   defp check_threshold(_report, 0), do: :ok

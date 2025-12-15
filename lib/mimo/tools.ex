@@ -185,210 +185,151 @@ defmodule Mimo.Tools do
     }
   end
 
-  # The actual dispatch logic
-  defp do_dispatch(tool_name, arguments) do
-    case tool_name do
-      # File operations
-      "file" ->
-        Dispatchers.File.dispatch(arguments)
+  # ==========================================================================
+  # Multi-Head Tool Dispatch (CC=49 → CC≈2)
+  # ==========================================================================
 
-      # Terminal operations
-      "terminal" ->
-        Dispatchers.Terminal.dispatch(arguments)
+  # --- Primary Tools ---
+  defp do_dispatch("file", args), do: Dispatchers.File.dispatch(args)
+  defp do_dispatch("terminal", args), do: Dispatchers.Terminal.dispatch(args)
+  defp do_dispatch("web", args), do: Dispatchers.Web.dispatch(args)
+  defp do_dispatch("code", args), do: Dispatchers.Code.dispatch(args)
+  defp do_dispatch("knowledge", args), do: Dispatchers.Knowledge.dispatch(args)
+  defp do_dispatch("cognitive", args), do: Dispatchers.Cognitive.dispatch(args)
+  defp do_dispatch("think", args), do: Dispatchers.Cognitive.dispatch_think(args)
+  defp do_dispatch("reason", args), do: Dispatchers.Cognitive.dispatch_reason(args)
+  defp do_dispatch("onboard", args), do: Dispatchers.Onboard.dispatch(args)
+  defp do_dispatch("meta", args), do: Dispatchers.Meta.dispatch(args)
+  defp do_dispatch("emergence", args), do: Dispatchers.Emergence.dispatch(args)
+  defp do_dispatch("reflector", args), do: Dispatchers.Reflector.dispatch(args)
+  defp do_dispatch("autonomous", args), do: Dispatchers.Autonomous.dispatch(args)
+  defp do_dispatch("verify", args), do: Dispatchers.Verify.dispatch(args)
 
-      # =================================================================
-      # WEB TOOL (Unified - Phase 4)
-      # =================================================================
-      # Consolidates: fetch, search, blink, browser, vision, sonar,
-      #               web_extract, web_parse
-      # =================================================================
-      "web" ->
-        Dispatchers.Web.dispatch(arguments)
+  # --- Legacy Web Tools (redirect to unified web dispatcher) ---
+  defp do_dispatch("fetch", args), do: dispatch_legacy_web("fetch", args)
+  defp do_dispatch("search", args), do: dispatch_legacy_web("search", args)
+  defp do_dispatch("blink", args), do: dispatch_legacy_web("blink", args)
+  defp do_dispatch("browser", args), do: dispatch_legacy_web("browser", args)
+  defp do_dispatch("vision", args), do: dispatch_legacy_web("vision", args)
+  defp do_dispatch("sonar", args), do: dispatch_legacy_web("sonar", args)
+  defp do_dispatch("web_extract", args), do: dispatch_legacy_web("extract", args)
+  defp do_dispatch("web_parse", args), do: dispatch_legacy_web("parse", args)
 
-      # Legacy web tools - redirect to unified dispatcher
-      "fetch" ->
-        # DEPRECATED: Use `web operation=fetch` instead
-        Dispatchers.Web.dispatch(Map.put(arguments, "operation", "fetch"))
+  defp do_dispatch("http_request", args),
+    do: Dispatchers.Web.dispatch_fetch(Map.put(args, "format", "raw"))
 
-      "search" ->
-        # DEPRECATED: Use `web operation=search` instead
-        Dispatchers.Web.dispatch(Map.put(arguments, "operation", "search"))
+  # --- Legacy Code Tools ---
+  defp do_dispatch("code_symbols", args) do
+    Logger.debug("[LEGACY] 'code_symbols' tool called - consider using 'code operation=...'")
+    Dispatchers.Code.dispatch(args)
+  end
 
-      "blink" ->
-        # DEPRECATED: Use `web operation=blink` instead
-        Dispatchers.Web.dispatch(Map.put(arguments, "operation", "blink"))
+  defp do_dispatch("library", args), do: dispatch_legacy_library(args)
+  defp do_dispatch("diagnostics", args), do: dispatch_legacy_diagnostics(args)
 
-      "browser" ->
-        # DEPRECATED: Use `web operation=browser` instead
-        Dispatchers.Web.dispatch(Map.put(arguments, "operation", "browser"))
+  # --- Legacy Knowledge Tools ---
+  defp do_dispatch("graph", args), do: dispatch_legacy_graph(args)
+  defp do_dispatch("consult_graph", args), do: dispatch_legacy_consult_graph(args)
+  defp do_dispatch("teach_mimo", args), do: dispatch_legacy_teach_mimo(args)
 
-      "vision" ->
-        # DEPRECATED: Use `web operation=vision` instead
-        Dispatchers.Web.dispatch(Map.put(arguments, "operation", "vision"))
+  # --- Legacy Composite Tools (redirect to meta) ---
+  defp do_dispatch("analyze_file", args) do
+    Logger.debug(
+      "[LEGACY] 'analyze_file' tool called - consider using 'meta operation=analyze_file'"
+    )
 
-      "sonar" ->
-        # DEPRECATED: Use `web operation=sonar` instead
-        Dispatchers.Web.dispatch(Map.put(arguments, "operation", "sonar"))
+    Dispatchers.Meta.dispatch_analyze_file(args)
+  end
 
-      "web_extract" ->
-        # DEPRECATED: Use `web operation=extract` instead
-        Dispatchers.Web.dispatch(Map.put(arguments, "operation", "extract"))
+  defp do_dispatch("debug_error", args) do
+    Logger.debug("[LEGACY] 'debug_error' tool called - consider using 'meta operation=debug_error'")
+    Dispatchers.Meta.dispatch_debug_error(args)
+  end
 
-      "web_parse" ->
-        # DEPRECATED: Use `web operation=parse` instead
-        Dispatchers.Web.dispatch(Map.put(arguments, "operation", "parse"))
+  defp do_dispatch("prepare_context", args) do
+    Logger.debug(
+      "[LEGACY] 'prepare_context' tool called - consider using 'meta operation=prepare_context'"
+    )
 
-      # Cognitive operations
-      "think" ->
-        Dispatchers.Cognitive.dispatch_think(arguments)
+    Dispatchers.Meta.dispatch_prepare_context(args)
+  end
 
-      "cognitive" ->
-        Dispatchers.Cognitive.dispatch(arguments)
+  defp do_dispatch("suggest_next_tool", args) do
+    Logger.debug(
+      "[LEGACY] 'suggest_next_tool' tool called - consider using 'meta operation=suggest_next_tool'"
+    )
 
-      "reason" ->
-        Dispatchers.Cognitive.dispatch_reason(arguments)
+    Dispatchers.Meta.dispatch_suggest_next_tool(args)
+  end
 
-      # Knowledge graph operations
-      "knowledge" ->
-        Dispatchers.Knowledge.dispatch(arguments)
+  defp do_dispatch("plan", args) do
+    Dispatchers.Cognitive.dispatch_think(
+      Map.merge(args, %{"operation" => "plan", "thought" => "plan"})
+    )
+  end
 
-      "graph" ->
-        # DEPRECATED: Redirect to unified knowledge tool
-        Logger.warning(
-          "[DEPRECATED] 'graph' tool is deprecated. Use 'knowledge' tool instead with same operations."
-        )
+  # --- Unknown tool ---
+  defp do_dispatch(unknown, _args) do
+    {:error,
+     "Unknown tool: #{unknown}. Available: file, terminal, web, code, knowledge, cognitive, reason, think, onboard, meta, autonomous, emergence, reflector, verify. Deprecated but working: fetch, search, blink, browser, vision, sonar, web_extract, web_parse, code_symbols, library, diagnostics, graph, analyze_file, debug_error, prepare_context, suggest_next_tool"}
+  end
 
-        Dispatchers.Knowledge.dispatch(arguments)
+  # ==========================================================================
+  # Legacy Tool Helpers (keep logic out of dispatch heads)
+  # ==========================================================================
 
-      # Unified Code Intelligence (SPEC-030 Phase 3 consolidation)
-      "code" ->
-        Dispatchers.Code.dispatch(arguments)
+  defp dispatch_legacy_web(operation, args) do
+    Dispatchers.Web.dispatch(Map.put(args, "operation", operation))
+  end
 
-      # Legacy code_symbols → code tool
-      "code_symbols" ->
-        Logger.debug("[LEGACY] 'code_symbols' tool called - consider using 'code operation=...'")
-        Dispatchers.Code.dispatch(arguments)
+  defp dispatch_legacy_library(args) do
+    Logger.debug("[LEGACY] 'library' tool called - consider using 'code operation=library_*'")
+    op = args["operation"] || "get"
+    new_op = map_legacy_library_op(op)
+    Dispatchers.Code.dispatch(Map.put(args, "operation", new_op))
+  end
 
-      # Legacy library → code tool with library_* operations
-      "library" ->
-        Logger.debug(
-          "[LEGACY] 'library' tool called - consider using 'code operation=library|library_search|library_ensure|library_discover|library_stats'"
-        )
+  defp map_legacy_library_op("get"), do: "library_get"
+  defp map_legacy_library_op("search"), do: "library_search"
+  defp map_legacy_library_op("ensure"), do: "library_ensure"
+  defp map_legacy_library_op("discover"), do: "library_discover"
+  defp map_legacy_library_op("stats"), do: "library_stats"
+  defp map_legacy_library_op(_), do: "library_get"
 
-        # Map legacy library operations to new code tool operations
-        op = arguments["operation"] || "get"
+  defp dispatch_legacy_diagnostics(args) do
+    Logger.debug(
+      "[LEGACY] 'diagnostics' tool called - consider using 'code operation=check|lint|...'"
+    )
 
-        new_op =
-          case op do
-            "get" -> "library_get"
-            "search" -> "library_search"
-            "ensure" -> "library_ensure"
-            "discover" -> "library_discover"
-            "stats" -> "library_stats"
-            _ -> "library_get"
-          end
+    op = args["operation"] || "all"
+    new_op = map_legacy_diagnostics_op(op)
+    Dispatchers.Code.dispatch(Map.put(args, "operation", new_op))
+  end
 
-        Dispatchers.Code.dispatch(Map.put(arguments, "operation", new_op))
+  defp map_legacy_diagnostics_op("all"), do: "diagnostics_all"
+  defp map_legacy_diagnostics_op("check"), do: "check"
+  defp map_legacy_diagnostics_op("lint"), do: "lint"
+  defp map_legacy_diagnostics_op("typecheck"), do: "typecheck"
+  defp map_legacy_diagnostics_op(_), do: "diagnostics_all"
 
-      # Legacy diagnostics → code tool with check/lint/typecheck/diagnose operations
-      "diagnostics" ->
-        Logger.debug(
-          "[LEGACY] 'diagnostics' tool called - consider using 'code operation=check|lint|typecheck|diagnose'"
-        )
+  defp dispatch_legacy_graph(args) do
+    Logger.warning("[DEPRECATED] 'graph' tool is deprecated. Use 'knowledge' tool instead.")
+    Dispatchers.Knowledge.dispatch(args)
+  end
 
-        # Map legacy diagnostics operations to new code tool operations
-        op = arguments["operation"] || "all"
+  defp dispatch_legacy_consult_graph(args) do
+    Logger.warning(
+      "[DEPRECATED] 'consult_graph' is deprecated. Use 'knowledge operation=query' instead."
+    )
 
-        new_op =
-          case op do
-            "all" -> "diagnostics_all"
-            "check" -> "check"
-            "lint" -> "lint"
-            "typecheck" -> "typecheck"
-            _ -> "diagnostics_all"
-          end
+    Dispatchers.Knowledge.dispatch(Map.put(args, "operation", "query"))
+  end
 
-        Dispatchers.Code.dispatch(Map.put(arguments, "operation", new_op))
+  defp dispatch_legacy_teach_mimo(args) do
+    Logger.warning(
+      "[DEPRECATED] 'teach_mimo' is deprecated. Use 'knowledge operation=teach' instead."
+    )
 
-      # Verification (SPEC-AI-TEST)
-      "verify" ->
-        Dispatchers.Verify.dispatch(arguments)
-
-      # Project onboarding (SPEC-031 Phase 3)
-      "onboard" ->
-        Dispatchers.Onboard.dispatch(arguments)
-
-      # Compound domain actions (SPEC-031 Phase 5) - Now consolidated into meta tool
-      # Legacy standalone interfaces still work but redirect to meta dispatcher
-      "meta" ->
-        Dispatchers.Meta.dispatch(arguments)
-
-      "analyze_file" ->
-        Logger.debug(
-          "[LEGACY] 'analyze_file' tool called - consider using 'meta operation=analyze_file'"
-        )
-
-        Dispatchers.Meta.dispatch_analyze_file(arguments)
-
-      "debug_error" ->
-        Logger.debug(
-          "[LEGACY] 'debug_error' tool called - consider using 'meta operation=debug_error'"
-        )
-
-        Dispatchers.Meta.dispatch_debug_error(arguments)
-
-      "prepare_context" ->
-        Logger.debug(
-          "[LEGACY] 'prepare_context' tool called - consider using 'meta operation=prepare_context'"
-        )
-
-        Dispatchers.Meta.dispatch_prepare_context(arguments)
-
-      "suggest_next_tool" ->
-        Logger.debug(
-          "[LEGACY] 'suggest_next_tool' tool called - consider using 'meta operation=suggest_next_tool'"
-        )
-
-        Dispatchers.Meta.dispatch_suggest_next_tool(arguments)
-
-      # Emergent Capabilities (SPEC-044)
-      "emergence" ->
-        Dispatchers.Emergence.dispatch(arguments)
-
-      # Reflective Intelligence (SPEC-043)
-      "reflector" ->
-        Dispatchers.Reflector.dispatch(arguments)
-
-      # Autonomous Task Execution (SPEC-071)
-      "autonomous" ->
-        Dispatchers.Autonomous.dispatch(arguments)
-
-      # Legacy aliases for backward compatibility
-      "http_request" ->
-        Dispatchers.Web.dispatch_fetch(Map.put(arguments, "format", "raw"))
-
-      "plan" ->
-        Dispatchers.Cognitive.dispatch_think(
-          Map.merge(arguments, %{"operation" => "plan", "thought" => "plan"})
-        )
-
-      "consult_graph" ->
-        Logger.warning(
-          "[DEPRECATED] 'consult_graph' is deprecated. Use 'knowledge operation=query' instead."
-        )
-
-        Dispatchers.Knowledge.dispatch(Map.put(arguments, "operation", "query"))
-
-      "teach_mimo" ->
-        Logger.warning(
-          "[DEPRECATED] 'teach_mimo' is deprecated. Use 'knowledge operation=teach' instead."
-        )
-
-        Dispatchers.Knowledge.dispatch(Map.put(arguments, "operation", "teach"))
-
-      _ ->
-        {:error,
-         "Unknown tool: #{tool_name}. Available: file, terminal, web, code, knowledge, cognitive, reason, think, onboard, meta, autonomous, emergence, reflector, verify. Deprecated but working: fetch, search, blink, browser, vision, sonar, web_extract, web_parse, code_symbols, library, diagnostics, graph, analyze_file, debug_error, prepare_context, suggest_next_tool"}
-    end
+    Dispatchers.Knowledge.dispatch(Map.put(args, "operation", "teach"))
   end
 end

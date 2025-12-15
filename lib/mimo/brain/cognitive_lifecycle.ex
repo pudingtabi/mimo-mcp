@@ -296,7 +296,12 @@ defmodule Mimo.Brain.CognitiveLifecycle do
   @impl true
   def init(_opts) do
     # ETS table for thread states
-    :ets.new(:cognitive_lifecycle_threads, [:named_table, :set, :public, read_concurrency: true])
+    Mimo.EtsSafe.ensure_table(:cognitive_lifecycle_threads, [
+      :named_table,
+      :set,
+      :public,
+      read_concurrency: true
+    ])
 
     Logger.info("[CognitiveLifecycle] Started")
     {:ok, %{started_at: DateTime.utc_now()}}
@@ -325,7 +330,7 @@ defmodule Mimo.Brain.CognitiveLifecycle do
 
     # Log if warnings detected
     if new_warnings != [] do
-      warning_msgs = Enum.map(new_warnings, & &1.message) |> Enum.join(", ")
+      warning_msgs = Enum.map_join(new_warnings, ", ", & &1.message)
       Logger.debug("[CognitiveLifecycle] Thread #{thread_id}: #{warning_msgs}")
     end
 

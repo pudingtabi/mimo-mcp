@@ -18,7 +18,7 @@ defmodule Mimo.Cache.Classifier do
       {:ok, embedding} = Classifier.get_or_compute_embedding("my query", fn ->
         Mimo.Brain.LLM.generate_embedding("my query")
       end)
-      
+
       # Cache classification results
       {:ok, category} = Classifier.get_or_compute_classification("input text", fn ->
         Mimo.Brain.Classifier.classify("input text")
@@ -112,7 +112,7 @@ defmodule Mimo.Cache.Classifier do
       Keyword.get(opts, :cleanup_interval, config(:cleanup_interval, @default_cleanup_interval))
 
     # Create ETS table for cache
-    :ets.new(@table_name, [:named_table, :public, :set, {:read_concurrency, true}])
+    Mimo.EtsSafe.ensure_table(@table_name, [:named_table, :public, :set, {:read_concurrency, true}])
 
     # Schedule periodic cleanup
     schedule_cleanup(cleanup_interval)

@@ -284,28 +284,24 @@ defmodule Mimo.Brain.Memory do
       determine_strategy(100, :hnsw)  #=> :hnsw (explicit override)
   """
   def determine_strategy(count, explicit_strategy) when is_integer(count) do
-    # If explicit strategy is specified, use it
-    if explicit_strategy && explicit_strategy in [:exact, :binary_rescore, :hnsw] do
-      explicit_strategy
-    else
-      # Auto-select based on count and HNSW availability
-      cond do
-        count >= @hnsw_search_threshold ->
-          # Check if HNSW is available
-          if hnsw_available?() do
-            :hnsw
-          else
-            :binary_rescore
-          end
-
-        count >= @binary_search_threshold ->
-          :binary_rescore
-
-        true ->
-          :exact
-      end
-    end
+    do_determine_strategy(count, explicit_strategy)
   end
+
+  # Explicit strategy override - use it directly
+  defp do_determine_strategy(_count, strategy) when strategy in [:exact, :binary_rescore, :hnsw] do
+    strategy
+  end
+
+  # Auto-select based on count thresholds
+  defp do_determine_strategy(count, _) when count >= @hnsw_search_threshold do
+    if hnsw_available?(), do: :hnsw, else: :binary_rescore
+  end
+
+  defp do_determine_strategy(count, _) when count >= @binary_search_threshold do
+    :binary_rescore
+  end
+
+  defp do_determine_strategy(_count, _), do: :exact
 
   # Check if HNSW index is available
   defp hnsw_available? do
@@ -322,7 +318,7 @@ defmodule Mimo.Brain.Memory do
   ## Options
 
     * `:importance` - Importance score 0-1 (default: 0.5)
-    
+
   ## Examples
 
       persist_memory("User prefers dark mode", "observation")
@@ -483,57 +479,11 @@ defmodule Mimo.Brain.Memory do
         validity_source = Keyword.get(opts, :validity_source)
 
         # Build metadata with reasoning context
-        metadata =
-          if reasoning_context do
-            %{
-              "reasoning_context" => %{
-                "session_id" => reasoning_context.session_id,
-                "strategy" => to_string(reasoning_context.strategy),
-                "decomposition" => reasoning_context.decomposition,
-                "importance_reasoning" => reasoning_context.importance_reasoning,
-                "detected_relationships" =>
-                  Enum.map(reasoning_context.detected_relationships, fn rel ->
-                    %{
-                      "type" => to_string(rel.type),
-                      "target_id" => rel.target_id,
-                      "confidence" => rel.confidence
-                    }
-                  end),
-                "confidence" => reasoning_context.confidence
-              }
-            }
-          else
-            %{}
-          end
+        metadata = build_reasoning_metadata(reasoning_context)
 
         # SPEC-031: Quantize to int8 for efficient storage
         # SPEC-033: Also generate binary embedding for fast pre-filtering
-        {embedding_to_store, quantized_attrs} =
-          case Math.quantize_int8(embedding) do
-            {:ok, {int8_binary, scale, offset}} ->
-              # Generate binary embedding from int8
-              binary_attrs =
-                case Math.int8_to_binary(int8_binary) do
-                  {:ok, binary} -> %{embedding_binary: binary}
-                  {:error, _} -> %{}
-                end
-
-              # Successfully quantized - store int8 and binary
-              {[],
-               Map.merge(
-                 %{
-                   embedding_int8: int8_binary,
-                   embedding_scale: scale,
-                   embedding_offset: offset
-                 },
-                 binary_attrs
-               )}
-
-            {:error, reason} ->
-              # Quantization failed - fall back to float32
-              Logger.warning("Int8 quantization failed: #{inspect(reason)}, storing float32")
-              {embedding, %{}}
-          end
+        {embedding_to_store, quantized_attrs} = quantize_embedding_for_storage(embedding)
 
         changeset =
           Engram.changeset(
@@ -557,21 +507,14 @@ defmodule Mimo.Brain.Memory do
 
         case Repo.insert(changeset) do
           {:ok, engram} ->
-            log_memory_event(:stored, engram.id, category, project_id, all_tags)
-            # SPEC-025: Notify Orchestrator for Synapse graph linking
-            notify_memory_stored(engram)
-            # SPEC-040: Award XP for memory storage
-            AwakeningHooks.memory_stored(engram)
-            # SPEC-032: Auto-protect high-importance memories
-            maybe_auto_protect(engram, importance)
-            # Log reasoning enhancement
-            if reasoning_context do
-              Logger.debug(
-                "SPEC-058: Memory stored with reasoning context (confidence: #{reasoning_context.confidence})"
-              )
-            end
-
-            {:ok, engram.id}
+            handle_successful_insert(
+              engram,
+              category,
+              project_id,
+              all_tags,
+              importance,
+              reasoning_context
+            )
 
           {:error, changeset} ->
             Repo.rollback(changeset.errors)
@@ -604,32 +547,7 @@ defmodule Mimo.Brain.Memory do
 
         # SPEC-031: Quantize to int8 for efficient storage
         # SPEC-033: Also generate binary embedding for fast pre-filtering
-        {embedding_to_store, quantized_attrs} =
-          case Math.quantize_int8(embedding) do
-            {:ok, {int8_binary, scale, offset}} ->
-              # Generate binary embedding from int8
-              binary_attrs =
-                case Math.int8_to_binary(int8_binary) do
-                  {:ok, binary} -> %{embedding_binary: binary}
-                  {:error, _} -> %{}
-                end
-
-              # Successfully quantized - store int8 and binary
-              {[],
-               Map.merge(
-                 %{
-                   embedding_int8: int8_binary,
-                   embedding_scale: scale,
-                   embedding_offset: offset
-                 },
-                 binary_attrs
-               )}
-
-            {:error, reason} ->
-              # Quantization failed - fall back to float32
-              Logger.warning("Int8 quantization failed: #{inspect(reason)}, storing float32")
-              {embedding, %{}}
-          end
+        {embedding_to_store, quantized_attrs} = quantize_embedding_for_storage(embedding)
 
         changeset =
           Engram.changeset(
@@ -691,28 +609,7 @@ defmodule Mimo.Brain.Memory do
              {:ok, embedding} <- generate_embedding(content),
              :ok <- validate_embedding_dimension(embedding) do
           # SPEC-031 + SPEC-033: Quantize to int8 and binary
-          {embedding_to_store, quantized_attrs} =
-            case Math.quantize_int8(embedding) do
-              {:ok, {int8_binary, scale, offset}} ->
-                binary_attrs =
-                  case Math.int8_to_binary(int8_binary) do
-                    {:ok, binary} -> %{embedding_binary: binary}
-                    {:error, _} -> %{}
-                  end
-
-                {[],
-                 Map.merge(
-                   %{
-                     embedding_int8: int8_binary,
-                     embedding_scale: scale,
-                     embedding_offset: offset
-                   },
-                   binary_attrs
-                 )}
-
-              {:error, _reason} ->
-                {embedding, %{}}
-            end
+          {embedding_to_store, quantized_attrs} = quantize_embedding_for_storage(embedding)
 
           changeset =
             Engram.changeset(
@@ -868,8 +765,13 @@ defmodule Mimo.Brain.Memory do
           )
 
         case Repo.insert(changeset) do
-          {:ok, engram} -> {:ok, engram.id}
-          {:error, changeset} -> Repo.rollback(changeset.errors)
+          {:ok, engram} ->
+            # Auto-link memory to knowledge graph (async, fire-and-forget)
+            spawn(fn -> maybe_auto_link_memory(engram.id, content) end)
+            {:ok, engram.id}
+
+          {:error, changeset} ->
+            Repo.rollback(changeset.errors)
         end
       else
         {:error, reason} -> Repo.rollback(reason)
@@ -878,14 +780,6 @@ defmodule Mimo.Brain.Memory do
     |> unwrap_transaction_result()
   end
 
-  @doc """
-  Search with type filter - used by SemanticStore.Resolver.
-
-  ## SPEC-058 Options
-
-    * `:enable_reasoning` - Use ReasoningBridge for query analysis (default: false)
-    * `:rerank` - Rerank results using reasoning (default: false)
-  """
   def search(query, opts \\ []) do
     limit = Keyword.get(opts, :limit, 10)
     type_filter = Keyword.get(opts, :type)
@@ -895,34 +789,7 @@ defmodule Mimo.Brain.Memory do
 
     # SPEC-058: Optional query analysis with reasoning
     {search_query, query_analysis, enhanced_opts} =
-      if enable_reasoning and reasoning_memory_enabled?() do
-        case ReasoningBridge.analyze_query(query) do
-          {:ok, analysis} ->
-            # Expand query with synonyms
-            expanded_query =
-              case analysis["expanded_terms"] do
-                terms when is_list(terms) and terms != [] ->
-                  [query | terms] |> Enum.join(" ")
-
-                _ ->
-                  query
-              end
-
-            # Apply time filter if detected
-            enhanced_opts =
-              case analysis["time_context"] do
-                nil -> opts
-                time_ctx -> Keyword.put(opts, :time_filter, time_ctx)
-              end
-
-            {expanded_query, analysis, enhanced_opts}
-
-          _ ->
-            {query, %{}, opts}
-        end
-      else
-        {query, %{}, opts}
-      end
+      maybe_analyze_query(query, opts, enable_reasoning)
 
     results =
       search_memories(search_query,
@@ -931,41 +798,76 @@ defmodule Mimo.Brain.Memory do
         time_filter: Keyword.get(enhanced_opts, :time_filter)
       )
 
-    filtered =
-      if type_filter do
-        Enum.filter(results, fn r ->
-          r[:category] == type_filter or
-            r[:metadata]["type"] == type_filter
-        end)
-      else
-        results
+    results
+    |> maybe_filter_by_type(type_filter)
+    |> maybe_rerank(query, query_analysis, rerank)
+    |> Enum.take(limit)
+    |> Enum.map(&add_score_field/1)
+    |> then(&{:ok, &1})
+  end
+
+  # SPEC-058: Query analysis with reasoning (if enabled)
+  defp maybe_analyze_query(query, opts, false), do: {query, %{}, opts}
+
+  defp maybe_analyze_query(query, opts, true) do
+    if reasoning_memory_enabled?() do
+      do_analyze_query(query, opts)
+    else
+      {query, %{}, opts}
+    end
+  end
+
+  defp do_analyze_query(query, opts) do
+    case ReasoningBridge.analyze_query(query) do
+      {:ok, analysis} ->
+        expanded_query = expand_query_terms(query, analysis["expanded_terms"])
+        enhanced_opts = apply_time_filter(opts, analysis["time_context"])
+        {expanded_query, analysis, enhanced_opts}
+
+      _ ->
+        {query, %{}, opts}
+    end
+  end
+
+  defp expand_query_terms(query, terms) when is_list(terms) and terms != [] do
+    [query | terms] |> Enum.join(" ")
+  end
+
+  defp expand_query_terms(query, _), do: query
+
+  defp apply_time_filter(opts, nil), do: opts
+  defp apply_time_filter(opts, time_ctx), do: Keyword.put(opts, :time_filter, time_ctx)
+
+  defp maybe_filter_by_type(results, nil), do: results
+
+  defp maybe_filter_by_type(results, type_filter) do
+    Enum.filter(results, fn r ->
+      r[:category] == type_filter or r[:metadata]["type"] == type_filter
+    end)
+  end
+
+  defp maybe_rerank(results, _query, _analysis, false), do: results
+  defp maybe_rerank(results, _query, _analysis, true) when length(results) <= 3, do: results
+
+  defp maybe_rerank(results, query, query_analysis, true) do
+    if reasoning_memory_enabled?() do
+      do_rerank(results, query, query_analysis)
+    else
+      results
+    end
+  end
+
+  defp do_rerank(results, query, query_analysis) do
+    engram_like = Enum.map(results, fn r -> %Engram{id: r[:id], content: r[:content]} end)
+    reranked = ReasoningBridge.rerank(query, engram_like, query_analysis)
+    reranked_ids = Enum.map(reranked, & &1.id)
+
+    Enum.sort_by(results, fn r ->
+      case Enum.find_index(reranked_ids, &(&1 == r[:id])) do
+        nil -> 999
+        idx -> idx
       end
-
-    # SPEC-058: Optional reranking with reasoning
-    final_results =
-      if rerank and reasoning_memory_enabled?() and length(filtered) > 3 do
-        # Convert results to Engram-like maps for reranking
-        engram_like =
-          Enum.map(filtered, fn r ->
-            %Engram{id: r[:id], content: r[:content]}
-          end)
-
-        reranked = ReasoningBridge.rerank(query, engram_like, query_analysis)
-
-        # Map back to original results
-        reranked_ids = Enum.map(reranked, & &1.id)
-
-        Enum.sort_by(filtered, fn r ->
-          case Enum.find_index(reranked_ids, &(&1 == r[:id])) do
-            nil -> 999
-            idx -> idx
-          end
-        end)
-      else
-        filtered
-      end
-
-    {:ok, Enum.take(final_results, limit) |> Enum.map(&add_score_field/1)}
+    end)
   end
 
   defp add_score_field(result) do
@@ -1076,52 +978,10 @@ defmodule Mimo.Brain.Memory do
 
   defp do_persist_memory_full(content, category, importance, embedding, metadata) do
     Repo.transaction(fn ->
-      with :ok <- validate_content_size(content) do
-        # Use provided embedding or generate new one
-        final_embedding =
-          case embedding do
-            emb when is_list(emb) and length(emb) > 0 ->
-              emb
-
-            _ ->
-              case generate_embedding(content) do
-                {:ok, emb} when is_list(emb) and length(emb) > 0 ->
-                  emb
-
-                {:ok, []} ->
-                  Logger.warning("Embedding generation returned empty list for content")
-                  Repo.rollback({:empty_embedding, "Embedding generation returned empty result"})
-
-                {:error, reason} ->
-                  Logger.warning("Embedding generation failed: #{inspect(reason)}")
-                  Repo.rollback({:embedding_failed, reason})
-              end
-          end
-
+      with :ok <- validate_content_size(content),
+           {:ok, final_embedding} <- resolve_embedding(content, embedding) do
         # SPEC-031 + SPEC-033: Quantize to int8 and binary
-        {embedding_to_store, quantized_attrs} =
-          case Math.quantize_int8(final_embedding) do
-            {:ok, {int8_binary, scale, offset}} ->
-              binary_attrs =
-                case Math.int8_to_binary(int8_binary) do
-                  {:ok, binary} -> %{embedding_binary: binary}
-                  {:error, _} -> %{}
-                end
-
-              {[],
-               Map.merge(
-                 %{
-                   embedding_int8: int8_binary,
-                   embedding_scale: scale,
-                   embedding_offset: offset
-                 },
-                 binary_attrs
-               )}
-
-            {:error, reason} ->
-              Logger.warning("Int8 quantization failed: #{inspect(reason)}, storing float32")
-              {final_embedding, %{}}
-          end
+        {embedding_to_store, quantized_attrs} = quantize_embedding_for_storage(final_embedding)
 
         changeset =
           Engram.changeset(
@@ -1142,9 +1002,7 @@ defmodule Mimo.Brain.Memory do
         case Repo.insert(changeset) do
           {:ok, engram} ->
             log_memory_event(:stored, engram.id, category)
-            # SPEC-025: Notify Orchestrator for Synapse graph linking
             notify_memory_stored(engram)
-            # SPEC-040: Award XP for memory storage
             AwakeningHooks.memory_stored(engram)
             {:ok, engram}
 
@@ -1156,6 +1014,24 @@ defmodule Mimo.Brain.Memory do
       end
     end)
     |> unwrap_transaction_result()
+  end
+
+  # Resolve embedding - use provided or generate new
+  defp resolve_embedding(_content, emb) when is_list(emb) and length(emb) > 0, do: {:ok, emb}
+
+  defp resolve_embedding(content, _) do
+    case generate_embedding(content) do
+      {:ok, emb} when is_list(emb) and length(emb) > 0 ->
+        {:ok, emb}
+
+      {:ok, []} ->
+        Logger.warning("Embedding generation returned empty list for content")
+        {:error, {:empty_embedding, "Embedding generation returned empty result"}}
+
+      {:error, reason} ->
+        Logger.warning("Embedding generation failed: #{inspect(reason)}")
+        {:error, {:embedding_failed, reason}}
+    end
   end
 
   # ==========================================================================
@@ -1478,43 +1354,44 @@ defmodule Mimo.Brain.Memory do
     # Process each chunk and collect top candidates
     all_results =
       0..(num_chunks - 1)
-      |> Enum.flat_map(fn chunk_idx ->
-        offset = chunk_idx * @hamming_batch_size
-        # Use limit/offset on the original query directly (since it already selects maps)
-        chunk_query = from(q in subquery(query), limit: ^@hamming_batch_size, offset: ^offset)
-        engrams = Repo.all(chunk_query)
-
-        if engrams == [] do
-          []
-        else
-          # Get top candidates from this chunk
-          # engrams are maps with :id and :embedding_binary keys
-          {corpus, id_map} =
-            Enum.reduce(engrams, {[], %{}}, fn %{id: id, embedding_binary: binary},
-                                               {corpus_acc, map_acc} ->
-              idx = length(corpus_acc)
-              {corpus_acc ++ [binary], Map.put(map_acc, idx, id)}
-            end)
-
-          case Math.top_k_hamming(query_binary, corpus, candidates_per_chunk) do
-            {:ok, results} ->
-              Enum.map(results, fn {idx, distance} ->
-                {Map.get(id_map, idx), distance}
-              end)
-              |> Enum.reject(fn {id, _} -> is_nil(id) end)
-
-            {:error, _} ->
-              # On error, include first few IDs from chunk
-              engrams |> Enum.take(candidates_per_chunk) |> Enum.map(fn %{id: id} -> {id, 256} end)
-          end
-        end
-      end)
+      |> Enum.flat_map(&process_single_chunk(&1, query, query_binary, candidates_per_chunk))
 
     # Sort by distance and take top candidates globally
     all_results
     |> Enum.sort_by(fn {_id, distance} -> distance end)
     |> Enum.take(candidates)
     |> Enum.map(fn {id, _} -> id end)
+  end
+
+  defp process_single_chunk(chunk_idx, query, query_binary, candidates_per_chunk) do
+    offset = chunk_idx * @hamming_batch_size
+    chunk_query = from(q in subquery(query), limit: ^@hamming_batch_size, offset: ^offset)
+    engrams = Repo.all(chunk_query)
+
+    if engrams == [],
+      do: [],
+      else: hamming_search_chunk(engrams, query_binary, candidates_per_chunk)
+  end
+
+  defp hamming_search_chunk(engrams, query_binary, candidates_per_chunk) do
+    {corpus, id_map} = build_corpus_and_id_map(engrams)
+
+    case Math.top_k_hamming(query_binary, corpus, candidates_per_chunk) do
+      {:ok, results} ->
+        results
+        |> Enum.map(fn {idx, distance} -> {Map.get(id_map, idx), distance} end)
+        |> Enum.reject(fn {id, _} -> is_nil(id) end)
+
+      {:error, _} ->
+        engrams |> Enum.take(candidates_per_chunk) |> Enum.map(fn %{id: id} -> {id, 256} end)
+    end
+  end
+
+  defp build_corpus_and_id_map(engrams) do
+    Enum.reduce(engrams, {[], %{}}, fn %{id: id, embedding_binary: binary}, {corpus_acc, map_acc} ->
+      idx = length(corpus_acc)
+      {corpus_acc ++ [binary], Map.put(map_acc, idx, id)}
+    end)
   end
 
   # Stage 2: Int8 rescore on candidates
@@ -1809,7 +1686,7 @@ defmodule Mimo.Brain.Memory do
         {:error, :test_data_in_production}
 
       # Check for generic/low-value content
-      is_generic_content?(content_lower) ->
+      generic_content?(content_lower) ->
         {:error, :content_too_generic}
 
       true ->
@@ -1829,7 +1706,7 @@ defmodule Mimo.Brain.Memory do
     end)
   end
 
-  defp is_generic_content?(content) do
+  defp generic_content?(content) do
     # Content that's too generic to be useful
     generic_patterns = [
       ~r/^user\s+(frequently\s+)?interacts?\s+with/i,
@@ -1865,6 +1742,44 @@ defmodule Mimo.Brain.Memory do
   defp validate_embedding_dimension(_), do: {:error, :invalid_embedding_type}
 
   # ==========================================================================
+  # Private Functions - Embedding Quantization
+  # ==========================================================================
+
+  # SPEC-031 + SPEC-033: Quantize embedding to int8 and binary for storage.
+  # Returns {embedding_to_store, quantized_attrs} tuple.
+  # This helper eliminates repeated nested case patterns throughout the module.
+  defp quantize_embedding_for_storage(embedding) do
+    case Math.quantize_int8(embedding) do
+      {:ok, {int8_binary, scale, offset}} ->
+        binary_attrs = generate_binary_attrs(int8_binary)
+
+        # Successfully quantized - store int8 and binary
+        {[],
+         Map.merge(
+           %{
+             embedding_int8: int8_binary,
+             embedding_scale: scale,
+             embedding_offset: offset
+           },
+           binary_attrs
+         )}
+
+      {:error, reason} ->
+        # Quantization failed - fall back to float32
+        Logger.warning("Int8 quantization failed: #{inspect(reason)}, storing float32")
+        {embedding, %{}}
+    end
+  end
+
+  # Generate binary embedding from int8 for fast pre-filtering
+  defp generate_binary_attrs(int8_binary) do
+    case Math.int8_to_binary(int8_binary) do
+      {:ok, binary} -> %{embedding_binary: binary}
+      {:error, _} -> %{}
+    end
+  end
+
+  # ==========================================================================
   # Private Functions - Embedding Generation
   # ==========================================================================
 
@@ -1897,6 +1812,42 @@ defmodule Mimo.Brain.Memory do
   defp unwrap_transaction_result({:ok, {:error, reason}}), do: {:error, reason}
   defp unwrap_transaction_result({:ok, {:duplicate, id}}), do: {:duplicate, id}
   defp unwrap_transaction_result({:error, reason}), do: {:error, reason}
+
+  defp build_reasoning_metadata(nil), do: %{}
+
+  defp build_reasoning_metadata(ctx) do
+    %{
+      "reasoning_context" => %{
+        "session_id" => ctx.session_id,
+        "strategy" => to_string(ctx.strategy),
+        "decomposition" => ctx.decomposition,
+        "importance_reasoning" => ctx.importance_reasoning,
+        "detected_relationships" => format_relationships(ctx.detected_relationships),
+        "confidence" => ctx.confidence
+      }
+    }
+  end
+
+  defp format_relationships(rels) do
+    Enum.map(rels, fn rel ->
+      %{"type" => to_string(rel.type), "target_id" => rel.target_id, "confidence" => rel.confidence}
+    end)
+  end
+
+  defp handle_successful_insert(engram, category, project_id, tags, importance, reasoning_context) do
+    log_memory_event(:stored, engram.id, category, project_id, tags)
+    notify_memory_stored(engram)
+    AwakeningHooks.memory_stored(engram)
+    maybe_auto_protect(engram, importance)
+    log_reasoning_context(reasoning_context)
+    {:ok, engram.id}
+  end
+
+  defp log_reasoning_context(nil), do: :ok
+
+  defp log_reasoning_context(ctx) do
+    Logger.debug("SPEC-058: Memory stored with reasoning context (confidence: #{ctx.confidence})")
+  end
 
   defp log_memory_event(event, id, category, project_id \\ "global", tags \\ []) do
     :telemetry.execute(
@@ -2120,4 +2071,28 @@ defmodule Mimo.Brain.Memory do
     |> get_chain()
     |> length()
   end
+
+  # ==========================================================================
+  # Auto-Linking (SPEC-051 Phase 2)
+  # ==========================================================================
+
+  # Asynchronously links a new memory to the knowledge graph.
+  # This improves graph density without blocking memory storage.
+  defp maybe_auto_link_memory(engram_id, content) when is_integer(engram_id) do
+    # Only auto-link if content is substantial
+    if String.length(content || "") > 20 do
+      try do
+        # Use the Synapse Linker to create edges
+        Mimo.Synapse.Linker.link_memory(engram_id, threshold: 0.6, max_links: 3)
+      rescue
+        e ->
+          Logger.debug("[Memory] Auto-link failed for #{engram_id}: #{inspect(e)}")
+          :ok
+      end
+    end
+
+    :ok
+  end
+
+  defp maybe_auto_link_memory(_, _), do: :ok
 end

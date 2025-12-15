@@ -128,7 +128,7 @@ defmodule Mimo.AdoptionMetrics do
 
   @impl true
   def init(_opts) do
-    table = :ets.new(@table_name, [:set, :public, :named_table])
+    table = Mimo.EtsSafe.ensure_table(@table_name, [:set, :public, :named_table])
     Logger.info("[AdoptionMetrics] Started tracking AUTO-REASONING adoption and workflow health")
     {:ok, %{table: table}}
   end
@@ -253,14 +253,7 @@ defmodule Mimo.AdoptionMetrics do
     distribution_health =
       Enum.map(@healthy_distribution, fn {phase, {min, max}} ->
         actual = Map.get(phase_distribution, phase, 0.0)
-
-        health =
-          cond do
-            actual >= min and actual <= max -> 1.0
-            actual < min -> actual / min
-            actual > max -> max / actual
-          end
-
+        health = calculate_phase_health(actual, min, max)
         {phase, Float.round(health, 2)}
       end)
       |> Map.new()
@@ -321,6 +314,11 @@ defmodule Mimo.AdoptionMetrics do
 
   defp classify_tool_phase(_), do: :other
 
+  # Multi-head pattern for phase health calculation
+  defp calculate_phase_health(actual, min, max) when actual >= min and actual <= max, do: 1.0
+  defp calculate_phase_health(actual, min, _max) when actual < min, do: actual / min
+  defp calculate_phase_health(actual, _min, max), do: max / actual
+
   defp track_phase_internally(phase, _tool_name, session) do
     :ets.update_counter(@table_name, {:phase_count, phase}, {2, 1}, {{:phase_count, phase}, 0})
 
@@ -346,7 +344,7 @@ defmodule Mimo.AdoptionMetrics do
     recommendations =
       if learning_rate < 0.5 do
         [
-          "Increase learning phase usage - store discoveries with memory operation=store"
+          "Increase learning phase usage - store discoveries in memory"
           | recommendations
         ]
       else

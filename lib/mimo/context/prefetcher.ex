@@ -175,7 +175,7 @@ defmodule Mimo.Context.Prefetcher do
   @impl true
   def init(_opts) do
     # Create ETS table for caching
-    :ets.new(@cache_table, [:set, :public, :named_table, read_concurrency: true])
+    Mimo.EtsSafe.ensure_table(@cache_table, [:set, :public, :named_table, read_concurrency: true])
 
     schedule_cleanup()
     schedule_prefetch_cycle()

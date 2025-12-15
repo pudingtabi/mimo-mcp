@@ -10,11 +10,11 @@ defmodule Mimo.Tools.Suggestions do
 
   | When Tool Returns | Suggest |
   |-------------------|---------|
-  | `file operation=search` for code patterns | code_symbols operation=definition |
-  | `file operation=read` on code file | code_symbols operation=symbols |
-  | `memory operation=search` | knowledge operation=query |
-  | `terminal` error output | diagnostics operation=all |
-  | Any file op in unindexed project | onboard path='.' |
+  | file search for code patterns | code (definition/references) |
+  | file read on a code file | code (symbols) |
+  | memory search | knowledge (query) |
+  | terminal error output | code (diagnose) |
+  | Any file op in unindexed project | onboard |
 
   ## SPEC-040 v1.2: Behavioral Reinforcement
 
@@ -100,7 +100,7 @@ defmodule Mimo.Tools.Suggestions do
   defp generate_suggestion("file", %{"operation" => "search", "pattern" => pattern}, _response)
        when is_binary(pattern) do
     if looks_like_code_search?(pattern) do
-      "💡 For precise symbol lookup, try `code_symbols operation=definition name=\"#{extract_symbol_name(pattern)}\"`"
+      "💡 For precise symbol lookup, try code definition (name: #{extract_symbol_name(pattern)})."
     else
       nil
     end
@@ -110,7 +110,7 @@ defmodule Mimo.Tools.Suggestions do
   defp generate_suggestion("file", %{"operation" => "read", "path" => path}, _response)
        when is_binary(path) do
     if code_file?(path) do
-      "💡 List all functions/classes with `code_symbols operation=symbols path=\"#{path}\"`"
+      "💡 List all functions/classes with code symbols (path: #{path})."
     else
       nil
     end
@@ -118,13 +118,13 @@ defmodule Mimo.Tools.Suggestions do
 
   # Memory search → knowledge query
   defp generate_suggestion("memory", %{"operation" => "search"}, _response) do
-    "💡 For entity relationships, also check `knowledge operation=query`"
+    "💡 For entity relationships, also check the knowledge graph (query)."
   end
 
   # Terminal with error output → diagnostics
   defp generate_suggestion("terminal", _args, %{output: output}) when is_binary(output) do
     if has_error_indicators?(output) do
-      "💡 For structured error analysis, try `diagnostics operation=all`"
+      "💡 For structured error analysis, try code diagnose."
     else
       nil
     end
@@ -132,7 +132,7 @@ defmodule Mimo.Tools.Suggestions do
 
   defp generate_suggestion("terminal", _args, %{"output" => output}) when is_binary(output) do
     if has_error_indicators?(output) do
-      "💡 For structured error analysis, try `diagnostics operation=all`"
+      "💡 For structured error analysis, try code diagnose."
     else
       nil
     end

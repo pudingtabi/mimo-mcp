@@ -40,7 +40,7 @@ defmodule Mimo.Fallback.GracefulDegradation do
   def init_retry_queue do
     case :ets.whereis(@retry_table) do
       :undefined ->
-        :ets.new(@retry_table, [:named_table, :public, :ordered_set])
+        Mimo.EtsSafe.ensure_table(@retry_table, [:named_table, :public, :ordered_set])
         Logger.debug("Retry queue initialized")
         :ok
 
@@ -438,7 +438,7 @@ defmodule Mimo.Fallback.GracefulDegradation do
   defp ensure_cache_table do
     case :ets.whereis(:mimo_fallback_cache) do
       :undefined ->
-        :ets.new(:mimo_fallback_cache, [:named_table, :public, :set])
+        Mimo.EtsSafe.ensure_table(:mimo_fallback_cache, [:named_table, :public, :set])
 
       _ ->
         :ok

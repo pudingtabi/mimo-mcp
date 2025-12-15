@@ -375,35 +375,39 @@ defmodule Mimo.Benchmark.Cognitive do
   # ============================================================================
 
   defp evaluate_step_coherence(memories) do
-    # Evaluate semantic coherence between consecutive reasoning steps
-    # by looking at metadata for step sequences
     memories
-    |> Enum.filter(fn m ->
+    |> filter_reasoning_steps()
+    |> group_by_session()
+    |> Enum.map(&calculate_session_coherence/1)
+    |> average_scores(0.8)
+  end
+
+  defp filter_reasoning_steps(memories) do
+    Enum.filter(memories, fn m ->
       metadata = m.metadata || %{}
       Map.has_key?(metadata, "reasoning_session") or Map.has_key?(metadata, "step_number")
     end)
-    |> Enum.group_by(fn m ->
+  end
+
+  defp group_by_session(memories) do
+    Enum.group_by(memories, fn m ->
       metadata = m.metadata || %{}
       metadata["reasoning_session"] || metadata["session_id"] || "unknown"
     end)
-    |> Enum.map(fn {_session, steps} ->
-      if length(steps) < 2 do
-        1.0
-      else
-        # Calculate average coherence between consecutive steps
-        steps
-        |> Enum.sort_by(fn m -> (m.metadata || %{})["step_number"] || m.inserted_at end)
-        |> Enum.chunk_every(2, 1, :discard)
-        |> Enum.map(fn [s1, s2] -> content_coherence(s1.content, s2.content) end)
-        |> then(fn scores ->
-          if Enum.empty?(scores), do: 1.0, else: Enum.sum(scores) / length(scores)
-        end)
-      end
-    end)
-    |> then(fn scores ->
-      if Enum.empty?(scores), do: 0.8, else: Enum.sum(scores) / length(scores)
-    end)
   end
+
+  defp calculate_session_coherence({_session, steps}) when length(steps) < 2, do: 1.0
+
+  defp calculate_session_coherence({_session, steps}) do
+    steps
+    |> Enum.sort_by(fn m -> (m.metadata || %{})["step_number"] || m.inserted_at end)
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.map(fn [s1, s2] -> content_coherence(s1.content, s2.content) end)
+    |> average_scores(1.0)
+  end
+
+  defp average_scores(scores, default) when scores == [], do: default
+  defp average_scores(scores, _default), do: Enum.sum(scores) / length(scores)
 
   defp evaluate_conclusion_accuracy(memories) do
     # Check if conclusions have success/failure metadata
@@ -429,65 +433,70 @@ defmodule Mimo.Benchmark.Cognitive do
   end
 
   defp evaluate_branch_utilization(memories) do
-    # Check for ToT branching patterns in metadata
     memories
-    |> Enum.filter(fn m ->
+    |> filter_branched_memories()
+    |> calculate_branch_diversity()
+  end
+
+  defp filter_branched_memories(memories) do
+    Enum.filter(memories, fn m ->
       metadata = m.metadata || %{}
       Map.has_key?(metadata, "branch_id") or Map.has_key?(metadata, "branches")
     end)
-    |> then(fn branched_memories ->
-      if Enum.empty?(branched_memories) do
-        # No branching used
-        0.0
-      else
-        # Calculate branch diversity
-        branch_ids =
-          branched_memories
-          |> Enum.flat_map(fn m ->
-            metadata = m.metadata || %{}
-            branches = metadata["branches"] || []
-            branch_id = metadata["branch_id"]
-            if branch_id, do: [branch_id | branches], else: branches
-          end)
-          |> Enum.uniq()
+  end
 
-        # Score based on branch diversity (more branches = better exploration)
-        min(length(branch_ids) / 5.0, 1.0)
-      end
-    end)
+  defp calculate_branch_diversity([]), do: 0.0
+
+  defp calculate_branch_diversity(branched_memories) do
+    branch_ids =
+      branched_memories
+      |> Enum.flat_map(&extract_branch_ids/1)
+      |> Enum.uniq()
+
+    min(length(branch_ids) / 5.0, 1.0)
+  end
+
+  defp extract_branch_ids(memory) do
+    metadata = memory.metadata || %{}
+    branches = metadata["branches"] || []
+    branch_id = metadata["branch_id"]
+    if branch_id, do: [branch_id | branches], else: branches
   end
 
   defp evaluate_reflection_quality(memories) do
-    # Check for reflection/learning patterns
     memories
-    |> Enum.filter(fn m ->
+    |> filter_reflection_memories()
+    |> score_reflections()
+  end
+
+  defp filter_reflection_memories(memories) do
+    Enum.filter(memories, fn m ->
       metadata = m.metadata || %{}
 
       Map.has_key?(metadata, "reflection") or
         Map.has_key?(metadata, "lessons_learned") or
         String.contains?(m.content || "", ["learned", "insight", "next time"])
     end)
-    |> then(fn reflection_memories ->
-      if Enum.empty?(reflection_memories) do
-        0.0
-      else
-        # Score based on presence of actionable insights
-        actionable_count =
-          Enum.count(reflection_memories, fn m ->
-            metadata = m.metadata || %{}
+  end
 
-            has_lessons =
-              is_list(metadata["lessons_learned"]) and length(metadata["lessons_learned"]) > 0
+  defp score_reflections([]), do: 0.0
 
-            has_reflection =
-              is_binary(metadata["reflection"]) and String.length(metadata["reflection"]) > 20
+  defp score_reflections(reflection_memories) do
+    actionable_count = Enum.count(reflection_memories, &has_actionable_insight?/1)
+    actionable_count / length(reflection_memories)
+  end
 
-            has_lessons or has_reflection
-          end)
+  defp has_actionable_insight?(memory) do
+    metadata = memory.metadata || %{}
+    has_lessons?(metadata) or has_reflection?(metadata)
+  end
 
-        actionable_count / length(reflection_memories)
-      end
-    end)
+  defp has_lessons?(metadata) do
+    is_list(metadata["lessons_learned"]) and length(metadata["lessons_learned"]) > 0
+  end
+
+  defp has_reflection?(metadata) do
+    is_binary(metadata["reflection"]) and String.length(metadata["reflection"]) > 20
   end
 
   defp content_coherence(content1, content2) do
@@ -1074,7 +1083,7 @@ defmodule Mimo.Benchmark.Cognitive do
 
       {:ok, report} = Mimo.Benchmark.Cognitive.run()
       {:ok, alerts} = Mimo.Benchmark.Cognitive.check_thresholds(report)
-      
+
       # alerts = [
       #   %{category: :reasoning, metric: :step_coherence, value: 0.45, threshold: 0.6, severity: :critical},
       #   %{category: :temporal_validity, metric: :as_of_precision, value: 0.72, threshold: 0.8, severity: :warning}
@@ -1160,7 +1169,7 @@ defmodule Mimo.Benchmark.Cognitive do
   For CI usage:
 
       case Mimo.Benchmark.Cognitive.run_with_thresholds() do
-        {:ok, _report, []} -> 
+        {:ok, _report, []} ->
           # All passed
           System.halt(0)
         {:ok, _report, alerts} ->
@@ -1174,15 +1183,11 @@ defmodule Mimo.Benchmark.Cognitive do
   """
   @spec run_with_thresholds(keyword()) :: {:ok, map(), list(map())} | {:error, term()}
   def run_with_thresholds(opts \\ []) do
-    case run(opts) do
-      {:ok, report} ->
-        case check_thresholds(report) do
-          {:ok, alerts} -> {:ok, report, alerts}
-          {:error, reason} -> {:error, reason}
-        end
+    {:ok, report} = run(opts)
 
-      {:error, reason} ->
-        {:error, reason}
+    case check_thresholds(report) do
+      {:ok, alerts} -> {:ok, report, alerts}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -1198,10 +1203,9 @@ defmodule Mimo.Benchmark.Cognitive do
 
     details =
       alerts
-      |> Enum.map(fn a ->
+      |> Enum.map_join("\n", fn a ->
         "  - #{a.category}.#{a.metric}: #{Float.round(a.value, 3)} < #{a.threshold} (#{a.severity})"
       end)
-      |> Enum.join("\n")
 
     """
     ❌ Cognitive benchmark threshold violations:

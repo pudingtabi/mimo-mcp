@@ -251,11 +251,20 @@ defmodule Mimo.Skills.Network do
       {:ok, %{body: body}} when is_binary(body) ->
         case Jason.decode(body) do
           {:ok, json} -> {:ok, json}
-          {:error, _} -> {:error, "Invalid JSON response"}
+          {:error, decode_error} -> {:error, "Invalid JSON response: #{inspect(decode_error)}"}
         end
 
       {:ok, %{body: body}} when is_map(body) ->
         {:ok, body}
+
+      {:ok, %{body: body}} when is_list(body) ->
+        {:ok, body}
+
+      {:ok, %{status: status, body: body}} when status >= 400 ->
+        {:error, "HTTP #{status}: #{inspect(body)}"}
+
+      {:error, reason} ->
+        {:error, "Fetch failed: #{inspect(reason)}"}
 
       error ->
         error
@@ -799,11 +808,20 @@ defmodule Mimo.Skills.Network do
   # Private Helpers
   # ==========================================================================
 
-  defp execute_request(:get, url, opts), do: Req.get(url, opts)
-  defp execute_request(:post, url, opts), do: Req.post(url, opts)
-  defp execute_request(:put, url, opts), do: Req.put(url, opts)
-  defp execute_request(:delete, url, opts), do: Req.delete(url, opts)
-  defp execute_request(method, _url, _opts), do: {:error, "Unsupported method: #{method}"}
+  # Execute request with circuit breaker protection (Phase 1 Stability - Task 1.4)
+  defp execute_request(method, url, opts) do
+    alias Mimo.ErrorHandling.CircuitBreaker
+
+    CircuitBreaker.call(:web_service, fn ->
+      do_execute_request(method, url, opts)
+    end)
+  end
+
+  defp do_execute_request(:get, url, opts), do: Req.get(url, opts)
+  defp do_execute_request(:post, url, opts), do: Req.post(url, opts)
+  defp do_execute_request(:put, url, opts), do: Req.put(url, opts)
+  defp do_execute_request(:delete, url, opts), do: Req.delete(url, opts)
+  defp do_execute_request(method, _url, _opts), do: {:error, "Unsupported method: #{method}"}
 
   defp process_success(response) do
     headers = Map.new(response.headers, fn {k, v} -> {String.downcase(to_string(k)), v} end)
