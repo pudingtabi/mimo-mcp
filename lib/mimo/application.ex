@@ -155,12 +155,13 @@ defmodule Mimo.Application do
         {Mimo.Brain.Emergence.Catalog, []},
         # Emergence Scheduler: Periodic pattern detection and promotion
         {Mimo.Brain.Emergence.Scheduler, []},
+        # ===== Cognitive Feedback Loop (SPEC-074) =====
+        # Core learning infrastructure - connects outcomes to behavior changes
+        # NOTE: Must start BEFORE ActiveInference which depends on it
+        {Mimo.Cognitive.FeedbackLoop, []},
         # ===== Active Inference (SPEC-071) =====
         # Proactive context pushing based on Free Energy Principle
         {Mimo.ActiveInference, []},
-        # ===== Cognitive Feedback Loop (SPEC-074) =====
-        # Core learning infrastructure - connects outcomes to behavior changes
-        {Mimo.Cognitive.FeedbackLoop, []},
         # ===== Sleep Cycle (SPEC-072) =====
         # Multi-stage memory consolidation (episodic → semantic → procedural)
         {Mimo.SleepCycle, []},
