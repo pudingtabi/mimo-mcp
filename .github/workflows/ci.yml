@@ -30,6 +30,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 0. Clone dev repo (tests, benchmarks, specs)
+      - name: Clone dev repo
+        uses: actions/checkout@v4
+        with:
+          repository: pudingtabi/mimo-mcp-dev
+          token: ${{ secrets.DEV_REPO_TOKEN }}
+          path: mimo-mcp-dev
+
+      - name: Link dev files
+        run: |
+          ln -s ${{ github.workspace }}/mimo-mcp-dev/test test
+          ln -s ${{ github.workspace }}/mimo-mcp-dev/bench bench
+
       # 1. Setup Elixir & Erlang
       - name: Set up Elixir
         uses: erlef/setup-beam@v1
