@@ -32,13 +32,16 @@ jobs:
 
       # 0. Clone dev repo (tests, benchmarks, specs)
       - name: Clone dev repo
+        if: ${{ secrets.DEV_REPO_TOKEN != '' }}
         uses: actions/checkout@v4
         with:
           repository: pudingtabi/mimo-mcp-dev
           token: ${{ secrets.DEV_REPO_TOKEN }}
           path: mimo-mcp-dev
+        continue-on-error: true
 
       - name: Link dev files
+        if: ${{ hashFiles('mimo-mcp-dev/test') != '' }}
         run: |
           ln -s ${{ github.workspace }}/mimo-mcp-dev/test test
           ln -s ${{ github.workspace }}/mimo-mcp-dev/bench bench
