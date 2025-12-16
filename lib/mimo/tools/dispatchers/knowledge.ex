@@ -135,9 +135,6 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
           nodes: Helpers.format_graph_nodes(result.nodes),
           count: length(result.nodes)
         }
-
-      {:error, _reason} ->
-        %{found: false}
     end
   rescue
     _ -> %{found: false, error: "synapse_unavailable"}
