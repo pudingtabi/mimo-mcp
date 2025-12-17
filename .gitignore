@@ -42,20 +42,19 @@ Thumbs.db
 erl_crash.dump
 *.ez
 
-# Test files (internal development only)
-/test/
+# Test artifacts (but NOT /test/ directory itself)
 /cover/
 _test_*/
 _test_diagnostics_*/
 _test_autodiscovery_*/
 _test_terminal_*/
 test_mcp.json
-*.log
 verification_run*.log
 test_failures.log
 
-# Benchmarks (internal development only)
-/bench/
+# Benchmark results (but NOT /bench/ directory itself)
+/bench/results/*.json
+!/bench/results/.gitkeep
 
 # Temporary
 /tmp/

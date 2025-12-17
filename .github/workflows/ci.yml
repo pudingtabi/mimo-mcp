@@ -30,47 +30,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 0. Clone dev repo (tests, benchmarks, specs)
-      - name: Check DEV_REPO_TOKEN
-        run: |
-          if [ -n "${{ secrets.DEV_REPO_TOKEN }}" ]; then
-            echo "DEV_REPO_TOKEN is set"
-          else
-            echo "DEV_REPO_TOKEN is NOT set - will use github.token (may fail for private repos)"
-          fi
-
-      - name: Clone dev repo
-        uses: actions/checkout@v4
-        with:
-          repository: pudingtabi/mimo-mcp-dev
-          token: ${{ secrets.DEV_REPO_TOKEN }}
-          path: mimo-mcp-dev
-        continue-on-error: true
-        id: clone_dev
-
-      - name: Debug clone result
-        run: |
-          echo "Clone step outcome: ${{ steps.clone_dev.outcome }}"
-          if [ -d "mimo-mcp-dev" ]; then
-            echo "mimo-mcp-dev directory exists"
-            ls -la mimo-mcp-dev/
-          else
-            echo "mimo-mcp-dev directory does NOT exist"
-          fi
-
-      - name: Link dev files
-        id: link_dev
-        run: |
-          if [ -d "mimo-mcp-dev/test" ]; then
-            ln -s ${{ github.workspace }}/mimo-mcp-dev/test test
-            ln -s ${{ github.workspace }}/mimo-mcp-dev/bench bench
-            echo "Dev files linked successfully"
-            echo "tests_available=true" >> $GITHUB_OUTPUT
-          else
-            echo "Dev repo not available, skipping test linking"
-            echo "tests_available=false" >> $GITHUB_OUTPUT
-          fi
-
       # 1. Setup Elixir & Erlang
       - name: Set up Elixir
         uses: erlef/setup-beam@v1
@@ -78,7 +37,7 @@ jobs:
           otp-version: ${{matrix.otp}}
           elixir-version: ${{matrix.elixir}}
 
-      # 2. Setup Rust Toolchain (Modern Standard)
+      # 2. Setup Rust Toolchain (for NIFs)
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -107,7 +66,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      # 5. Install & Test
+      # 5. Install & Build
       - name: Install Dependencies
         run: mix deps.get
 
@@ -119,34 +78,27 @@ jobs:
           mix deps.compile
           mix compile --warnings-as-errors --force
 
+      # 6. Database Setup
       - name: Setup Database
-        if: steps.link_dev.outputs.tests_available == 'true'
         run: |
           mix ecto.create
           mix ecto.migrate
 
+      # 7. Run Tests
       - name: Run Tests
-        if: steps.link_dev.outputs.tests_available == 'true'
         run: mix test --exclude integration --exclude external --exclude hnsw_nif
 
-      - name: Skip Tests Notice
-        if: steps.link_dev.outputs.tests_available != 'true'
-        run: echo "⚠️ Tests skipped - dev repo not available. Compile-only CI pass."
-
+      # 8. Code Quality
       - name: Anti-Slop Check
         run: |
           echo "Checking for aspirational language in docstrings..."
-          # Patterns that indicate unimplemented features described as if they exist
           SLOP_PATTERNS='will be implemented|coming soon|Phase [0-9]+:.*will|not yet implemented but'
-
-          # Check lib/ for slop in moduledocs (excluding honest planning comments)
           MATCHES=$(grep -rE "$SLOP_PATTERNS" lib/ --include="*.ex" 2>/dev/null | grep -v "# TODO" | grep -v "# Phase" || true)
 
           if [ -n "$MATCHES" ]; then
             echo "$MATCHES" | head -20
             echo ""
             echo "Found potentially aspirational language. Review above matches."
-            # Warning only for now - can make strict with: exit 1
           else
             echo "No aspirational slop detected"
           fi
