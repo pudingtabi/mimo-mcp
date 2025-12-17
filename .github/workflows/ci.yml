@@ -31,13 +31,32 @@ jobs:
       - uses: actions/checkout@v4
 
       # 0. Clone dev repo (tests, benchmarks, specs)
+      - name: Check DEV_REPO_TOKEN
+        run: |
+          if [ -n "${{ secrets.DEV_REPO_TOKEN }}" ]; then
+            echo "DEV_REPO_TOKEN is set"
+          else
+            echo "DEV_REPO_TOKEN is NOT set - will use github.token (may fail for private repos)"
+          fi
+
       - name: Clone dev repo
         uses: actions/checkout@v4
         with:
           repository: pudingtabi/mimo-mcp-dev
-          token: ${{ secrets.DEV_REPO_TOKEN || github.token }}
+          token: ${{ secrets.DEV_REPO_TOKEN }}
           path: mimo-mcp-dev
         continue-on-error: true
+        id: clone_dev
+
+      - name: Debug clone result
+        run: |
+          echo "Clone step outcome: ${{ steps.clone_dev.outcome }}"
+          if [ -d "mimo-mcp-dev" ]; then
+            echo "mimo-mcp-dev directory exists"
+            ls -la mimo-mcp-dev/
+          else
+            echo "mimo-mcp-dev directory does NOT exist"
+          fi
 
       - name: Link dev files
         id: link_dev
