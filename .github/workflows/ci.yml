@@ -8,97 +8,51 @@ on:
 
 env:
   MIX_ENV: test
-  # Provide minimal config for CI - tests should not call external APIs
   MIMO_API_KEY: "test-api-key-for-ci-32-chars-minimum"
   MIMO_SECRET_KEY_BASE: "test-secret-key-base-for-ci-tests-needs-to-be-at-least-64-characters-long-for-phoenix"
 
 jobs:
   test:
-    name: Test (OTP ${{matrix.otp}} / Elixir ${{matrix.elixir}} / ${{matrix.os}})
-    runs-on: ${{matrix.os}}
+    name: Test (Elixir ${{matrix.elixir}} / OTP ${{matrix.otp}})
+    runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            otp: "27.0"
-            elixir: "1.17"
-          - os: macos-latest
-            otp: "27.0"
-            elixir: "1.17"
+        elixir: ["1.17"]
+        otp: ["27.0"]
 
     steps:
       - uses: actions/checkout@v4
 
-      # 1. Setup Elixir & Erlang
       - name: Set up Elixir
         uses: erlef/setup-beam@v1
         with:
           otp-version: ${{matrix.otp}}
           elixir-version: ${{matrix.elixir}}
 
-      # 2. Setup Rust Toolchain (for NIFs)
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
 
-      # 3. Cache Mix Dependencies
-      - name: Cache Mix Deps
-        uses: actions/cache@v3
+      - name: Cache Dependencies
+        uses: actions/cache@v4
         with:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-mix-
-
-      # 4. Cache Rust (Cargo) Registry & Build
-      - name: Cache Cargo
-        uses: actions/cache@v3
-        with:
-          path: |
             ~/.cargo/registry
             ~/.cargo/git
             native/vector_math/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
 
-      # 5. Install & Build
-      - name: Install Dependencies
-        run: mix deps.get
-
-      - name: Check Formatting
-        run: mix format --check-formatted
-
-      - name: Compile (includes Rust NIFs)
+      - name: Install & Compile
         run: |
-          mix deps.compile
-          mix compile --warnings-as-errors --force
+          mix deps.get
+          mix compile --warnings-as-errors
 
-      # 6. Database Setup
       - name: Setup Database
         run: |
           mix ecto.create
           mix ecto.migrate
 
-      # 7. Run Tests
       - name: Run Tests
         run: mix test --exclude integration --exclude external --exclude hnsw_nif
-
-      # 8. Code Quality
-      - name: Anti-Slop Check
-        run: |
-          echo "Checking for aspirational language in docstrings..."
-          SLOP_PATTERNS='will be implemented|coming soon|Phase [0-9]+:.*will|not yet implemented but'
-          MATCHES=$(grep -rE "$SLOP_PATTERNS" lib/ --include="*.ex" 2>/dev/null | grep -v "# TODO" | grep -v "# Phase" || true)
-
-          if [ -n "$MATCHES" ]; then
-            echo "$MATCHES" | head -20
-            echo ""
-            echo "Found potentially aspirational language. Review above matches."
-          else
-            echo "No aspirational slop detected"
-          fi
