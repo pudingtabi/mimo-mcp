@@ -40,13 +40,16 @@ jobs:
         continue-on-error: true
 
       - name: Link dev files
+        id: link_dev
         run: |
           if [ -d "mimo-mcp-dev/test" ]; then
             ln -s ${{ github.workspace }}/mimo-mcp-dev/test test
             ln -s ${{ github.workspace }}/mimo-mcp-dev/bench bench
             echo "Dev files linked successfully"
+            echo "tests_available=true" >> $GITHUB_OUTPUT
           else
             echo "Dev repo not available, skipping test linking"
+            echo "tests_available=false" >> $GITHUB_OUTPUT
           fi
 
       # 1. Setup Elixir & Erlang
@@ -98,12 +101,18 @@ jobs:
           mix compile --warnings-as-errors --force
 
       - name: Setup Database
+        if: steps.link_dev.outputs.tests_available == 'true'
         run: |
           mix ecto.create
           mix ecto.migrate
 
       - name: Run Tests
+        if: steps.link_dev.outputs.tests_available == 'true'
         run: mix test --exclude integration --exclude external --exclude hnsw_nif
+
+      - name: Skip Tests Notice
+        if: steps.link_dev.outputs.tests_available != 'true'
+        run: echo "⚠️ Tests skipped - dev repo not available. Compile-only CI pass."
 
       - name: Anti-Slop Check
         run: |
