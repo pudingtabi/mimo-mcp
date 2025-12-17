@@ -107,6 +107,9 @@ config/local.exs
 
 # Native build artifacts
 native/*/target/
+priv/native/*.so
+priv/native/*.dylib
+priv/native/*.dll
 
 # User-specific files
 *.local
