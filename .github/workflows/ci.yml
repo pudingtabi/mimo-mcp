@@ -104,3 +104,21 @@ jobs:
 
       - name: Run Tests
         run: mix test --exclude integration --exclude external --exclude hnsw_nif
+
+      - name: Anti-Slop Check
+        run: |
+          echo "Checking for aspirational language in docstrings..."
+          # Patterns that indicate unimplemented features described as if they exist
+          SLOP_PATTERNS='will be implemented|coming soon|Phase [0-9]+:.*will|not yet implemented but'
+
+          # Check lib/ for slop in moduledocs (excluding honest planning comments)
+          MATCHES=$(grep -rE "$SLOP_PATTERNS" lib/ --include="*.ex" 2>/dev/null | grep -v "# TODO" | grep -v "# Phase" || true)
+
+          if [ -n "$MATCHES" ]; then
+            echo "$MATCHES" | head -20
+            echo ""
+            echo "Found potentially aspirational language. Review above matches."
+            # Warning only for now - can make strict with: exit 1
+          else
+            echo "No aspirational slop detected"
+          fi

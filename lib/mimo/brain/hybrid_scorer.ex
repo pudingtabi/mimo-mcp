@@ -1,6 +1,6 @@
 defmodule Mimo.Brain.HybridScorer do
   @moduledoc """
-  Unified scoring system for hybrid memory retrieval.
+  Weighted scoring system for memory retrieval.
 
   Combines multiple scoring signals into a single relevance score:
   - Vector similarity (semantic relevance)
@@ -17,14 +17,20 @@ defmodule Mimo.Brain.HybridScorer do
         recency_weight: 0.25,
         access_weight: 0.15,
         importance_weight: 0.15,
-        graph_weight: 0.10
+        graph_weight: 0.10,
+        use_learned_weights: true  # Enable online RL from AttentionLearner
+
+  NOTE: Base weights can be overridden by learned weights from AttentionLearner.
+  When `use_learned_weights: true` (default), the scorer blends static config
+  weights with dynamically learned weights from user feedback signals.
+  See docs/ARCHITECTURE.md "Neuroscience + ML Foundation" section.
 
   ## Tiered Context (SPEC-051)
 
   The scorer supports tiered context delivery for optimizing token usage:
 
   - Tier 1 (Essential): URS >= 0.85 - Critical for immediate execution
-  - Tier 2 (Supporting): URS >= 0.65 - Important supporting context  
+  - Tier 2 (Supporting): URS >= 0.65 - Important supporting context
   - Tier 3 (Background): URS < 0.65 - Available on demand
 
   ## Examples
@@ -40,9 +46,11 @@ defmodule Mimo.Brain.HybridScorer do
       # => :tier1, :tier2, or :tier3
   """
 
-  alias Mimo.Brain.DecayScorer
+  alias Mimo.Brain.{DecayScorer, AttentionLearner, UsageFeedback}
   alias Mimo.NeuroSymbolic.CrossModalityLinker
 
+  # Default weights - read from config at runtime
+  # NOTE: These are intuition-based, not learned. See ANTI-SLOP.md.
   @default_weights %{
     vector: 0.35,
     recency: 0.25,
@@ -109,12 +117,17 @@ defmodule Mimo.Brain.HybridScorer do
     graph_score = opts[:graph_score] || 0.0
 
     # Weighted combination
-    score =
+    base_score =
       vector_score * weights.vector +
         recency_score * weights.recency +
         access_score * weights.access +
         importance_score * weights.importance +
         graph_score * weights.graph
+
+    # SPEC-087: Apply helpfulness adjustment from UsageFeedback learning
+    # This closes the feedback loop - memories that led to successful outcomes
+    # get boosted, while noise gets suppressed
+    score = apply_helpfulness_adjustment(base_score, memory)
 
     # Clamp to 0-1
     min(1.0, max(0.0, score))
@@ -425,10 +438,56 @@ defmodule Mimo.Brain.HybridScorer do
   # Helpers
   # ==========================================================================
 
-  defp merge_weights(nil), do: @default_weights
+  defp merge_weights(nil), do: config_weights()
 
   defp merge_weights(custom) when is_map(custom) do
-    Map.merge(@default_weights, custom)
+    Map.merge(config_weights(), custom)
+  end
+
+  # Read weights from config, incorporating learned weights from AttentionLearner
+  # This implements the "online RL" feedback loop from TIER 2.2
+  defp config_weights do
+    config = Application.get_env(:mimo_mcp, :hybrid_scoring, [])
+    use_learned = Keyword.get(config, :use_learned_weights, true)
+
+    # Get base weights from config
+    base_weights = %{
+      vector: Keyword.get(config, :vector_weight, @default_weights.vector),
+      recency: Keyword.get(config, :recency_weight, @default_weights.recency),
+      access: Keyword.get(config, :access_weight, @default_weights.access),
+      importance: Keyword.get(config, :importance_weight, @default_weights.importance),
+      graph: Keyword.get(config, :graph_weight, @default_weights.graph)
+    }
+
+    if use_learned do
+      # Get learned attention weights (covers subset of factors)
+      learned = AttentionLearner.get_weights()
+
+      # Blend learned weights with base weights
+      # AttentionLearner learns: edge_weight, embedding_sim, recency, access
+      # Map to HybridScorer factors with 50% influence from learning
+      blend_factor = 0.5
+
+      %{
+        # Vector/semantic similarity influenced by learned embedding_sim weight
+        vector: blend(base_weights.vector, learned[:embedding_sim] || 0.3, blend_factor),
+        # Recency influenced by learned recency weight
+        recency: blend(base_weights.recency, learned[:recency] || 0.2, blend_factor),
+        # Access influenced by learned access weight
+        access: blend(base_weights.access, learned[:access] || 0.1, blend_factor),
+        # Importance stays static (not learned by AttentionLearner)
+        importance: base_weights.importance,
+        # Graph weight influenced by learned edge_weight
+        graph: blend(base_weights.graph, learned[:edge_weight] || 0.4, blend_factor)
+      }
+    else
+      base_weights
+    end
+  end
+
+  # Linear interpolation for blending weights
+  defp blend(base, learned, factor) do
+    base * (1 - factor) + learned * factor
   end
 
   # SPEC-051: Temporal score combining recency and access frequency
@@ -521,4 +580,33 @@ defmodule Mimo.Brain.HybridScorer do
   end
 
   defp cosine_similarity(_, _), do: 0.0
+
+  # ==========================================================================
+  # SPEC-087: UsageFeedback Learning Integration
+  # ==========================================================================
+
+  # Apply helpfulness adjustment from UsageFeedback
+  # Memories that led to successful outcomes get boosted (factor > 1.0)
+  # Memories that led to failures get suppressed (factor < 1.0)
+  # Neutral memories (no feedback yet) are unchanged (factor = 1.0)
+  defp apply_helpfulness_adjustment(base_score, memory) do
+    memory_id = get_memory_id(memory)
+
+    if memory_id do
+      # UsageFeedback.adjust_similarity multiplies by factor 0.5-1.5
+      # based on helpfulness score (0.0-1.0, centered at 0.5)
+      UsageFeedback.adjust_similarity(base_score, memory_id)
+    else
+      base_score
+    end
+  rescue
+    # If UsageFeedback isn't available, return base score
+    _ -> base_score
+  end
+
+  defp get_memory_id(memory) when is_map(memory) do
+    Map.get(memory, :id) || Map.get(memory, "id")
+  end
+
+  defp get_memory_id(_), do: nil
 end

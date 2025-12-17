@@ -111,11 +111,6 @@ defmodule Mimo.AutoMemory do
         Logger.debug("AutoMemory: Categorized as search")
         store_search_memory(query, arguments, result)
 
-      # Legacy browser
-      {:browser, action} ->
-        Logger.debug("AutoMemory: Categorized as browser, action=#{action}")
-        store_browser_memory(action, arguments, result)
-
       :skip ->
         Logger.debug("AutoMemory: Skipped tool=#{tool_name}")
         :ok
@@ -507,70 +502,6 @@ defmodule Mimo.AutoMemory do
   end
 
   defp store_search_memory(_, _, _), do: :ok
-
-  # Store memory for browser actions
-  # Category: "action" - recording what was done in browser
-  # Note: Lower importance (0.35) for browser actions - ephemeral navigation
-  defp store_browser_memory(action, arguments, {:ok, result}) do
-    Logger.debug("AutoMemory browser: action=#{action}, url=#{inspect(arguments["url"])}")
-    url = arguments["url"] || ""
-    content = build_browser_content(action, arguments, result, url)
-
-    if content do
-      Logger.debug("AutoMemory browser: Storing content=#{content}")
-      store_memory(content, "action", 0.35)
-    end
-  end
-
-  defp store_browser_memory(_action, _arguments, other) do
-    Logger.debug("AutoMemory browser: Pattern not matched, result=#{inspect(other)}")
-    :ok
-  end
-
-  # Build browser action content - multi-head helpers
-  defp build_browser_content(action, arguments, result, url) do
-    browser_action_content(action, arguments, result, url)
-  end
-
-  defp browser_action_content(action, arguments, result, url) when is_binary(action) do
-    cond do
-      String.contains?(action, "blink") ->
-        format_blink_action(arguments, result, url)
-
-      String.contains?(action, "navigate") and url != "" ->
-        "Visited URL: #{url}"
-
-      String.contains?(action, "screenshot") ->
-        format_screenshot(url)
-
-      String.contains?(action, "click") ->
-        format_click(arguments, url)
-
-      true ->
-        Logger.debug("AutoMemory browser: No content match for action=#{action}")
-        nil
-    end
-  end
-
-  defp format_blink_action(arguments, result, url) do
-    operation = arguments["operation"] || "fetch"
-    status = get_in_result(result, ["status"]) || get_in_result(result, ["data", "status"])
-    protection = get_in_result(result, ["data", "protection"])
-
-    status_str = if status, do: " (status: #{status})", else: ""
-    protection_str = if protection, do: " [protected by: #{protection}]", else: ""
-
-    "Blink #{operation}: #{url}#{status_str}#{protection_str}"
-  end
-
-  defp format_screenshot(url) do
-    "Took screenshot#{if url != "", do: " of #{url}", else: ""}"
-  end
-
-  defp format_click(arguments, url) do
-    selector = arguments["selector"] || "element"
-    "Clicked: #{selector}#{if url != "", do: " on #{url}", else: ""}"
-  end
 
   # Helper to safely get nested values from result maps (handles both atom and string keys)
   # SECURITY FIX: Use String.to_existing_atom instead of String.to_atom to prevent atom exhaustion

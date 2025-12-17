@@ -15,10 +15,13 @@ defmodule Mimo.Tools.Dispatchers.Terminal do
   IMPORTANT: Function name mappings from SPEC-030:
   - "read_output" -> Terminal.read_process_output (NOT read_output!)
   - "force_kill" -> Terminal.force_terminate (NOT force_kill_process!)
+
+  SPEC-087: Wired to OutcomeDetector for feedback loop closure.
   """
 
   alias Mimo.Tools.{Helpers, Suggestions}
   alias Mimo.Utils.InputValidation
+  alias Mimo.Cognitive.{OutcomeDetector, FeedbackLoop}
 
   @doc """
   Dispatch terminal operation based on args.
@@ -92,9 +95,56 @@ defmodule Mimo.Tools.Dispatchers.Terminal do
     opts = if shell, do: Keyword.put(opts, :shell, shell), else: opts
     opts = if name, do: Keyword.put(opts, :name, name), else: opts
 
-    result = {:ok, Mimo.Skills.Terminal.execute(command, opts)}
+    raw_result = Mimo.Skills.Terminal.execute(command, opts)
+
+    # SPEC-087: Detect outcome and record to feedback loop
+    record_terminal_outcome(command, raw_result)
+
+    result = {:ok, raw_result}
     # Enrich with memory context for accuracy (Layer 2)
     Helpers.enrich_terminal_response(result, command, skip_context)
+  end
+
+  # SPEC-087: Record terminal execution outcome to feedback loop
+  defp record_terminal_outcome(command, %{status: exit_code, output: output} = _result) do
+    # Generate session ID for memory correlation
+    session_id = generate_session_id(command)
+
+    # Detect outcome using OutcomeDetector
+    detection = OutcomeDetector.detect_terminal(exit_code, output || "")
+
+    # Build context for FeedbackLoop (includes session_id for memory correlation)
+    context = %{
+      command: command,
+      exit_code: exit_code,
+      signal_type: detection.signal_type,
+      output_length: String.length(output || ""),
+      session_id: session_id
+    }
+
+    # Build outcome for FeedbackLoop
+    outcome = %{
+      success: detection.outcome == :success,
+      outcome: detection.outcome,
+      confidence: detection.confidence,
+      signals: detection.signals,
+      details: detection.details
+    }
+
+    # Record asynchronously (non-blocking)
+    FeedbackLoop.record_outcome(:tool_execution, context, outcome)
+  rescue
+    # Don't let outcome detection failures break tool execution
+    _ -> :ok
+  end
+
+  defp record_terminal_outcome(_command, _result), do: :ok
+
+  # Generate a session ID for correlating memory retrievals with outcomes
+  defp generate_session_id(command) do
+    timestamp = System.system_time(:millisecond)
+    hash = :erlang.phash2({command, timestamp})
+    "term_#{hash}"
   end
 
   defp dispatch_start_process(command, args) do

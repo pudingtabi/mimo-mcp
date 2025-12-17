@@ -1,9 +1,13 @@
 defmodule Mimo.Brain.Engram do
   @moduledoc """
-  Universal Engram - the polymorphic memory unit.
-  Based on CoALA framework principles.
+  Engram - the memory storage record.
 
-  Note: Embedding and metadata are stored as JSON text in SQLite.
+  This is an Ecto schema for storing memories in SQLite with embeddings.
+  Embeddings and metadata are stored as JSON text or binary blobs.
+
+  NOTE: Terms like "brain" and "engram" are organizational metaphors.
+  This is a database record with configurable TTL, not neuroscience.
+  See docs/ANTI-SLOP.md for honest assessment.
 
   ## Decay Fields (SPEC-003)
 
@@ -49,7 +53,7 @@ defmodule Mimo.Brain.Engram do
 
   ## Temporal Memory Chains (SPEC-034)
 
-  TMC provides brain-inspired memory reconsolidation:
+  Memory version tracking (supersession):
   - `supersedes_id` - Points to the memory this one supersedes (if any)
   - `superseded_at` - Timestamp when this memory was superseded (NULL = current/active)
   - `supersession_type` - Type: "update", "correction", "refinement", "merge"
@@ -382,17 +386,33 @@ defmodule Mimo.Brain.Engram do
 
   Higher importance = lower decay rate = longer memory retention.
   Based on exponential decay: half_life = ln(2) / decay_rate
+
+  NOTE: These rates are configurable via config :mimo_mcp, :decay_rates
+  They are MANUALLY TUNED, not empirically validated. See docs/ANTI-SLOP.md.
   """
-  # ~693 days half-life
-  def importance_to_decay_rate(importance) when importance >= 0.9, do: 0.0001
-  # ~69 days half-life
-  def importance_to_decay_rate(importance) when importance >= 0.7, do: 0.001
-  # ~14 days half-life
-  def importance_to_decay_rate(importance) when importance >= 0.5, do: 0.005
-  # ~3.5 days half-life
-  def importance_to_decay_rate(importance) when importance >= 0.3, do: 0.02
-  # ~17 hours half-life
-  def importance_to_decay_rate(_importance), do: 0.1
+  def importance_to_decay_rate(importance) when importance >= 0.9 do
+    decay_config()[:critical] || 0.0001
+  end
+
+  def importance_to_decay_rate(importance) when importance >= 0.7 do
+    decay_config()[:high] || 0.001
+  end
+
+  def importance_to_decay_rate(importance) when importance >= 0.5 do
+    decay_config()[:medium] || 0.005
+  end
+
+  def importance_to_decay_rate(importance) when importance >= 0.3 do
+    decay_config()[:low] || 0.02
+  end
+
+  def importance_to_decay_rate(_importance) do
+    decay_config()[:ephemeral] || 0.1
+  end
+
+  defp decay_config do
+    Application.get_env(:mimo_mcp, :decay_rates, %{})
+  end
 
   @doc """
   Calculates the current effective importance after decay.

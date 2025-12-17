@@ -45,7 +45,7 @@ defmodule Mimo.Brain.UsageFeedback do
   require Logger
 
   alias Mimo.Repo
-  alias Mimo.Brain.Engram
+  alias Mimo.Brain.{Engram, AttentionLearner}
 
   @default_helpfulness 0.5
   @boost_amount 0.05
@@ -117,6 +117,15 @@ defmodule Mimo.Brain.UsageFeedback do
   @spec stats() :: map()
   def stats do
     GenServer.call(__MODULE__, :stats)
+  end
+
+  @doc """
+  Force immediate processing of all pending signals.
+  Useful for testing and benchmarks.
+  """
+  @spec flush() :: :ok
+  def flush do
+    GenServer.call(__MODULE__, :force_flush)
   end
 
   # =============================================================================
@@ -202,6 +211,18 @@ defmodule Mimo.Brain.UsageFeedback do
   end
 
   @impl true
+  def handle_call(:force_flush, _from, state) do
+    new_state =
+      if length(state.pending_signals) > 0 do
+        process_signals(state.pending_signals, state)
+      else
+        flush_retrieval_counts(state)
+      end
+
+    {:reply, :ok, new_state}
+  end
+
+  @impl true
   def handle_info(:flush, state) do
     new_state =
       if length(state.pending_signals) > 0 do
@@ -224,8 +245,15 @@ defmodule Mimo.Brain.UsageFeedback do
       Enum.reduce(signals, {0, 0}, fn {type, _session, memory_ids, _ts}, {u, n} ->
         Enum.each(memory_ids, fn id ->
           case type do
-            :useful -> update_helpfulness(id, @boost_amount)
-            :noise -> update_helpfulness(id, -@decay_amount)
+            :useful ->
+              update_helpfulness(id, @boost_amount)
+              # Also send positive feedback to AttentionLearner for online RL
+              send_attention_feedback(id, :positive)
+
+            :noise ->
+              update_helpfulness(id, -@decay_amount)
+              # Also send negative feedback to AttentionLearner
+              send_attention_feedback(id, :negative)
           end
         end)
 
@@ -318,5 +346,47 @@ defmodule Mimo.Brain.UsageFeedback do
   defp schedule_flush do
     # Flush every 30 seconds
     Process.send_after(self(), :flush, 30_000)
+  end
+
+  # Send feedback to AttentionLearner for online RL weight updates
+  # This closes the loop: user feedback -> attention weight adjustment
+  defp send_attention_feedback(memory_id, signal) do
+    try do
+      # Get the memory to extract context about how it was scored
+      case Repo.get(Engram, memory_id) do
+        nil ->
+          :ok
+
+        engram ->
+          # Construct context with approximate factor contributions
+          # These represent how the memory was likely scored during retrieval
+          context = %{
+            edge_weight: Map.get(engram.metadata || %{}, "graph_score", 0.5),
+            embedding_sim: Map.get(engram, :similarity, 0.5),
+            recency: compute_recency_factor(engram.inserted_at),
+            access: compute_access_factor(engram.access_count)
+          }
+
+          AttentionLearner.feedback(signal, memory_id, context)
+      end
+    rescue
+      _ -> :ok
+    end
+  end
+
+  defp compute_recency_factor(nil), do: 0.5
+
+  defp compute_recency_factor(inserted_at) do
+    # Exponential decay based on age
+    days_ago = NaiveDateTime.diff(NaiveDateTime.utc_now(), inserted_at, :second) / 86_400
+    :math.exp(-0.1 * days_ago) |> max(0.01)
+  end
+
+  defp compute_access_factor(nil), do: 0.3
+  defp compute_access_factor(0), do: 0.3
+
+  defp compute_access_factor(count) when is_integer(count) do
+    # Logarithmic scaling
+    (:math.log(1 + count) / :math.log(1 + 100)) |> min(1.0)
   end
 end

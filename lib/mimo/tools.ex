@@ -61,10 +61,24 @@ defmodule Mimo.Tools do
 
   A/B Testing: For sessions in the test group, pattern suggestions from
   promoted emergence patterns are injected into the result.
+
+  SPEC-083: Intelligent Dispatch adds pre-execution checks for Tier 2+
+  operations (mutating/destructive), searching memory for past failures
+  and relevant warnings before execution.
   """
   def dispatch(tool_name, arguments \\ %{}) do
+    alias Mimo.Knowledge.IntelligentMiddleware
+
+    # Telemetry: track dispatch start
+    start_time = System.monotonic_time(:millisecond)
+    metadata = %{tool: tool_name, operation: arguments["operation"]}
+    :telemetry.execute([:mimo, :tool, :start], %{}, metadata)
+
     # Track tool usage for adoption metrics (measures AUTO-REASONING workflow adoption)
     Mimo.AdoptionMetrics.track_tool_call(tool_name)
+
+    # SPEC-083: Pre-dispatch intelligence check
+    pre_context = IntelligentMiddleware.pre_dispatch(tool_name, arguments)
 
     # A/B Testing: Get pattern suggestions for test group sessions
     ab_suggestions = get_ab_suggestions(tool_name, arguments)
@@ -75,23 +89,54 @@ defmodule Mimo.Tools do
         do_dispatch(tool_name, arguments)
       end)
 
+    # SPEC-083: Post-dispatch learning (track outcome for future)
+    IntelligentMiddleware.post_dispatch(tool_name, arguments, result, pre_context)
+
+    # Telemetry: track dispatch completion
+    duration_ms = System.monotonic_time(:millisecond) - start_time
+
+    :telemetry.execute(
+      [:mimo, :tool, :stop],
+      %{duration_ms: duration_ms},
+      Map.put(metadata, :success, match?({:ok, _}, result))
+    )
+
     # Determine if the result indicates success (for A/B testing outcome tracking)
     track_ab_outcome(result)
 
-    # If there's injection data, enrich the result
-    case {result, injection} do
+    # SPEC-083: Enrich with intelligent dispatch context
+    result_with_intel = IntelligentMiddleware.enrich_result(result, pre_context)
+
+    # If there's injection data, enrich the result with injection + suggestions
+    case {result_with_intel, injection} do
       {result, nil} ->
-        maybe_add_ab_suggestions(result, ab_suggestions)
+        # Add contextual tool suggestions even without injection
+        with_suggestions = add_tool_suggestions(result, tool_name, arguments)
+        maybe_add_ab_suggestions(with_suggestions, ab_suggestions)
 
       {{:ok, data}, injection} when is_map(data) and is_map(injection) ->
         # Add injection as metadata the AI can see
         enriched = Map.put(data, :_mimo_knowledge_injection, format_injection(injection))
-        maybe_add_ab_suggestions({:ok, enriched}, ab_suggestions)
+        with_suggestions = add_tool_suggestions({:ok, enriched}, tool_name, arguments)
+        maybe_add_ab_suggestions(with_suggestions, ab_suggestions)
 
       {result, _injection} ->
-        maybe_add_ab_suggestions(result, ab_suggestions)
+        with_suggestions = add_tool_suggestions(result, tool_name, arguments)
+        maybe_add_ab_suggestions(with_suggestions, ab_suggestions)
     end
   end
+
+  # Add contextual tool suggestions to help agents discover underused tools
+  defp add_tool_suggestions({:ok, data}, tool_name, args) when is_map(data) do
+    suggestions = InjectionMiddleware.format_for_response({:ok, data}, nil, tool_name, args)
+
+    case Map.get(suggestions, :_mimo_suggestions) do
+      nil -> {:ok, data}
+      hints -> {:ok, Map.put(data, :_mimo_suggestions, hints)}
+    end
+  end
+
+  defp add_tool_suggestions(result, _tool_name, _args), do: result
 
   @doc """
   Dispatch without injection middleware (for internal use or testing).

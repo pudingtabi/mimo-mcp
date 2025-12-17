@@ -1274,7 +1274,7 @@ defmodule Mimo.Tools.Definitions do
       }
     },
     # ==========================================================================
-    # REASON - Unified Reasoning Engine (SPEC-035)
+    # REASON - Unified Reasoning Engine (SPEC-035 + SPEC-086)
     # ==========================================================================
     %{
       name: "reason",
@@ -1288,19 +1288,22 @@ defmodule Mimo.Tools.Definitions do
       • Debugging complex issues (intermittent bugs, race conditions)
       • Uncertainty detected ("maybe", "unsure", "not sure")
 
-      STRATEGIES:
-      • CoT (default): Math, logic, step-by-step problems
-      • ToT: Ambiguous problems, creative tasks, multiple approaches
-      • ReAct: Problems requiring tool use (file, terminal, search)
-      • Reflexion: Learning from failures, iterative improvement
+      TWO MODES:
 
-      WORKFLOW:
-      1. `guided` → analyzes problem, selects strategy, returns session_id
-      2. `step` → record reasoning steps with evaluation
-      3. `branch`/`backtrack` → explore alternatives (ToT)
-      4. `verify` → check logical consistency
-      5. `reflect` → store lessons learned
-      6. `conclude` → synthesize final answer
+      1. GUIDED (InterleavedThinking) - Flexible verify-enrich cycle:
+      • `guided` → analyzes problem, selects strategy, returns session_id
+      • `step` → record reasoning steps with evaluation
+      • `verify` → check logical consistency
+      • `conclude` → synthesize final answer
+
+      2. AMPLIFIER (Cognitive Amplifier) - Forces deeper thinking:
+      • `amplify_start` → start with level (standard/deep/exhaustive)
+      • `amplify_think` → add thoughts (min 3 required)
+      • `amplify_challenge` → address devil's advocate challenges
+      • `amplify_perspective` → consider different viewpoints
+      • `amplify_conclude` → synthesize with forced integration
+
+      Use AMPLIFIER when you need guaranteed depth. Use GUIDED for flexibility.
 
       💡 Memory integration means similar past problems are auto-retrieved!
       """,
@@ -1317,11 +1320,17 @@ defmodule Mimo.Tools.Definitions do
               "reflect",
               "branch",
               "backtrack",
-              "conclude"
+              "conclude",
+              "amplify_start",
+              "amplify_think",
+              "amplify_challenge",
+              "amplify_perspective",
+              "amplify_conclude",
+              "amplify_status"
             ],
             default: "guided",
             description:
-              "Operation: guided (start), decompose, step, verify, reflect, branch (ToT), backtrack (ToT), conclude"
+              "Operation: guided (start), decompose, step, verify, reflect, branch (ToT), backtrack (ToT), conclude, amplify_* (Cognitive Amplifier for deeper thinking)"
           },
           problem: %{
             type: "string",
@@ -1363,6 +1372,30 @@ defmodule Mimo.Tools.Definitions do
           to_branch: %{
             type: "string",
             description: "For backtrack: Specific branch ID to backtrack to"
+          },
+          level: %{
+            type: "string",
+            enum: ["minimal", "standard", "deep", "exhaustive", "adaptive"],
+            default: "standard",
+            description:
+              "For amplify_start: Amplification level (standard=3+ steps, deep=+perspectives, exhaustive=all checks)"
+          },
+          challenge_id: %{
+            type: "string",
+            description: "For amplify_challenge: ID of challenge to address"
+          },
+          response: %{
+            type: "string",
+            description:
+              "For amplify_challenge/amplify_decomposition: Response to challenge or decomposition"
+          },
+          perspective: %{
+            type: "string",
+            description: "For amplify_perspective: Perspective name to record"
+          },
+          insights: %{
+            type: "string",
+            description: "For amplify_perspective: JSON array of insight strings"
           }
         },
         required: ["operation"]

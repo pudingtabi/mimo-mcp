@@ -700,9 +700,6 @@ defmodule Mimo.QueryInterface do
           detected_concepts: KnowledgeTransfer.detect_concepts(context),
           transfers: insights
         }
-
-      {:error, _} ->
-        nil
     end
   rescue
     _ -> nil

@@ -40,7 +40,7 @@ defmodule Mimo.SleepCycle do
   require Logger
 
   alias Mimo.Brain.{Memory, Consolidator, LLM}
-  alias Mimo.Synapse.Graph
+  alias Mimo.Synapse.{Graph, EdgePredictor}
   alias Mimo.ProceduralStore
   alias Mimo.Cognitive.FeedbackLoop
 
@@ -122,6 +122,7 @@ defmodule Mimo.SleepCycle do
         patterns_extracted: 0,
         procedures_created: 0,
         memories_pruned: 0,
+        edges_predicted: 0,
         last_cycle_at: nil
       }
     }
@@ -134,7 +135,14 @@ defmodule Mimo.SleepCycle do
   @impl true
   def handle_call({:run_cycle, opts}, _from, state) do
     force = Keyword.get(opts, :force, false)
-    stages = Keyword.get(opts, :stages, [:episodic_to_semantic, :semantic_to_procedural, :pruning])
+
+    stages =
+      Keyword.get(opts, :stages, [
+        :episodic_to_semantic,
+        :semantic_to_procedural,
+        :edge_prediction,
+        :pruning
+      ])
 
     # Check if we should run
     in_quiet_period = is_quiet_period?(state)
@@ -285,6 +293,37 @@ defmodule Mimo.SleepCycle do
     rescue
       e ->
         Logger.warning("[SleepCycle] Pruning failed: #{Exception.message(e)}")
+        %{error: Exception.message(e)}
+    end
+  end
+
+  defp run_stage(:edge_prediction) do
+    Logger.debug("[SleepCycle] Running edge prediction (pattern completion)")
+
+    try do
+      # Get prediction stats before
+      stats_before = EdgePredictor.stats()
+
+      # Materialize predicted edges based on embedding similarity
+      # This implements hippocampal pattern completion during "sleep"
+      {:ok, edges_created} =
+        EdgePredictor.materialize_predictions(
+          # High confidence threshold
+          min_similarity: 0.75,
+          # Limit per cycle
+          max_edges: 25
+        )
+
+      Logger.info("[SleepCycle] EdgePredictor created #{edges_created} new edges")
+
+      %{
+        edges_created: edges_created,
+        engrams_analyzed: stats_before.engrams_with_embeddings,
+        similarity_threshold: 0.75
+      }
+    rescue
+      e ->
+        Logger.warning("[SleepCycle] Edge prediction failed: #{Exception.message(e)}")
         %{error: Exception.message(e)}
     end
   end
@@ -538,6 +577,7 @@ defmodule Mimo.SleepCycle do
     patterns = get_in(results, [:episodic_to_semantic, :patterns_found]) || 0
     procedures = get_in(results, [:semantic_to_procedural, :procedures_created]) || 0
     pruned = get_in(results, [:pruning, :consolidated]) || 0
+    edges = get_in(results, [:edge_prediction, :edges_created]) || 0
 
     %{
       stats
@@ -545,6 +585,7 @@ defmodule Mimo.SleepCycle do
         patterns_extracted: stats.patterns_extracted + patterns,
         procedures_created: stats.procedures_created + procedures,
         memories_pruned: stats.memories_pruned + pruned,
+        edges_predicted: stats.edges_predicted + edges,
         last_cycle_at: DateTime.utc_now()
     }
   end
@@ -570,10 +611,9 @@ defmodule Mimo.SleepCycle do
     pattern_summaries =
       patterns
       |> Enum.take(5)
-      |> Enum.map(fn p ->
+      |> Enum.map_join("\n", fn p ->
         "- Topic: #{p.topic} (#{p.count} occurrences)"
       end)
-      |> Enum.join("\n")
 
     prompt = """
     Analyze these memory patterns and identify:

@@ -142,6 +142,8 @@ fn get_sexp<'a>(env: Env<'a>, tree_resource: ResourceArc<TreeResource>) -> NifRe
 }
 
 /// Symbol information returned from extraction
+/// NOTE: Reserved for future structured symbol extraction API
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct Symbol {
     name: String,
@@ -172,6 +174,8 @@ impl Encoder for Symbol {
 }
 
 /// Reference information (calls, imports, etc.)
+/// NOTE: Reserved for future structured reference extraction API
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct Reference {
     name: String,

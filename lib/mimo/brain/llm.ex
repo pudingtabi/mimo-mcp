@@ -4,8 +4,10 @@ defmodule Mimo.Brain.LLM do
 
   Provider hierarchy:
   1. Cerebras (GPT-OSS-120B primary, Llama 3.3 70B fallback) - blazing fast inference
-  2. OpenRouter for vision tasks - xAI Grok 4.1 Fast (Cerebras doesn't support vision)
-  3. Local Ollama (Qwen3-embedding) for embeddings
+  2. Groq (Llama 3.1 8B instant) - fastest inference in industry, free tier fallback
+  3. OpenRouter (Mistral Small 3.1) - final fallback for text completion
+  4. OpenRouter for vision tasks - xAI Grok 4.1 Fast (Cerebras/Groq don't support vision)
+  5. Local Ollama (Qwen3-embedding) for embeddings
 
   All external calls are wrapped with circuit breaker protection to prevent
   cascade failures when services are unavailable.
@@ -16,6 +18,11 @@ defmodule Mimo.Brain.LLM do
   - 60K tokens per minute (TPM)
   - 1M tokens per hour/day (TPH/TPD)
   - 30 requests per minute (RPM)
+
+  ## Groq Free Tier Limits
+  - 30 requests per minute (RPM)
+  - 14,400 requests per day
+  - 40,000 tokens per minute
   """
   require Logger
 
@@ -168,16 +175,8 @@ defmodule Mimo.Brain.LLM do
   end
 
   defp call_without_cerebras(system_prompt, prompt, max_tokens, temperature) do
-    case openrouter_api_key() do
-      nil ->
-        # STRICT FAIL-CLOSED: No cloud providers available
-        Logger.error("No cloud LLM API keys configured - failing closed")
-        {:error, :no_api_key}
-
-      _key ->
-        # This will eventually fail and return error if OpenRouter fails
-        call_openrouter_with_fallback_strict(system_prompt, prompt, max_tokens, temperature)
-    end
+    # Try Groq first, then OpenRouter
+    call_groq_with_fallback_strict(system_prompt, prompt, max_tokens, temperature)
   end
 
   defp call_with_cerebras_first(system_prompt, prompt, max_tokens, temperature) do
@@ -186,8 +185,26 @@ defmodule Mimo.Brain.LLM do
         success
 
       {:error, reason} ->
-        Logger.warning("Cerebras failed (#{inspect(reason)}), falling back to OpenRouter")
+        Logger.warning("Cerebras failed (#{inspect(reason)}), falling back to Groq")
+        call_groq_with_fallback_strict(system_prompt, prompt, max_tokens, temperature)
+    end
+  end
+
+  defp call_groq_with_fallback_strict(system_prompt, prompt, max_tokens, temperature) do
+    case groq_api_key() do
+      nil ->
+        Logger.warning("No Groq API key, falling back to OpenRouter")
         call_openrouter_with_fallback_strict(system_prompt, prompt, max_tokens, temperature)
+
+      key ->
+        case call_groq(system_prompt, prompt, key, max_tokens, temperature) do
+          {:ok, _} = success ->
+            success
+
+          {:error, reason} ->
+            Logger.warning("Groq failed (#{inspect(reason)}), falling back to OpenRouter")
+            call_openrouter_with_fallback_strict(system_prompt, prompt, max_tokens, temperature)
+        end
     end
   end
 
@@ -197,27 +214,8 @@ defmodule Mimo.Brain.LLM do
         success
 
       {:error, reason} ->
-        # Try Groq as third fallback before failing
-        Logger.warning("OpenRouter failed (#{inspect(reason)}), falling back to Groq")
-        call_groq_with_fallback(system_prompt, prompt, max_tokens, temperature)
-    end
-  end
-
-  defp call_groq_with_fallback(system_prompt, prompt, max_tokens, temperature) do
-    case groq_api_key() do
-      nil ->
-        Logger.error("All LLM providers failed - no Groq API key configured")
+        Logger.error("OpenRouter also failed (#{inspect(reason)}) - all providers exhausted")
         {:error, :all_providers_unavailable}
-
-      key ->
-        case call_groq(system_prompt, prompt, key, max_tokens, temperature) do
-          {:ok, _} = success ->
-            success
-
-          {:error, reason} ->
-            Logger.error("Groq also failed (#{inspect(reason)}) - all providers exhausted")
-            {:error, :all_providers_unavailable}
-        end
     end
   end
 
@@ -286,15 +284,8 @@ defmodule Mimo.Brain.LLM do
   end
 
   defp call_chief_without_cerebras(system_prompt, query) do
-    case openrouter_api_key() do
-      nil ->
-        # Try Groq directly if no OpenRouter key
-        Logger.warning("No Cerebras/OpenRouter keys, trying Groq directly")
-        call_groq_chief_with_fallback(system_prompt, query)
-
-      key ->
-        call_openrouter_chief_with_fallback(system_prompt, query, key)
-    end
+    # Try Groq first, then OpenRouter (matches main fallback order)
+    call_groq_chief_with_fallback(system_prompt, query)
   end
 
   defp call_chief_with_cerebras(system_prompt, query) do
@@ -303,30 +294,7 @@ defmodule Mimo.Brain.LLM do
         success
 
       {:error, _} ->
-        call_chief_cerebras_fallback(system_prompt, query)
-    end
-  end
-
-  defp call_chief_cerebras_fallback(system_prompt, query) do
-    case openrouter_api_key() do
-      nil ->
-        # STRICT FAIL-CLOSED: No OpenRouter key, all providers exhausted
-        Logger.error("Cerebras failed, no OpenRouter key - failing closed")
-        {:error, :all_providers_unavailable}
-
-      key ->
-        call_openrouter_chief_with_fallback(system_prompt, query, key)
-    end
-  end
-
-  defp call_openrouter_chief_with_fallback(system_prompt, query, key) do
-    case call_openrouter(system_prompt, query, key, @openrouter_model, @openrouter_fallback) do
-      {:ok, _} = success ->
-        success
-
-      {:error, reason} ->
-        # Try Groq as third fallback
-        Logger.warning("OpenRouter chief failed (#{inspect(reason)}), trying Groq")
+        # Cerebras failed, try Groq next
         call_groq_chief_with_fallback(system_prompt, query)
     end
   end
@@ -334,8 +302,8 @@ defmodule Mimo.Brain.LLM do
   defp call_groq_chief_with_fallback(system_prompt, query) do
     case groq_api_key() do
       nil ->
-        Logger.error("All LLM providers failed - no Groq API key configured")
-        {:error, :all_providers_unavailable}
+        Logger.warning("No Groq API key, falling back to OpenRouter for chief")
+        call_openrouter_chief_with_fallback(system_prompt, query)
 
       key ->
         case call_groq(system_prompt, query, key, 200, 0.1) do
@@ -343,7 +311,28 @@ defmodule Mimo.Brain.LLM do
             success
 
           {:error, reason} ->
-            Logger.error("Groq chief also failed (#{inspect(reason)}) - all providers exhausted")
+            Logger.warning("Groq chief failed (#{inspect(reason)}), trying OpenRouter")
+            call_openrouter_chief_with_fallback(system_prompt, query)
+        end
+    end
+  end
+
+  defp call_openrouter_chief_with_fallback(system_prompt, query) do
+    case openrouter_api_key() do
+      nil ->
+        Logger.error("All LLM providers failed - no OpenRouter API key configured")
+        {:error, :all_providers_unavailable}
+
+      key ->
+        case call_openrouter(system_prompt, query, key, @openrouter_model, @openrouter_fallback) do
+          {:ok, _} = success ->
+            success
+
+          {:error, reason} ->
+            Logger.error(
+              "OpenRouter chief also failed (#{inspect(reason)}) - all providers exhausted"
+            )
+
             {:error, :all_providers_unavailable}
         end
     end

@@ -23,6 +23,7 @@ defmodule Mimo.Tools.Dispatchers.File do
 
   alias Mimo.Tools.{Helpers, Suggestions}
   alias Mimo.Skills.{FileReadInterceptor, FileReadCache, FileContentCache}
+  alias Mimo.Cognitive.{OutcomeDetector, FeedbackLoop}
 
   require Logger
 
@@ -42,6 +43,9 @@ defmodule Mimo.Tools.Dispatchers.File do
     skip_context = Map.get(args, "skip_memory_context", true)
 
     result = do_dispatch(op, path, args, skip_context)
+
+    # SPEC-087: Record outcome for write operations
+    record_file_outcome(op, path, result)
 
     # Add cross-tool suggestions (SPEC-031 Phase 2)
     Suggestions.maybe_add_suggestion(result, "file", args)
@@ -389,4 +393,49 @@ defmodule Mimo.Tools.Dispatchers.File do
 
     Mimo.Skills.FileOps.diff(opts)
   end
+
+  # ==========================================================================
+  # SPEC-087: Outcome Detection for Feedback Loop
+  # ==========================================================================
+
+  @write_operations ~w(write edit replace_string multi_replace insert_after insert_before replace_lines delete_lines move create_directory)
+
+  defp record_file_outcome(op, path, result) when op in @write_operations do
+    # Convert result to outcome detection format
+    detection_result =
+      case result do
+        {:ok, %{success: true}} -> %{success: true}
+        {:ok, %{data: %{success: true}}} -> %{success: true}
+        {:ok, _} -> %{success: true}
+        {:error, reason} -> %{error: reason}
+        _ -> %{}
+      end
+
+    detection = OutcomeDetector.detect_file_operation(String.to_atom(op), detection_result)
+
+    # Build context for FeedbackLoop
+    context = %{
+      operation: op,
+      path: path,
+      signal_type: :file
+    }
+
+    # Build outcome for FeedbackLoop
+    outcome = %{
+      success: detection.outcome == :success,
+      outcome: detection.outcome,
+      confidence: detection.confidence,
+      signals: detection.signals,
+      details: detection.details
+    }
+
+    # Record asynchronously (non-blocking)
+    FeedbackLoop.record_outcome(:tool_execution, context, outcome)
+  rescue
+    # Don't let outcome detection failures break tool execution
+    _ -> :ok
+  end
+
+  # Read/search operations - don't record (too noisy, low signal)
+  defp record_file_outcome(_op, _path, _result), do: :ok
 end

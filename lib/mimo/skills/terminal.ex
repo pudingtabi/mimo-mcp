@@ -6,16 +6,37 @@ defmodule Mimo.Skills.Terminal do
 
   ## Features
   - Working directory (cwd) support
-  - Environment variables (env) support  
+  - Environment variables (env) support
   - Output truncation (60KB max like VS Code)
   - Named process tracking
   - Shell selection (bash, sh, zsh, powershell)
   """
   require Logger
 
-  @default_timeout 30_000
+  @default_timeout 300_000
   # 60KB like VS Code
   @max_output_size 60_000
+
+  # Operation-specific timeout defaults (in milliseconds)
+  # Optimized based on tool usage analytics: only 23% of calls specify timeouts
+  @operation_timeouts %{
+    execute: 300_000,
+    start_process: 5_000,
+    read_output: 1_000,
+    interact: 2_000,
+    kill: 5_000,
+    list_processes: 10_000
+  }
+
+  # Error categories for structured error responses
+  @error_categories %{
+    permission: ~r/(permission denied|access denied|not permitted|EACCES)/i,
+    not_found: ~r/(command not found|not found|No such file|ENOENT)/i,
+    timeout: ~r/(timed out|timeout|deadline exceeded)/i,
+    network: ~r/(connection refused|network unreachable|ECONNREFUSED|ENETUNREACH)/i,
+    resource: ~r/(too many open files|out of memory|no space left|EMFILE|ENOMEM|ENOSPC)/i,
+    syntax: ~r/(syntax error|unexpected token|parse error)/i
+  }
 
   # Destructive commands that require confirmation (unless yolo: true)
   @destructive_commands MapSet.new(~w[
@@ -368,6 +389,11 @@ defmodule Mimo.Skills.Terminal do
     env = Keyword.get(opts, :env, %{})
     shell = Keyword.get(opts, :shell)
 
+    # Telemetry: track command execution
+    start_time = System.monotonic_time(:millisecond)
+    metadata = %{command: cmd_str, cwd: cwd, shell: shell}
+    :telemetry.execute([:mimo, :terminal, :start], %{}, metadata)
+
     task =
       Task.async(fn ->
         try do
@@ -381,19 +407,64 @@ defmodule Mimo.Skills.Terminal do
 
           # Execute
           case System.cmd(cmd, args, cmd_opts) do
-            {output, 0} -> %{status: 0, output: truncate_output(output)}
-            {output, status} -> %{status: status, output: truncate_output(output)}
+            {output, 0} ->
+              %{status: 0, output: truncate_output(output), error_category: nil}
+
+            {output, status} ->
+              category = categorize_error(output)
+              %{status: status, output: truncate_output(output), error_category: category}
           end
         rescue
-          e -> %{status: 1, output: "Execution error: #{Exception.message(e)}"}
+          e ->
+            message = Exception.message(e)
+
+            %{
+              status: 1,
+              output: "Execution error: #{message}",
+              error_category: categorize_error(message)
+            }
         end
       end)
 
-    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
-      {:ok, result} -> result
-      nil -> %{status: 1, output: "Command timed out after #{timeout}ms"}
-    end
+    result =
+      case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+        {:ok, result} ->
+          result
+
+        nil ->
+          %{status: 1, output: "Command timed out after #{timeout}ms", error_category: :timeout}
+      end
+
+    # Telemetry: track completion
+    duration_ms = System.monotonic_time(:millisecond) - start_time
+
+    :telemetry.execute(
+      [:mimo, :terminal, :stop],
+      %{duration_ms: duration_ms},
+      Map.put(metadata, :status, result.status)
+    )
+
+    result
   end
+
+  @doc """
+  Get the default timeout for an operation.
+  """
+  def default_timeout_for(operation) when is_atom(operation) do
+    Map.get(@operation_timeouts, operation, @default_timeout)
+  end
+
+  @doc """
+  Categorize an error message into a structured category.
+  Returns atom like :permission, :not_found, :timeout, :network, :resource, :syntax, or :unknown.
+  """
+  def categorize_error(message) when is_binary(message) do
+    Enum.find_value(@error_categories, :unknown, fn {category, pattern} ->
+      if Regex.match?(pattern, message), do: category
+    end)
+  end
+
+  def categorize_error(_), do: :unknown
 
   # Shell builtins that cannot be executed directly via System.cmd
   @shell_builtins MapSet.new(~w[
@@ -496,7 +567,7 @@ defmodule Mimo.Skills.Terminal do
 
   Handles:
   - Double quotes: "hello world" -> single arg
-  - Single quotes: 'hello world' -> single arg  
+  - Single quotes: 'hello world' -> single arg
   - Escaped quotes: "say \\"hello\\"" -> preserves inner quotes
   - Mixed: echo "hello" 'world' -> ["echo", "hello", "world"]
 
@@ -504,7 +575,7 @@ defmodule Mimo.Skills.Terminal do
 
       iex> parse_shell_args(~s(echo "hello world"))
       {:ok, ["echo", "hello world"]}
-      
+
       iex> parse_shell_args(~s(git commit -m "fix: bug"))
       {:ok, ["git", "commit", "-m", "fix: bug"]}
   """

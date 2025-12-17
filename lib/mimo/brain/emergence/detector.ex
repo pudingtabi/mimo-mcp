@@ -1,30 +1,33 @@
 defmodule Mimo.Brain.Emergence.Detector do
   @moduledoc """
-  SPEC-044: Detects emergent patterns from system interactions.
+  SPEC-044: Counts and tracks patterns from system interactions.
 
-  Emergence happens when simpler components interact to produce behaviors
-  that were not explicitly programmed. This module monitors:
+  NOTE: The term "emergence" is aspirational. This module performs pattern
+  counting and frequency analysis, not true emergence detection. The actual
+  implementation uses GROUP BY and string matching. See docs/ANTI-SLOP.md.
 
-  1. **Pattern Repetition**: Same sequences recurring across sessions
-  2. **Cross-Memory Inference**: Conclusions from memory combinations
-  3. **Novel Tool Chains**: Unexpected tool combinations that work
-  4. **Prediction Success**: Anticipations that prove correct
-  5. **Capability Transfer**: Skills from one domain to another
+  What this module actually does:
+
+  1. **Pattern Repetition**: Counts tool call sequences (GROUP BY tool_name)
+  2. **Cross-Memory Pairing**: Creates pairs from different memory stores
+  3. **Tool Chain Counting**: Counts successful tool combinations
+  4. **Prediction Tracking**: String-matches "confirmed" in content
+  5. **Domain Tagging**: Matches keywords to domains
 
   ## Detection Modes
 
-  - `:pattern_repetition` - Find action sequences that repeat
-  - `:cross_memory_inference` - Find inferences from memory combo
-  - `:novel_tool_chains` - Find successful tool combinations
-  - `:prediction_success` - Find predictions that came true
-  - `:capability_transfer` - Find skills that transferred domains
+  - `:pattern_repetition` - Group and count action sequences
+  - `:cross_memory_inference` - Pair memories from different stores
+  - `:novel_tool_chains` - Count tool combinations
+  - `:prediction_success` - String-match prediction confirmations
+  - `:capability_transfer` - Match domain keywords
 
   ## Architecture
 
   ```
-  Interaction Stream → Detector → Pattern Classification → Storage
+  Interaction Stream → Counter → Pattern Storage
                           ↓
-                    Emergence Alerts
+                    Frequency Alerts
   ```
   """
 

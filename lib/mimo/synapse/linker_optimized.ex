@@ -439,11 +439,11 @@ defmodule Mimo.Synapse.LinkerOptimized do
     case args do
       # Multi-alias: alias Foo.{Bar, Baz} -> [{:., _, [base, :{}]}, _, [aliases]]
       [{{:., _, [{:__aliases__, _, base_parts}, :{}]}, _, aliases}] ->
-        base = base_parts |> Enum.map(&to_string/1) |> Enum.join(".")
+        base = Enum.map_join(base_parts, ".", &to_string/1)
 
         Enum.map(aliases, fn
           {:__aliases__, _, parts} ->
-            suffix = parts |> Enum.map(&to_string/1) |> Enum.join(".")
+            suffix = Enum.map_join(parts, ".", &to_string/1)
             "#{base}.#{suffix}"
 
           _ ->
@@ -453,7 +453,7 @@ defmodule Mimo.Synapse.LinkerOptimized do
 
       # Simple alias: alias Foo.Bar
       [{:__aliases__, _, parts} | _] when is_list(parts) ->
-        [parts |> Enum.map(&to_string/1) |> Enum.join(".")]
+        [Enum.map_join(parts, ".", &to_string/1)]
 
       # Atom module (Erlang): :crypto
       [module | _] when is_atom(module) ->

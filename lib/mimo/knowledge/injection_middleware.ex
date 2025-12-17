@@ -131,22 +131,109 @@ defmodule Mimo.Knowledge.InjectionMiddleware do
   Format injection data for inclusion in MCP response.
 
   This adds the injection as metadata that the AI can see.
+  Also adds contextual tool suggestions to improve discovery of underused tools.
   """
-  @spec format_for_response(any(), injection()) :: map()
-  def format_for_response(result, nil) do
-    format_result(result)
+  @spec format_for_response(any(), injection(), String.t(), map()) :: map()
+  def format_for_response(result, injection, tool_name \\ nil, args \\ %{})
+
+  def format_for_response(result, nil, tool_name, args) do
+    base = format_result(result)
+    add_tool_suggestions(base, tool_name, args, result)
   end
 
-  def format_for_response(result, injection) when is_map(injection) do
+  def format_for_response(result, injection, tool_name, args) when is_map(injection) do
     base = format_result(result)
 
     # Add injection as special Mimo field
-    Map.put(base, :_mimo_injection, %{
-      memories: Map.get(injection, :memories, []),
-      source: Map.get(injection, :source, "SPEC-065"),
-      relevance_scores: Map.get(injection, :relevance_scores, [])
-    })
+    with_injection =
+      Map.put(base, :_mimo_injection, %{
+        memories: Map.get(injection, :memories, []),
+        source: Map.get(injection, :source, "SPEC-065"),
+        relevance_scores: Map.get(injection, :relevance_scores, [])
+      })
+
+    add_tool_suggestions(with_injection, tool_name, args, result)
   end
+
+  # Add contextual tool suggestions to help agents discover underused tools
+  defp add_tool_suggestions(base, nil, _args, _result), do: base
+
+  defp add_tool_suggestions(base, tool_name, args, result) do
+    suggestions = generate_suggestions(tool_name, args, result)
+
+    if suggestions == [] do
+      base
+    else
+      Map.put(base, :_mimo_suggestions, suggestions)
+    end
+  end
+
+  defp generate_suggestions(tool_name, args, result) do
+    suggestions = []
+
+    # Suggest meta:debug_error when file/terminal returns errors
+    suggestions =
+      if is_error_result?(result) and tool_name in ["file", "terminal"] do
+        ["💡 For error debugging: meta operation=debug_error message=\"...\"" | suggestions]
+      else
+        suggestions
+      end
+
+    # Suggest code:definition when file search hits function patterns
+    suggestions =
+      if tool_name == "file" and args["operation"] == "search" do
+        [
+          "💡 For function/symbol lookup: code operation=definition name=\"symbolName\""
+          | suggestions
+        ]
+      else
+        suggestions
+      end
+
+    # Suggest ingest for large file reads
+    suggestions =
+      if tool_name == "file" and args["operation"] == "read" and large_result?(result) do
+        ["💡 For large files: ingest path=\"...\" to chunk into memory" | suggestions]
+      else
+        suggestions
+      end
+
+    # Suggest meta:prepare_context for complex queries
+    suggestions =
+      if tool_name == "memory" and args["operation"] == "search" do
+        [
+          "💡 For comprehensive context: meta operation=prepare_context query=\"...\""
+          | suggestions
+        ]
+      else
+        suggestions
+      end
+
+    # Suggest autonomous for repetitive terminal commands
+    suggestions =
+      if tool_name == "terminal" do
+        [
+          "💡 Queue repetitive commands: autonomous operation=queue command=\"...\" description=\"...\""
+          | suggestions
+        ]
+      else
+        suggestions
+      end
+
+    suggestions
+  end
+
+  defp is_error_result?({:error, _}), do: true
+  defp is_error_result?(%{error: _}), do: true
+  defp is_error_result?(_), do: false
+
+  defp large_result?({:ok, %{content: content}}) when is_binary(content),
+    do: byte_size(content) > 10_000
+
+  defp large_result?({:ok, %{"content" => content}}) when is_binary(content),
+    do: byte_size(content) > 10_000
+
+  defp large_result?(_), do: false
 
   defp format_result({:ok, data}) when is_map(data), do: data
   defp format_result({:ok, data}), do: %{result: data}

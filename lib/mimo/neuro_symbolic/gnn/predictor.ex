@@ -1,8 +1,9 @@
 defmodule Mimo.NeuroSymbolic.GnnPredictor do
   @moduledoc """
-  Graph Neural Network predictor skeleton.
+  Graph Neural Network predictor stub.
 
-  Phase 1: placeholder functions that will be implemented in Phase 3.
+  This module provides placeholder functions that return empty results.
+  Not implemented - exists to satisfy API contracts.
   """
   require Logger
 

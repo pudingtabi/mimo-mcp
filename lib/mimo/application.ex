@@ -104,6 +104,10 @@ defmodule Mimo.Application do
         {Mimo.Brain.WorkingMemoryCleaner, []},
         # Access Tracker: Async batched access tracking for decay scoring
         {Mimo.Brain.AccessTracker, []},
+        # Hebbian Learner: Strengthens edges between co-activated memories (LTP)
+        {Mimo.Brain.HebbianLearner, []},
+        # Attention Learner: Online RL for spreading activation attention weights
+        {Mimo.Brain.AttentionLearner, []},
         # Activity Tracker: Tracks active usage days for pause-aware decay
         {Mimo.Brain.ActivityTracker, []},
         # Consolidator: Working memory → Long-term memory transfer
@@ -147,6 +151,8 @@ defmodule Mimo.Application do
         # ===== Unified Reasoning Engine (SPEC-035) =====
         # ReasoningSession: ETS-backed session storage for multi-step reasoning
         {Mimo.Cognitive.ReasoningSession, []},
+        # NOTE: AmplificationSession is a pure functional module (not a GenServer)
+        # It uses ReasoningSession for state storage - no separate supervision needed
         # ===== Awakening Protocol (SPEC-040) =====
         # SessionTracker: Tracks AI sessions and triggers awakening injection
         {Mimo.Awakening.SessionTracker, []},
@@ -159,6 +165,8 @@ defmodule Mimo.Application do
         # Core learning infrastructure - connects outcomes to behavior changes
         # NOTE: Must start BEFORE ActiveInference which depends on it
         {Mimo.Cognitive.FeedbackLoop, []},
+        # SPEC-087: Bridge that connects FeedbackLoop to UsageFeedback/HebbianLearner
+        {Mimo.Cognitive.FeedbackBridge, []},
         # ===== Active Inference (SPEC-071) =====
         # Proactive context pushing based on Free Energy Principle
         {Mimo.ActiveInference, []},

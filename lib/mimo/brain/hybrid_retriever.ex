@@ -34,6 +34,7 @@ defmodule Mimo.Brain.HybridRetriever do
 
   alias Mimo.Brain.{Memory, HybridScorer, AccessTracker, LLM, Engram}
   alias Mimo.SemanticStore
+  alias Mimo.Synapse.SpreadingActivation
   alias Mimo.Repo
   import Ecto.Query
 
@@ -92,7 +93,8 @@ defmodule Mimo.Brain.HybridRetriever do
       {:vector, async_with_callers(fn -> vector_search(query, query_embedding, opts) end)},
       {:graph, async_with_callers(fn -> graph_search(query, opts) end)},
       {:recency, async_with_callers(fn -> recency_search(opts) end)},
-      {:keyword, async_with_callers(fn -> keyword_search(query, opts) end)}
+      {:keyword, async_with_callers(fn -> keyword_search(query, opts) end)},
+      {:spreading, async_with_callers(fn -> spreading_search(query_embedding, opts) end)}
     ]
 
     results =
@@ -158,9 +160,10 @@ defmodule Mimo.Brain.HybridRetriever do
     graph_results = graph_search(query, opts)
     recency_results = recency_search(opts)
     keyword_results = keyword_search(query, opts)
+    spreading_results = spreading_search(query_embedding, opts)
 
     all_results =
-      (vector_results ++ graph_results ++ recency_results ++ keyword_results)
+      (vector_results ++ graph_results ++ recency_results ++ keyword_results ++ spreading_results)
       |> deduplicate()
 
     %{
@@ -171,7 +174,8 @@ defmodule Mimo.Brain.HybridRetriever do
         vector: length(vector_results),
         graph: length(graph_results),
         recency: length(recency_results),
-        keyword: length(keyword_results)
+        keyword: length(keyword_results),
+        spreading: length(spreading_results)
       },
       total_unique: length(all_results),
       results:
@@ -275,6 +279,57 @@ defmodule Mimo.Brain.HybridRetriever do
   rescue
     e ->
       Logger.warning("Keyword search failed: #{Exception.message(e)}")
+      []
+  end
+
+  # Spreading Activation search: Use Hebbian-learned graph for associative retrieval
+  # This implements Collins & Loftus spreading activation through the memory graph
+  defp spreading_search(nil, _opts), do: []
+
+  defp spreading_search(query_embedding, opts) do
+    limit = Keyword.get(opts, :spreading_limit, 10)
+
+    # First, get seed memories from vector search (top 5)
+    seed_memories =
+      case Memory.search_with_embedding(query_embedding, limit: 5) do
+        {:ok, results} -> Enum.map(results, & &1.id)
+        _ -> []
+      end
+
+    if seed_memories == [] do
+      []
+    else
+      # Run spreading activation from seed memories
+      activated =
+        SpreadingActivation.activate_from_memories(
+          query_embedding,
+          seed_memories,
+          max_hops: 2,
+          top_k: limit,
+          include_start: false
+        )
+
+      # Convert activated memory IDs back to full memory records
+      activated
+      |> Enum.flat_map(fn {memory_id, activation_score} ->
+        case Repo.get(Engram, memory_id) do
+          nil ->
+            []
+
+          engram ->
+            [
+              engram
+              |> Map.from_struct()
+              # Use activation score as similarity proxy
+              |> Map.put(:similarity, activation_score)
+              |> Map.put(:source, :spreading_activation)
+            ]
+        end
+      end)
+    end
+  rescue
+    e ->
+      Logger.warning("Spreading activation search failed: #{Exception.message(e)}")
       []
   end
 

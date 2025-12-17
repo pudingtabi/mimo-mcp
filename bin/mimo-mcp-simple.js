@@ -100,12 +100,27 @@ function findElixirPaths() {
       const elixirDir = path.join(elixirInstallDir, 'elixir');
       const otpDir = path.join(elixirInstallDir, 'otp');
 
+      // Read target versions from .tool-versions for dynamic version selection
+      let targetOtp = null;
+      let targetElixir = null;
+      const toolVersionsPath = path.join(MIMO_DIR, '.tool-versions');
+
+      if (fs.existsSync(toolVersionsPath)) {
+        const content = fs.readFileSync(toolVersionsPath, 'utf8');
+        const lines = content.split('\n');
+        for (const line of lines) {
+          const [tool, version] = line.trim().split(/\s+/);
+          if (tool === 'erlang') targetOtp = version;
+          if (tool === 'elixir') targetElixir = version;
+        }
+      }
+
       // OTP/Erlang must come FIRST in PATH
       if (fs.existsSync(otpDir)) {
         const versions = fs.readdirSync(otpDir);
-        // Prefer OTP 27 versions
-        const otp27Version = versions.find(v => v.startsWith('27'));
-        const selectedVersion = otp27Version || versions[versions.length - 1];
+        // Prefer version from .tool-versions, otherwise use latest
+        const matchingVersion = targetOtp ? versions.find(v => v.startsWith(targetOtp.split('.')[0])) : null;
+        const selectedVersion = matchingVersion || versions[versions.length - 1];
         if (selectedVersion) {
           const otpBin = path.join(otpDir, selectedVersion, 'bin');
           if (fs.existsSync(otpBin)) paths.push(otpBin);
@@ -115,9 +130,11 @@ function findElixirPaths() {
       // Elixir comes AFTER OTP
       if (fs.existsSync(elixirDir)) {
         const versions = fs.readdirSync(elixirDir);
-        // Prefer OTP 27 versions (Mimo compiled with OTP 27)
-        const otp27Version = versions.find(v => v.includes('otp-27'));
-        const selectedVersion = otp27Version || versions[versions.length - 1];
+        // Prefer version from .tool-versions, otherwise use latest
+        // Match by extracting OTP version suffix (e.g., "otp-28" from "1.19.3-otp-28")
+        const targetOtpSuffix = targetElixir ? targetElixir.match(/otp-\d+/)?.[0] : null;
+        const matchingVersion = targetOtpSuffix ? versions.find(v => v.includes(targetOtpSuffix)) : null;
+        const selectedVersion = matchingVersion || versions[versions.length - 1];
         if (selectedVersion) {
           const elixirBin = path.join(elixirDir, selectedVersion, 'bin');
           if (fs.existsSync(elixirBin)) paths.push(elixirBin);

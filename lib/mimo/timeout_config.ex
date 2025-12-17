@@ -8,7 +8,7 @@ defmodule Mimo.TimeoutConfig do
   always be larger than inner timeouts to prevent race conditions.
 
   ```
-  MCP Tool (60s) → Query (45s) → GenServer (15s) → DB/HTTP (10-30s)
+  MCP Tool (300s) → Query (45s) → GenServer (15s) → DB/HTTP (10-30s)
   ```
 
   ## Configuration
@@ -30,8 +30,8 @@ defmodule Mimo.TimeoutConfig do
       timeout = TimeoutConfig.get(:query)
   """
 
-  # MCP tool execution outer limit
-  @mcp_tool_timeout 60_000
+  # MCP tool execution outer limit (5 minutes for long-running commands like mix test)
+  @mcp_tool_timeout 300_000
 
   # Complex query operations (ask_mimo, prepare_context)
   @query_timeout 45_000
@@ -60,7 +60,7 @@ defmodule Mimo.TimeoutConfig do
   # Short operations (cache lookups, simple checks)
   @short_timeout 5_000
 
-  @doc "MCP tool execution timeout (60s)"
+  @doc "MCP tool execution timeout (300s / 5 minutes)"
   @spec mcp_tool_timeout() :: pos_integer()
   def mcp_tool_timeout, do: get(:mcp, @mcp_tool_timeout)
 

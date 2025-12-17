@@ -1,181 +1,259 @@
-# MANDATORY: Mimo MCP Tool Usage
+# CLAUDE.md
 
-**HARD RULE: You MUST use Mimo tools. Claude built-in tools are FORBIDDEN unless Mimo fails.**
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
----
+## Project Overview
 
-## FORBIDDEN ACTIONS
+Mimo is a memory system for AI agents, implemented as an MCP (Model Context Protocol) server in Elixir. It provides persistent memory, knowledge graphs, and tools for file/terminal/web operations. The system runs as an MCP server over stdio for integration with Claude Desktop, VS Code, or other MCP clients.
 
-You MUST NOT do these. Violation breaks the user's workflow:
+## Mimo Workflow Patterns
 
-| FORBIDDEN | USE INSTEAD |
-|-----------|-------------|
-| `Grep` to find function/class | `mcp__mimo__file` with `find_definition` |
-| `Grep` to find usages | `mcp__mimo__file` with `find_references` |
-| `Glob` to find files | `mcp__mimo__file` with `glob` |
-| `Read` to read files | `mcp__mimo__file` with `read` |
-| `Edit` to edit files | `mcp__mimo__file` with `edit` |
-| `Bash` to run commands | `mcp__mimo__terminal` with `command` |
-| `WebSearch` for docs | `mcp__mimo__code` with `library_get` |
+**The Core Principle: Context → Intelligence → Action → Learning**
 
----
-
-## COPY-PASTE EXAMPLES
-
-Use these EXACT patterns. Copy and modify:
-
-### Find where a function is defined
+### Session Start
+Always begin with context gathering:
 ```
-mcp__mimo__file operation="find_definition" name="authenticate"
+ask_mimo query="What context do you have about this project?"
+onboard path="."  # For new/unknown projects
 ```
 
-### Find all usages of a function/class
+### Before Reading Files
+Check memory first - you may already know what you need:
 ```
-mcp__mimo__file operation="find_references" name="UserController"
-```
-
-### List all functions in a file
-```
-mcp__mimo__file operation="symbols" path="lib/auth.ex"
+memory operation=search query="[topic]"
+→ Found context? Use it, may skip file read
+→ No context? Now read with purpose
 ```
 
-### Read a file
-```
-mcp__mimo__file operation="read" path="lib/app.ex" limit=100
-```
+### Tool Selection Quick Reference
 
-### Edit a file
-```
-mcp__mimo__file operation="edit" path="lib/app.ex" old_str="old text" new_str="new text"
-```
+| Task | Wrong Tool | Right Tool |
+|------|------------|------------|
+| Find function definition | `file search` | `code operation=definition name="fn"` |
+| Find all usages | `grep` | `code operation=references name="Class"` |
+| Package documentation | `web search` | `code operation=library_get name="pkg"` |
+| Check for errors | `terminal compile` | `code operation=diagnose path="."` |
+| Understand relationships | `file search` | `knowledge operation=query query="..."` |
+| Before reading a file | immediately read | `memory search` first |
+| Complex decisions | just answer | `reason operation=guided` first |
+| Need deep thinking | quick response | `reason operation=amplify_start` |
 
-### Find files by pattern
+### After Every Discovery
+Store findings for future sessions:
 ```
-mcp__mimo__file operation="glob" pattern="**/*.ex"
-```
-
-### Search file content
-```
-mcp__mimo__file operation="search" path="lib/" pattern="TODO"
-```
-
-### Run a command
-```
-mcp__mimo__terminal command="mix test"
+memory operation=store content="[insight]" category=fact importance=0.7
+knowledge operation=teach text="A depends on B"
 ```
 
-### Get package documentation
-```
-mcp__mimo__code operation="library_get" name="phoenix" ecosystem="hex"
-```
+### Debugging Workflow
+1. `memory search query="similar error [error text]"` - Check past fixes
+2. `code operation=diagnose path="."` - Get structured errors
+3. `code operation=definition name="[failing function]"` - Find source
+4. Fix the issue
+5. `memory store content="Fixed: [solution]" category=action importance=0.8`
 
-### Get compiler errors
-```
-mcp__mimo__code operation="diagnose" path="lib/"
-```
+### Target Tool Distribution
 
----
+| Phase | Tools | Target % |
+|-------|-------|----------|
+| Context | memory, ask_mimo, knowledge | 15-20% |
+| Intelligence | code, diagnostics, library | 15-20% |
+| Action | file, terminal | 45-55% |
+| Learning | memory store, knowledge teach | 10-15% |
+| Reasoning | reason (guided/amplify) | 5-10% |
 
-## TRIGGER RULES
+## Common Commands
 
-When you think X, do Y:
+```bash
+# Setup
+mix deps.get
+mix ecto.create && mix ecto.migrate
 
-| WHEN YOU THINK... | DO THIS |
-|-------------------|---------|
-| "Where is function X defined?" | `file find_definition name="X"` |
-| "Who calls function X?" | `file find_references name="X"` |
-| "What functions are in this file?" | `file symbols path="..."` |
-| "I need to read this file" | `file read path="..."` |
-| "I need to find files matching..." | `file glob pattern="..."` |
-| "I need to search for text..." | `file search pattern="..."` |
-| "I need to run a command" | `terminal command="..."` |
-| "How do I use library X?" | `code library_get name="X"` |
-| "Are there compile errors?" | `code diagnose path="..."` |
-| "I should check memory first" | `memory search query="..."` |
+# Run MCP server (stdio mode for Claude Desktop)
+./bin/mimo-mcp-stdio
 
----
+# Run with Bun wrapper (faster startup)
+bun bin/mimo-bun-wrapper.js
 
-## SESSION START (MANDATORY)
+# Development
+mix compile                    # Compile the project
+mix test                       # Run all tests (excludes :integration, :external, :hnsw_nif by default)
+mix test test/path/to_test.exs # Run a specific test file
+mix test --only integration    # Run integration tests
+mix credo                      # Run linter
+mix dialyzer                   # Run type checker
 
-Run these FIRST in every session:
+# Database
+mix ecto.migrate               # Run migrations
+mix ecto.reset                 # Drop, create, and migrate (alias: mix reset)
 
-```
-mcp__mimo__ask_mimo query="What context exists for this project?"
-mcp__mimo__onboard path="."
-```
-
----
-
-## BEFORE YOU READ ANY FILE
-
-ALWAYS search memory first. You may already know:
-
-```
-mcp__mimo__memory operation="search" query="relevant topic"
+# Useful aliases
+mix setup                      # deps.get + ecto.create + ecto.migrate
 ```
 
-If found, skip the file read. If not found, read and then store:
+## Architecture
 
+### Entry Points
+
+- **`Mimo.Application`** (`lib/mimo/application.ex`) - OTP supervision tree entry point. Starts ~50+ GenServers for memory, cognitive, and tool systems.
+- **`Mimo.McpServer.Stdio`** (`lib/mimo/mcp_server/stdio.ex`) - JSON-RPC 2.0 over stdio, the main interface for MCP clients.
+- **`MimoWeb.Endpoint`** - Phoenix HTTP endpoint for REST/OpenAI API access (disabled in stdio mode).
+
+### Tool System
+
+- **`Mimo.Tools`** (`lib/mimo/tools.ex`) - Facade module that dispatches tool calls to specialized dispatchers.
+- **`Mimo.Tools.Dispatchers.*`** - Per-tool dispatcher modules (File, Terminal, Web, Code, Knowledge, Cognitive, etc.).
+- **`Mimo.Tools.Definitions`** - MCP tool JSON schemas.
+
+There are 17 primary tools with legacy aliases for backward compatibility:
+- `file` - Read, write, edit, glob, search, symbols
+- `terminal` - Shell command execution
+- `web` - Fetch, search, browser, vision, screenshots
+- `code` - Symbols, library docs, diagnostics
+- `memory` - Store and search memories
+- `knowledge` - Knowledge graph queries
+- `reason` - Structured reasoning (CoT, ToT, ReAct)
+- `cognitive` - Meta-cognition, verification
+- `onboard` - Project initialization
+- `meta` - Composite operations
+
+### Memory System (Brain)
+
+Core memory is stored in SQLite via Ecto. Key modules:
+
+- **`Mimo.Brain.Engram`** (`lib/mimo/brain/engram.ex`) - The polymorphic memory unit. Stores content, category, importance, embeddings (float32/int8/binary), and decay metadata.
+- **`Mimo.Brain.WorkingMemory`** - ETS-backed short-term memory with TTL.
+- **`Mimo.Brain.Consolidator`** - Transfers working memory to long-term (engrams).
+- **`Mimo.Brain.Forgetting`** - Decay-based memory cleanup.
+- **`Mimo.Brain.HybridScorer`** - Combines vector similarity, recency, access frequency, and importance.
+
+Memory categories: `fact`, `observation`, `action`, `plan`, `episode`, `procedure`, `entity_anchor`.
+
+### Knowledge Graph (Synapse)
+
+- **`Mimo.Synapse.*`** - Graph nodes and edges for relationships.
+- **`Mimo.SemanticStore`** - Triple-based knowledge (subject, predicate, object).
+- **`Mimo.Knowledge.InjectionMiddleware`** - Proactively injects relevant knowledge into tool responses.
+
+### Cognitive Systems
+
+- **`Mimo.Cognitive.ReasoningSession`** - Multi-step reasoning with strategy selection (CoT, ToT, ReAct, Reflexion).
+- **`Mimo.Cognitive.Amplifier`** - Cognitive amplification ("nano-chip") that forces deeper thinking.
+- **`Mimo.Brain.Reflector.*`** - Self-reflection and confidence calibration.
+- **`Mimo.Brain.Emergence.*`** - Pattern detection and promotion.
+- **`Mimo.ActiveInference`** - Proactive context pushing.
+
+### Cognitive Amplifier
+
+The Cognitive Amplifier (`lib/mimo/cognitive/amplifier/`) forces deeper, more rigorous thinking from any LLM:
+
+**Modules:**
+- `amplifier.ex` - Main orchestrator coordinating the amplification pipeline
+- `amplification_session.ex` - ETS-backed extended session state
+- `amplification_level.ex` - Level configurations (minimal, standard, deep, exhaustive, adaptive)
+- `thinking_forcer.ex` - Forces problem decomposition before direct answers
+- `challenge_generator.ex` - Generates counter-arguments (devil's advocate)
+- `coherence_validator.ex` - Validates logical consistency, catches contradictions
+- `perspective_rotator.ex` - Forces multi-angle consideration (domain-adaptive)
+- `synthesis_enforcer.ex` - Ensures integration of all threads before conclusion
+
+**Usage via reason tool:**
 ```
-mcp__mimo__memory operation="store" content="what you learned" category="fact" importance=0.8
+reason operation=amplify_start problem="..." level="deep"
+reason operation=amplify_decomposition session_id=... response="..."
+reason operation=amplify_think session_id=... thought="..."
+reason operation=amplify_challenge session_id=... challenge_id=... response="..."
+reason operation=amplify_perspective session_id=... perspective="security" insights=[...]
+reason operation=amplify_conclude session_id=...
+reason operation=amplify_status session_id=...
 ```
 
----
+**Amplification Levels:**
+- `:minimal` - Pass-through, no forcing
+- `:standard` - Decomposition + 2 challenges, 2 perspectives, 3 min steps
+- `:deep` - Full pipeline with 4 challenges, 3 perspectives, coherence validation, 5 min steps
+- `:exhaustive` - Maximum amplification, all checks enforced, 7 min steps
+- `:adaptive` - Auto-select based on problem complexity
 
-## BEFORE COMPLEX TASKS
+### Automatic Deeper Thinking
 
-Start a reasoning session:
+**IMPORTANT: For complex questions, USE MIMO REASONING BEFORE RESPONDING.**
 
+When facing these types of questions, invoke the reason tool FIRST:
+- Architectural decisions or design questions
+- Debugging complex issues
+- Analysis or evaluation requests (like "defend this" or "critique this")
+- Multi-step planning
+- Questions where you feel uncertain
+
+**Before responding to complex questions:**
 ```
-mcp__mimo__reason operation="guided" problem="describe the task"
+reason operation=guided problem="[the user's question]" strategy=auto
 ```
 
----
+Then follow the reasoning steps before formulating your response.
 
-## WHEN MIMO FAILS
+**For critical analysis or when explicitly asked to "think harder":**
+```
+reason operation=amplify_start problem="[the question]" level="deep"
+```
 
-Only if Mimo returns an error, you may ask user permission:
+This forces decomposition, challenges, and coherence checking before you conclude.
 
-> "Mimo file tool failed with [error]. May I use Claude's Read tool as fallback?"
+**Why this matters:** Without explicit invocation, you may give shallow "lawyer's defense" style answers. The reasoning tools force genuine consideration of counter-arguments and verification of claims.
 
-Wait for user approval before using built-in tools.
+### Feature Flags
 
----
+Feature flags in `config/config.exs` control optional modules:
+- `rust_nifs` - SIMD vector operations (requires compilation)
+- `hnsw_index` - O(log n) vector search
+- `semantic_store` - Triple-based knowledge graph
+- `procedural_store` - State machine execution
+- `websocket_synapse` - Real-time signaling
 
-## WHY MIMO?
+Check with environment variables: `RUST_NIFS_ENABLED=true`, `HNSW_INDEX_ENABLED=true`, etc.
 
-Mimo tools provide:
-- **Memory context**: Past knowledge injected automatically
-- **Symbol intelligence**: Faster than grep, understands code structure
-- **Knowledge graph**: Relationships between entities
-- **Learning**: Patterns improve over time
+### Configuration
 
-Claude built-ins have NONE of these. That's why Mimo first, always.
+- **`config/config.exs`** - Main configuration for memory, decay, retrieval, and features.
+- **`config/dev.exs`** / **`config/test.exs`** / **`config/prod.exs`** - Environment-specific overrides.
 
----
+Environment variables:
+- `MIMO_ROOT` - Workspace root for file operations (default: current directory)
+- `OLLAMA_URL` - Embedding server (default: http://localhost:11434)
+- `CEREBRAS_API_KEY` or `OPENROUTER_API_KEY` - LLM API access (required)
 
-## QUICK REFERENCE
+### Database Schema
 
-| Task | Mimo Tool | Operation |
-|------|-----------|-----------|
-| Read file | `file` | `read` |
-| Edit file | `file` | `edit` |
-| Find definition | `file` | `find_definition` |
-| Find references | `file` | `find_references` |
-| List symbols | `file` | `symbols` |
-| Find files | `file` | `glob` |
-| Search content | `file` | `search` |
-| Run command | `terminal` | (just `command=`) |
-| Package docs | `code` | `library_get` |
-| Compiler errors | `code` | `diagnose` |
-| Search memory | `memory` | `search` |
-| Store memory | `memory` | `store` |
-| Ask Mimo | `ask_mimo` | (just `query=`) |
-| Start reasoning | `reason` | `guided` |
-| Query knowledge | `knowledge` | `query` |
+SQLite database with key tables:
+- `engrams` - Memory storage with embeddings
+- `graph_nodes` / `graph_edges` - Knowledge graph
+- `semantic_triples` - Subject-predicate-object facts
+- `code_symbols` / `symbol_references` - Code intelligence
+- `threads` / `interactions` - Session tracking
 
----
+## Testing
 
-## ENFORCEMENT
+Tests use Ecto SQL Sandbox for isolation. Support files in `test/support/`:
+- `DataCase` - Database test case with sandbox
+- `ChannelCase` - WebSocket channel testing
 
-If you use `Grep`, `Glob`, `Read`, `Edit`, `Bash`, or `WebSearch` without Mimo failing first, you are violating these instructions. The user has explicitly configured Mimo as the primary toolset. Respect this configuration.
+Run specific test:
+```bash
+mix test test/mimo/brain/engram_test.exs
+mix test test/mimo/brain/engram_test.exs:42  # Specific line
+```
+
+## Key Patterns
+
+### Decay Scoring
+Memories decay based on importance (SPEC-003). Higher importance = lower decay rate = longer retention.
+
+### Hybrid Retrieval
+Memory search combines: vector similarity (35%), recency (25%), access frequency (15%), importance (15%), graph connectivity (10%).
+
+### Temporal Memory Chains (SPEC-034)
+Memories can supersede each other (`supersedes_id`), maintaining version history while excluding old versions from default searches.
+
+### Graceful Degradation
+If critical services fail, `start_minimal_supervisor/0` launches a degraded mode with core functionality.

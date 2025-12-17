@@ -197,6 +197,252 @@ defmodule Mimo.Tools.Dispatchers.Web do
   end
 
   defp fetch_content(url, format, args) do
+    # Check for Reddit URLs - try RSS fallback strategy
+    if reddit_url?(url) do
+      fetch_reddit_content(url, format, args)
+    else
+      do_fetch_content(url, format, args)
+    end
+  end
+
+  # Check if URL is a Reddit URL
+  defp reddit_url?(url) when is_binary(url) do
+    String.contains?(url, "reddit.com") or String.contains?(url, "redd.it")
+  end
+
+  defp reddit_url?(_), do: false
+
+  # Fetch Reddit content with RSS fallback strategy
+  defp fetch_reddit_content(url, format, args) do
+    # First, try to convert URL to RSS endpoint
+    rss_url = convert_to_reddit_rss(url)
+
+    if rss_url do
+      Logger.info("[Reddit] Using RSS strategy for #{url} -> #{rss_url}")
+
+      case Mimo.Skills.Network.fetch_txt(rss_url) do
+        {:ok, rss_content} when is_binary(rss_content) and byte_size(rss_content) > 100 ->
+          # Successfully got RSS, parse and format
+          parsed = parse_reddit_rss(rss_content, format)
+
+          {:ok,
+           %{
+             source: "reddit_rss",
+             original_url: url,
+             rss_url: rss_url,
+             content: parsed,
+             format: format,
+             note: "Fetched via RSS feed (Reddit blocks direct HTML access)"
+           }}
+
+        {:ok, _empty} ->
+          Logger.info("[Reddit] RSS returned empty, trying direct fetch")
+          try_direct_then_fallback(url, format, args)
+
+        {:error, _reason} ->
+          Logger.info("[Reddit] RSS failed, trying direct fetch")
+          try_direct_then_fallback(url, format, args)
+      end
+    else
+      # Not a subreddit/post URL we can convert, try direct
+      try_direct_then_fallback(url, format, args)
+    end
+  end
+
+  # Convert Reddit URL to RSS endpoint
+  defp convert_to_reddit_rss(url) do
+    uri = URI.parse(url)
+
+    cond do
+      # Subreddit URL: /r/subreddit or /r/subreddit/anything
+      Regex.match?(~r|/r/\w+|, uri.path || "") ->
+        # Get the subreddit base path
+        case Regex.run(~r|(/r/\w+)|, uri.path) do
+          [_, subreddit_path] ->
+            # Check if it's a specific post or listing
+            if Regex.match?(~r|/r/\w+/comments/|, uri.path) do
+              # Post URL - add .rss to the post
+              "https://www.reddit.com#{uri.path}.rss"
+            else
+              # Subreddit listing - use /new.rss for freshest content
+              "https://www.reddit.com#{subreddit_path}/new.rss"
+            end
+
+          nil ->
+            nil
+        end
+
+      # Homepage or other
+      uri.path in [nil, "", "/"] ->
+        "https://www.reddit.com/.rss"
+
+      true ->
+        nil
+    end
+  end
+
+  # Parse Reddit RSS/Atom feed into requested format
+  defp parse_reddit_rss(rss_content, format) do
+    # Extract entries from Atom feed
+    entries = extract_rss_entries(rss_content)
+
+    case format do
+      "json" ->
+        %{
+          type: "reddit_feed",
+          entries: entries,
+          count: length(entries)
+        }
+
+      "markdown" ->
+        Enum.map_join(entries, "\n", fn entry ->
+          """
+          ## #{entry.title}
+
+          **Author:** #{entry.author} | **Published:** #{entry.published}
+
+          #{entry.content}
+
+          [Link](#{entry.link})
+
+          ---
+          """
+        end)
+
+      _ ->
+        # text format
+        Enum.map_join(entries, "\n---\n", fn entry ->
+          """
+          === #{entry.title} ===
+          Author: #{entry.author}
+          Published: #{entry.published}
+
+          #{entry.content}
+
+          Link: #{entry.link}
+          """
+        end)
+    end
+  end
+
+  # Extract entries from Atom/RSS feed
+  defp extract_rss_entries(rss_content) do
+    # Use regex to extract entry elements (simpler than full XML parsing)
+    entry_regex = ~r/<entry>(.*?)<\/entry>/s
+    title_regex = ~r/<title>(?:<!\[CDATA\[)?(.+?)(?:\]\]>)?<\/title>/s
+    link_regex = ~r/<link[^>]*href="([^"]+)"/
+    author_regex = ~r/<author>\s*<name>([^<]+)<\/name>/s
+    published_regex = ~r/<(?:published|updated)>([^<]+)<\/(?:published|updated)>/
+    content_regex = ~r/<content[^>]*>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/content>/s
+
+    Regex.scan(entry_regex, rss_content)
+    |> Enum.take(25)
+    |> Enum.map(fn [_, entry_xml] ->
+      title =
+        case Regex.run(title_regex, entry_xml) do
+          [_, t] -> decode_html_entities(String.trim(t))
+          _ -> "Untitled"
+        end
+
+      link =
+        case Regex.run(link_regex, entry_xml) do
+          [_, l] -> l
+          _ -> ""
+        end
+
+      author =
+        case Regex.run(author_regex, entry_xml) do
+          [_, a] -> a
+          _ -> "unknown"
+        end
+
+      published =
+        case Regex.run(published_regex, entry_xml) do
+          [_, p] -> p
+          _ -> ""
+        end
+
+      content =
+        case Regex.run(content_regex, entry_xml) do
+          [_, c] ->
+            # Strip HTML tags for text content
+            c
+            |> String.replace(~r/<[^>]+>/, " ")
+            |> String.replace(~r/\s+/, " ")
+            |> String.trim()
+            |> String.slice(0..2000)
+
+          _ ->
+            ""
+        end
+
+      %{
+        title: title,
+        link: link,
+        author: author,
+        published: published,
+        content: content
+      }
+    end)
+  end
+
+  # Simple HTML entity decoder (common entities only)
+  defp decode_html_entities(text) do
+    text
+    |> String.replace("&amp;", "&")
+    |> String.replace("&lt;", "<")
+    |> String.replace("&gt;", ">")
+    |> String.replace("&quot;", "\"")
+    |> String.replace("&#39;", "'")
+    |> String.replace("&apos;", "'")
+    |> String.replace("&nbsp;", " ")
+    |> String.replace("&#x27;", "'")
+    |> String.replace("&#x2F;", "/")
+    |> decode_numeric_entities()
+  end
+
+  defp decode_numeric_entities(text) do
+    # Decode decimal numeric entities &#123;
+    text =
+      Regex.replace(~r/&#(\d+);/, text, fn _, code ->
+        try do
+          <<String.to_integer(code)::utf8>>
+        rescue
+          _ -> ""
+        end
+      end)
+
+    # Decode hex numeric entities &#x1F;
+    Regex.replace(~r/&#x([0-9a-fA-F]+);/, text, fn _, code ->
+      try do
+        <<String.to_integer(code, 16)::utf8>>
+      rescue
+        _ -> ""
+      end
+    end)
+  end
+
+  # Try direct fetch, fall back to error with RSS suggestion
+  defp try_direct_then_fallback(url, format, args) do
+    case do_fetch_content(url, format, args) do
+      {:ok, content} ->
+        {:ok, content}
+
+      {:error, reason} ->
+        # If we got blocked (403), provide helpful message
+        if String.contains?(inspect(reason), "403") or String.contains?(inspect(reason), "blocked") do
+          {:error,
+           "Reddit blocked direct access (403). Try using an RSS URL instead: " <>
+             "append '.rss' to the URL or use /r/subreddit/.rss format. " <>
+             "Original error: #{inspect(reason)}"}
+        else
+          {:error, reason}
+        end
+    end
+  end
+
+  # Original fetch logic extracted
+  defp do_fetch_content(url, format, args) do
     case format do
       "text" ->
         Mimo.Skills.Network.fetch_txt(url)

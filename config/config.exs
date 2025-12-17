@@ -51,7 +51,24 @@ config :mimo_mcp, :forgetting,
   # Dry run mode (log but don't delete)
   dry_run: false
 
+# Decay Rates (SPEC-003)
+# NOTE: These rates are MANUALLY TUNED based on intuition, NOT empirically validated.
+# See docs/ANTI-SLOP.md for discussion of this limitation.
+config :mimo_mcp, :decay_rates,
+  # Importance >= 0.9: ~693 days half-life (protected memories)
+  critical: 0.0001,
+  # Importance >= 0.7: ~69 days half-life
+  high: 0.001,
+  # Importance >= 0.5: ~14 days half-life
+  medium: 0.005,
+  # Importance >= 0.3: ~3.5 days half-life
+  low: 0.02,
+  # Importance < 0.3: ~17 hours half-life
+  ephemeral: 0.1
+
 # Hybrid Retrieval (SPEC-004)
+# NOTE: These weights are MANUALLY TUNED based on intuition, NOT empirically validated.
+# No A/B testing has been performed. See docs/ANTI-SLOP.md for discussion.
 config :mimo_mcp, :hybrid_scoring,
   # Weight for vector similarity in hybrid score
   vector_weight: 0.35,

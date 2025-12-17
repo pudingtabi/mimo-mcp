@@ -29,6 +29,8 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   alias Mimo.Tools.Helpers
   alias Mimo.Cognitive.Reasoner
 
+  require Logger
+
   # =============================================================================
   # Operation Group Definitions (for pattern matching guards)
   # =============================================================================
@@ -166,10 +168,33 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   @doc """
   Dispatch think tool operations.
   Uses multi-head function pattern matching.
+
+  ⚠️ DEPRECATED: The 'think' tool is deprecated. Use 'reason' tool instead:
+  - reason operation=step thought="..."
+  - reason operation=guided problem="..."
   """
   def dispatch_think(args) do
+    Logger.warning("[DEPRECATED] think tool called - use 'reason operation=step' instead")
+
     op = args["operation"] || "thought"
-    do_dispatch_think(op, args)
+    result = do_dispatch_think(op, args)
+
+    # Add deprecation notice to successful responses
+    case result do
+      {:ok, data} when is_map(data) ->
+        {:ok,
+         Map.put(data, :_deprecation_notice, %{
+           message: "⚠️ The 'think' tool is deprecated. Use 'reason' tool instead.",
+           migration: %{
+             "think thought=X" => "reason operation=step thought=X",
+             "think plan steps=[...]" => "reason operation=guided problem=X",
+             "think sequential" => "reason operation=step (call multiple times)"
+           }
+         })}
+
+      other ->
+        other
+    end
   end
 
   defp do_dispatch_think("thought", args) do
@@ -349,22 +374,35 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   defp do_dispatch_reason("enrich", args), do: dispatch_reason_enrich(args)
   defp do_dispatch_reason("steps", args), do: dispatch_reason_steps(args)
 
+  # SPEC-082: Interleaved Thinking Operations
+  defp do_dispatch_reason("interleaved_start", args), do: dispatch_interleaved_start(args)
+  defp do_dispatch_reason("interleaved_think", args), do: dispatch_interleaved_think(args)
+  defp do_dispatch_reason("interleaved_conclude", args), do: dispatch_interleaved_conclude(args)
+  defp do_dispatch_reason("verify_claim", args), do: dispatch_verify_claim(args)
+
+  # SPEC-082-A: Adaptive Reasoning (interleaved thinking with dynamic strategy)
+  defp do_dispatch_reason("adaptive", args), do: dispatch_adaptive_start(args)
+
+  # Cognitive Amplifier Operations (Nano-chip for deeper thinking)
+  defp do_dispatch_reason("amplify_start", args), do: dispatch_amplify_start(args)
+  defp do_dispatch_reason("amplify_decomposition", args), do: dispatch_amplify_decomposition(args)
+  defp do_dispatch_reason("amplify_think", args), do: dispatch_amplify_think(args)
+  defp do_dispatch_reason("amplify_challenge", args), do: dispatch_amplify_challenge(args)
+  defp do_dispatch_reason("amplify_perspective", args), do: dispatch_amplify_perspective(args)
+  defp do_dispatch_reason("amplify_conclude", args), do: dispatch_amplify_conclude(args)
+  defp do_dispatch_reason("amplify_status", args), do: dispatch_amplify_status(args)
+
   defp do_dispatch_reason(op, _args) do
     {:error,
-     "Unknown reason operation: #{op}. Available: guided, decompose, step, enrich, steps, verify, reflect, branch, backtrack, conclude"}
+     "Unknown reason operation: #{op}. Available: guided, adaptive, decompose, step, enrich, steps, verify, reflect, branch, backtrack, conclude, interleaved_start, interleaved_think, interleaved_conclude, verify_claim, amplify_start, amplify_decomposition, amplify_think, amplify_challenge, amplify_perspective, amplify_conclude, amplify_status"}
   end
 
+  # Guided now redirects to adaptive mode (SPEC-082-A consolidation)
   defp dispatch_reason_guided(args) do
-    problem = args["problem"] || ""
+    Logger.info("[REASONING] guided → adaptive (consolidated)")
 
-    if problem == "" do
-      {:error, "Problem is required for guided reasoning"}
-    else
-      strategy = parse_strategy(args["strategy"])
-      opts = if strategy, do: [strategy: strategy], else: []
-
-      Reasoner.guided(problem, opts)
-    end
+    # Redirect to adaptive mode
+    dispatch_adaptive_start(args)
   end
 
   defp dispatch_reason_decompose(args) do
@@ -500,6 +538,413 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
       "reflexion" -> :reflexion
       nil -> nil
       _ -> nil
+    end
+  end
+
+  # ==========================================================================
+  # SPEC-082: Interleaved Thinking Operations
+  # ==========================================================================
+
+  # SPEC-082-A: Start adaptive reasoning (interleaved + dynamic strategy switching)
+  defp dispatch_adaptive_start(args) do
+    alias Mimo.Cognitive.InterleavedThinking
+
+    problem = args["problem"] || ""
+
+    if problem == "" do
+      {:error, "Problem is required for adaptive reasoning"}
+    else
+      # Adaptive reasoning uses interleaved thinking as foundation
+      case InterleavedThinking.start(problem, []) do
+        {:ok, result} ->
+          # Enhance with adaptive mode indicator
+          {:ok,
+           Map.merge(result, %{
+             mode: :adaptive,
+             note:
+               "Adaptive mode: Dynamic strategy switching based on step evaluation. Each step includes recommended_action.",
+             usage: %{
+               continue: "reason operation=interleaved_think session_id=... thought=...",
+               branch: "reason operation=branch session_id=... branch_thought=...",
+               reflect: "reason operation=reflect session_id=... outcome=...",
+               conclude: "reason operation=interleaved_conclude session_id=..."
+             }
+           })}
+
+        error ->
+          error
+      end
+    end
+  end
+
+  # Start an interleaved thinking session with automatic verification.
+  defp dispatch_interleaved_start(args) do
+    alias Mimo.Cognitive.InterleavedThinking
+
+    problem = args["problem"] || ""
+
+    if problem == "" do
+      {:error, "Problem is required for interleaved_start operation"}
+    else
+      strategy = parse_strategy(args["strategy"])
+      opts = if strategy, do: [strategy: strategy], else: []
+
+      InterleavedThinking.start(problem, opts)
+    end
+  end
+
+  # Add a thinking step with automatic verification and enrichment.
+  defp dispatch_interleaved_think(args) do
+    alias Mimo.Cognitive.InterleavedThinking
+
+    session_id = args["session_id"] || ""
+    thought = args["thought"] || ""
+
+    cond do
+      session_id == "" ->
+        {:error, "session_id is required for interleaved_think operation"}
+
+      thought == "" ->
+        {:error, "thought is required for interleaved_think operation"}
+
+      true ->
+        InterleavedThinking.think(session_id, thought)
+    end
+  end
+
+  # Conclude interleaved reasoning with full verification.
+  defp dispatch_interleaved_conclude(args) do
+    alias Mimo.Cognitive.InterleavedThinking
+
+    session_id = args["session_id"] || ""
+
+    if session_id == "" do
+      {:error, "session_id is required for interleaved_conclude operation"}
+    else
+      store_learning = args["store_learning"] != false
+      InterleavedThinking.conclude(session_id, store_learning: store_learning)
+    end
+  end
+
+  # Verify a specific claim against memory and knowledge.
+  defp dispatch_verify_claim(args) do
+    alias Mimo.Cognitive.InterleavedThinking
+
+    claim = args["claim"] || ""
+    context = args["context"] || ""
+
+    if claim == "" do
+      {:error, "claim is required for verify_claim operation"}
+    else
+      InterleavedThinking.verify_claim(claim, context: context)
+    end
+  end
+
+  # ==========================================================================
+  # COGNITIVE AMPLIFIER OPERATIONS (Nano-chip for deeper thinking)
+  # ==========================================================================
+
+  # Start an amplified reasoning session with forced deeper thinking.
+  #
+  # The Cognitive Amplifier is like a "nano-chip implant" that makes any LLM
+  # think deeper by:
+  # 1. Forcing decomposition before direct answers
+  # 2. Generating counter-arguments (devil's advocate)
+  # 3. Rotating through perspectives
+  # 4. Validating coherence (catching contradictions)
+  # 5. Enforcing synthesis (integration of all threads)
+  #
+  # Levels:
+  # - :minimal - Pass-through, no forcing
+  # - :standard - Decomposition + basic challenges
+  # - :deep - Full pipeline with perspectives and coherence
+  # - :exhaustive - Maximum amplification, all checks enforced
+  # - :adaptive - Auto-select based on problem complexity
+  defp dispatch_amplify_start(args) do
+    alias Mimo.Cognitive.Amplifier
+
+    problem = args["problem"] || ""
+    level = parse_amplify_level(args["level"])
+
+    if problem == "" do
+      {:error, "problem is required for amplify_start operation"}
+    else
+      case Amplifier.start(problem, level) do
+        {:ok, result} ->
+          {:ok,
+           %{
+             type: "amplify_session_started",
+             session_id: result.session_id,
+             stage: result.stage,
+             level: result[:level] || level,
+             blocking: result.blocking,
+             content: result.content,
+             next_action: result.next_action,
+             usage: %{
+               decomposition: "reason operation=amplify_decomposition session_id=... response=...",
+               think: "reason operation=amplify_think session_id=... thought=...",
+               challenge:
+                 "reason operation=amplify_challenge session_id=... challenge_id=... response=...",
+               conclude: "reason operation=amplify_conclude session_id=..."
+             },
+             description:
+               "Cognitive Amplifier started. Follow next_action to proceed with amplified reasoning."
+           }}
+
+        {:error, reason} ->
+          {:error, "Failed to start amplified reasoning: #{reason}"}
+      end
+    end
+  end
+
+  # Submit a decomposition response when session is in decomposition stage.
+  defp dispatch_amplify_decomposition(args) do
+    alias Mimo.Cognitive.Amplifier
+
+    session_id = args["session_id"] || ""
+    response = args["response"] || ""
+    index = args["index"] || 0
+
+    cond do
+      session_id == "" ->
+        {:error, "session_id is required for amplify_decomposition operation"}
+
+      response == "" ->
+        {:error, "response is required for amplify_decomposition operation"}
+
+      true ->
+        case Amplifier.submit_decomposition(session_id, response, index) do
+          {:ok, result} ->
+            {:ok,
+             %{
+               type: "amplify_decomposition_submitted",
+               session_id: result.session_id,
+               stage: result.stage,
+               blocking: result.blocking,
+               content: result.content,
+               next_action: result.next_action
+             }}
+
+          {:error, reason} ->
+            {:error, "Failed to submit decomposition: #{reason}"}
+        end
+    end
+  end
+
+  # Add a thinking step with full amplification (challenges, coherence, etc.)
+  defp dispatch_amplify_think(args) do
+    alias Mimo.Cognitive.Amplifier
+
+    session_id = args["session_id"] || ""
+    thought = args["thought"] || ""
+
+    cond do
+      session_id == "" ->
+        {:error, "session_id is required for amplify_think operation"}
+
+      thought == "" ->
+        {:error, "thought is required for amplify_think operation"}
+
+      true ->
+        case Amplifier.think(session_id, thought) do
+          {:ok, result} ->
+            {:ok,
+             %{
+               type: "amplify_thought_added",
+               session_id: result.session_id,
+               stage: result.stage,
+               step_number: result[:step_number],
+               blocking: result.blocking,
+               content: result.content,
+               next_action: result.next_action,
+               hint:
+                 if result.blocking do
+                   "⚠️ Session is blocked. Address the next_action before continuing."
+                 else
+                   "Continue with next thought or conclude when ready."
+                 end
+             }}
+
+          {:error, reason} ->
+            {:error, "Failed to add thought: #{reason}"}
+        end
+    end
+  end
+
+  # Address a must-address challenge.
+  defp dispatch_amplify_challenge(args) do
+    alias Mimo.Cognitive.Amplifier
+
+    session_id = args["session_id"] || ""
+    challenge_id = args["challenge_id"] || ""
+    response = args["response"] || ""
+
+    cond do
+      session_id == "" ->
+        {:error, "session_id is required for amplify_challenge operation"}
+
+      challenge_id == "" ->
+        {:error, "challenge_id is required for amplify_challenge operation"}
+
+      response == "" ->
+        {:error, "response is required for amplify_challenge operation"}
+
+      true ->
+        case Amplifier.address_challenge(session_id, challenge_id, response) do
+          {:ok, result} ->
+            {:ok,
+             %{
+               type: "amplify_challenge_addressed",
+               session_id: session_id,
+               challenge_id: challenge_id,
+               addressed: result[:addressed] || true,
+               hint: "Challenge addressed. Use amplify_status to see what's next."
+             }}
+
+          {:error, reason} ->
+            {:error, "Failed to address challenge: #{reason}"}
+        end
+    end
+  end
+
+  # Record perspective consideration and insights.
+  defp dispatch_amplify_perspective(args) do
+    alias Mimo.Cognitive.Amplifier
+
+    session_id = args["session_id"] || ""
+    perspective = args["perspective"] || ""
+    insights = args["insights"] || []
+
+    # Parse perspective name
+    perspective_name =
+      cond do
+        is_atom(perspective) -> perspective
+        is_binary(perspective) and perspective != "" -> String.to_atom(perspective)
+        true -> nil
+      end
+
+    # Parse insights (accept string or list)
+    parsed_insights =
+      cond do
+        is_list(insights) -> insights
+        is_binary(insights) and insights != "" -> [insights]
+        true -> []
+      end
+
+    cond do
+      session_id == "" ->
+        {:error, "session_id is required for amplify_perspective operation"}
+
+      perspective_name == nil ->
+        {:error,
+         "perspective is required (e.g., 'user', 'security', 'performance', 'critical', etc.)"}
+
+      parsed_insights == [] ->
+        {:error, "insights (list of strings) is required for amplify_perspective operation"}
+
+      true ->
+        {:ok, result} = Amplifier.record_perspective(session_id, perspective_name, parsed_insights)
+
+        {:ok,
+         %{
+           type: "amplify_perspective_recorded",
+           session_id: session_id,
+           perspective: perspective_name,
+           insights_recorded: result[:insights_recorded] || length(parsed_insights),
+           hint: "Perspective recorded. Use amplify_status to check remaining perspectives."
+         }}
+    end
+  end
+
+  # Conclude amplified reasoning with forced synthesis.
+  defp dispatch_amplify_conclude(args) do
+    alias Mimo.Cognitive.Amplifier
+
+    session_id = args["session_id"] || ""
+
+    if session_id == "" do
+      {:error, "session_id is required for amplify_conclude operation"}
+    else
+      case Amplifier.conclude(session_id) do
+        {:ok, result} ->
+          {:ok,
+           %{
+             type: "amplify_concluded",
+             session_id: result.session_id,
+             status: result.status,
+             synthesis: result.synthesis,
+             coherence: result.coherence,
+             summary: result.summary,
+             description:
+               "Amplified reasoning concluded. Synthesis prompt provided for final integration."
+           }}
+
+        {:error, reason} ->
+          {:error, "Cannot conclude: #{reason}"}
+      end
+    end
+  end
+
+  # Get the next required action for an amplified session.
+  defp dispatch_amplify_status(args) do
+    alias Mimo.Cognitive.Amplifier
+
+    session_id = args["session_id"] || ""
+
+    if session_id == "" do
+      {:error, "session_id is required for amplify_status operation"}
+    else
+      case Amplifier.next_action(session_id) do
+        {:ok, action} ->
+          {:ok,
+           %{
+             type: "amplify_status",
+             session_id: session_id,
+             next_action: action,
+             blocking: action[:blocking] || false,
+             hint: format_action_hint(action)
+           }}
+
+        {:error, reason} ->
+          {:error, "Failed to get status: #{reason}"}
+      end
+    end
+  end
+
+  defp parse_amplify_level(nil), do: :adaptive
+  defp parse_amplify_level("minimal"), do: :minimal
+  defp parse_amplify_level("standard"), do: :standard
+  defp parse_amplify_level("deep"), do: :deep
+  defp parse_amplify_level("exhaustive"), do: :exhaustive
+  defp parse_amplify_level("adaptive"), do: :adaptive
+  defp parse_amplify_level(level) when is_atom(level), do: level
+  defp parse_amplify_level(_), do: :adaptive
+
+  defp format_action_hint(action) do
+    case action[:type] do
+      :blocked ->
+        "⚠️ Session blocked: #{action[:reason]}. Resolve before continuing."
+
+      :address_challenge ->
+        "⚠️ Must address #{length(action[:challenges] || [])} challenge(s) before continuing."
+
+      :resolve_coherence ->
+        "⚠️ Coherence issues detected. Resolve contradictions before continuing."
+
+      :consider_perspective ->
+        "🔄 Consider the #{action[:perspective][:name]} perspective before continuing."
+
+      :synthesize ->
+        "✅ Ready to synthesize. Use amplify_conclude to complete reasoning."
+
+      :continue ->
+        "Continue with next reasoning step using amplify_think."
+
+      :respond_to_decomposition ->
+        "📝 Respond to decomposition prompts using amplify_decomposition."
+
+      _ ->
+        "Proceed with the indicated action."
     end
   end
 

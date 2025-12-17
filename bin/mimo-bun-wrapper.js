@@ -23,7 +23,7 @@ console.log = (...args) => console.error(...args);
 
 // SILENT mode - suppress wrapper logging for clean MCP transport
 const SILENT_MODE = Bun.env.MCP_SILENT !== '0';
-const log = SILENT_MODE ? () => {} : (...args) => console.error('[Mimo Bun]', ...args);
+const log = SILENT_MODE ? () => { } : (...args) => console.error('[Mimo Bun]', ...args);
 
 // --- Path Resolution ---
 
@@ -56,28 +56,50 @@ function findElixirPaths() {
   if (existsSync(asdfShims)) paths.push(asdfShims);
   if (existsSync(asdfBin)) paths.push(asdfBin);
 
-  // elixir-install - PREFER OTP 27 over OTP 28 (Hex compatibility)
+  // elixir-install - read versions from .tool-versions for dynamic selection
   try {
     const elixirDir = join(home, '.elixir-install', 'installs', 'elixir');
     const otpDir = join(home, '.elixir-install', 'installs', 'otp');
 
-    if (existsSync(elixirDir)) {
-      const versions = readdirSync(elixirDir).sort();
-      const otp27Version = versions.find(v => v.includes('otp-27'));
-      const selectedVersion = otp27Version || versions[0];
-      if (selectedVersion) {
-        paths.push(join(elixirDir, selectedVersion, 'bin'));
+    // Read target versions from .tool-versions
+    let targetOtp = null;
+    let targetElixir = null;
+    const toolVersionsPath = join(MIMO_DIR, '.tool-versions');
+
+    if (existsSync(toolVersionsPath)) {
+      const { readFileSync } = require('fs');
+      const content = readFileSync(toolVersionsPath, 'utf8');
+      const lines = content.split('\n');
+      for (const line of lines) {
+        const [tool, version] = line.trim().split(/\s+/);
+        if (tool === 'erlang') targetOtp = version;
+        if (tool === 'elixir') targetElixir = version;
       }
     }
+
+    // OTP must come FIRST in PATH
     if (existsSync(otpDir)) {
       const versions = readdirSync(otpDir).sort();
-      const otp27Version = versions.find(v => v.startsWith('27'));
-      const selectedVersion = otp27Version || versions[0];
+      // Prefer version from .tool-versions, otherwise use latest
+      const matchingVersion = targetOtp ? versions.find(v => v.startsWith(targetOtp.split('.')[0])) : null;
+      const selectedVersion = matchingVersion || versions[versions.length - 1];
       if (selectedVersion) {
         paths.push(join(otpDir, selectedVersion, 'bin'));
       }
     }
-  } catch {}
+
+    // Elixir comes AFTER OTP
+    if (existsSync(elixirDir)) {
+      const versions = readdirSync(elixirDir).sort();
+      // Prefer version from .tool-versions, otherwise use latest
+      const targetOtpSuffix = targetElixir ? targetElixir.match(/otp-\d+/)?.[0] : null;
+      const matchingVersion = targetOtpSuffix ? versions.find(v => v.includes(targetOtpSuffix)) : null;
+      const selectedVersion = matchingVersion || versions[versions.length - 1];
+      if (selectedVersion) {
+        paths.push(join(elixirDir, selectedVersion, 'bin'));
+      }
+    }
+  } catch { }
 
   return paths.join(':');
 }
@@ -228,7 +250,7 @@ if (KILL_EXISTING) {
     spawnSync({ cmd: ['rm', '-f', '/tmp/mimo_mcp_stdio.lock'], stdout: 'ignore', stderr: 'ignore' });
     // Use sync sleep via spawnSync instead of top-level await
     spawnSync({ cmd: ['sleep', '0.5'], stdout: 'ignore', stderr: 'ignore' });
-  } catch {}
+  } catch { }
 }
 
 // --- Pre-flight Checks ---
@@ -286,7 +308,7 @@ const startupTimer = setTimeout(() => {
 (async () => {
   const reader = Bun.stdin.stream().getReader();
   const writer = elixir.stdin;
-  
+
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -299,7 +321,7 @@ const startupTimer = setTimeout(() => {
   } catch {
     // stdin closed
   }
-  
+
   // Give child time to flush, then exit
   await Bun.sleep(500);
   process.exit(0);
@@ -315,7 +337,7 @@ const startupTimer = setTimeout(() => {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      
+
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
@@ -333,14 +355,14 @@ const startupTimer = setTimeout(() => {
         }
       }
     }
-    
+
     // Flush remaining buffer
     if (buffer.trimStart().startsWith('{')) {
       process.stdout.write(buffer + '\n');
     } else if (buffer.trim().length > 0) {
       process.stderr.write(`[Mimo Stdout Noise] ${buffer}\n`);
     }
-  } catch {}
+  } catch { }
 })();
 
 // Forward stderr with Hex error detection
@@ -354,23 +376,23 @@ let hexReinstallAttempted = false;
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      
+
       const output = decoder.decode(value, { stream: true });
-      
+
       // Detect Hex/OTP mismatch
-      if (!hexReinstallAttempted && 
-          ['Hex.State', 'op bs_add', 'beam_load', 're-compile this module']
-            .some(p => output.includes(p))) {
+      if (!hexReinstallAttempted &&
+        ['Hex.State', 'op bs_add', 'beam_load', 're-compile this module']
+          .some(p => output.includes(p))) {
         hexReinstallAttempted = true;
         log('Runtime Hex.State OTP mismatch - attempting reinstall');
         if (reinstallHex()) {
           process.stderr.write('[Mimo] OTP mismatch fixed. Please restart MCP server.\n');
         }
       }
-      
+
       process.stderr.write(output);
     }
-  } catch {}
+  } catch { }
 })();
 
 // --- Process Exit ---
