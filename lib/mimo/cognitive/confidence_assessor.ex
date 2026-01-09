@@ -106,6 +106,8 @@ defmodule Mimo.Cognitive.ConfidenceAssessor do
     # Calculate scores
     scores = calculate_scores(evidence, query)
 
+    Logger.debug("[ConfidenceAssessor] Component scores for '#{query}': #{inspect(scores)}")
+
     # Detect staleness
     staleness = calculate_staleness(evidence)
 
@@ -259,13 +261,25 @@ defmodule Mimo.Cognitive.ConfidenceAssessor do
   defp safe_search_graph(query, limit) do
     try do
       case QueryEngine.query(query, max_nodes: limit) do
-        {:ok, result} -> result.nodes
-        _ -> []
+        {:ok, result} ->
+          Logger.debug(
+            "[ConfidenceAssessor] Graph search returned #{length(result.nodes)} nodes for query: #{query}"
+          )
+
+          result.nodes
+
+        other ->
+          Logger.warning("[ConfidenceAssessor] Graph search returned non-ok: #{inspect(other)}")
+          []
       end
     rescue
-      _ -> []
+      e ->
+        Logger.warning("[ConfidenceAssessor] Graph search rescue: #{Exception.message(e)}")
+        []
     catch
-      _, _ -> []
+      kind, reason ->
+        Logger.warning("[ConfidenceAssessor] Graph search catch: #{kind} - #{inspect(reason)}")
+        []
     end
   end
 
@@ -274,9 +288,14 @@ defmodule Mimo.Cognitive.ConfidenceAssessor do
     libraries = extract_library_names(query)
 
     libraries
-    |> Enum.map(fn {name, ecosystem} ->
-      cached = Mimo.Library.CacheManager.cached?(name, ecosystem)
-      %{name: name, ecosystem: ecosystem, cached: cached}
+    |> Enum.map(fn
+      # Self-referential queries about Mimo are always "cached" (we know ourselves)
+      {:mimo_self, :internal} ->
+        %{name: "mimo", ecosystem: :internal, cached: true}
+
+      {name, ecosystem} ->
+        cached = Mimo.Library.CacheManager.cached?(name, ecosystem)
+        %{name: name, ecosystem: ecosystem, cached: cached}
     end)
   end
 
@@ -293,13 +312,41 @@ defmodule Mimo.Cognitive.ConfidenceAssessor do
 
     ecosystems = [:hex, :pypi, :npm]
 
-    patterns
-    |> Enum.zip(ecosystems)
-    |> Enum.flat_map(fn {pattern, ecosystem} ->
-      Regex.scan(pattern, query)
-      |> Enum.map(fn [match | _] -> {String.downcase(match), ecosystem} end)
+    external_libs =
+      patterns
+      |> Enum.zip(ecosystems)
+      |> Enum.flat_map(fn {pattern, ecosystem} ->
+        Regex.scan(pattern, query)
+        |> Enum.map(fn [match | _] -> {String.downcase(match), ecosystem} end)
+      end)
+      |> Enum.uniq()
+
+    # Self-referential queries about Mimo itself get special treatment
+    # This allows self-assessment to score positively for library_knowledge
+    if is_self_referential_query?(query) do
+      [{:mimo_self, :internal} | external_libs]
+    else
+      external_libs
+    end
+  end
+
+  # Detect queries about Mimo's own architecture, tools, or capabilities
+  defp is_self_referential_query?(query) do
+    downcased = String.downcase(query)
+
+    self_patterns = [
+      ~r/\bmimo\b/,
+      ~r/\bself[- ]?understanding\b/,
+      ~r/\bself[- ]?aware/,
+      ~r/\bown (architecture|capabilities|tools|memory)\b/,
+      ~r/\b(my|your) (architecture|capabilities|tools|memory)\b/,
+      ~r/\bthis system\b/,
+      ~r/\binternal (architecture|structure|design)\b/
+    ]
+
+    Enum.any?(self_patterns, fn pattern ->
+      Regex.match?(pattern, downcased)
     end)
-    |> Enum.uniq()
   end
 
   defp calculate_scores(evidence, query) do
