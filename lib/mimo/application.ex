@@ -194,6 +194,9 @@ defmodule Mimo.Application do
         {Mimo.Cognitive.PredictiveModeling, []},
         # Learn capability boundaries from failures
         {Mimo.Cognitive.CapabilityBoundary, []},
+        # ===== SPEC-SELF Level 4: Metacognitive Monitoring =====
+        # Track and explain WHY decisions are made, detect cognitive overload
+        {Mimo.Cognitive.MetacognitiveMonitor, []},
         # ===== Active Inference (SPEC-071) =====
         # Proactive context pushing based on Free Energy Principle
         {Mimo.ActiveInference, []},

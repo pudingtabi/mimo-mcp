@@ -85,6 +85,9 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   # Level 3: Predictive Self-Modeling (SPEC-SELF-UNDERSTANDING)
   @predictive_ops ~w[predict calibrate calibration_score predictions can_handle limitations]
 
+  # Level 4: Metacognitive Monitoring (SPEC-SELF-UNDERSTANDING)
+  @metacognitive_ops ~w[explain_session explain_decision cognitive_load decision_trace metacognitive_stats]
+
   @all_ops @epistemic_ops ++
              @verification_ops ++
              @verify_ops ++
@@ -104,7 +107,8 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
              @learning_executor_ops ++
              @learning_progress_ops ++
              @behavioral_ops ++
-             @predictive_ops
+             @predictive_ops ++
+             @metacognitive_ops
 
   @doc """
   Dispatch cognitive operation based on args.
@@ -244,6 +248,13 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   defp do_dispatch("predictions", args), do: dispatch_predictions(args)
   defp do_dispatch("can_handle", args), do: dispatch_can_handle(args)
   defp do_dispatch("limitations", args), do: dispatch_limitations(args)
+
+  # --- Level 4: Metacognitive Monitoring ---
+  defp do_dispatch("explain_session", args), do: dispatch_explain_session(args)
+  defp do_dispatch("explain_decision", args), do: dispatch_explain_decision(args)
+  defp do_dispatch("cognitive_load", args), do: dispatch_cognitive_load(args)
+  defp do_dispatch("decision_trace", args), do: dispatch_decision_trace(args)
+  defp do_dispatch("metacognitive_stats", args), do: dispatch_metacognitive_stats(args)
 
   # --- Fallback for Unknown Operations ---
   defp do_dispatch(op, _args) do
@@ -2708,4 +2719,121 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   defp parse_limitation_category("execution"), do: :execution
   defp parse_limitation_category("general"), do: :general
   defp parse_limitation_category(_), do: nil
+
+  # ============================================================================
+  # Level 4: Metacognitive Monitoring (SPEC-SELF-UNDERSTANDING)
+  # ============================================================================
+
+  alias Mimo.Cognitive.MetacognitiveMonitor
+
+  # Explain all decisions made during a reasoning session
+  defp dispatch_explain_session(args) do
+    session_id = args["session_id"]
+
+    if is_nil(session_id) do
+      {:error, "session_id is required for explain_session"}
+    else
+      case MetacognitiveMonitor.explain_session(session_id) do
+        {:ok, explanation} ->
+          {:ok,
+           %{
+             type: "session_explanation",
+             explanation: explanation,
+             hint: "Shows WHY decisions were made during reasoning",
+             level: "L4 - Metacognitive Monitoring"
+           }}
+
+        {:error, :not_found} ->
+          {:error, "No decision trace found for session #{session_id}"}
+      end
+    end
+  end
+
+  # Explain a specific decision
+  defp dispatch_explain_decision(args) do
+    decision_id = args["decision_id"]
+
+    if is_nil(decision_id) do
+      {:error, "decision_id is required for explain_decision"}
+    else
+      case MetacognitiveMonitor.explain_decision(decision_id) do
+        {:ok, explanation} ->
+          {:ok,
+           %{
+             type: "decision_explanation",
+             explanation: explanation,
+             level: "L4 - Metacognitive Monitoring"
+           }}
+
+        {:error, :not_found} ->
+          {:error, "Decision not found: #{decision_id}"}
+      end
+    end
+  end
+
+  # Get current cognitive load status
+  defp dispatch_cognitive_load(_args) do
+    case MetacognitiveMonitor.cognitive_load() do
+      {:ok, load} ->
+        {:ok,
+         %{
+           type: "cognitive_load",
+           load: load,
+           recommendation: cognitive_load_recommendation(load.level),
+           level: "L4 - Metacognitive Monitoring"
+         }}
+
+      {:error, reason} ->
+        {:error, "Failed to assess cognitive load: #{inspect(reason)}"}
+    end
+  end
+
+  defp cognitive_load_recommendation(:low), do: "Cognitive capacity available for complex tasks"
+  defp cognitive_load_recommendation(:normal), do: "Normal operation, proceed as planned"
+
+  defp cognitive_load_recommendation(:high),
+    do: "Consider simplifying tasks or waiting for sessions to complete"
+
+  defp cognitive_load_recommendation(:critical),
+    do: "Cognitive overload detected - prioritize completing existing tasks"
+
+  # Get raw decision trace for a session
+  defp dispatch_decision_trace(args) do
+    session_id = args["session_id"]
+
+    if is_nil(session_id) do
+      {:error, "session_id is required for decision_trace"}
+    else
+      case MetacognitiveMonitor.get_trace(session_id) do
+        {:ok, trace} ->
+          {:ok,
+           %{
+             type: "decision_trace",
+             session_id: session_id,
+             trace: trace,
+             count: length(trace),
+             level: "L4 - Metacognitive Monitoring"
+           }}
+
+        {:error, :not_found} ->
+          {:error, "No trace found for session #{session_id}"}
+      end
+    end
+  end
+
+  # Get metacognitive statistics
+  defp dispatch_metacognitive_stats(_args) do
+    case MetacognitiveMonitor.stats() do
+      {:ok, stats} ->
+        {:ok,
+         %{
+           type: "metacognitive_stats",
+           stats: stats,
+           level: "L4 - Metacognitive Monitoring"
+         }}
+
+      {:error, reason} ->
+        {:error, "Failed to get metacognitive stats: #{inspect(reason)}"}
+    end
+  end
 end

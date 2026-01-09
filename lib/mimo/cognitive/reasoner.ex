@@ -161,6 +161,17 @@ defmodule Mimo.Cognitive.Reasoner do
         meta_task: meta_task_info
       )
 
+    # Level 4: Record strategy decision for metacognitive monitoring
+    Mimo.Cognitive.MetacognitiveMonitor.record_strategy_decision(session.id, strategy, %{
+      problem_complexity: analysis.complexity,
+      involves_tools: analysis.involves_tools,
+      programming_task: analysis.programming_task,
+      ambiguous: analysis.ambiguous,
+      similar_problems_found: length(similar_problems),
+      reason: strategy_reason,
+      alternatives: [:cot, :tot, :react, :reflexion]
+    })
+
     # Step 8: Generate initial guidance (enhanced for meta-tasks)
     guidance = generate_initial_guidance(strategy, decomposition, uncertainty, similar_problems)
 
