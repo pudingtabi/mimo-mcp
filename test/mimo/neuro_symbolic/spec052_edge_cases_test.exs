@@ -8,16 +8,16 @@ defmodule Mimo.NeuroSymbolic.Spec052EdgeCasesTest do
   use Mimo.DataCase, async: false
 
   alias Mimo.NeuroSymbolic.{
-    RuleGenerator,
-    RuleValidator,
     CrossModalityLinker,
     ExplanationEngine,
     GnnPredictor,
-    Rule
+    Rule,
+    RuleGenerator,
+    RuleValidator
   }
 
-  alias Mimo.SemanticStore.Repository
   alias Mimo.Repo
+  alias Mimo.SemanticStore.Repository
 
   # =============================================================================
   # RuleGenerator Edge Cases
@@ -291,7 +291,7 @@ defmodule Mimo.NeuroSymbolic.Spec052EdgeCasesTest do
   end
 
   # =============================================================================
-  # ExplanationEngine Edge Cases  
+  # ExplanationEngine Edge Cases
   # =============================================================================
 
   describe "ExplanationEngine edge cases" do
@@ -396,7 +396,7 @@ defmodule Mimo.NeuroSymbolic.Spec052EdgeCasesTest do
       {:ok, result} = RuleGenerator.validate_and_persist([candidate], persist_validated: true)
 
       # Validate persisted rule exists
-      if length(result.persisted) > 0 do
+      unless Enum.empty?(result.persisted) do
         rule = hd(result.persisted)
         assert Repo.get(Rule, rule.id) != nil
       end

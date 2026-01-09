@@ -276,7 +276,7 @@ defmodule Mimo.Cognitive.Strategies.ChainOfThought do
 
     # Suggest explaining reasoning
     suggestions =
-      if length(previous_steps) > 0 and
+      if previous_steps != [] and
            not String.match?(step_content, ~r/\b(because|since|therefore|thus)\b/i) do
         [
           "Connect this step to the previous one with reasoning (because, since, therefore)"

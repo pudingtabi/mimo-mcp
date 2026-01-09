@@ -1,4 +1,10 @@
 defmodule Mimo.Application do
+  alias Mimo.Brain.HnswIndex
+  alias Mimo.InstanceLock
+  alias Mimo.Fallback.GracefulDegradation
+  alias Mimo.Synapse.ConnectionManager
+  alias Mimo.Vector.Math, as: VectorMath
+
   @moduledoc """
   OTP Application entry point.
   Uses lazy-loading: tools advertised from catalog, processes spawn on-demand.
@@ -24,10 +30,27 @@ defmodule Mimo.Application do
     # Mimo requires LLM services to function. Check early and fail clearly.
     check_llm_configuration()
 
+    # ===== SINGLE INSTANCE LOCK (SPEC-R4) =====
+    # Prevent multiple Mimo instances from running simultaneously
+    case InstanceLock.acquire() do
+      :ok ->
+        :ok
+
+      {:error, :already_running} ->
+        # Exit immediately - another instance is running
+        System.halt(1)
+
+      {:error, reason} ->
+        Logger.error("[Application] Failed to acquire instance lock: #{inspect(reason)}")
+        System.halt(1)
+    end
+
     children =
       [
         # Start Repo
         Mimo.Repo,
+        # WriteSerializer: Serializes DB writes to prevent SQLite busy errors
+        Mimo.Brain.WriteSerializer,
         # Elixir Registry for via_tuple skill lookups
         {Registry, keys: :unique, name: Mimo.Skills.Registry},
         # Circuit breaker registry for error handling
@@ -81,10 +104,6 @@ defmodule Mimo.Application do
         {Mimo.Telemetry.Profiler, []},
         # Memory cleanup service with TTL management
         {Mimo.Brain.Cleanup, []},
-        # ===== System Health Monitoring (Q1 2026 Phase 1) =====
-        # SystemHealth: Tracks memory corpus size, query latency, ETS usage
-        # Provides early warning before performance degradation
-        {Mimo.SystemHealth, []},
         # ===== ETS Crash Recovery (SPEC-045) =====
         # EtsHeirManager: Must start FIRST - acts as heir for ETS tables
         # When a GenServer crashes, its ETS table transfers here, not destroyed
@@ -173,6 +192,18 @@ defmodule Mimo.Application do
         # ===== Sleep Cycle (SPEC-072) =====
         # Multi-stage memory consolidation (episodic → semantic → procedural)
         {Mimo.SleepCycle, []},
+        # ===== Background Cognition (SPEC-XXX) =====
+        # LLM-enhanced cognitive processes that run between sessions
+        # Extends Mimo's cognition across time when Claude is not present
+        {Mimo.Brain.BackgroundCognition, []},
+        # ===== Phase 5: Continuous Evolution (SPEC-XXX) =====
+        # HealthWatcher: Autonomous cognitive health monitoring with trend detection
+        {Mimo.Cognitive.HealthWatcher, []},
+        # ===== Phase 6: Self-Directed Learning =====
+        # LearningObjectives: Proactive learning goal generation
+        {Mimo.Cognitive.LearningObjectives, []},
+        # LearningExecutor: Autonomous execution of learning actions
+        {Mimo.Cognitive.LearningExecutor, []},
         # Emergence Usage Tracker: Pattern usage and impact tracking (Q1 2026 Phase 2)
         {Mimo.Brain.Emergence.UsageTracker, []},
         # ===== Context Window Management (Phase 2 Cognitive Enhancement) =====
@@ -195,9 +226,17 @@ defmodule Mimo.Application do
         # ===== Knowledge Auto-Learning System =====
         # KnowledgeSyncer: Periodic memory → knowledge graph synchronization
         {Mimo.Brain.KnowledgeSyncer, []},
+        # ===== GNN Model Retraining (SPEC-051 Phase 2) =====
+        # GnnRetrainer: Periodic k-means clustering model retraining
+        {Mimo.NeuroSymbolic.GnnRetrainer, []},
+        # ===== Universal Context Understanding (SPEC-097) =====
+        # WorkingMemory: Tracks current project and recent project history
+        {Mimo.Context.WorkingMemory, []},
         # ===== Autonomous Task Execution (SPEC-071) =====
         # TaskRunner: Autonomous task queue with cognitive enhancement
         {Mimo.Autonomous.TaskRunner, []},
+        # Orchestrator: Multi-tool orchestration without subagent overhead
+        {Mimo.Orchestrator, []},
         # Onboard Tracker: Manages async onboarding state
         {Mimo.Tools.Dispatchers.Onboard.Tracker, []}
       ] ++ synthetic_cortex_children()
@@ -242,8 +281,17 @@ defmodule Mimo.Application do
     spawn(fn ->
       # Wait for TaskSupervisor to be ready
       Process.sleep(1000)
-      Mimo.Fallback.GracefulDegradation.start_retry_processor()
+      GracefulDegradation.start_retry_processor()
     end)
+
+    # Phase 3: Initialize ErrorPredictor learning (ETS + telemetry attachment)
+    Mimo.Brain.ErrorPredictor.init_learning()
+
+    # Phase 3 L3: Initialize EdgePredictor learning (validated pair tracking)
+    Mimo.Synapse.EdgePredictor.init_learning()
+
+    # Note: GnnPredictor auto-training is now handled by GnnRetrainer GenServer
+    # which starts automatically via the supervision tree
 
     # Ensure catalog is fully loaded before servers start
     case wait_for_catalog_ready() do
@@ -456,10 +504,6 @@ defmodule Mimo.Application do
     end
   end
 
-  # ============================================================================
-  # Synthetic Cortex Module Management
-  # ============================================================================
-
   # Returns children for enabled Synthetic Cortex modules.
   # Modules are enabled via feature flags in config:
   # - :rust_nifs - SIMD-accelerated vector operations
@@ -543,7 +587,7 @@ defmodule Mimo.Application do
 
   defp rust_nif_loaded? do
     try do
-      Mimo.Vector.Math.nif_loaded?()
+      VectorMath.nif_loaded?()
     rescue
       _ -> false
     end
@@ -570,7 +614,7 @@ defmodule Mimo.Application do
   defp websocket_connection_count do
     if feature_enabled?(:websocket_synapse) do
       try do
-        Mimo.Synapse.ConnectionManager.count()
+        ConnectionManager.count()
       rescue
         _ -> 0
       end
@@ -582,7 +626,7 @@ defmodule Mimo.Application do
   defp hnsw_index_status do
     if feature_enabled?(:hnsw_index) do
       try do
-        Mimo.Brain.HnswIndex.stats()
+        HnswIndex.stats()
       rescue
         _ -> %{available: false, error: "not_running"}
       end
@@ -608,5 +652,12 @@ defmodule Mimo.Application do
         Logger.error("Failed to start :pg: #{inspect(reason)}")
         error
     end
+  end
+
+  @impl true
+  def stop(_state) do
+    # Release instance lock on clean shutdown
+    InstanceLock.release()
+    :ok
   end
 end

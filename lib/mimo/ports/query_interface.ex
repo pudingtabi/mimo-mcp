@@ -9,8 +9,16 @@ defmodule Mimo.QueryInterface do
   """
   require Logger
 
-  alias Mimo.TaskHelper
   alias Mimo.Cognitive.KnowledgeTransfer
+  alias Mimo.Brain.ContradictionGuard
+  alias Mimo.Brain.LLM
+  alias Mimo.Brain.Memory
+  alias Mimo.Brain.MemoryRouter
+  alias Mimo.Brain.SafeMemory
+  alias Mimo.ProceduralStore.Loader
+  alias Mimo.SemanticStore.Observer
+  alias Mimo.Synapse.Graph
+  alias Mimo.TaskHelper
 
   @doc """
   Process a natural language query through the Meta-Cognitive Router.
@@ -63,7 +71,7 @@ defmodule Mimo.QueryInterface do
 
         # STRICT FAIL-CLOSED: If LLM services are unavailable, return explicit error
         # We don't want sudden quality drops - quality or nothing
-        if not Mimo.Brain.LLM.available?() or
+        if not LLM.available?() or
              Application.get_env(:mimo_mcp, :skip_external_apis, false) do
           Logger.error("LLM services not available - failing closed (no degradation)")
           {:error, :llm_unavailable}
@@ -164,7 +172,7 @@ defmodule Mimo.QueryInterface do
   defp safe_llm_synthesis(query, memories, timeout_ms) do
     task =
       TaskHelper.async_with_callers(fn ->
-        Mimo.Brain.LLM.consult_chief_of_staff(query, memories)
+        LLM.consult_chief_of_staff(query, memories)
       end)
 
     case Task.yield(task, timeout_ms) || Task.shutdown(task) do
@@ -224,10 +232,6 @@ defmodule Mimo.QueryInterface do
     end
   end
 
-  # =============================================================================
-  # SPEC-070: Differentiated Retrieval Strategies
-  # =============================================================================
-
   # SEMANTIC PRIMARY: Full graph traversal for relationship queries
   defp search_semantic_primary(query, _decision) do
     alias Mimo.SemanticStore.Query
@@ -246,14 +250,14 @@ defmodule Mimo.QueryInterface do
           # Targeted traversal from extracted entities - try each node type
           Enum.flat_map(entities, fn entity ->
             # Try to find node by searching across types
-            case Mimo.Synapse.Graph.search_nodes(entity, limit: 1) do
+            case Graph.search_nodes(entity, limit: 1) do
               [node | _] ->
                 # Get both outgoing and incoming edges
                 outgoing =
-                  Mimo.Synapse.Graph.outgoing_edges(node.id, preload: false) |> Enum.take(5)
+                  Graph.outgoing_edges(node.id, preload: false) |> Enum.take(5)
 
                 incoming =
-                  Mimo.Synapse.Graph.incoming_edges(node.id, preload: false) |> Enum.take(5)
+                  Graph.incoming_edges(node.id, preload: false) |> Enum.take(5)
 
                 outgoing ++ incoming
 
@@ -288,7 +292,7 @@ defmodule Mimo.QueryInterface do
         # Just check if entities exist in graph, don't traverse
         found =
           Enum.flat_map(entities, fn entity ->
-            Mimo.Synapse.Graph.search_nodes(entity, limit: 1)
+            Graph.search_nodes(entity, limit: 1)
           end)
           |> Enum.map(& &1.name)
 
@@ -313,10 +317,10 @@ defmodule Mimo.QueryInterface do
         # Look for dependency relationships
         deps =
           Enum.flat_map(code_entities, fn entity ->
-            case Mimo.Synapse.Graph.search_nodes(entity, types: [:module, :function], limit: 1) do
+            case Graph.search_nodes(entity, types: [:module, :function], limit: 1) do
               [node | _] ->
                 # Get uses/imports edges (dependency-like)
-                Mimo.Synapse.Graph.outgoing_edges(node.id,
+                Graph.outgoing_edges(node.id,
                   types: [:uses, :imports, :calls],
                   preload: false
                 )
@@ -339,7 +343,7 @@ defmodule Mimo.QueryInterface do
 
   # EPISODIC PRIMARY: Full vector search with recency boost for narrative queries
   defp search_episodic_primary(query, _decision) do
-    case Mimo.Brain.MemoryRouter.route(query, limit: 20, recency_boost: 0.4) do
+    case MemoryRouter.route(query, limit: 20, recency_boost: 0.4) do
       {:ok, results} ->
         results
         |> Enum.map(fn
@@ -355,7 +359,7 @@ defmodule Mimo.QueryInterface do
 
   # EPISODIC SECONDARY: Limited vector search for non-episodic queries
   defp search_episodic_secondary(query, _decision) do
-    case Mimo.Brain.MemoryRouter.route(query, limit: 8) do
+    case MemoryRouter.route(query, limit: 8) do
       {:ok, results} ->
         results
         |> Enum.map(fn
@@ -372,7 +376,7 @@ defmodule Mimo.QueryInterface do
   # EPISODIC FOR CONTEXT: Minimal context retrieval for procedural queries
   defp search_episodic_for_context(query, _decision) do
     # For procedural queries, we want recent relevant context, not deep history
-    case Mimo.Brain.MemoryRouter.route(query, limit: 5, recency_boost: 0.6) do
+    case MemoryRouter.route(query, limit: 5, recency_boost: 0.6) do
       {:ok, results} ->
         results
         |> Enum.map(fn
@@ -390,7 +394,7 @@ defmodule Mimo.QueryInterface do
   defp search_procedural_primary(query, _decision) do
     if Mimo.Application.feature_enabled?(:procedural_store) do
       try do
-        procedures = Mimo.ProceduralStore.Loader.list(active_only: true)
+        procedures = Loader.list(active_only: true)
 
         # Score procedures by relevance
         scored =
@@ -463,7 +467,7 @@ defmodule Mimo.QueryInterface do
 
     # Use MemoryRouter for robust retrieval with fallbacks
     # (Previously used Memory.search_memories which fails silently on embedding errors)
-    case Mimo.Brain.MemoryRouter.route(query, limit: limit) do
+    case MemoryRouter.route(query, limit: limit) do
       {:ok, results} ->
         # MemoryRouter returns {memory, score} tuples - extract just the memories
         # Also sanitize for JSON encoding (remove binary embedding field)
@@ -485,7 +489,7 @@ defmodule Mimo.QueryInterface do
       {:error, reason} ->
         Logger.warning("MemoryRouter failed: #{inspect(reason)}, trying direct search")
         # Fallback to direct search - also sanitize the results
-        case Mimo.Brain.Memory.search_memories(query, limit: limit, recency_boost: 0.3) do
+        case Memory.search_memories(query, limit: limit, recency_boost: 0.3) do
           results when is_list(results) ->
             Enum.map(results, &sanitize_memory_for_json/1)
 
@@ -540,7 +544,7 @@ defmodule Mimo.QueryInterface do
   defp search_semantic(_query, _decision), do: nil
 
   defp search_episodic_fallback(query) do
-    results = Mimo.Brain.Memory.search_memories(query, limit: 5)
+    results = Memory.search_memories(query, limit: 5)
     # Return just the memories list, not a tuple (to be JSON-serializable)
     results
   end
@@ -552,7 +556,7 @@ defmodule Mimo.QueryInterface do
       # TODO: v3.0 Roadmap - Add full-text search and semantic matching for procedures
       try do
         # List all active procedures and filter by query match
-        procedures = Mimo.ProceduralStore.Loader.list(active_only: true)
+        procedures = Loader.list(active_only: true)
 
         matching =
           procedures
@@ -597,7 +601,7 @@ defmodule Mimo.QueryInterface do
         importance = calculate_conversation_importance(query)
 
         # Route through SafeMemory for resilient consolidation pipeline
-        case Mimo.Brain.SafeMemory.store(
+        case SafeMemory.store(
                String.trim(content),
                category: "observation",
                importance: importance,
@@ -605,7 +609,7 @@ defmodule Mimo.QueryInterface do
              ) do
           {:ok, id} ->
             # Mark for consolidation since conversations are valuable
-            Mimo.Brain.SafeMemory.mark_for_consolidation(id)
+            SafeMemory.mark_for_consolidation(id)
 
           {:error, reason} ->
             Logger.warning("Failed to store conversation: #{inspect(reason)}")
@@ -646,7 +650,7 @@ defmodule Mimo.QueryInterface do
   # Integrated with ContradictionGuard for fail-closed validation
   defp check_for_contradictions(response) when is_binary(response) do
     try do
-      case Mimo.Brain.ContradictionGuard.check(response, max_claims: 3) do
+      case ContradictionGuard.check(response, max_claims: 3) do
         {:ok, []} ->
           %{status: :passed, warnings: []}
 
@@ -736,7 +740,7 @@ defmodule Mimo.QueryInterface do
       []
     else
       try do
-        case Mimo.SemanticStore.Observer.observe(entities, conversation_history) do
+        case Observer.observe(entities, conversation_history) do
           {:ok, suggestions} ->
             # Format suggestions for JSON serialization
             Enum.map(suggestions, fn s ->

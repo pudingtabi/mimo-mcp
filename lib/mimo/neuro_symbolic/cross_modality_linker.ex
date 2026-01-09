@@ -10,8 +10,9 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinker do
 
   Cross-modality connections boost relevance scores in the tiered context system.
   """
+  alias Mimo.Brain.Memory
   alias Mimo.Repo
-  alias Mimo.Synapse.{GraphNode, GraphEdge}
+  alias Mimo.Synapse.{GraphEdge, GraphNode}
   import Ecto.Query
   require Logger
 
@@ -251,13 +252,9 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinker do
     end
   end
 
-  # ==========================================================================
-  # Private: Memory Link Inference
-  # ==========================================================================
-
   defp infer_memory_links_for_symbol(symbol_id, limit) do
     # Search memories that contain the symbol name
-    case Mimo.Brain.Memory.search(symbol_id, limit: limit) do
+    case Memory.search(symbol_id, limit: limit) do
       {:ok, memories} when is_list(memories) ->
         Enum.map(memories, fn mem ->
           %{
@@ -293,7 +290,7 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinker do
 
   defp infer_code_links_for_memory(memory_id, _limit) do
     # Look up memory content and extract code references
-    case Mimo.Brain.Memory.get_memory(memory_id) do
+    case Memory.get_memory(memory_id) do
       {:ok, engram} ->
         content = engram.content || ""
         extract_code_references(content, memory_id)
@@ -343,14 +340,8 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinker do
     module_links ++ function_links
   end
 
-  # ==========================================================================
-  # Private: Library Link Inference
-  # ==========================================================================
-
   defp infer_library_links_for_symbol(symbol_id, _limit) do
-    # Check if this symbol uses any known libraries
-    # This would typically involve static analysis of imports
-    # For now, use a heuristic based on naming patterns
+    # Uses heuristic based on naming patterns for library detection.
     library_hints = extract_library_hints(symbol_id)
 
     Enum.map(library_hints, fn lib ->
@@ -413,10 +404,6 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinker do
   defp extract_library_hints(nil), do: []
   defp extract_library_hints(symbol_id), do: extract_library_hints(to_string(symbol_id))
 
-  # ==========================================================================
-  # Private: Knowledge Link Inference
-  # ==========================================================================
-
   defp infer_knowledge_links_for_symbol(symbol_id, limit) do
     # Search knowledge graph for nodes mentioning this symbol
     case Mimo.SemanticStore.query_related(symbol_id, limit: limit) do
@@ -442,7 +429,7 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinker do
 
   defp infer_knowledge_links_for_memory(memory_id, limit) do
     # Find knowledge nodes related to this memory's content
-    case Mimo.Brain.Memory.get_memory(memory_id) do
+    case Memory.get_memory(memory_id) do
       {:ok, engram} ->
         content = engram.content || ""
 
@@ -510,10 +497,6 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinker do
   rescue
     _ -> []
   end
-
-  # ==========================================================================
-  # Private: Helper Functions
-  # ==========================================================================
 
   defp infer_source_type(item) do
     cond do

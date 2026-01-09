@@ -14,6 +14,7 @@ defmodule Mimo.Tools.Dispatchers.Diagnostics do
   - All operations -> Diagnostics.check(path, operation: op_atom)
   """
 
+  alias Diagnostics
   alias Mimo.Tools.Helpers
 
   @doc """

@@ -38,13 +38,9 @@ defmodule Mimo.Brain.MemoryLinker do
 
   import Ecto.Query
 
-  alias Mimo.Synapse.Graph
-  alias Mimo.Repo
   alias Mimo.Brain.Engram
-
-  # ==========================================================================
-  # File Path Extraction Patterns
-  # ==========================================================================
+  alias Mimo.Repo
+  alias Mimo.Synapse.Graph
 
   @file_patterns [
     # Elixir/Erlang files with path
@@ -63,10 +59,6 @@ defmodule Mimo.Brain.MemoryLinker do
     ~r/(?:^|[\s"'`])(?:lib|src)\/[\w\/\-]+\.[\w]+/
   ]
 
-  # ==========================================================================
-  # Function Name Extraction Patterns
-  # ==========================================================================
-
   @function_patterns [
     # Elixir: Module.function/arity
     ~r/([A-Z][A-Za-z0-9]*(?:\.[A-Z][A-Za-z0-9]*)*)\.([\w_!?]+)\/(\d+)/,
@@ -81,10 +73,6 @@ defmodule Mimo.Brain.MemoryLinker do
     # Ruby/Python: def function_name
     ~r/\bdef\s+([\w_]+)\s*[\(\:]/
   ]
-
-  # ==========================================================================
-  # Library Name Patterns (Common Libraries)
-  # ==========================================================================
 
   @library_patterns %{
     # Elixir/Erlang
@@ -101,10 +89,6 @@ defmodule Mimo.Brain.MemoryLinker do
     # Go
     go: ~r/\b(?:gin|echo|fiber|gorm|cobra|viper)\b/i
   }
-
-  # ==========================================================================
-  # Concept Keywords
-  # ==========================================================================
 
   @concept_keywords %{
     "Authentication" =>
@@ -125,9 +109,6 @@ defmodule Mimo.Brain.MemoryLinker do
     "WebSocket" => ~r/\b(?:websocket|socket|channel|pubsub|realtime)\b/i,
     "Background Jobs" => ~r/\b(?:worker|job|queue|async|task|background|cron)\b/i,
     "Deployment" => ~r/\b(?:deploy|release|build|docker|kubernetes|k8s|ci|cd)\b/i,
-    # ==========================================================================
-    # Mimo-Specific Concepts (SPEC-025 Enhancement)
-    # ==========================================================================
     "Memory System" =>
       ~r/\b(?:memory|engram|episodic|working[_\s]?memory|consolidat|forgett|decay|store_fact|search_vibes)\b/i,
     "Knowledge Graph" =>
@@ -140,10 +121,6 @@ defmodule Mimo.Brain.MemoryLinker do
     "Embedding" => ~r/\b(?:embed|vector|ollama|similarity|semantic[_\s]?search)\b/i,
     "Specification" => ~r/\b(?:spec[-_]?\d+|specification|implementation)\b/i
   }
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
 
   @doc """
   Analyze engram content and create Synapse links.
@@ -414,10 +391,6 @@ defmodule Mimo.Brain.MemoryLinker do
     end
   end
 
-  # ==========================================================================
-  # Private Functions - Extraction
-  # ==========================================================================
-
   defp extract_file_refs(text) do
     @file_patterns
     |> Enum.flat_map(fn pattern ->
@@ -428,8 +401,7 @@ defmodule Mimo.Brain.MemoryLinker do
       end)
     end)
     |> Enum.uniq()
-    |> Enum.reject(&is_nil/1)
-    |> Enum.reject(&(String.length(&1) < 3))
+    |> Enum.reject(fn x -> is_nil(x) or String.length(x) < 3 end)
   end
 
   defp extract_function_refs(text) do
@@ -458,10 +430,7 @@ defmodule Mimo.Brain.MemoryLinker do
       end)
     end)
     |> Enum.uniq()
-    |> Enum.reject(&is_nil/1)
-    |> Enum.reject(&(String.length(&1) < 2))
-    # Filter out common words that might match
-    |> Enum.reject(&common_word?/1)
+    |> Enum.reject(fn x -> is_nil(x) or String.length(x) < 2 or common_word?(x) end)
   end
 
   defp extract_library_refs(text) do
@@ -480,10 +449,6 @@ defmodule Mimo.Brain.MemoryLinker do
     end)
     |> Enum.map(fn {concept, _} -> concept end)
   end
-
-  # ==========================================================================
-  # Private Functions - Edge Creation
-  # ==========================================================================
 
   defp find_or_create_memory_node(engram_id, content) do
     # Truncate content for preview
@@ -591,10 +556,6 @@ defmodule Mimo.Brain.MemoryLinker do
       {:error, _} -> 0
     end
   end
-
-  # ==========================================================================
-  # Private Functions - Helpers
-  # ==========================================================================
 
   defp get_engram(id) do
     case Repo.get(Engram, id) do

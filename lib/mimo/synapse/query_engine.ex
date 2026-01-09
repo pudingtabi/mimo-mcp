@@ -26,8 +26,10 @@ defmodule Mimo.Synapse.QueryEngine do
   """
 
   require Logger
-  alias Mimo.Synapse.{Graph, Traversal}
+  alias Math
+  alias LLM
   alias Mimo.Repo
+  alias Mimo.Synapse.{Graph, Traversal}
 
   import Ecto.Query
 
@@ -37,10 +39,6 @@ defmodule Mimo.Synapse.QueryEngine do
           context: String.t(),
           relevance_scores: map()
         }
-
-  # ============================================
-  # Hybrid Search
-  # ============================================
 
   @doc """
   Execute a hybrid query: vector search + graph expansion.
@@ -131,10 +129,6 @@ defmodule Mimo.Synapse.QueryEngine do
 
     query(query_text, opts)
   end
-
-  # ============================================
-  # Context Retrieval
-  # ============================================
 
   @doc """
   Find all code related to a concept.
@@ -230,10 +224,6 @@ defmodule Mimo.Synapse.QueryEngine do
     |> Enum.take(limit)
   end
 
-  # ============================================
-  # Graph Exploration
-  # ============================================
-
   @doc """
   Explore the graph from a starting query.
 
@@ -269,10 +259,6 @@ defmodule Mimo.Synapse.QueryEngine do
      }}
   end
 
-  # ============================================
-  # Private Helpers
-  # ============================================
-
   defp find_seed_nodes(query_text, node_types, limit) do
     # Try vector similarity first if we can generate an embedding
     vector_results = find_seed_nodes_by_embedding(query_text, node_types, limit)
@@ -304,7 +290,7 @@ defmodule Mimo.Synapse.QueryEngine do
     alias Mimo.Repo
     alias Mimo.Synapse.GraphNode
 
-    with {:ok, query_embedding} when is_list(query_embedding) and length(query_embedding) > 0 <-
+    with {:ok, query_embedding} when is_list(query_embedding) and query_embedding != [] <-
            Mimo.Brain.LLM.generate_embedding(query_text),
          candidates when candidates != [] <- get_embedding_candidates(node_types, limit),
          {:ok, results} <- score_candidates_by_similarity(candidates, query_embedding, limit) do
@@ -326,7 +312,7 @@ defmodule Mimo.Synapse.QueryEngine do
       |> limit(^(limit * 10))
       |> Repo.all()
       |> Enum.filter(fn node ->
-        is_list(node.embedding) and length(node.embedding) > 0
+        is_list(node.embedding) and node.embedding != []
       end)
     rescue
       _ -> []

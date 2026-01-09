@@ -54,10 +54,6 @@ defmodule Mimo.Skills.FileOps do
     (base ++ additional) |> Enum.uniq()
   end
 
-  # ==========================================================================
-  # SMART READ - Chunked reading for large files
-  # ==========================================================================
-
   @doc """
   Smart read with automatic chunking for large files.
   Returns max 500 lines at a time with metadata for continuation.
@@ -139,10 +135,6 @@ defmodule Mimo.Skills.FileOps do
     |> File.stream!([], :line)
     |> Enum.count()
   end
-
-  # ==========================================================================
-  # SYMBOL OPERATIONS - Code-aware reading and editing
-  # ==========================================================================
 
   @doc """
   Extract symbols (functions, classes, methods) from a file.
@@ -373,10 +365,6 @@ defmodule Mimo.Skills.FileOps do
     ]
   end
 
-  # ==========================================================================
-  # SEMANTIC SEARCH - Find code by meaning
-  # ==========================================================================
-
   @doc """
   Search file contents using pattern matching.
   Returns matches with line numbers and context.
@@ -541,10 +529,6 @@ defmodule Mimo.Skills.FileOps do
   end
 
   defp get_context(_lines, _idx, 0), do: []
-
-  # ==========================================================================
-  # LINE OPERATIONS - Targeted insertions and edits
-  # ==========================================================================
 
   @doc """
   Insert content at a specific line number.
@@ -804,10 +788,6 @@ defmodule Mimo.Skills.FileOps do
     read(path, offset: start_line, limit: limit)
   end
 
-  # ==========================================================================
-  # BASIC FILE OPERATIONS
-  # ==========================================================================
-
   def write(path, content, opts \\ []) when is_binary(path) do
     mode = Keyword.get(opts, :mode, :rewrite)
 
@@ -948,10 +928,6 @@ defmodule Mimo.Skills.FileOps do
     search(base_path, pattern, opts)
   end
 
-  # ==========================================================================
-  # GLOB OPERATION - Pattern-based file discovery (SPEC-027)
-  # ==========================================================================
-
   @doc """
   Find files matching a glob pattern.
 
@@ -971,37 +947,39 @@ defmodule Mimo.Skills.FileOps do
     limit = Keyword.get(opts, :limit, 100)
     respect_gitignore = Keyword.get(opts, :respect_gitignore, true)
 
-    with {:ok, safe_base} <- expand_safe(base_path) do
-      full_pattern = Path.join(safe_base, pattern)
+    case expand_safe(base_path) do
+      {:ok, safe_base} ->
+        full_pattern = Path.join(safe_base, pattern)
 
-      # Load gitignore patterns if requested
-      gitignore_patterns =
-        if respect_gitignore do
-          load_gitignore_patterns(safe_base)
-        else
-          []
-        end
+        # Load gitignore patterns if requested
+        gitignore_patterns =
+          if respect_gitignore do
+            load_gitignore_patterns(safe_base)
+          else
+            []
+          end
 
-      all_matches = Path.wildcard(full_pattern)
+        all_matches = Path.wildcard(full_pattern)
 
-      results =
-        all_matches
-        |> Enum.reject(
-          &(should_exclude?(&1, exclude) or matches_gitignore?(&1, gitignore_patterns, safe_base))
-        )
-        |> Enum.take(limit)
-        |> Enum.map(&Path.relative_to(&1, safe_base))
+        results =
+          all_matches
+          |> Enum.reject(
+            &(should_exclude?(&1, exclude) or matches_gitignore?(&1, gitignore_patterns, safe_base))
+          )
+          |> Enum.take(limit)
+          |> Enum.map(&Path.relative_to(&1, safe_base))
 
-      {:ok,
-       %{
-         pattern: pattern,
-         base_path: base_path,
-         matches: results,
-         count: length(results),
-         truncated: length(all_matches) > limit
-       }}
-    else
-      {:error, reason} -> format_file_error(reason, base_path)
+        {:ok,
+         %{
+           pattern: pattern,
+           base_path: base_path,
+           matches: results,
+           count: length(results),
+           truncated: length(all_matches) > limit
+         }}
+
+      {:error, reason} ->
+        format_file_error(reason, base_path)
     end
   end
 
@@ -1057,10 +1035,6 @@ defmodule Mimo.Skills.FileOps do
       end
     end)
   end
-
-  # ==========================================================================
-  # MULTI-REPLACE OPERATION - Atomic multi-file edits (SPEC-027)
-  # ==========================================================================
 
   @doc """
   Perform atomic multi-file replacements.
@@ -1207,10 +1181,6 @@ defmodule Mimo.Skills.FileOps do
     end
   end
 
-  # ==========================================================================
-  # DIFF OPERATION - Show file differences (SPEC-027)
-  # ==========================================================================
-
   @doc """
   Show differences between files or between file and proposed content.
 
@@ -1328,10 +1298,6 @@ defmodule Mimo.Skills.FileOps do
       deletions: deletions
     }
   end
-
-  # ==========================================================================
-  # PATH SECURITY
-  # ==========================================================================
 
   defp expand_safe(path) do
     roots = allowed_roots()

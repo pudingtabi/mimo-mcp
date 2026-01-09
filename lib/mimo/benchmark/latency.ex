@@ -15,8 +15,8 @@ defmodule Mimo.Benchmark.Latency do
   require Logger
 
   alias Mimo.Brain.MemoryRouter
-  alias Mimo.MetaCognitiveRouter
   alias Mimo.Cognitive.FeedbackLoop
+  alias Mimo.MetaCognitiveRouter
 
   @target_latency_ms 50
   @warmup_runs 3
@@ -117,10 +117,6 @@ defmodule Mimo.Benchmark.Latency do
     |> Enum.join("\n")
   end
 
-  # ==========================================================================
-  # Individual Benchmarks
-  # ==========================================================================
-
   defp run_single(:router_classify) do
     queries = [
       "Fix the authentication bug",
@@ -154,10 +150,6 @@ defmodule Mimo.Benchmark.Latency do
   defp run_single(:feedback_query) do
     FeedbackLoop.query_patterns(:prediction)
   end
-
-  # ==========================================================================
-  # Analysis
-  # ==========================================================================
 
   defp analyze_measurements(benchmark, measurements) do
     sorted = Enum.sort(measurements)

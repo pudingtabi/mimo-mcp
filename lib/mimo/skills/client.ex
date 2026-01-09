@@ -10,6 +10,7 @@ defmodule Mimo.Skills.Client do
   use GenServer
   require Logger
 
+  alias SecureExecutor
   alias Mimo.Protocol.McpParser
   alias Mimo.Skills.ProcessManager
   alias Mimo.Skills.Validator

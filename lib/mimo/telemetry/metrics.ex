@@ -23,10 +23,6 @@ defmodule Mimo.Telemetry.Metrics do
   """
   def metrics do
     [
-      # =======================================================================
-      # Production Performance Metrics (SPEC-061)
-      # =======================================================================
-
       # Memory search latency - PRIMARY METRIC
       distribution("mimo.memory.search.duration",
         description: "Memory search latency (SPEC-061 target: p95 <1500ms)",
@@ -71,10 +67,6 @@ defmodule Mimo.Telemetry.Metrics do
         tags: [:type, :component]
       ),
 
-      # =======================================================================
-      # System Metrics
-      # =======================================================================
-
       # Memory usage
       last_value("mimo.system.memory.bytes",
         description: "Total BEAM memory usage in bytes",
@@ -110,10 +102,6 @@ defmodule Mimo.Telemetry.Metrics do
       last_value("vm.system_counts.process_count",
         description: "Number of BEAM processes"
       ),
-
-      # =======================================================================
-      # Semantic Store Metrics
-      # =======================================================================
 
       # Query latency
       distribution("mimo.semantic_store.query.duration",
@@ -174,11 +162,6 @@ defmodule Mimo.Telemetry.Metrics do
           buckets: [100, 500, 1000, 5000, 10_000, 30_000]
         ]
       ),
-
-      # =======================================================================
-      # Brain/Classifier Metrics
-      # =======================================================================
-
       counter("mimo.brain.classify.total",
         description: "Total classifications",
         tags: [:intent, :path]
@@ -195,11 +178,6 @@ defmodule Mimo.Telemetry.Metrics do
         description: "Classification confidence scores",
         tags: [:intent]
       ),
-
-      # =======================================================================
-      # HTTP/API Metrics
-      # =======================================================================
-
       counter("mimo.http.request.total",
         description: "Total HTTP requests",
         tags: [:method, :path, :status]
@@ -212,11 +190,6 @@ defmodule Mimo.Telemetry.Metrics do
           buckets: [10, 25, 50, 100, 250, 500, 1000, 2500]
         ]
       ),
-
-      # =======================================================================
-      # HNSW Index Metrics
-      # =======================================================================
-
       distribution("mimo.hnsw.search.duration",
         description: "HNSW search latency",
         unit: {:native, :millisecond},
@@ -231,11 +204,6 @@ defmodule Mimo.Telemetry.Metrics do
           buckets: [1, 5, 10, 25, 50, 100]
         ]
       ),
-
-      # =======================================================================
-      # Embedding Cache Metrics
-      # =======================================================================
-
       counter("mimo.embedding_cache.hits",
         description: "Embedding cache hits"
       ),
@@ -249,11 +217,6 @@ defmodule Mimo.Telemetry.Metrics do
           buckets: [50, 100, 200, 500, 1000, 2000]
         ]
       ),
-
-      # =======================================================================
-      # Error Handling Metrics
-      # =======================================================================
-
       counter("mimo.error.total",
         description: "Total errors",
         tags: [:component, :error_type]
@@ -266,11 +229,6 @@ defmodule Mimo.Telemetry.Metrics do
         description: "Circuit breaker state changes",
         tags: [:name, :from_state, :to_state]
       ),
-
-      # =======================================================================
-      # Observer Metrics
-      # =======================================================================
-
       counter("mimo.observer.suggestions.total",
         description: "Total proactive suggestions made",
         tags: [:accepted]

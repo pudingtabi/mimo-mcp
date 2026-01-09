@@ -155,10 +155,6 @@ defmodule Mimo.Library.ImportWatcher do
   def language_to_ecosystem(:rust), do: :crates
   def language_to_ecosystem(_), do: nil
 
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
-
   defp normalize_import(import, :elixir) do
     # For Elixir, convert module name to package name
     # e.g., Phoenix.Controller -> phoenix

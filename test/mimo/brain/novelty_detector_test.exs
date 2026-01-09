@@ -4,7 +4,7 @@ defmodule Mimo.Brain.NoveltyDetectorTest do
   """
   use Mimo.DataCase, async: false
 
-  alias Mimo.Brain.{NoveltyDetector, Engram}
+  alias Mimo.Brain.{Engram, NoveltyDetector}
   alias Mimo.Repo
 
   describe "thresholds_for/1" do

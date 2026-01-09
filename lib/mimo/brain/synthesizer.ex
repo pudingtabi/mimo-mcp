@@ -34,8 +34,10 @@ defmodule Mimo.Brain.Synthesizer do
   use GenServer
   require Logger
 
-  alias Mimo.Brain.{Memory, LLM}
+  alias Mimo.Brain.{LLM, Memory}
+  alias Mimo.Brain.{EmbeddingGate, InferenceScheduler}
   alias Mimo.SafeCall
+  alias Mimo.Vector.Math, as: VectorMath
 
   # 5 minutes
   @default_interval 300_000
@@ -57,10 +59,6 @@ defmodule Mimo.Brain.Synthesizer do
 
   RESPOND WITH ONLY THE SYNTHESIS STATEMENT, nothing else.
   """
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -90,10 +88,6 @@ defmodule Mimo.Brain.Synthesizer do
       fallback: %{status: :unavailable, total_syntheses: 0}
     )
   end
-
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
 
   @impl true
   def init(opts) do
@@ -145,10 +139,6 @@ defmodule Mimo.Brain.Synthesizer do
     schedule_next(state.interval)
     {:noreply, new_state}
   end
-
-  # ==========================================================================
-  # Core Synthesis Logic
-  # ==========================================================================
 
   defp run_synthesis(state, opts) do
     try do
@@ -278,13 +268,12 @@ defmodule Mimo.Brain.Synthesizer do
 
     case {emb1, emb2} do
       {e1, e2} when is_list(e1) and is_list(e2) ->
-        Mimo.Vector.Math.cosine_similarity(e1, e2)
+        VectorMath.cosine_similarity(e1, e2)
 
       {e1, e2} when is_binary(e1) and is_binary(e2) ->
         # Int8 embeddings - use hamming or decode first
-        case {Mimo.Vector.Math.dequantize_int8(e1, 1.0, 0.0),
-              Mimo.Vector.Math.dequantize_int8(e2, 1.0, 0.0)} do
-          {{:ok, v1}, {:ok, v2}} -> Mimo.Vector.Math.cosine_similarity(v1, v2)
+        case {VectorMath.dequantize_int8(e1, 1.0, 0.0), VectorMath.dequantize_int8(e2, 1.0, 0.0)} do
+          {{:ok, v1}, {:ok, v2}} -> VectorMath.cosine_similarity(v1, v2)
           _ -> 0.0
         end
 
@@ -308,7 +297,7 @@ defmodule Mimo.Brain.Synthesizer do
     prompt = String.replace(@synthesis_prompt, "{{memories}}", memory_texts)
 
     # Check if we can skip via EmbeddingGate
-    case Mimo.Brain.EmbeddingGate.should_call_llm?(prompt, :synthesis) do
+    case EmbeddingGate.should_call_llm?(prompt, :synthesis) do
       {:cached, cached_response} ->
         Logger.debug("[Synthesizer] Using cached synthesis")
         store_synthesis_result(cached_response, cluster)
@@ -318,7 +307,7 @@ defmodule Mimo.Brain.Synthesizer do
         # Fall back to direct LLM if scheduler unavailable
         result =
           try do
-            Mimo.Brain.InferenceScheduler.request(:low, prompt,
+            InferenceScheduler.request(:low, prompt,
               max_tokens: 200,
               temperature: 0.3,
               raw: true
@@ -333,7 +322,7 @@ defmodule Mimo.Brain.Synthesizer do
         case result do
           {:ok, synthesis_text} when is_binary(synthesis_text) and byte_size(synthesis_text) > 20 ->
             # Cache for future
-            Mimo.Brain.EmbeddingGate.cache_response(prompt, synthesis_text)
+            EmbeddingGate.cache_response(prompt, synthesis_text)
             store_synthesis_result(synthesis_text, cluster)
 
           {:ok, _} ->
@@ -422,8 +411,7 @@ defmodule Mimo.Brain.Synthesizer do
         current_metadata = Map.get(m, :metadata, %{})
         _new_metadata = Map.put(current_metadata, "synthesized_at", now)
 
-        # This would need a proper update function
-        # For now, we log it
+        # Logs synthesis (proper update function can be added later).
         Logger.debug("[Synthesizer] Marked memory #{m.id} as synthesized")
       rescue
         _ -> :ok

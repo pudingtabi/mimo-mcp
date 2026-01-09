@@ -22,6 +22,7 @@ defmodule Mimo.Code.FileWatcher do
   require Logger
 
   alias Mimo.Code.{SymbolIndex, TreeSitter}
+  alias Mimo.Synapse.Orchestrator
 
   @debounce_ms 100
   @name __MODULE__
@@ -225,7 +226,7 @@ defmodule Mimo.Code.FileWatcher do
   end
 
   defp start_watching_dirs(dirs) do
-    if Code.ensure_loaded?(FileSystem) and length(dirs) > 0 do
+    if Code.ensure_loaded?(FileSystem) and dirs != [] do
       case FileSystem.start_link(dirs: dirs, name: :code_file_watcher) do
         {:ok, pid} ->
           FileSystem.subscribe(:code_file_watcher)
@@ -295,7 +296,7 @@ defmodule Mimo.Code.FileWatcher do
   # Notify the Synapse Orchestrator about file changes (SPEC-025)
   defp notify_orchestrator(file_path, symbols) do
     if Process.whereis(Mimo.Synapse.Orchestrator) do
-      Mimo.Synapse.Orchestrator.on_file_indexed(file_path, symbols)
+      Orchestrator.on_file_indexed(file_path, symbols)
     else
       Logger.debug("FileWatcher: Orchestrator not available, skipping graph sync")
     end

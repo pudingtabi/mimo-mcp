@@ -23,8 +23,8 @@ defmodule Mimo.Brain.Emergence.Catalog do
   use GenServer
   require Logger
 
-  alias Mimo.Repo
   alias Mimo.Brain.Emergence.Pattern
+  alias Mimo.Repo
 
   @catalog_table :emergence_catalog
 
@@ -251,14 +251,20 @@ defmodule Mimo.Brain.Emergence.Catalog do
         )
 
       Enum.each(patterns, fn pattern ->
+        # evolution is a list of history entries, not a map
+        # promotion_artifact and usage_count should come from metadata
+        metadata = pattern.metadata || %{}
+
         entry = %{
           pattern_id: pattern.id,
           pattern_type: pattern.type,
           description: pattern.description,
-          artifact: pattern.evolution["promotion_artifact"],
+          artifact: Map.get(metadata, "promotion_artifact"),
           promoted_at: pattern.updated_at,
-          usage_count: Map.get(pattern.evolution, "post_promotion_usage", 0),
-          last_used_at: nil
+          usage_count: Map.get(metadata, "post_promotion_usage", 0),
+          last_used_at: Map.get(metadata, "last_used_at"),
+          occurrences: pattern.occurrences,
+          success_rate: pattern.success_rate
         }
 
         :ets.insert(@catalog_table, {pattern.id, entry})

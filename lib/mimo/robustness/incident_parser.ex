@@ -46,6 +46,7 @@ defmodule Mimo.Robustness.IncidentParser do
       #   prevention: "..."
       # }
   """
+  alias Memory
 
   require Logger
 
@@ -313,7 +314,7 @@ defmodule Mimo.Robustness.IncidentParser do
     Patterns: #{inspect(Enum.map(incident.patterns, & &1.name))}
     """
 
-    case Code.ensure_loaded(Mimo.Brain.Memory) do
+    case Code.ensure_loaded(Memory) do
       {:module, _} ->
         # Memory.store/1 takes a map with :content, :category, :importance keys
         Mimo.Brain.Memory.store(%{
@@ -348,7 +349,7 @@ defmodule Mimo.Robustness.IncidentParser do
 
     # Use SemanticStore.query_related or store facts as memories instead
     # SemanticStore doesn't have a teach/1 function - use Memory for knowledge
-    case Code.ensure_loaded(Mimo.Brain.Memory) do
+    case Code.ensure_loaded(Memory) do
       {:module, _} ->
         results =
           Enum.map(teachings, fn text ->

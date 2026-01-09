@@ -10,8 +10,9 @@ defmodule MimoWeb.HealthController do
   """
   use MimoWeb, :controller
 
-  alias Mimo.Brain.Memory
-  alias Mimo.Brain.HnswIndex
+  alias CircuitBreaker
+  alias Mimo.Brain.{HnswIndex, LLM, Memory}
+  alias Mimo.Cache.Embedding, as: EmbeddingCache
   alias Mimo.Fallback.ServiceRegistry
 
   @doc """
@@ -160,10 +161,6 @@ defmodule MimoWeb.HealthController do
     })
   end
 
-  # ==========================================================================
-  # Component Checks
-  # ==========================================================================
-
   defp check_database do
     case Mimo.Repo.query("SELECT 1") do
       {:ok, _} -> :ok
@@ -174,7 +171,7 @@ defmodule MimoWeb.HealthController do
   end
 
   defp check_ollama do
-    case Mimo.Brain.LLM.available?() do
+    case LLM.available?() do
       true -> :ok
       false -> :degraded
     end
@@ -218,10 +215,6 @@ defmodule MimoWeb.HealthController do
     end
   end
 
-  # ==========================================================================
-  # Metrics
-  # ==========================================================================
-
   defp get_memory_count do
     Memory.count_memories()
   rescue
@@ -238,8 +231,8 @@ defmodule MimoWeb.HealthController do
   end
 
   defp get_cache_stats do
-    if Mimo.Cache.Embedding.available?() do
-      stats = Mimo.Cache.Embedding.stats()
+    if EmbeddingCache.available?() do
+      stats = EmbeddingCache.stats()
 
       %{
         size: stats.size,
@@ -261,10 +254,6 @@ defmodule MimoWeb.HealthController do
   defp format_status(:error), do: "error"
   defp format_status(:degraded), do: "degraded"
   defp format_status(other), do: to_string(other)
-
-  # ==========================================================================
-  # Startup Health Helpers (TASK 3)
-  # ==========================================================================
 
   defp format_services(services) do
     Enum.map(services, fn service ->

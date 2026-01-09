@@ -21,7 +21,7 @@ defmodule Mimo.Workflow.Predictor do
   """
   require Logger
 
-  alias Mimo.Workflow.{Pattern, PatternRegistry, BindingsResolver}
+  alias Mimo.Workflow.{BindingsResolver, Pattern, PatternRegistry}
 
   # Minimum confidence for auto-execution
   @auto_execute_threshold 0.80
@@ -45,10 +45,6 @@ defmodule Mimo.Workflow.Predictor do
           optional(:project_type) => String.t(),
           optional(:model_type) => String.t()
         }
-
-  # ============================================================================
-  # Public API
-  # ============================================================================
 
   @doc """
   Predicts the best workflow for a task description.
@@ -92,10 +88,6 @@ defmodule Mimo.Workflow.Predictor do
   """
   @spec auto_execute_threshold() :: float()
   def auto_execute_threshold, do: @auto_execute_threshold
-
-  # ============================================================================
-  # Feature Extraction
-  # ============================================================================
 
   defp extract_features(description, context) do
     description_lower = String.downcase(description)
@@ -211,22 +203,18 @@ defmodule Mimo.Workflow.Predictor do
       has_error: context[:error_message] != nil,
       has_file: context[:current_file] != nil,
       has_recent_tools: (context[:recent_tools] || []) != [],
-      recent_tool_count: length(context[:recent_tools] || []),
+      recent_tool_count: Enum.count(context[:recent_tools] || []),
       model_type: context[:model_type]
     }
   end
 
   defp estimate_complexity(tokens, _description) do
     cond do
-      length(tokens) > 30 -> :high
-      length(tokens) > 15 -> :medium
+      Enum.count(tokens) > 30 -> :high
+      Enum.count(tokens) > 15 -> :medium
       true -> :low
     end
   end
-
-  # ============================================================================
-  # Pattern Matching
-  # ============================================================================
 
   defp get_candidate_patterns(features) do
     # Get all patterns from registry
@@ -261,10 +249,6 @@ defmodule Mimo.Workflow.Predictor do
     pattern_tags = pattern.tags || []
     Enum.any?(tags, &(&1 in pattern_tags))
   end
-
-  # ============================================================================
-  # Scoring
-  # ============================================================================
 
   defp score_candidates(candidates, features, context) do
     candidates
@@ -302,7 +286,7 @@ defmodule Mimo.Workflow.Predictor do
       0.5
     else
       matches = Enum.count(pattern.tags || [], &(&1 in expected_tags))
-      min(matches / length(expected_tags), 1.0)
+      min(matches / Enum.count(expected_tags), 1.0)
     end
   end
 
@@ -315,14 +299,14 @@ defmodule Mimo.Workflow.Predictor do
 
     entity_signals =
       [
-        if(length(entities.file_paths) > 0, do: "file", else: nil),
-        if(length(entities.symbol_names) > 0, do: "code", else: nil),
-        if(length(entities.error_types) > 0, do: "code", else: nil)
+        if(entities.file_paths != [], do: "file", else: nil),
+        if(entities.symbol_names != [], do: "code", else: nil),
+        if(entities.error_types != [], do: "code", else: nil)
       ]
       |> Enum.filter(& &1)
 
     matches = Enum.count(entity_signals, &(&1 in step_tools))
-    if length(entity_signals) > 0, do: matches / length(entity_signals), else: 0.5
+    if entity_signals != [], do: matches / Enum.count(entity_signals), else: 0.5
   end
 
   defp score_context_relevance(pattern, context) do
@@ -344,7 +328,7 @@ defmodule Mimo.Workflow.Predictor do
         signals
       end
 
-    if Enum.empty?(signals), do: 0.5, else: Enum.sum(signals) / length(signals)
+    if Enum.empty?(signals), do: 0.5, else: Enum.sum(signals) / Enum.count(signals)
   end
 
   defp has_tag?(pattern, tag) do
@@ -367,10 +351,6 @@ defmodule Mimo.Workflow.Predictor do
 
     usage_factor * 0.5 + recency_factor * 0.5
   end
-
-  # ============================================================================
-  # Selection
-  # ============================================================================
 
   defp select_prediction([]), do: {:manual, "No patterns available"}
 

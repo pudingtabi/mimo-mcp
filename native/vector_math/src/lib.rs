@@ -11,7 +11,7 @@ use rayon::prelude::*;
 use rustler::{Binary, Encoder, Env, NifResult, OwnedBinary, Term};
 
 #[cfg(feature = "hnsw")]
-use rustler::{Resource, ResourceArc};
+use rustler::ResourceArc;
 
 // HNSW module for SPEC-033 Phase 3b (requires "hnsw" feature flag)
 #[cfg(feature = "hnsw")]

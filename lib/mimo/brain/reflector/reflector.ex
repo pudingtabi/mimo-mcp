@@ -46,18 +46,18 @@ defmodule Mimo.Brain.Reflector do
 
   require Logger
 
+  alias Mimo.Brain.Memory
+
   alias Mimo.Brain.Reflector.{
-    Evaluator,
     ConfidenceEstimator,
-    ErrorDetector,
     ConfidenceOutput,
+    ErrorDetector,
+    Evaluator,
     Optimizer
   }
 
-  alias Mimo.Brain.Memory
   alias Mimo.Cognitive.Reasoner
   alias Mimo.Skills.Verify
-
   @default_threshold 0.70
   @max_iterations 3
 
@@ -77,10 +77,6 @@ defmodule Mimo.Brain.Reflector do
           store_outcome: boolean(),
           fast_mode: boolean()
         ]
-
-  # ============================================
-  # Main API
-  # ============================================
 
   @doc """
   Evaluate output quality and iteratively refine if needed.
@@ -142,7 +138,6 @@ defmodule Mimo.Brain.Reflector do
     case result do
       {:ok, _} = success -> success
       {:uncertain, data} -> {:uncertain, Map.put(data, :warning, generate_warning(data))}
-      {:error, _} = error -> error
     end
   rescue
     e in DBConnection.OwnershipError ->
@@ -231,10 +226,6 @@ defmodule Mimo.Brain.Reflector do
     }
   end
 
-  # ============================================
-  # Iteration Logic
-  # ============================================
-
   defp iterate(output, context, threshold, max_iter, current_iter, history, opts) do
     # Evaluate current output
     evaluation = Evaluator.evaluate(output, context, opts)
@@ -307,10 +298,6 @@ defmodule Mimo.Brain.Reflector do
     end
   end
 
-  # ============================================
-  # Refinement
-  # ============================================
-
   defp refine(output, evaluation, context) do
     # Build refinement prompt based on issues
     refinement_prompt = build_refinement_prompt(output, evaluation, context)
@@ -381,10 +368,6 @@ defmodule Mimo.Brain.Reflector do
     end
   end
 
-  # ============================================
-  # Outcome Storage
-  # ============================================
-
   defp store_reflection_outcome({status, result}, context) do
     query = context[:query] || "unknown query"
     score = result.evaluation.aggregate_score
@@ -418,12 +401,35 @@ defmodule Mimo.Brain.Reflector do
     Mimo.Sandbox.run_async(Mimo.Repo, fn ->
       try do
         Memory.persist_memory(content, "observation", importance)
+
+        # WIRE 3: Adjust importance of related memories based on reflection outcome
+        # When reflection succeeds, boost memories that helped. When it fails, reduce.
+        adjust_related_memory_importance(query, status)
       rescue
         _ -> :ok
       end
     end)
 
     :ok
+  rescue
+    _ -> :ok
+  end
+
+  # WIRE 3: Adjust related memory importance based on reflection outcome
+  defp adjust_related_memory_importance(query, status) do
+    # Search for memories that were likely used in this query
+    case Memory.search_memories(query, limit: 3) do
+      memories when is_list(memories) and memories != [] ->
+        adjustment = if status == :ok, do: 0.05, else: -0.03
+
+        Enum.each(memories, fn memory ->
+          new_importance = min(1.0, max(0.1, (memory.importance || 0.5) + adjustment))
+          Memory.update_importance(memory.id, new_importance)
+        end)
+
+      _ ->
+        :ok
+    end
   rescue
     _ -> :ok
   end
@@ -472,10 +478,6 @@ defmodule Mimo.Brain.Reflector do
       "Response quality below threshold after #{result.iterations} refinement attempts (score: #{Float.round(score, 2)})"
     end
   end
-
-  # ============================================
-  # Pattern Analysis
-  # ============================================
 
   defp calculate_success_rate(reflections) do
     if reflections == [] do
@@ -558,10 +560,6 @@ defmodule Mimo.Brain.Reflector do
     end
   end
 
-  # ==========================================================================
-  # EXECUTABLE VERIFICATION INTEGRATION (SPEC-AI-TEST Recommendations)
-  # ==========================================================================
-
   @doc """
   Verify a claim using executable verification methods.
 
@@ -572,7 +570,7 @@ defmodule Mimo.Brain.Reflector do
 
       iex> verify_claim("Mississippi has 4 s's", %{"operation" => "count", "text" => "Mississippi", "target" => "s", "type" => "letter"})
       {:ok, %{verified: true, expected: 4, actual: 4, method: "character_enumeration"}}
-      
+
       iex> verify_claim("17 * 23 = 391", %{"operation" => "math", "expression" => "17 * 23", "claimed_result" => 391})
       {:ok, %{verified: true, claimed: 391, actual: 391, method: "safe_arithmetic"}}
   """
@@ -595,7 +593,8 @@ defmodule Mimo.Brain.Reflector do
 
   Returns enhanced evaluation with verification results.
   """
-  @spec reflect_with_verification(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  @spec reflect_with_verification(String.t(), map(), keyword()) ::
+          {:ok, map()} | {:uncertain, map()} | {:error, term()}
   def reflect_with_verification(output, context, opts \\ []) do
     # Extract potential verifiable claims from output
     verifiable_claims = extract_verifiable_claims(output, context)

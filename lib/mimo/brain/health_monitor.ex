@@ -31,13 +31,9 @@ defmodule Mimo.Brain.HealthMonitor do
   require Logger
   import Ecto.Query
 
-  alias Mimo.{Repo, Brain.Engram}
+  alias Mimo.{Brain.Engram, Repo}
 
   @default_interval :timer.hours(1)
-
-  # ==========================================================================
-  # Client API
-  # ==========================================================================
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -66,10 +62,6 @@ defmodule Mimo.Brain.HealthMonitor do
   def issues do
     GenServer.call(__MODULE__, :issues)
   end
-
-  # ==========================================================================
-  # Server Callbacks
-  # ==========================================================================
 
   @impl true
   def init(_opts) do
@@ -119,10 +111,6 @@ defmodule Mimo.Brain.HealthMonitor do
     schedule_next_check()
     {:noreply, new_state}
   end
-
-  # ==========================================================================
-  # Private Implementation
-  # ==========================================================================
 
   defp run_health_check(state) do
     Logger.debug("[HealthMonitor] Running brain health check...")

@@ -12,9 +12,9 @@ defmodule Mimo.Tools.Helpers do
 
   require Logger
 
-  # ==========================================================================
-  # ALLOWED VALUE WHITELISTS - Prevents atom table exhaustion attacks
-  # ==========================================================================
+  alias Mimo.Cognitive.Uncertainty
+  alias Mimo.Skills.MemoryContext
+  alias Mimo.TaskHelper
 
   @allowed_search_backends ~w(auto duckduckgo bing brave)a
   @allowed_browser_profiles ~w(chrome firefox safari random chrome_136 firefox_135 safari_18)a
@@ -34,10 +34,6 @@ defmodule Mimo.Tools.Helpers do
   def allowed_severities, do: @allowed_severities
   def allowed_action_keys, do: @allowed_action_keys
   def allowed_assertion_keys, do: @allowed_assertion_keys
-
-  # ==========================================================================
-  # SAFE ATOM CONVERSION - Prevents atom table exhaustion attacks
-  # ==========================================================================
 
   @doc """
   Safe atom conversion - only allows pre-defined values.
@@ -75,10 +71,6 @@ defmodule Mimo.Tools.Helpers do
   # String, not atom
   def safe_key_to_atom(_, _), do: "_unknown"
 
-  # ==========================================================================
-  # NODE TYPE PARSING
-  # ==========================================================================
-
   @doc """
   Parse node type string to atom.
   """
@@ -91,10 +83,6 @@ defmodule Mimo.Tools.Helpers do
   def parse_node_type("memory"), do: :memory
   def parse_node_type(type) when is_atom(type), do: type
   def parse_node_type(_), do: :function
-
-  # ==========================================================================
-  # HEADER NORMALIZATION
-  # ==========================================================================
 
   @doc """
   Normalize headers from various formats to tuple list.
@@ -110,10 +98,6 @@ defmodule Mimo.Tools.Helpers do
 
   def normalize_headers(_), do: []
 
-  # ==========================================================================
-  # IMAGE URL DETECTION
-  # ==========================================================================
-
   @doc """
   Check if a URL looks like an image.
   """
@@ -126,10 +110,6 @@ defmodule Mimo.Tools.Helpers do
   end
 
   def image_url?(_), do: false
-
-  # ==========================================================================
-  # GRAPH NODE/EDGE FORMATTING
-  # ==========================================================================
 
   @doc """
   Format a single graph node for output.
@@ -169,10 +149,6 @@ defmodule Mimo.Tools.Helpers do
     end)
   end
 
-  # ==========================================================================
-  # SYMBOL/REFERENCE FORMATTING (for code_symbols dispatcher)
-  # ==========================================================================
-
   @doc """
   Format a symbol for output.
   """
@@ -200,24 +176,19 @@ defmodule Mimo.Tools.Helpers do
     }
   end
 
-  # ==========================================================================
-  # MEMORY CONTEXT ENRICHMENT (Layer 2 - Accuracy over Speed)
-  # Automatically brings relevant knowledge to the agent without behavior change
-  # ==========================================================================
-
   @doc """
   Enrich file operation response with memory context.
   """
   def enrich_file_response({:ok, data}, path, false = _skip) when is_map(data) do
     task =
-      Mimo.TaskHelper.async_with_callers(fn ->
-        Mimo.Skills.MemoryContext.get_file_context(path)
+      TaskHelper.async_with_callers(fn ->
+        MemoryContext.get_file_context(path)
       end)
 
     # SPEC-080: Reduced from 2s to 500ms - this is optional enrichment, don't block
     case Task.yield(task, 500) || Task.shutdown(task) do
       {:ok, {:ok, context}} when not is_nil(context) ->
-        {:ok, Mimo.Skills.MemoryContext.enrich_response(data, context)}
+        {:ok, MemoryContext.enrich_response(data, context)}
 
       _ ->
         {:ok, data}
@@ -233,14 +204,14 @@ defmodule Mimo.Tools.Helpers do
   """
   def enrich_terminal_response({:ok, data}, command, false = _skip) when is_map(data) do
     task =
-      Mimo.TaskHelper.async_with_callers(fn ->
-        Mimo.Skills.MemoryContext.get_command_context(command)
+      TaskHelper.async_with_callers(fn ->
+        MemoryContext.get_command_context(command)
       end)
 
     # SPEC-080: Reduced from 2s to 500ms - this is optional enrichment, don't block
     case Task.yield(task, 500) || Task.shutdown(task) do
       {:ok, {:ok, context}} when not is_nil(context) ->
-        {:ok, Mimo.Skills.MemoryContext.enrich_response(data, context)}
+        {:ok, MemoryContext.enrich_response(data, context)}
 
       _ ->
         {:ok, data}
@@ -249,10 +220,6 @@ defmodule Mimo.Tools.Helpers do
 
   def enrich_terminal_response({:ok, data}, _command, true = _skip), do: {:ok, data}
   def enrich_terminal_response(other, _command, _skip), do: other
-
-  # ==========================================================================
-  # ECOSYSTEM PARSING (for library dispatcher)
-  # ==========================================================================
 
   @doc """
   Parse ecosystem string to atom.
@@ -269,10 +236,6 @@ defmodule Mimo.Tools.Helpers do
 
   def parse_ecosystem(ecosystem) when is_atom(ecosystem), do: ecosystem
   def parse_ecosystem(_), do: :hex
-
-  # ==========================================================================
-  # PACKAGE FORMATTING (for library dispatcher)
-  # ==========================================================================
 
   @doc """
   Format package info for output.
@@ -294,7 +257,7 @@ defmodule Mimo.Tools.Helpers do
   end
 
   # Multi-head module counting
-  defp count_modules(modules, _types) when length(modules) > 0, do: length(modules)
+  defp count_modules(modules, _types) when modules != [], do: length(modules)
 
   defp count_modules(_modules, types) when is_map(types) do
     type_modules = types[:modules] || types["modules"] || []
@@ -307,10 +270,6 @@ defmodule Mimo.Tools.Helpers do
 
   defp count_modules(_modules, _types), do: 0
 
-  # ==========================================================================
-  # UNCERTAINTY FORMATTING (for cognitive dispatcher)
-  # ==========================================================================
-
   @doc """
   Format uncertainty struct for output.
   """
@@ -322,7 +281,7 @@ defmodule Mimo.Tools.Helpers do
       evidence_count: uncertainty.evidence_count,
       source_types: uncertainty.sources |> Enum.map(& &1.type) |> Enum.uniq(),
       staleness: Float.round(uncertainty.staleness, 3),
-      has_gap: Mimo.Cognitive.Uncertainty.has_gap?(uncertainty),
+      has_gap: Uncertainty.has_gap?(uncertainty),
       gap_indicators: uncertainty.gap_indicators
     }
   end

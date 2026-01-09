@@ -5,20 +5,31 @@ defmodule Mimo.Tools.Definitions do
   This module contains all tool definitions (JSON schemas) for the MCP protocol.
   Extracted from the monolithic tools.ex as part of SPEC-030 modularization.
 
-  ## Tool Consolidation (Phase 2)
+  ## Core Tools (12 Exposed to MCP)
 
-  Primary tools (exposed to MCP):
-  - file, terminal, web, code, knowledge, memory, think, reason, onboard, cognitive, meta
-  - ask_mimo, ingest (memory helpers)
-  - run_procedure, list_procedures, mimo_reload_skills (procedural)
-  - tool_usage, awakening_status (monitoring)
+  | Tool | Purpose |
+  |------|---------|
+  | `memory` | Semantic memory + knowledge graph (store, search, synthesize, graph, ingest) |
+  | `reason` | Structured reasoning (assess, gaps, guided, amplify_*) |
+  | `code` | Code intelligence (symbols, definition, library_get, diagnose) |
+  | `file` | File operations (read, write, edit, glob) |
+  | `terminal` | Shell execution |
+  | `web` | Web operations (fetch, search, browser, vision) |
+  | `meta` | Composite ops (analyze_file, debug_error, suggest_next_tool, reload_skills) |
+  | `onboard` | Project initialization |
+  | `autonomous` | Background task execution |
+  | `orchestrate` | Multi-tool orchestration (execute, execute_plan, run_procedure) |
+  | `tool_usage` | Analytics |
+  | `awakening_status` | Agent progression |
 
-  Deprecated tools (hidden from MCP, still work internally):
-  - fetch, search, blink, browser, vision, sonar, web_extract, web_parse → use `web`
-  - code_symbols, library, diagnostics, graph → use `code` or `knowledge`
-  - analyze_file, debug_error, prepare_context, suggest_next_tool → use `meta`
-  - emergence, reflector, verify → use `cognitive`
-  - store_fact, search_vibes → use `memory`
+  ## Deprecated Tools (Hidden from MCP, Still Work Internally)
+
+  - Web aliases -> use `web operation=...`
+  - Code aliases (code_symbols, library, diagnostics) -> use `code operation=...`
+  - Meta aliases (analyze_file, debug_error, etc.) -> use `meta operation=...`
+  - Memory aliases (ask_mimo, knowledge, store_fact) -> use `memory operation=...`
+  - Reasoning aliases (think, cognitive) -> use `reason operation=...`
+  - Procedural aliases (run_procedure, list_procedures) -> use `orchestrate operation=...`
   """
 
   # Deprecated tool names - these are hidden from MCP exposure but still work internally
@@ -48,51 +59,60 @@ defmodule Mimo.Tools.Definitions do
                       "verify",
                       # Memory aliases → use `memory operation=...`
                       "store_fact",
-                      "search_vibes"
+                      "search_vibes",
+                      "ingest",
+                      # Procedural aliases → use `orchestrate operation=...`
+                      "run_procedure",
+                      "list_procedures",
+                      # Admin aliases → use `meta operation=...`
+                      "mimo_reload_skills",
+                      # Phase 1 Consolidation: Cognitive tools → reason
+                      "think",
+                      "cognitive",
+                      # Phase 2 Consolidation: Context tools → memory
+                      "ask_mimo",
+                      "knowledge"
                     ])
 
   @tool_definitions [
-    # ==========================================================================
-    # FILE - All file operations in one tool
-    # ==========================================================================
     %{
       name: "file",
       description: """
-      📁 UNIFIED FILE & CODE OPERATIONS - Your primary tool for files AND code navigation!
+      📁 FILE OPERATIONS - Read, write, edit, and navigate files.
 
-      This is the MAIN tool for all file and code operations. Use this FIRST before grep/search.
+      This tool handles all file system operations. For code intelligence, use the `code` tool.
 
-      ## File Operations
-      • `read` - Read file content
-      • `write` - Write/create files
-      • `edit` - Find and replace text
-      • `glob` - Find files by pattern (e.g., "**/*.ex")
+      ## Core Operations
+      • `read` - Read file content (with optional line range)
+      • `write` - Write/create files (rewrite or append mode)
+      • `edit` - Find and replace text in files
       • `search` - Search content within files
+
+      ## File Discovery
+      • `glob` - Find files by pattern (e.g., "**/*.ex")
+      • `ls` / `list_directory` - List directory contents
+      • `get_info` - Get file metadata
+
+      ## Advanced Operations
       • `diff` - Compare files or proposed changes
-
-      ## Code Navigation (USE THESE instead of grep!)
-      • `find_definition name="foo"` - Find where function/class is defined
-      • `find_references name="Bar"` - Find all usages of a symbol
-      • `symbols path="lib/"` - List all functions/classes in file
-      • `find_symbol pattern="auth*"` - Search symbols by pattern
-      • `call_graph name="handle"` - See who calls what
-
-      ## Why use file for code navigation?
-      ✓ Faster than grep - uses pre-built symbol index
-      ✓ Understands code structure - not just text matching
-      ✓ Cross-language - works for Elixir, Python, JS, TS, Rust, Go
-      ✓ Memory context auto-included
+      • `multi_replace` - Atomic multi-file replacements
+      • `read_symbol` - Read a specific symbol from file
 
       ## Examples
       ```
-      file find_definition name="authenticate"     → jumps to function definition
-      file find_references name="UserController"   → finds all usages
-      file symbols path="lib/auth.ex"              → lists all functions
-      file glob pattern="**/*_test.exs"            → finds test files
       file read path="lib/app.ex" limit=100        → reads first 100 lines
+      file glob pattern="**/*_test.exs"            → finds test files
+      file edit path="lib/foo.ex" old_str="old" new_str="new"
+      file search pattern="TODO" path="lib/"
       ```
 
-      💡 TIP: For package docs, use `code library_get`. For diagnostics, use `code diagnose`.
+      For **code intelligence** (definitions, references, symbols), use `code` tool:
+      ```
+      code definition name="authenticate"     → find where function is defined
+      code references name="UserController"   → find all usages
+      code symbols path="lib/auth.ex"         → list all functions
+      code diagnose path="lib/"               → get compiler errors
+      ```
       """,
       input_schema: %{
         type: "object",
@@ -122,13 +142,10 @@ defmodule Mimo.Tools.Definitions do
               "search_symbols",
               "glob",
               "multi_replace",
-              "diff",
-              # Code navigation aliases (SPEC-080)
-              "find_definition",
-              "find_references",
-              "symbols",
-              "find_symbol",
-              "call_graph"
+              "diff"
+              # NOTE: Code navigation (find_definition, find_references, symbols, etc.)
+              # moved to `code` tool. File still accepts these for backward compat but
+              # they are deprecated - use `code` tool instead.
             ]
           },
           path: %{type: "string", description: "File or directory path"},
@@ -137,7 +154,7 @@ defmodule Mimo.Tools.Definitions do
           start_line: %{type: "integer"},
           end_line: %{type: "integer"},
           line_number: %{type: "integer"},
-          pattern: %{type: "string", description: "For search/glob/find_symbol operations"},
+          pattern: %{type: "string", description: "For search/glob operations"},
           old_str: %{type: "string", description: "For replace_string/edit: text to find"},
           new_str: %{type: "string", description: "For replace_string/edit: replacement text"},
           destination: %{type: "string", description: "For move operation"},
@@ -146,13 +163,6 @@ defmodule Mimo.Tools.Definitions do
           offset: %{type: "integer", description: "Start line for chunked read (1-indexed)"},
           limit: %{type: "integer", description: "Max lines to read (default 500)"},
           symbol_name: %{type: "string", description: "For read_symbol operation"},
-          # Code navigation parameters (SPEC-080)
-          name: %{
-            type: "string",
-            description: "Symbol name for find_definition/find_references/call_graph"
-          },
-          context_before: %{type: "integer", description: "Lines of context before symbol"},
-          context_after: %{type: "integer", description: "Lines of context after symbol"},
           max_results: %{type: "integer", description: "Max results for search operations"},
           global: %{
             type: "boolean",
@@ -204,13 +214,10 @@ defmodule Mimo.Tools.Definitions do
         required: ["operation"]
       }
     },
-    # ==========================================================================
-    # TERMINAL - All terminal/process operations
-    # ==========================================================================
     %{
       name: "terminal",
       description:
-        "Executes shell commands and manages processes with automatic memory context. You MUST provide the 'command' string argument explicitly. Do not run this without a command. Operations: execute (default), start_process, read_output, interact, kill, force_kill, list_sessions, list_processes. Responses include related memories (past errors, patterns) for accuracy. 💡 Memory context is auto-included. Store important results in memory (category: action).",
+        "Executes shell commands and manages processes with automatic memory context. You MUST provide the 'command' string argument explicitly. Do not run this without a command. Operations: execute (default), start_process, read_output, interact, kill, force_kill, list_sessions, list_processes. Responses include related memories (past errors, patterns) for accuracy. Memory context is auto-included. Store important results in memory (category: action).",
       input_schema: %{
         type: "object",
         properties: %{
@@ -269,10 +276,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["command"]
       }
     },
-    # ==========================================================================
-    # WEB - Unified Web Operations (Phase 4 Consolidation)
-    # Consolidates: fetch, search, blink, browser, vision, sonar, web_extract, web_parse
-    # ==========================================================================
     %{
       name: "web",
       description: """
@@ -280,7 +283,7 @@ defmodule Mimo.Tools.Definitions do
 
       This tool consolidates 8 previous tools for simpler orchestration:
       • fetch → `operation=fetch`
-      • search → `operation=search`  
+      • search → `operation=search`
       • blink → `operation=blink`
       • browser → `operation=browser`
       • vision → `operation=vision`
@@ -336,7 +339,7 @@ defmodule Mimo.Tools.Definitions do
       web operation=blink_smart url="https://protected-site.com"
       ```
 
-      💡 TIP: For package docs, use `code operation=library_get` - it's faster (cached)!
+      TIP: For package docs, use `code operation=library_get` - it's faster (cached)!
       """,
       input_schema: %{
         type: "object",
@@ -493,9 +496,6 @@ defmodule Mimo.Tools.Definitions do
         required: []
       }
     },
-    # ==========================================================================
-    # FETCH - [DEPRECATED] Use `web operation=fetch` instead
-    # ==========================================================================
     %{
       name: "fetch",
       description:
@@ -529,9 +529,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["url"]
       }
     },
-    # ==========================================================================
-    # THINK - All cognitive operations
-    # ==========================================================================
     %{
       name: "think",
       description: "Cognitive operations. Operations: thought (default), plan, sequential",
@@ -548,9 +545,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["thought"]
       }
     },
-    # ==========================================================================
-    # WEB_PARSE - [DEPRECATED] Use `web operation=parse` instead
-    # ==========================================================================
     %{
       name: "web_parse",
       description: "⚠️ DEPRECATED: Use `web operation=parse` instead. Converts HTML to Markdown.",
@@ -560,9 +554,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["html"]
       }
     },
-    # ==========================================================================
-    # SEARCH - [DEPRECATED] Use `web operation=search` instead
-    # ==========================================================================
     %{
       name: "search",
       description:
@@ -599,9 +590,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["query"]
       }
     },
-    # ==========================================================================
-    # WEB_EXTRACT - [DEPRECATED] Use `web operation=extract` instead
-    # ==========================================================================
     %{
       name: "web_extract",
       description:
@@ -619,9 +607,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["url"]
       }
     },
-    # ==========================================================================
-    # SONAR - [DEPRECATED] Use `web operation=sonar` instead
-    # ==========================================================================
     %{
       name: "sonar",
       description:
@@ -644,9 +629,6 @@ defmodule Mimo.Tools.Definitions do
         }
       }
     },
-    # ==========================================================================
-    # VISION - [DEPRECATED] Use `web operation=vision` instead
-    # ==========================================================================
     %{
       name: "vision",
       description:
@@ -674,10 +656,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["image"]
       }
     },
-    # ==========================================================================
-    # KNOWLEDGE - Unified Knowledge Graph (SemanticStore + Synapse)
-    # Merged from separate knowledge and graph tools for better orchestration
-    # ==========================================================================
     %{
       name: "knowledge",
       description: """
@@ -780,9 +758,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["operation"]
       }
     },
-    # ==========================================================================
-    # BLINK - [DEPRECATED] Use `web operation=blink` instead
-    # ==========================================================================
     %{
       name: "blink",
       description:
@@ -824,9 +799,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["url"]
       }
     },
-    # ==========================================================================
-    # BROWSER - [DEPRECATED] Use `web operation=browser` instead
-    # ==========================================================================
     %{
       name: "browser",
       description:
@@ -896,10 +868,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["url"]
       }
     },
-    # ==========================================================================
-    # CODE - Unified Code Intelligence (SPEC-021 + SPEC-022 + SPEC-029)
-    # Consolidates: code_symbols, library, diagnostics
-    # ==========================================================================
     %{
       name: "code",
       description: """
@@ -940,7 +908,7 @@ defmodule Mimo.Tools.Definitions do
 
       Supports: Elixir, TypeScript, Python, Rust, Go
 
-      💡 MIGRATION: code_symbols, library, diagnostics tools still work but redirect here.
+      MIGRATION: code_symbols, library, diagnostics tools still work but redirect here.
       """,
       input_schema: %{
         type: "object",
@@ -1033,10 +1001,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["operation"]
       }
     },
-    # ==========================================================================
-    # CODE_SYMBOLS - [DEPRECATED] Use 'code' tool instead
-    # Kept for backward compatibility - redirects to unified code tool
-    # ==========================================================================
     %{
       name: "code_symbols",
       description: """
@@ -1095,10 +1059,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["operation"]
       }
     },
-    # ==========================================================================
-    # LIBRARY - [DEPRECATED] Use 'code' tool instead
-    # Kept for backward compatibility - redirects to unified code tool
-    # ==========================================================================
     %{
       name: "library",
       description: """
@@ -1153,10 +1113,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["operation"]
       }
     },
-    # ==========================================================================
-    # GRAPH - [DEPRECATED] Alias for knowledge tool
-    # Kept for backward compatibility - redirects to unified knowledge tool
-    # ==========================================================================
     %{
       name: "graph",
       description: """
@@ -1172,7 +1128,7 @@ defmodule Mimo.Tools.Definitions do
       🚀 CRITICAL: Run `knowledge operation=link path='/project/src'` FIRST to enable graph queries!
       Without indexing, the knowledge graph is empty.
 
-      💡 TIP: Switch to 'knowledge' tool for access to teach, sync_dependencies, and neighborhood operations.
+      TIP: Switch to 'knowledge' tool for access to teach, sync_dependencies, and neighborhood operations.
       """,
       input_schema: %{
         type: "object",
@@ -1199,13 +1155,10 @@ defmodule Mimo.Tools.Definitions do
         required: ["operation"]
       }
     },
-    # ==========================================================================
-    # COGNITIVE - Epistemic Uncertainty & Meta-Cognition (SPEC-024)
-    # ==========================================================================
     %{
       name: "cognitive",
       description:
-        "Epistemic uncertainty and meta-cognitive operations. Assess confidence, detect knowledge gaps, and generate calibrated responses. Operations: assess (evaluate confidence), gaps (detect knowledge gaps), query (full epistemic query with calibrated response), can_answer (check if topic is answerable), suggest (get learning suggestions), stats (tracker statistics). ALSO INCLUDES: verify_* operations (SPEC-AI-TEST executable verification), emergence_* operations (SPEC-044 pattern detection), reflector_* operations (SPEC-043 self-reflection), verification_* operations (tracking). These are consolidated here for MCP cache compatibility.",
+        "Epistemic uncertainty and meta-cognitive operations. Assess confidence, detect knowledge gaps, and generate calibrated responses. Operations: assess (evaluate confidence), gaps (detect knowledge gaps), query (full epistemic query with calibrated response), can_answer (check if topic is answerable), suggest (get learning suggestions), stats (tracker statistics). ALSO INCLUDES: verify_* operations (SPEC-AI-TEST executable verification), emergence_* operations (SPEC-044 pattern detection), reflector_* operations (SPEC-043 self-reflection), verification_* operations (tracking), health_* operations (Phase 5 self-monitoring), heal_* operations (Phase 5 self-healing), learning_* operations (Phase 6 self-directed learning). These are consolidated here for MCP cache compatibility.",
       input_schema: %{
         type: "object",
         properties: %{
@@ -1246,7 +1199,31 @@ defmodule Mimo.Tools.Definitions do
               "verification_stats",
               "verification_overconfidence",
               "verification_success_by_type",
-              "verification_brier_score"
+              "verification_brier_score",
+              # Phase 5: Self-Monitoring (HealthWatcher)
+              "health_status",
+              "health_history",
+              "health_alerts",
+              "health_check_now",
+              # Phase 5: Self-Healing (SafeHealer)
+              "heal_catalog",
+              "heal_diagnose",
+              "heal_execute",
+              "heal_auto",
+              # Phase 6: Learning Objectives
+              "learning_objectives_list",
+              "learning_objectives_generate",
+              # Phase 6: Learning Executor
+              "learning_execute_now",
+              "learning_pause",
+              "learning_resume",
+              "learning_history",
+              # Phase 6: Learning Progress
+              "learning_progress_summary",
+              "learning_progress_metrics",
+              "learning_progress_stuck",
+              "learning_progress_velocity",
+              "learning_progress_recommendations"
             ],
             default: "assess",
             description: "Operation to perform"
@@ -1258,6 +1235,10 @@ defmodule Mimo.Tools.Definitions do
           content: %{
             type: "string",
             description: "Content to format with calibrated response"
+          },
+          action: %{
+            type: "string",
+            description: "For heal_execute: action name from heal_catalog"
           },
           min_confidence: %{
             type: "number",
@@ -1273,39 +1254,38 @@ defmodule Mimo.Tools.Definitions do
         required: ["operation"]
       }
     },
-    # ==========================================================================
-    # REASON - Unified Reasoning Engine (SPEC-035 + SPEC-086)
-    # ==========================================================================
     %{
       name: "reason",
       description: """
-      🧠 UNIFIED REASONING ENGINE - Use this BEFORE making complex changes!
+      🧠 UNIFIED REASONING ENGINE - Your ONE tool for all thinking!
 
-      ⚠️ AUTO-TRIGGER: This tool should be called automatically when:
+      ## WHEN TO USE
       • Multi-step tasks (implement feature, refactor, migrate)
       • Decision points ("should I", "which is better", "vs")
       • Architecture changes (restructure, redesign, modularize)
       • Debugging complex issues (intermittent bugs, race conditions)
       • Uncertainty detected ("maybe", "unsure", "not sure")
 
-      TWO MODES:
+      ## QUICK THINKING (lightweight)
+      • `assess` → Quick confidence check on a topic (0-1 score)
+      • `gaps` → Detect knowledge gaps before proceeding
+      • `thought` → Single structured thinking step
+      • `plan` → Create multi-step plan array
 
-      1. GUIDED (InterleavedThinking) - Flexible verify-enrich cycle:
-      • `guided` → analyzes problem, selects strategy, returns session_id
-      • `step` → record reasoning steps with evaluation
-      • `verify` → check logical consistency
-      • `conclude` → synthesize final answer
+      ## GUIDED REASONING (flexible, auto-strategy)
+      • `guided` → Analyzes problem, selects strategy, returns session_id
+      • `step` → Record reasoning steps with evaluation
+      • `verify` → Check logical consistency
+      • `conclude` → Synthesize final answer
+      • `reflect` → Learn from outcome for future reasoning
 
-      2. AMPLIFIER (Cognitive Amplifier) - Forces deeper thinking:
-      • `amplify_start` → start with level (standard/deep/exhaustive)
-      • `amplify_think` → add thoughts (min 3 required)
-      • `amplify_challenge` → address devil's advocate challenges
-      • `amplify_perspective` → consider different viewpoints
-      • `amplify_conclude` → synthesize with forced integration
+      ## DEEP THINKING (enforced rigor)
+      • `amplify_start` → Start with level (standard=4, deep=8, exhaustive=15 challenges)
+      • `amplify_think` → Add thoughts (min 3 required)
+      • `amplify_challenge` → Address devil's advocate challenges
+      • `amplify_conclude` → Synthesize with forced integration
 
-      Use AMPLIFIER when you need guaranteed depth. Use GUIDED for flexibility.
-
-      💡 Memory integration means similar past problems are auto-retrieved!
+      Memory integration: Similar past problems are auto-retrieved!
       """,
       input_schema: %{
         type: "object",
@@ -1313,6 +1293,13 @@ defmodule Mimo.Tools.Definitions do
           operation: %{
             type: "string",
             enum: [
+              # Quick thinking (from cognitive/think)
+              "assess",
+              "gaps",
+              "thought",
+              "plan",
+              "sequential",
+              # Guided reasoning
               "guided",
               "decompose",
               "step",
@@ -1321,6 +1308,7 @@ defmodule Mimo.Tools.Definitions do
               "branch",
               "backtrack",
               "conclude",
+              # Deep thinking (Cognitive Amplifier)
               "amplify_start",
               "amplify_think",
               "amplify_challenge",
@@ -1330,11 +1318,22 @@ defmodule Mimo.Tools.Definitions do
             ],
             default: "guided",
             description:
-              "Operation: guided (start), decompose, step, verify, reflect, branch (ToT), backtrack (ToT), conclude, amplify_* (Cognitive Amplifier for deeper thinking)"
+              "Operation: assess/gaps/thought/plan (quick), guided/step/verify/conclude (flexible), amplify_* (deep)"
+          },
+          # For assess/gaps
+          topic: %{
+            type: "string",
+            description: "For assess/gaps: Topic to evaluate confidence or detect gaps"
+          },
+          # For thought/plan
+          steps: %{
+            type: "array",
+            items: %{type: "string"},
+            description: "For plan: Array of step descriptions"
           },
           problem: %{
             type: "string",
-            description: "For guided/decompose: The problem to reason about"
+            description: "For guided/decompose/thought: The problem to reason about"
           },
           session_id: %{
             type: "string",
@@ -1343,7 +1342,7 @@ defmodule Mimo.Tools.Definitions do
           },
           thought: %{
             type: "string",
-            description: "For step/branch: The reasoning step or branch thought"
+            description: "For step/branch/thought: The reasoning step or thought content"
           },
           strategy: %{
             type: "string",
@@ -1378,7 +1377,7 @@ defmodule Mimo.Tools.Definitions do
             enum: ["minimal", "standard", "deep", "exhaustive", "adaptive"],
             default: "standard",
             description:
-              "For amplify_start: Amplification level (standard=3+ steps, deep=+perspectives, exhaustive=all checks)"
+              "For amplify_start: Amplification level (standard=4, deep=8, exhaustive=15 challenges)"
           },
           challenge_id: %{
             type: "string",
@@ -1401,10 +1400,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["operation"]
       }
     },
-    # ==========================================================================
-    # DIAGNOSTICS - [DEPRECATED] Use 'code' tool instead
-    # Kept for backward compatibility - redirects to unified code tool
-    # ==========================================================================
     %{
       name: "diagnostics",
       description: """
@@ -1448,9 +1443,6 @@ defmodule Mimo.Tools.Definitions do
         }
       }
     },
-    # ==========================================================================
-    # ONBOARD - Project initialization meta-tool (SPEC-031 Phase 3)
-    # ==========================================================================
     %{
       name: "onboard",
       description: """
@@ -1474,7 +1466,7 @@ defmodule Mimo.Tools.Definitions do
       The tool checks for existing project fingerprint. If already indexed,
       returns cached profile instantly. Use force=true to re-index.
 
-      💡 TIP: This is the FIRST thing to run in any new codebase!
+      TIP: This is the FIRST thing to run in any new codebase!
       """,
       input_schema: %{
         type: "object",
@@ -1492,9 +1484,6 @@ defmodule Mimo.Tools.Definitions do
         }
       }
     },
-    # ==========================================================================
-    # ANALYZE_FILE - [DEPRECATED] Use 'meta operation=analyze_file' instead
-    # ==========================================================================
     %{
       name: "analyze_file",
       description: """
@@ -1508,7 +1497,7 @@ defmodule Mimo.Tools.Definitions do
       3. diagnostics all → Get compile/lint errors
       4. knowledge node → Get related knowledge graph context
 
-      💡 This tool still works but redirects to the unified 'meta' tool.
+      This tool still works but redirects to the unified 'meta' tool.
       """,
       input_schema: %{
         type: "object",
@@ -1531,9 +1520,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["path"]
       }
     },
-    # ==========================================================================
-    # DEBUG_ERROR - [DEPRECATED] Use 'meta operation=debug_error' instead
-    # ==========================================================================
     %{
       name: "debug_error",
       description: """
@@ -1546,7 +1532,7 @@ defmodule Mimo.Tools.Definitions do
       2. code_symbols definition → Find where error originates
       3. diagnostics check → Get current compiler errors
 
-      💡 This tool still works but redirects to the unified 'meta' tool.
+      This tool still works but redirects to the unified 'meta' tool.
       """,
       input_schema: %{
         type: "object",
@@ -1567,9 +1553,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["message"]
       }
     },
-    # ==========================================================================
-    # META - Unified Meta/Orchestration Tool (Phase 2 Consolidation)
-    # ==========================================================================
     %{
       name: "meta",
       description: """
@@ -1592,15 +1575,22 @@ defmodule Mimo.Tools.Definitions do
       • Unified interface for orchestration operations
       • Legacy standalone tools still work (backward compatible)
 
-      💡 Part of Phase 2 tool consolidation (36→14 tools).
+      Part of Phase 2 tool consolidation (36→14 tools).
       """,
       input_schema: %{
         type: "object",
         properties: %{
           operation: %{
             type: "string",
-            enum: ["analyze_file", "debug_error", "prepare_context", "suggest_next_tool"],
-            description: "Operation to perform (default: analyze_file)"
+            enum: [
+              "analyze_file",
+              "debug_error",
+              "prepare_context",
+              "suggest_next_tool",
+              "reload_skills"
+            ],
+            description:
+              "Operation to perform (default: analyze_file). reload_skills hot-reloads Mimo skills from skills.json"
           },
           # analyze_file parameters
           path: %{
@@ -1662,12 +1652,6 @@ defmodule Mimo.Tools.Definitions do
         required: []
       }
     },
-    # ==========================================================================
-    # PREPARE_CONTEXT - [DEPRECATED] Use 'meta operation=prepare_context' instead
-    # ==========================================================================
-    # ==========================================================================
-    # PREPARE_CONTEXT - [DEPRECATED] Use 'meta operation=prepare_context' instead
-    # ==========================================================================
     %{
       name: "prepare_context",
       description: """
@@ -1681,7 +1665,7 @@ defmodule Mimo.Tools.Definitions do
       3. code_symbols → Matching code definitions and symbols
       4. library docs → Related package documentation
 
-      💡 This tool still works but redirects to the unified 'meta' tool.
+      This tool still works but redirects to the unified 'meta' tool.
       """,
       input_schema: %{
         type: "object",
@@ -1707,9 +1691,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["query"]
       }
     },
-    # ==========================================================================
-    # SUGGEST_NEXT_TOOL - [DEPRECATED] Use 'meta operation=suggest_next_tool' instead
-    # ==========================================================================
     %{
       name: "suggest_next_tool",
       description: """
@@ -1720,7 +1701,7 @@ defmodule Mimo.Tools.Definitions do
       Analyzes your current task and recent tool usage to suggest the best next tool
       according to the Mimo workflow: Context → Intelligence → Action → Learning.
 
-      💡 This tool still works but redirects to the unified 'meta' tool.
+      This tool still works but redirects to the unified 'meta' tool.
       """,
       input_schema: %{
         type: "object",
@@ -1742,9 +1723,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["task"]
       }
     },
-    # ==========================================================================
-    # EMERGENCE - [DEPRECATED] Use 'cognitive operation=emergence_*' instead
-    # ==========================================================================
     %{
       name: "emergence",
       description: """
@@ -1759,7 +1737,7 @@ defmodule Mimo.Tools.Definitions do
       • emergence operation=detect → cognitive operation=emergence_detect
       • emergence operation=promote → cognitive operation=emergence_promote
 
-      💡 The 'cognitive' tool consolidates all meta-cognitive operations.
+      The 'cognitive' tool consolidates all meta-cognitive operations.
       """,
       input_schema: %{
         type: "object",
@@ -1820,9 +1798,6 @@ defmodule Mimo.Tools.Definitions do
         required: []
       }
     },
-    # ==========================================================================
-    # REFLECTOR - [DEPRECATED] Use 'cognitive operation=reflector_*' instead
-    # ==========================================================================
     %{
       name: "reflector",
       description: """
@@ -1837,7 +1812,7 @@ defmodule Mimo.Tools.Definitions do
       • reflector operation=evaluate → cognitive operation=reflector_evaluate
       • reflector operation=confidence → cognitive operation=reflector_confidence
 
-      💡 The 'cognitive' tool consolidates all meta-cognitive operations.
+      The 'cognitive' tool consolidates all meta-cognitive operations.
       """,
       input_schema: %{
         type: "object",
@@ -1883,9 +1858,6 @@ defmodule Mimo.Tools.Definitions do
         required: []
       }
     },
-    # ==========================================================================
-    # VERIFY - [DEPRECATED] Use 'cognitive operation=verify_*' instead
-    # ==========================================================================
     %{
       name: "verify",
       description: """
@@ -1900,7 +1872,7 @@ defmodule Mimo.Tools.Definitions do
       • verify operation=math → cognitive operation=verify_math
       • verify operation=logic → cognitive operation=verify_logic
 
-      💡 The 'cognitive' tool consolidates all meta-cognitive operations.
+      The 'cognitive' tool consolidates all meta-cognitive operations.
       """,
       input_schema: %{
         type: "object",
@@ -1970,9 +1942,6 @@ defmodule Mimo.Tools.Definitions do
         required: ["operation"]
       }
     },
-    # ==========================================================================
-    # AUTONOMOUS - Autonomous task execution with cognitive enhancement (SPEC-071)
-    # ==========================================================================
     %{
       name: "autonomous",
       description:
@@ -2015,6 +1984,76 @@ defmodule Mimo.Tools.Definitions do
           query: %{
             type: "string",
             description: "For queue: Query string for search-type tasks"
+          }
+        },
+        required: ["operation"]
+      }
+    },
+    %{
+      name: "orchestrate",
+      description:
+        "Multi-tool orchestrator that executes complex tasks internally without spawning LLM subagents. Saves tokens (20-50K per avoided subagent), provides full observability, and uses deterministic execution for known patterns. Operations: execute (run task with auto-routing), execute_plan (run explicit step sequence), classify (analyze task without executing), status (get metrics), run_procedure (execute a stored procedure), list_procedures (list available procedures).",
+      input_schema: %{
+        type: "object",
+        properties: %{
+          operation: %{
+            type: "string",
+            enum: [
+              "execute",
+              "execute_plan",
+              "classify",
+              "status",
+              "run_procedure",
+              "list_procedures"
+            ],
+            default: "execute",
+            description:
+              "Operation: execute to run task with auto-routing, execute_plan to run explicit steps, classify to analyze without executing, status for metrics, run_procedure to execute stored procedure, list_procedures to list available"
+          },
+          description: %{
+            type: "string",
+            description: "For execute/classify: Task description (e.g., run tests and fix failures)"
+          },
+          plan: %{
+            type: "array",
+            description: "For execute_plan: Array of steps [{tool, operation, args}]",
+            items: %{
+              type: "object",
+              properties: %{
+                tool: %{type: "string", description: "Tool name (file, terminal, code, etc.)"},
+                operation: %{type: "string", description: "Operation to perform"},
+                args: %{type: "object", description: "Tool arguments"}
+              }
+            }
+          },
+          context: %{
+            type: "object",
+            description: "For execute/run_procedure: Additional context for task execution"
+          },
+          timeout: %{
+            type: "integer",
+            default: 300_000,
+            description: "Execution timeout in milliseconds (default: 5 minutes)"
+          },
+          # Procedure parameters (consolidated from run_procedure/list_procedures)
+          name: %{
+            type: "string",
+            description: "For run_procedure: Procedure name"
+          },
+          version: %{
+            type: "string",
+            default: "latest",
+            description: "For run_procedure: Procedure version (or 'latest')"
+          },
+          async: %{
+            type: "boolean",
+            default: false,
+            description:
+              "For run_procedure: Return immediately with execution_id instead of waiting"
+          },
+          execution_id: %{
+            type: "string",
+            description: "For status with procedures: Execution ID returned from async run"
           }
         },
         required: ["operation"]

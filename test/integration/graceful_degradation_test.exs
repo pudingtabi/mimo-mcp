@@ -10,8 +10,8 @@ defmodule Mimo.Integration.GracefulDegradationTest do
   """
   use ExUnit.Case, async: false
 
-  alias Mimo.Fallback.GracefulDegradation
   alias Mimo.ErrorHandling.CircuitBreaker
+  alias Mimo.Fallback.GracefulDegradation
 
   @moduletag :integration
 
@@ -210,7 +210,7 @@ defmodule Mimo.Integration.GracefulDegradationTest do
       # Should return either real embedding or hash-based fallback
       assert {:ok, embedding} = result
       assert is_list(embedding)
-      assert length(embedding) > 0
+      refute Enum.empty?(embedding)
       assert Enum.all?(embedding, &is_float/1)
     end
 

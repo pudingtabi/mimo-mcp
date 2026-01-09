@@ -33,38 +33,35 @@ defmodule Mimo.Cognitive.Reasoner do
 
   require Logger
 
+  alias Mimo.Brain.{Memory, WisdomInjector}
+
   alias Mimo.Cognitive.{
     ConfidenceAssessor,
-    GapDetector,
     EpistemicBrain,
-    ReasoningSession,
+    FeedbackLoop,
+    GapDetector,
+    MetaTaskDetector,
+    MetaTaskHandler,
     ProblemAnalyzer,
+    ReasoningSession,
     ThoughtEvaluator,
-    Uncertainty
+    Uncertainty,
+    VerificationTelemetry
   }
 
   alias Mimo.Cognitive.Strategies.{
     ChainOfThought,
-    TreeOfThoughts,
-    Reflexion
+    Reflexion,
+    TreeOfThoughts
   }
 
-  alias Mimo.Cognitive.MetaTaskDetector
-  alias Mimo.Cognitive.MetaTaskHandler
-  alias Mimo.Cognitive.VerificationTelemetry
-  alias Mimo.Brain.Memory
   alias Mimo.TaskHelper
   alias Mimo.Tools.Dispatchers.PrepareContext
-  alias Mimo.Brain.WisdomInjector
 
   @type strategy :: :auto | :cot | :tot | :react | :reflexion
 
   # Confidence threshold below which to trigger research (reserved for future use)
   # @confidence_threshold 0.5
-
-  # ============================================
-  # Main API
-  # ============================================
 
   @doc """
   Start guided reasoning on a problem.
@@ -129,8 +126,13 @@ defmodule Mimo.Cognitive.Reasoner do
     # Step 1: Search memory for similar past problems (async with timeout)
     similar_problems = search_similar_problems(enhanced_problem)
 
+    # SPEC-074-ENHANCED: Search for similar past conclusions (cross-session transfer)
+    similar_conclusions = search_similar_conclusions(enhanced_problem)
+
     # Step 2: Assess initial confidence (async with timeout to avoid hanging)
-    uncertainty = assess_with_timeout(enhanced_problem)
+    # Boost confidence if we have relevant past conclusions
+    base_uncertainty = assess_with_timeout(enhanced_problem)
+    uncertainty = maybe_boost_from_conclusions(base_uncertainty, similar_conclusions)
 
     # Step 3: Detect knowledge gaps
     gaps = GapDetector.analyze_uncertainty(uncertainty)
@@ -377,46 +379,57 @@ defmodule Mimo.Cognitive.Reasoner do
   """
   @spec reflect(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def reflect(session_id, outcome, _opts \\ []) do
-    with {:ok, session} <- ReasoningSession.get(session_id) do
-      success = Map.get(outcome, :success, false)
-      error = Map.get(outcome, :error)
-      result = Map.get(outcome, :result)
+    case ReasoningSession.get(session_id) do
+      {:ok, session} ->
+        success = Map.get(outcome, :success, false)
+        error = Map.get(outcome, :error)
+        result = Map.get(outcome, :result)
 
-      # Convert session thoughts to trajectory format
-      trajectory =
-        session.thoughts
-        |> Enum.map(fn t ->
-          %{
-            type: :thought,
-            content: t.content,
-            timestamp: t.timestamp
-          }
-        end)
+        # Convert session thoughts to trajectory format
+        trajectory =
+          session.thoughts
+          |> Enum.map(fn t ->
+            %{
+              type: :thought,
+              content: t.content,
+              timestamp: t.timestamp
+            }
+          end)
 
-      # Generate reflection using Reflexion strategy
-      reflection =
-        if success do
-          Reflexion.reflect_on_success(trajectory, result, session.problem)
-        else
-          Reflexion.reflect_on_failure(trajectory, error || "Unknown error", session.problem)
-        end
+        # Generate reflection using Reflexion strategy
+        reflection =
+          if success do
+            Reflexion.reflect_on_success(trajectory, result, session.problem)
+          else
+            Reflexion.reflect_on_failure(trajectory, error || "Unknown error", session.problem)
+          end
 
-      # Store reflection in memory (best-effort, don't crash if fails)
-      _ = Reflexion.store_reflection(reflection, session.problem, success)
+        # Store reflection in memory (best-effort, don't crash if fails)
+        _ = Reflexion.store_reflection(reflection, session.problem, success)
 
-      {:ok,
-       %{
-         session_id: session_id,
-         success: success,
-         critique: %{
-           what_went_wrong: if(success, do: [], else: reflection.what_failed),
-           what_could_help: reflection.improvements,
-           what_to_try_next: Reflexion.suggest_alternative(reflection, session.problem)
-         },
-         lessons_learned: reflection.lessons_learned,
-         verbal_feedback: reflection.verbal_feedback,
-         stored_for_future: true
-       }}
+        {:ok,
+         %{
+           session_id: session_id,
+           success: success,
+           critique: %{
+             what_went_wrong: if(success, do: [], else: reflection.what_failed),
+             what_could_help: reflection.improvements,
+             what_to_try_next: Reflexion.suggest_alternative(reflection, session.problem)
+           },
+           lessons_learned: reflection.lessons_learned,
+           verbal_feedback: reflection.verbal_feedback,
+           stored_for_future: true
+         }}
+
+      {:error, :not_found} ->
+        # Helpful error message - likely called after conclude
+        {:error,
+         "Session '#{session_id}' not found. If you called 'conclude' first, note that " <>
+           "learnings are now auto-stored during conclude. Separate 'reflect' is optional. " <>
+           "If you need explicit reflection, call it BEFORE conclude."}
+
+      error ->
+        error
     end
   end
 
@@ -569,6 +582,25 @@ defmodule Mimo.Cognitive.Reasoner do
           store_reasoning_pattern(session, synthesis)
         end
 
+        # AUTO-REFLECTION: Store learnings before completing session
+        # This eliminates the need for a separate reflect call (fixes conclude→reflect order issue)
+        reflection_stored =
+          try do
+            trajectory =
+              session.thoughts
+              |> Enum.map(fn t ->
+                %{type: :thought, content: t.content, timestamp: t.timestamp}
+              end)
+
+            reflection =
+              Reflexion.reflect_on_success(trajectory, synthesis.conclusion, session.problem)
+
+            Reflexion.store_reflection(reflection, session.problem, true)
+            true
+          rescue
+            _ -> false
+          end
+
         # Complete session
         ReasoningSession.complete(session_id)
 
@@ -579,9 +611,51 @@ defmodule Mimo.Cognitive.Reasoner do
            confidence: final_confidence,
            reasoning_summary: synthesis.summary,
            key_insights: synthesis.key_insights,
-           total_steps: length(session.thoughts)
+           total_steps: length(session.thoughts),
+           reflection_stored: reflection_stored
          }}
       end
+    end
+  end
+
+  @doc """
+  Get aggregated reasoning statistics.
+
+  Returns metrics from FeedbackLoop, session stats, strategy distribution,
+  and verification rates for observability.
+  """
+  @spec stats() :: map()
+  def stats do
+    feedback_stats = safe_get_feedback_stats()
+    session_stats = ReasoningSession.stats()
+
+    %{
+      feedback: feedback_stats,
+      sessions: session_stats,
+      strategies: compute_strategy_distribution(),
+      timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
+    }
+  end
+
+  defp safe_get_feedback_stats do
+    try do
+      FeedbackLoop.stats()
+    rescue
+      _ -> %{error: "FeedbackLoop not available"}
+    end
+  end
+
+  defp compute_strategy_distribution do
+    # Query recent sessions for strategy usage
+    case ReasoningSession.list_recent(100) do
+      {:ok, sessions} ->
+        sessions
+        |> Enum.frequencies_by(& &1.strategy)
+        |> Enum.map(fn {strategy, count} -> {strategy, count} end)
+        |> Map.new()
+
+      _ ->
+        %{}
     end
   end
 
@@ -687,10 +761,6 @@ defmodule Mimo.Cognitive.Reasoner do
     end
   end
 
-  # ============================================
-  # Private Helpers
-  # ============================================
-
   defp quick_confidence_assess(thought) do
     thought_length = String.length(thought)
     has_reasoning = String.match?(thought, ~r/\b(therefore|so|thus|because|results? in)\b/i)
@@ -781,8 +851,8 @@ defmodule Mimo.Cognitive.Reasoner do
   end
 
   defp has_wisdom_injection?(merged_wisdom, sm_boost) do
-    length(merged_wisdom[:failures] || []) > 0 or
-      length(merged_wisdom[:warnings] || []) > 0 or
+    (merged_wisdom[:failures] || []) != [] or
+      (merged_wisdom[:warnings] || []) != [] or
       Map.get(sm_boost, :wisdom_injected, false)
   end
 
@@ -832,19 +902,19 @@ defmodule Mimo.Cognitive.Reasoner do
 
     # Add similar problem guidance
     parts =
-      if length(similar_problems) > 0 do
-        ["Found #{length(similar_problems)} similar past problem(s) that may help." | parts]
-      else
+      if Enum.empty?(similar_problems) do
         parts
+      else
+        ["Found #{length(similar_problems)} similar past problem(s) that may help." | parts]
       end
 
     # Add decomposition
     parts =
-      if length(decomposition) > 0 do
+      if Enum.empty?(decomposition) do
+        parts
+      else
         steps = Enum.map_join(decomposition, "\n", fn step -> "• #{step}" end)
         ["Suggested approach:\n#{steps}" | parts]
-      else
-        parts
       end
 
     Enum.reverse(parts) |> Enum.join("\n\n")
@@ -1048,13 +1118,8 @@ defmodule Mimo.Cognitive.Reasoner do
       :high -> 0.85
       :medium -> 0.6
       :low -> 0.35
-      :unknown -> 0.15
     end
   end
-
-  # ============================================
-  # Missing Private Helpers (restored)
-  # ============================================
 
   defp search_similar_problems(problem) do
     # Search memory for similar past problems with timeout
@@ -1093,5 +1158,95 @@ defmodule Mimo.Cognitive.Reasoner do
       {:ok, result} -> result
       _ -> %Uncertainty{topic: problem, confidence: :unknown, score: 0.0}
     end
+  end
+
+  # SPEC-074-ENHANCED: Boost confidence if we have relevant past conclusions
+  defp maybe_boost_from_conclusions(uncertainty, []) do
+    uncertainty
+  end
+
+  defp maybe_boost_from_conclusions(%Uncertainty{} = uncertainty, conclusions)
+       when is_list(conclusions) do
+    # Calculate boost based on number and quality of past conclusions
+    high_conf_count =
+      Enum.count(conclusions, fn c ->
+        conf = c[:confidence] || 0
+        is_number(conf) and conf >= 0.7
+      end)
+
+    boost =
+      cond do
+        high_conf_count >= 3 -> 0.2
+        high_conf_count >= 1 -> 0.1
+        length(conclusions) >= 2 -> 0.05
+        true -> 0.0
+      end
+
+    new_score = min(uncertainty.score + boost, 1.0)
+
+    new_level =
+      cond do
+        new_score >= 0.7 -> :high
+        new_score >= 0.4 -> :medium
+        new_score >= 0.2 -> :low
+        true -> :unknown
+      end
+
+    %{uncertainty | score: new_score, confidence: new_level}
+  end
+
+  defp maybe_boost_from_conclusions(uncertainty, _), do: uncertainty
+
+  @doc """
+  SPEC-074-ENHANCED: Search for similar past conclusions.
+
+  Retrieves past reasoning conclusions that are relevant to the current problem.
+  These are stored with 'conclusion' metadata when sessions successfully complete.
+  """
+  @spec search_similar_conclusions(String.t()) :: [map()]
+  def search_similar_conclusions(problem) do
+    task =
+      TaskHelper.async_with_callers(fn ->
+        try do
+          # Search for memories tagged as conclusions
+          case Memory.search("conclusion: " <> problem, limit: 5, threshold: 0.5) do
+            {:ok, results} ->
+              results
+              |> Enum.filter(&is_conclusion?/1)
+              |> Enum.map(&format_conclusion/1)
+
+            _ ->
+              []
+          end
+        rescue
+          _ -> []
+        catch
+          :exit, _ -> []
+        end
+      end)
+
+    case Task.yield(task, 3000) || Task.shutdown(task) do
+      {:ok, results} when is_list(results) -> results
+      _ -> []
+    end
+  end
+
+  defp is_conclusion?(memory) do
+    metadata = memory[:metadata] || memory["metadata"] || %{}
+    type = metadata[:type] || metadata["type"]
+    type == "conclusion" or type == :conclusion
+  end
+
+  defp format_conclusion(memory) do
+    content = memory[:content] || memory["content"] || ""
+    metadata = memory[:metadata] || memory["metadata"] || %{}
+
+    %{
+      summary: String.slice(content, 0, 200),
+      problem: metadata[:problem] || metadata["problem"],
+      strategy: metadata[:strategy] || metadata["strategy"],
+      confidence: metadata[:confidence] || metadata["confidence"],
+      timestamp: memory[:inserted_at] || memory["inserted_at"]
+    }
   end
 end

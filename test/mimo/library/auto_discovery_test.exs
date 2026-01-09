@@ -47,7 +47,7 @@ defmodule Mimo.Library.AutoDiscoveryTest do
       # The mimo-mcp project has dependencies
       dep_names = Enum.map(deps, fn {name, _} -> name end)
 
-      assert length(dep_names) > 0
+      refute Enum.empty?(dep_names)
     end
 
     test "parses mix.exs dependency format", %{test_dir: test_dir} do
@@ -157,7 +157,7 @@ defmodule Mimo.Library.AutoDiscoveryTest do
       imports = ImportWatcher.extract_imports(code, :elixir)
 
       # Should extract module names
-      assert length(imports) > 0
+      refute Enum.empty?(imports)
     end
 
     test "extracts Python imports" do

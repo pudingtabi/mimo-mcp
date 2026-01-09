@@ -10,9 +10,22 @@ package-lock.json
 *.db-journal
 *.db-shm
 *.db-wal
+*.sqlite3
 priv/*.db
 priv/*.db.*
 priv/mimo_mcp.db
+priv/mimo_dev.sqlite3
+
+# Vector index files (large, user-specific)
+priv/*.usearch
+
+# Runtime lock/pid files
+priv/mimo.lock
+priv/mimo.lock.info
+priv/mimo.pid
+
+# Backup directory (user data)
+priv/backups/
 
 # Environment & Secrets - CRITICAL
 .env
@@ -82,15 +95,22 @@ AGENTS.md
 .kiro/
 .gemini/
 .devcontainer/
+.claude/
 .github/.archive/
+.github/agents/
 .github/instructions/
 .github/prompts/
+
+# Backup files
+*.bak
 
 # Debug/temp scripts
 debug_*.py
 extract_*.py
 scripts/
 start.sh
+test_*.exs
+!test/
 
 # Database backups
 *.db.backup-*

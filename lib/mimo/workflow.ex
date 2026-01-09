@@ -65,25 +65,23 @@ defmodule Mimo.Workflow do
 
   """
 
-  alias Mimo.Workflow.{
-    Pattern,
-    PatternRegistry,
-    PatternExtractor,
-    Executor,
-    Telemetry
-  }
+  alias Clusterer
 
   alias Mimo.AdaptiveWorkflow.{
+    LearningTracker,
     ModelProfiler,
-    TemplateAdapter,
-    LearningTracker
+    TemplateAdapter
   }
 
   alias Mimo.MetaCognitiveRouter
 
-  # =============================================================================
-  # Main Public API
-  # =============================================================================
+  alias Mimo.Workflow.{
+    Executor,
+    Pattern,
+    PatternExtractor,
+    PatternRegistry,
+    Telemetry
+  }
 
   @doc """
   Suggest a workflow for a task description.
@@ -202,10 +200,6 @@ defmodule Mimo.Workflow do
     end
   end
 
-  # =============================================================================
-  # Pattern Management
-  # =============================================================================
-
   @doc """
   List all available workflow patterns.
 
@@ -266,10 +260,6 @@ defmodule Mimo.Workflow do
     {:ok, clusters}
   end
 
-  # =============================================================================
-  # Model Adaptation
-  # =============================================================================
-
   @doc """
   Adapt a pattern for a specific model.
 
@@ -320,10 +310,6 @@ defmodule Mimo.Workflow do
     ModelProfiler.get_workflow_recommendations(model_id)
   end
 
-  # =============================================================================
-  # Learning & Feedback
-  # =============================================================================
-
   @doc """
   Record execution outcome for learning.
 
@@ -371,10 +357,6 @@ defmodule Mimo.Workflow do
     LearningTracker.get_affinity(model_id, pattern_name)
   end
 
-  # =============================================================================
-  # Execution Monitoring
-  # =============================================================================
-
   @doc """
   Get status of a running execution.
   """
@@ -399,10 +381,6 @@ defmodule Mimo.Workflow do
     Executor.list_executions(pattern_name, opts)
   end
 
-  # =============================================================================
-  # Telemetry
-  # =============================================================================
-
   @doc """
   Attach telemetry handlers for workflow monitoring.
   """
@@ -416,10 +394,6 @@ defmodule Mimo.Workflow do
   def detach_telemetry do
     Telemetry.detach()
   end
-
-  # =============================================================================
-  # Initialization
-  # =============================================================================
 
   @doc """
   Initialize the workflow system.
@@ -436,10 +410,6 @@ defmodule Mimo.Workflow do
 
     :ok
   end
-
-  # =============================================================================
-  # Private Helpers
-  # =============================================================================
 
   defp maybe_filter_category(patterns, nil), do: patterns
 

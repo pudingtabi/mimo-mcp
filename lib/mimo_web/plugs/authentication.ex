@@ -20,12 +20,10 @@ defmodule MimoWeb.Plugs.Authentication do
   def call(conn, _opts) do
     api_key = get_configured_key()
 
-    cond do
-      prod_missing_key?(api_key) ->
-        handle_missing_prod_key(conn)
-
-      true ->
-        handle_auth_validation(conn, api_key)
+    if prod_missing_key?(api_key) do
+      handle_missing_prod_key(conn)
+    else
+      handle_auth_validation(conn, api_key)
     end
   end
 

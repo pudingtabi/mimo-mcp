@@ -51,10 +51,6 @@ defmodule Mimo.Docs.Validator do
           stats: map()
         }
 
-  # ============================================================================
-  # PUBLIC API
-  # ============================================================================
-
   @doc """
   Validate all documentation files.
 
@@ -135,10 +131,6 @@ defmodule Mimo.Docs.Validator do
     end
   end
 
-  # ============================================================================
-  # TOOL REFERENCE VALIDATION
-  # ============================================================================
-
   defp validate_tool_references(content, file) do
     # Get list of valid tool names from Tools module
     valid_tools = get_valid_tool_names()
@@ -158,8 +150,9 @@ defmodule Mimo.Docs.Validator do
       end)
       |> Enum.filter(& &1)
       |> Enum.uniq()
-      |> Enum.reject(fn name -> name in valid_tools end)
-      |> Enum.reject(fn name -> name in ["operation", "path", "query", "content"] end)
+      |> Enum.reject(fn name ->
+        is_nil(name) or name in valid_tools or name in ["operation", "path", "query", "content"]
+      end)
       |> Enum.map(fn invalid_tool ->
         %{
           type: :warning,
@@ -209,17 +202,13 @@ defmodule Mimo.Docs.Validator do
     end
   end
 
-  # ============================================================================
-  # OPERATION REFERENCE VALIDATION
-  # ============================================================================
-
   defp validate_operation_references(content, file) do
     # Pattern: operation=xxx or operation="xxx"
     op_pattern = ~r/operation\s*=\s*["']?(\w+)["']?/
 
     matches = Regex.scan(op_pattern, content)
 
-    # Get valid operations per tool (simplified - just check common ones)
+    # Check against comprehensive list of known valid operations
     valid_operations = get_valid_operations()
 
     warnings =
@@ -385,10 +374,6 @@ defmodule Mimo.Docs.Validator do
     ]
   end
 
-  # ============================================================================
-  # FILE REFERENCE VALIDATION
-  # ============================================================================
-
   defp validate_file_references(content, file) do
     # Pattern: path="xxx" or path/to/file.ex or lib/mimo/xxx.ex
     file_pattern =
@@ -402,11 +387,10 @@ defmodule Mimo.Docs.Validator do
       |> Enum.map(fn match ->
         Enum.find(tl(match), & &1)
       end)
-      |> Enum.filter(& &1)
-      |> Enum.filter(fn path ->
-        # Only check paths that look like project files
-        String.starts_with?(path, "lib/") or String.starts_with?(path, "test/") or
-          String.starts_with?(path, "priv/")
+      |> Enum.filter(fn x ->
+        x and
+          (String.starts_with?(x, "lib/") or String.starts_with?(x, "test/") or
+             String.starts_with?(x, "priv/"))
       end)
       |> Enum.uniq()
       |> Enum.reject(fn path ->
@@ -425,10 +409,6 @@ defmodule Mimo.Docs.Validator do
 
     {[], issues}
   end
-
-  # ============================================================================
-  # DEPRECATED PATTERN VALIDATION
-  # ============================================================================
 
   defp validate_deprecated_patterns(content, file) do
     deprecated_patterns = [
@@ -466,10 +446,6 @@ defmodule Mimo.Docs.Validator do
     {[], warnings}
   end
 
-  # ============================================================================
-  # SUGGESTIONS
-  # ============================================================================
-
   defp generate_suggestions(content, file) do
     suggestions = []
 
@@ -501,10 +477,6 @@ defmodule Mimo.Docs.Validator do
     suggestions
   end
 
-  # ============================================================================
-  # HELPERS
-  # ============================================================================
-
   defp get_project_root do
     Application.get_env(:mimo, :root_path) ||
       System.get_env("MIMO_ROOT") ||
@@ -528,10 +500,6 @@ defmodule Mimo.Docs.Validator do
       if Regex.match?(pattern, line), do: num, else: nil
     end)
   end
-
-  # ============================================================================
-  # QUICK VALIDATION FUNCTIONS
-  # ============================================================================
 
   @doc """
   Quick check if a specific tool reference is valid.

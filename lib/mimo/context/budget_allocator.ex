@@ -76,10 +76,6 @@ defmodule Mimo.Context.BudgetAllocator do
     large: 40_000
   }
 
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
-
   @doc """
   Allocate token budgets across tiers for a given model type and max tokens.
 
@@ -226,10 +222,6 @@ defmodule Mimo.Context.BudgetAllocator do
   end
 
   def estimate_string_tokens(_), do: 0
-
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
 
   defp normalize_model_name(name) when is_binary(name) do
     name

@@ -45,15 +45,15 @@ defmodule Mimo.Cognitive.InterleavedThinking do
 
   require Logger
 
+  alias Mimo.Brain.{CorrectionLearning, Memory}
+
   alias Mimo.Cognitive.{
-    ReasoningSession,
-    ThoughtEvaluator,
+    AdaptiveStrategy,
     Reasoner,
-    AdaptiveStrategy
+    ReasoningSession,
+    ThoughtEvaluator
   }
 
-  alias Mimo.Brain.Memory
-  alias Mimo.Brain.CorrectionLearning
   alias Mimo.Synapse.QueryEngine, as: KnowledgeQuery
   alias Mimo.TaskHelper
 
@@ -65,10 +65,6 @@ defmodule Mimo.Cognitive.InterleavedThinking do
 
   # Maximum corrections per step before escalating
   @max_corrections_per_step 2
-
-  # =============================================================================
-  # Types
-  # =============================================================================
 
   @type interleaved_step :: %{
           thought: String.t(),
@@ -107,10 +103,6 @@ defmodule Mimo.Cognitive.InterleavedThinking do
           reasoning_chain: [String.t()],
           confidence_trend: [float()]
         }
-
-  # =============================================================================
-  # Public API
-  # =============================================================================
 
   @doc """
   Start an interleaved thinking session.
@@ -387,10 +379,6 @@ defmodule Mimo.Cognitive.InterleavedThinking do
     end
   end
 
-  # =============================================================================
-  # Private: Verification
-  # =============================================================================
-
   defp verify_thought(thought, problem, acc_context) do
     # Extract claims from the thought
     claims = extract_claims(thought)
@@ -436,11 +424,11 @@ defmodule Mimo.Cognitive.InterleavedThinking do
     |> String.split(~r/[.!?]/)
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(String.length(&1) < 10))
-    |> Enum.filter(&is_claim?/1)
+    |> Enum.filter(&claim?/1)
     |> Enum.take(5)
   end
 
-  defp is_claim?(sentence) do
+  defp claim?(sentence) do
     # Claims typically contain assertive language
     assertive_patterns = [
       ~r/\b(is|are|was|were|has|have|will|should|must)\b/i,
@@ -460,7 +448,7 @@ defmodule Mimo.Cognitive.InterleavedThinking do
     # Memory.search_memories returns a list directly, not {:ok, list}
     memories = Memory.search_memories(query, limit: 10, min_similarity: 0.4)
 
-    if is_list(memories) and length(memories) > 0 do
+    if is_list(memories) and not Enum.empty?(memories) do
       categorize_memory_results(claims, memories)
     else
       %{supporting: [], contradicting: [], gaps: ["No memories found for claims"]}
@@ -491,7 +479,7 @@ defmodule Mimo.Cognitive.InterleavedThinking do
       end)
 
     gaps =
-      if length(supporting) == 0 and length(memories) < 3 do
+      if Enum.empty?(supporting) and length(memories) < 3 do
         ["Limited memory context for these claims"]
       else
         []
@@ -553,17 +541,17 @@ defmodule Mimo.Cognitive.InterleavedThinking do
 
   defp determine_verification_status(memory_results, knowledge_results, cross_ref) do
     has_contradictions =
-      length(memory_results.contradicting) > 0 or
-        length(knowledge_results.contradicting) > 0
+      not Enum.empty?(memory_results.contradicting) or
+        not Enum.empty?(knowledge_results.contradicting)
 
     has_support =
-      length(memory_results.supporting) > 0 or
-        length(knowledge_results.supporting) > 0 or
+      not Enum.empty?(memory_results.supporting) or
+        not Enum.empty?(knowledge_results.supporting) or
         cross_ref.match_count > 0
 
     cond do
       has_contradictions -> :contradicted
-      has_support and length(memory_results.gaps) == 0 -> :verified
+      has_support and Enum.empty?(memory_results.gaps) -> :verified
       has_support -> :partial
       true -> :unverified
     end
@@ -577,10 +565,6 @@ defmodule Mimo.Cognitive.InterleavedThinking do
       gaps: ["Verification timed out"]
     }
   end
-
-  # =============================================================================
-  # Private: Knowledge Injection
-  # =============================================================================
 
   defp find_relevant_knowledge(thought, problem) do
     # Search for relevant memories
@@ -605,10 +589,6 @@ defmodule Mimo.Cognitive.InterleavedThinking do
   rescue
     _ -> []
   end
-
-  # =============================================================================
-  # Private: Confidence Assessment
-  # =============================================================================
 
   defp assess_thought_confidence(thought, evaluation) do
     base_score = evaluation.score
@@ -652,14 +632,10 @@ defmodule Mimo.Cognitive.InterleavedThinking do
     }
   end
 
-  # =============================================================================
-  # Private: Corrections
-  # =============================================================================
-
   defp needs_correction?(verification, confidence) do
     verification.status == :contradicted or
       confidence.score < @low_confidence_threshold or
-      length(verification.contradictions) > 0
+      not Enum.empty?(verification.contradictions)
   end
 
   defp generate_corrections(thought, verification, injected_knowledge, _opts) do
@@ -667,7 +643,9 @@ defmodule Mimo.Cognitive.InterleavedThinking do
 
     # Correction based on contradictions
     corrections =
-      if length(verification.contradictions) > 0 do
+      if Enum.empty?(verification.contradictions) do
+        corrections
+      else
         contradiction = List.first(verification.contradictions)
 
         [
@@ -680,13 +658,13 @@ defmodule Mimo.Cognitive.InterleavedThinking do
           }
           | corrections
         ]
-      else
-        corrections
       end
 
     # Correction based on injected knowledge
     corrections =
-      if length(injected_knowledge) > 0 do
+      if Enum.empty?(injected_knowledge) do
+        corrections
+      else
         relevant = List.first(injected_knowledge)
 
         if relevant.relevance > 0.7 do
@@ -702,16 +680,10 @@ defmodule Mimo.Cognitive.InterleavedThinking do
         else
           corrections
         end
-      else
-        corrections
       end
 
     Enum.take(corrections, @max_corrections_per_step)
   end
-
-  # =============================================================================
-  # Private: Context Management
-  # =============================================================================
 
   defp build_initial_context(problem, guided_result) do
     %{
@@ -765,10 +737,6 @@ defmodule Mimo.Cognitive.InterleavedThinking do
     }
   end
 
-  # =============================================================================
-  # Private: Continuation Logic
-  # =============================================================================
-
   defp determine_continuation(verification, confidence, corrections, acc_context) do
     warnings = []
 
@@ -810,10 +778,6 @@ defmodule Mimo.Cognitive.InterleavedThinking do
 
     {should_continue, warnings}
   end
-
-  # =============================================================================
-  # Private: Adaptive Strategy Integration
-  # =============================================================================
 
   # Build step result map for AdaptiveStrategy analysis
   defp step_result_for_adaptive(confidence, verification, evaluation, acc_context, step_number) do
@@ -858,10 +822,6 @@ defmodule Mimo.Cognitive.InterleavedThinking do
     end
   end
 
-  # =============================================================================
-  # Private: Conclusion
-  # =============================================================================
-
   defp verify_reasoning_chain(thoughts, acc_context) do
     verified_count = length(acc_context.verified_facts)
     total_count = length(thoughts)
@@ -892,7 +852,7 @@ defmodule Mimo.Cognitive.InterleavedThinking do
     # Simple consistency check - look for contradictory statements
     _contents = Enum.map(thoughts, & &1.content)
 
-    # For now, return basic stats
+    # Returns basic stats from thought analysis.
     %{
       total_steps: length(thoughts),
       consistency_score: 0.8,
@@ -926,10 +886,10 @@ defmodule Mimo.Cognitive.InterleavedThinking do
     chain_conf = chain_verification.confidence
 
     trend_factor =
-      if length(acc_context.confidence_trend) > 0 do
-        Enum.sum(acc_context.confidence_trend) / length(acc_context.confidence_trend)
-      else
+      if Enum.empty?(acc_context.confidence_trend) do
         0.5
+      else
+        Enum.sum(acc_context.confidence_trend) / length(acc_context.confidence_trend)
       end
 
     final_score = chain_conf * 0.6 + trend_factor * 0.4
@@ -964,10 +924,6 @@ defmodule Mimo.Cognitive.InterleavedThinking do
   rescue
     _ -> :ok
   end
-
-  # =============================================================================
-  # Private: Helpers
-  # =============================================================================
 
   defp evaluate_thought(thought, session, _acc_context) do
     ThoughtEvaluator.evaluate(thought, %{

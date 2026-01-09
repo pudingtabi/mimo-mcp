@@ -43,13 +43,10 @@ defmodule Mimo.Synapse.SpreadingActivation do
   require Logger
 
   import Ecto.Query
+  alias AttentionLearner
   alias Mimo.Repo
-  alias Mimo.Synapse.{GraphNode, GraphEdge}
+  alias Mimo.Synapse.{GraphEdge, GraphNode}
   alias Mimo.Vector.Math, as: VectorMath
-
-  # ==========================================================================
-  # Hyperparameters
-  # ==========================================================================
 
   # Activation decays by this factor per hop
   @decay_factor 0.7
@@ -65,10 +62,6 @@ defmodule Mimo.Synapse.SpreadingActivation do
   @embedding_sim_factor 0.3
   @recency_factor 0.2
   @access_factor 0.1
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
 
   @doc """
   Activate nodes starting from a query, spreading through the graph.
@@ -130,10 +123,6 @@ defmodule Mimo.Synapse.SpreadingActivation do
     |> Enum.reject(fn {mem_id, _} -> is_nil(mem_id) end)
   end
 
-  # ==========================================================================
-  # Core Algorithm
-  # ==========================================================================
-
   defp initialize_activation(query_embedding, start_node_ids) do
     # Load nodes with embeddings
     nodes = load_nodes_with_data(start_node_ids)
@@ -193,10 +182,6 @@ defmodule Mimo.Synapse.SpreadingActivation do
       Map.put(acc, neighbor.id, current + propagated)
     end)
   end
-
-  # ==========================================================================
-  # Attention Mechanism (ML Component)
-  # ==========================================================================
 
   defp compute_attention(source_id, neighbors, query_embedding) do
     # Compute raw scores for each neighbor
@@ -260,10 +245,6 @@ defmodule Mimo.Synapse.SpreadingActivation do
     end
   end
 
-  # ==========================================================================
-  # Similarity & Scoring Helpers
-  # ==========================================================================
-
   defp compute_similarity(query_embedding, node) when is_list(query_embedding) do
     node_embedding = get_node_embedding(node)
 
@@ -303,10 +284,6 @@ defmodule Mimo.Synapse.SpreadingActivation do
 
   defp compute_access_score(_), do: 0.3
 
-  # ==========================================================================
-  # Database Helpers
-  # ==========================================================================
-
   defp load_nodes_with_data(node_ids) when is_list(node_ids) do
     Repo.all(
       from(n in GraphNode,
@@ -332,6 +309,7 @@ defmodule Mimo.Synapse.SpreadingActivation do
           select: %{
             source_id: e.source_node_id,
             id: t.id,
+            edge_id: e.id,
             name: t.name,
             node_type: t.node_type,
             properties: t.properties,
@@ -343,8 +321,19 @@ defmodule Mimo.Synapse.SpreadingActivation do
         )
       )
 
+    # Track edge access (SPEC-088 Phase 2)
+    edge_ids = Enum.map(edges, & &1.edge_id) |> Enum.uniq()
+    if edge_ids != [], do: track_edge_accesses_async(edge_ids)
+
     # Group by source node
     Enum.group_by(edges, & &1.source_id)
+  end
+
+  # Async edge access tracking to avoid blocking spreading activation (SPEC-088)
+  defp track_edge_accesses_async(edge_ids) do
+    Task.start(fn ->
+      Mimo.Synapse.Graph.batch_track_edge_access(edge_ids)
+    end)
   end
 
   defp memory_ids_to_node_ids(memory_ids) do

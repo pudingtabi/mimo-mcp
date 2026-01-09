@@ -35,10 +35,6 @@ defmodule Mimo.Protocol.McpParser do
   @tool_execution_failed -32_001
   @skill_unavailable -32_002
 
-  # ==========================================================================
-  # Parsing
-  # ==========================================================================
-
   @doc """
   Parses a JSON-RPC message line.
 
@@ -134,10 +130,6 @@ defmodule Mimo.Protocol.McpParser do
     end)
   end
 
-  # ==========================================================================
-  # Serialization
-  # ==========================================================================
-
   @doc """
   Creates a JSON-RPC success response.
   """
@@ -186,10 +178,6 @@ defmodule Mimo.Protocol.McpParser do
   def encode_response(response) do
     Jason.encode!(response) <> "\n"
   end
-
-  # ==========================================================================
-  # Request Building
-  # ==========================================================================
 
   @doc """
   Builds an initialize request.
@@ -254,10 +242,6 @@ defmodule Mimo.Protocol.McpParser do
 
     Jason.encode!(request) <> "\n"
   end
-
-  # ==========================================================================
-  # Error Code Helpers
-  # ==========================================================================
 
   @doc "Returns the parse error code."
   def parse_error_code, do: @parse_error

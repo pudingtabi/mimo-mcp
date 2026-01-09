@@ -94,10 +94,6 @@ defmodule Mimo.Skills.Diagnostics do
     end
   end
 
-  # ==========================================================================
-  # Language-Specific Compilers
-  # ==========================================================================
-
   defp run_compiler(path, :elixir) do
     project_root = find_project_root(path, "mix.exs")
 
@@ -177,10 +173,6 @@ defmodule Mimo.Skills.Diagnostics do
 
   defp run_compiler(_, _), do: []
 
-  # ==========================================================================
-  # Linters
-  # ==========================================================================
-
   defp run_linter(path, :elixir) do
     project_root = find_project_root(path, "mix.exs")
 
@@ -245,10 +237,6 @@ defmodule Mimo.Skills.Diagnostics do
 
   defp run_linter(_, _), do: []
 
-  # ==========================================================================
-  # Type Checkers
-  # ==========================================================================
-
   defp run_typechecker(_path, :elixir) do
     # Dialyzer is slow, skip for now unless explicitly requested
     # In the future, could add a :dialyzer option
@@ -270,10 +258,6 @@ defmodule Mimo.Skills.Diagnostics do
   end
 
   defp run_typechecker(_, _), do: []
-
-  # ==========================================================================
-  # Output Parsers
-  # ==========================================================================
 
   defp parse_elixir_output({output, _exit_code}) do
     # Parse Elixir compiler output
@@ -557,10 +541,6 @@ defmodule Mimo.Skills.Diagnostics do
     end
   end
 
-  # ==========================================================================
-  # Severity Converters
-  # ==========================================================================
-
   defp credo_priority_to_severity(priority) when is_number(priority) do
     cond do
       priority >= 10 -> :error
@@ -598,10 +578,6 @@ defmodule Mimo.Skills.Diagnostics do
   defp parse_severity(nil, default), do: default
   defp parse_severity("", default), do: default
   defp parse_severity(_, default), do: default
-
-  # ==========================================================================
-  # Helpers
-  # ==========================================================================
 
   defp detect_language(path) do
     cond do

@@ -56,10 +56,6 @@ defmodule Mimo.Fallback.ServiceRegistry do
   @state_failed :failed
   # Note: :recovering state could be used for auto-recovery in future
 
-  # ============================================================================
-  # Client API
-  # ============================================================================
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -253,10 +249,6 @@ defmodule Mimo.Fallback.ServiceRegistry do
     end
   end
 
-  # ============================================================================
-  # Safe Call Helper (TASK 2 - Defensive Patterns)
-  # ============================================================================
-
   @doc """
   Safely call a GenServer with defensive checks.
 
@@ -326,10 +318,6 @@ defmodule Mimo.Fallback.ServiceRegistry do
         end
     end
   end
-
-  # ============================================================================
-  # GenServer Callbacks
-  # ============================================================================
 
   @impl true
   def init(_opts) do
@@ -464,10 +452,6 @@ defmodule Mimo.Fallback.ServiceRegistry do
 
     {:noreply, state}
   end
-
-  # ============================================================================
-  # Stderr Helper (for when logger is silenced)
-  # ============================================================================
 
   defp emit_stderr(message) do
     # Write to stderr so it's visible even when LOGGER_LEVEL=none

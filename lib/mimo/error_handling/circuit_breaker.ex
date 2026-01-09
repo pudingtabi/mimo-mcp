@@ -25,10 +25,6 @@ defmodule Mimo.ErrorHandling.CircuitBreaker do
     :half_open_max_calls
   ]
 
-  # ==========================================================================
-  # Client API
-  # ==========================================================================
-
   def start_link(opts) do
     name = Keyword.fetch!(opts, :name)
     GenServer.start_link(__MODULE__, opts, name: via_tuple(name))
@@ -110,10 +106,6 @@ defmodule Mimo.ErrorHandling.CircuitBreaker do
     :exit, _ -> :ok
   end
 
-  # ==========================================================================
-  # Server Callbacks
-  # ==========================================================================
-
   @impl true
   def init(opts) do
     state = %__MODULE__{
@@ -184,10 +176,6 @@ defmodule Mimo.ErrorHandling.CircuitBreaker do
     Logger.info("Circuit breaker #{state.name} manually reset")
     {:noreply, %{state | state: :closed, failure_count: 0, success_count: 0}}
   end
-
-  # ==========================================================================
-  # Private Functions
-  # ==========================================================================
 
   defp determine_current_state(
          %{state: :open, last_failure_time: last_failure, reset_timeout_ms: timeout} = state

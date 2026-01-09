@@ -31,8 +31,8 @@ defmodule Mimo.Brain.Cleanup do
   use GenServer
   import Ecto.Query
   require Logger
-  alias Mimo.Repo
   alias Mimo.Brain.Engram
+  alias Mimo.Repo
   alias Mimo.SafeCall
 
   # Default configuration
@@ -43,10 +43,6 @@ defmodule Mimo.Brain.Cleanup do
   @max_memory_count 100_000
   # Hourly
   @cleanup_interval_ms 60 * 60 * 1000
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -94,10 +90,6 @@ defmodule Mimo.Brain.Cleanup do
     )
   end
 
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
-
   @impl true
   def init(opts) do
     # Schedule first cleanup
@@ -143,10 +135,6 @@ defmodule Mimo.Brain.Cleanup do
     new_config = Map.merge(state.config, Map.new(opts))
     {:reply, :ok, %{state | config: new_config}}
   end
-
-  # ==========================================================================
-  # Private Functions - Cleanup Operations
-  # ==========================================================================
 
   defp run_cleanup(state) do
     Logger.info("Starting memory cleanup...")
@@ -265,10 +253,6 @@ defmodule Mimo.Brain.Cleanup do
     end
   end
 
-  # ==========================================================================
-  # Private Functions - Statistics
-  # ==========================================================================
-
   defp calculate_stats do
     total = Repo.one(from(e in Engram, select: count(e.id))) || 0
 
@@ -321,10 +305,6 @@ defmodule Mimo.Brain.Cleanup do
         )
     }
   end
-
-  # ==========================================================================
-  # Private Functions - Helpers
-  # ==========================================================================
 
   defp schedule_cleanup do
     interval = get_config(:cleanup_interval_ms)

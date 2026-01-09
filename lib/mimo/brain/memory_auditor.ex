@@ -20,8 +20,8 @@ defmodule Mimo.Brain.MemoryAuditor do
       Mimo.Brain.MemoryAuditor.find_obsolete_candidates(days_old: 90)
   """
 
-  alias Mimo.Brain.Memory
   alias Mimo.Brain.Engram
+  alias Mimo.Brain.Memory
   alias Mimo.Repo
   import Ecto.Query
   require Logger

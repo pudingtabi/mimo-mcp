@@ -21,6 +21,7 @@ defmodule Mimo.Fallback.GracefulDegradation do
   """
   require Logger
 
+  alias LLM
   alias Mimo.ErrorHandling.CircuitBreaker
 
   # Retry configuration
@@ -28,10 +29,6 @@ defmodule Mimo.Fallback.GracefulDegradation do
   @max_retries 3
   @base_delay_ms 1_000
   @max_delay_ms 30_000
-
-  # ==========================================================================
-  # Retry Queue Management
-  # ==========================================================================
 
   @doc """
   Initialize the retry queue ETS table.
@@ -190,10 +187,6 @@ defmodule Mimo.Fallback.GracefulDegradation do
     end
   end
 
-  # ==========================================================================
-  # LLM Fallback
-  # ==========================================================================
-
   @doc """
   Execute LLM operation with fallback to cached/default response.
 
@@ -230,10 +223,6 @@ defmodule Mimo.Fallback.GracefulDegradation do
     end
   end
 
-  # ==========================================================================
-  # Semantic Store Fallback
-  # ==========================================================================
-
   @doc """
   Query semantic store with fallback to episodic memory.
 
@@ -265,10 +254,6 @@ defmodule Mimo.Fallback.GracefulDegradation do
         end
     end
   end
-
-  # ==========================================================================
-  # Database Fallback
-  # ==========================================================================
 
   @doc """
   Execute database operation with in-memory cache fallback.
@@ -308,14 +293,10 @@ defmodule Mimo.Fallback.GracefulDegradation do
     end
   end
 
-  # ==========================================================================
-  # Embedding Fallback
-  # ==========================================================================
-
   @doc """
   Generate an embedding with graceful fallback.
 
-  - Tries primary embedding provider (LLM/Ollama via Mimo.Brain.LLM)
+  - Tries primary embedding provider (LLM/Ollama via LLM)
   - On failure or no API key, returns a deterministic hash-based embedding
     suitable for tests and non-critical flows.
 
@@ -357,10 +338,6 @@ defmodule Mimo.Fallback.GracefulDegradation do
     {:ok, embedding}
   end
 
-  # ==========================================================================
-  # Circuit Breaker Status
-  # ==========================================================================
-
   @doc """
   Check if a service is currently degraded (circuit open).
   """
@@ -388,10 +365,6 @@ defmodule Mimo.Fallback.GracefulDegradation do
        }}
     end)
   end
-
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
 
   # Simple ETS-based cache (production should use proper caching)
   defp cache_response(key, value) do

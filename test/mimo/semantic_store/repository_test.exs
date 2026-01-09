@@ -368,15 +368,15 @@ defmodule Mimo.SemanticStore.RepositoryTest do
 
       # Search by subject
       results = Repository.search("search_alice")
-      assert length(results) >= 1
+      assert results != []
 
       # Search by object
       results = Repository.search("search_bob")
-      assert length(results) >= 1
+      assert results != []
 
       # Search by predicate
       results = Repository.search("knows")
-      assert length(results) >= 1
+      assert results != []
     end
 
     test "respects min_confidence in search" do
@@ -393,7 +393,7 @@ defmodule Mimo.SemanticStore.RepositoryTest do
       assert results == []
 
       results = Repository.search("search_low", min_confidence: 0.2)
-      assert length(results) >= 1
+      assert results != []
     end
   end
 

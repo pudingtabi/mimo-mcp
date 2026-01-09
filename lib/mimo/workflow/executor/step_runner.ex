@@ -81,10 +81,6 @@ defmodule Mimo.Workflow.Executor.StepRunner do
     end
   end
 
-  # =============================================================================
-  # Tool Execution
-  # =============================================================================
-
   defp execute_tool(tool_name, args) do
     # Look up the tool in the registry
     case get_tool_handler(tool_name) do
@@ -182,10 +178,6 @@ defmodule Mimo.Workflow.Executor.StepRunner do
   defp normalize_result(%{status: "error"} = err), do: {:error, err[:error] || err}
   defp normalize_result(other), do: {:ok, other}
 
-  # =============================================================================
-  # Argument Normalization
-  # =============================================================================
-
   defp normalize_args(args) when is_map(args) do
     Enum.map(args, fn
       {k, v} when is_binary(k) -> {String.to_existing_atom(k), v}
@@ -202,10 +194,6 @@ defmodule Mimo.Workflow.Executor.StepRunner do
 
   defp normalize_args(args) when is_list(args), do: args
   defp normalize_args(args), do: [args: args]
-
-  # =============================================================================
-  # Output Normalization
-  # =============================================================================
 
   defp normalize_output(tool_name, output, args) do
     # Create a context key based on tool name or explicit output_key
@@ -241,10 +229,6 @@ defmodule Mimo.Workflow.Executor.StepRunner do
       _ -> String.to_atom("#{tool_name}_result")
     end
   end
-
-  # =============================================================================
-  # Validation
-  # =============================================================================
 
   defp validate_output(_output, nil), do: :ok
 
@@ -299,10 +283,6 @@ defmodule Mimo.Workflow.Executor.StepRunner do
   defp empty_result?(map) when map == %{}, do: true
   defp empty_result?(_), do: false
 
-  # =============================================================================
-  # Retry Logic
-  # =============================================================================
-
   defp should_retry?(_reason, nil), do: false
 
   defp should_retry?(reason, retry_policy) do
@@ -321,10 +301,6 @@ defmodule Mimo.Workflow.Executor.StepRunner do
   defp extract_error_type({:connection_error, _}), do: :connection_error
   defp extract_error_type({:rate_limited, _}), do: :rate_limited
   defp extract_error_type(_), do: :unknown
-
-  # =============================================================================
-  # Tool Usage Logging
-  # =============================================================================
 
   defp log_tool_usage(tool_name, args, session_id) do
     # Async logging to avoid blocking
@@ -366,10 +342,6 @@ defmodule Mimo.Workflow.Executor.StepRunner do
   defp generate_session_id do
     "step_" <> Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
   end
-
-  # =============================================================================
-  # Telemetry
-  # =============================================================================
 
   defp emit_telemetry(tool_name, duration_us, result) do
     status =

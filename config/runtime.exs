@@ -38,9 +38,11 @@ if config_env() == :prod do
 end
 
 # Development/test pool settings
+# SPEC-STABILITY: SQLite only allows ONE writer at a time.
+# pool_size > 1 causes "Database busy" errors even with WriteSerializer.
 if config_env() in [:dev, :test] do
   config :mimo_mcp, Mimo.Repo,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
+    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "1"),
     queue_target: 50,
     queue_interval: 1000
 end

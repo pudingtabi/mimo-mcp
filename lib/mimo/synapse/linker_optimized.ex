@@ -24,15 +24,12 @@ defmodule Mimo.Synapse.LinkerOptimized do
   """
 
   require Logger
+  alias Mimo.Code.{SymbolIndex, TreeSitter}
   alias Mimo.Synapse.GraphCache
 
   @max_concurrency System.schedulers_online() * 2
   # Flush every N files
   @flush_interval 50
-
-  # ============================================
-  # Optimized Directory Linking
-  # ============================================
 
   @doc """
   Link all code files in a directory using parallel processing and batch operations.
@@ -143,10 +140,6 @@ defmodule Mimo.Synapse.LinkerOptimized do
        cache_stats: cache_stats
      }}
   end
-
-  # ============================================
-  # Cached File Linking
-  # ============================================
 
   @doc """
   Link a single code file using GraphCache for fast lookups.
@@ -315,17 +308,13 @@ defmodule Mimo.Synapse.LinkerOptimized do
     end
   end
 
-  # ============================================
-  # Private Helpers (shared with Linker)
-  # ============================================
-
   defp get_code_symbols(file_path) do
     # Expand to absolute path to match database storage format
     abs_path = Path.expand(file_path)
 
     symbols =
       try do
-        Mimo.Code.SymbolIndex.symbols_in_file(abs_path)
+        SymbolIndex.symbols_in_file(abs_path)
       rescue
         _ -> []
       end
@@ -338,8 +327,8 @@ defmodule Mimo.Synapse.LinkerOptimized do
   end
 
   defp parse_symbols_with_treesitter(file_path) do
-    with {:ok, tree} <- Mimo.Code.TreeSitter.parse_file(file_path),
-         {:ok, symbols} <- Mimo.Code.TreeSitter.get_symbols(tree) do
+    with {:ok, tree} <- TreeSitter.parse_file(file_path),
+         {:ok, symbols} <- TreeSitter.get_symbols(tree) do
       Enum.map(symbols, fn sym ->
         %{
           name: sym[:name] || sym["name"],
@@ -362,7 +351,7 @@ defmodule Mimo.Synapse.LinkerOptimized do
     try do
       # Expand to absolute path to match database storage format
       abs_path = Path.expand(file_path)
-      Mimo.Code.SymbolIndex.references_in_file(abs_path)
+      SymbolIndex.references_in_file(abs_path)
     rescue
       _ -> []
     end

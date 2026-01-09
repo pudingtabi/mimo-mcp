@@ -23,6 +23,7 @@ defmodule Mimo.Awakening.Stats do
   import Ecto.Query
   require Logger
 
+  alias Mimo.Awakening.PowerCalculator
   alias Mimo.Repo
 
   @type t :: %__MODULE__{}
@@ -76,10 +77,6 @@ defmodule Mimo.Awakening.Stats do
     |> unique_constraint([:user_id, :project_id])
   end
 
-  # ==========================================================================
-  # Query Functions
-  # ==========================================================================
-
   @doc """
   Get or create stats for a user/project combination.
   Returns the stats record, creating one if it doesn't exist.
@@ -102,7 +99,7 @@ defmodule Mimo.Awakening.Stats do
   end
 
   defp ensure_level_correct(stats) do
-    correct_level = Mimo.Awakening.PowerCalculator.calculate_level(stats.total_xp)
+    correct_level = PowerCalculator.calculate_level(stats.total_xp)
 
     if stats.current_level != correct_level do
       correct_level_drift(stats, correct_level)
@@ -192,7 +189,7 @@ defmodule Mimo.Awakening.Stats do
     case get_or_create(user_id, project_id) do
       {:ok, stats} ->
         new_xp = stats.total_xp + xp_value
-        new_level = Mimo.Awakening.PowerCalculator.calculate_level(new_xp)
+        new_level = PowerCalculator.calculate_level(new_xp)
 
         # Build updates with INCREMENTED counter values (not replacement!)
         updates = %{
@@ -222,7 +219,7 @@ defmodule Mimo.Awakening.Stats do
       {:ok, stats} ->
         new_sessions = stats.total_sessions + 1
         new_xp = stats.total_xp + xp_for_event(:session_completed)
-        new_level = Mimo.Awakening.PowerCalculator.calculate_level(new_xp)
+        new_level = PowerCalculator.calculate_level(new_xp)
 
         stats
         |> changeset(%{
@@ -264,10 +261,6 @@ defmodule Mimo.Awakening.Stats do
     now = DateTime.utc_now()
     DateTime.diff(now, first, :day)
   end
-
-  # ==========================================================================
-  # Private Functions
-  # ==========================================================================
 
   defp xp_for_event(:memory_stored), do: 5
   defp xp_for_event(:memory_accessed), do: 1
@@ -311,15 +304,11 @@ defmodule Mimo.Awakening.Stats do
   """
   @spec increment_counter(atom(), map()) :: :ok
   def increment_counter(counter_type, _metadata \\ %{}) do
-    # For now, this is a no-op that allows tracking without persisting
-    # In future, we could store detailed metrics in a separate table
+    # Logs counter increments for debugging. Detailed metrics can be
+    # stored in a separate table if persistence is needed.
     Logger.debug("[Awakening.Stats] Counter increment: #{counter_type}")
     :ok
   end
-
-  # ==========================================================================
-  # Bootstrap / Sync Functions
-  # ==========================================================================
 
   @doc """
   Sync XP with existing data in the system.
@@ -371,7 +360,7 @@ defmodule Mimo.Awakening.Stats do
     total_xp = memory_xp + relationship_xp + procedure_xp
 
     # Calculate level from XP
-    level = Mimo.Awakening.PowerCalculator.calculate_level(total_xp)
+    level = PowerCalculator.calculate_level(total_xp)
 
     Logger.info("""
     [Awakening] Bootstrapping from existing data:

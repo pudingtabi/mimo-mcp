@@ -4,11 +4,11 @@ defmodule Mimo.Brain.ReflectorTest do
   alias Mimo.Brain.Reflector
 
   alias Mimo.Brain.Reflector.{
-    Evaluator,
     ConfidenceEstimator,
-    ErrorDetector,
     ConfidenceOutput,
-    Config
+    Config,
+    ErrorDetector,
+    Evaluator
   }
 
   describe "Evaluator" do

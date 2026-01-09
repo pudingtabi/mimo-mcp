@@ -303,13 +303,13 @@ defmodule Mimo.Cognitive.Strategies.Reflexion do
   def suggest_alternative(reflection, _problem) do
     cond do
       # If specific failures identified, address them
-      length(reflection.what_failed) > 0 ->
+      reflection.what_failed != [] ->
         failed_approach = List.first(reflection.what_failed)
 
         "Try a different approach. Avoid: #{failed_approach}. #{List.first(reflection.improvements) || "Consider breaking the problem into smaller steps."}"
 
       # If some things worked, build on them
-      length(reflection.what_worked) > 0 ->
+      reflection.what_worked != [] ->
         worked = List.first(reflection.what_worked)
         "Build on what worked: #{worked}. Then try a new method for the failing parts."
 
@@ -385,13 +385,8 @@ defmodule Mimo.Cognitive.Strategies.Reflexion do
     # Identify what contributed to success
     trajectory
     |> Enum.filter(fn step ->
-      step[:type] == :thought or step[:type] == :action
-    end)
-    |> Enum.filter(fn step ->
-      # Look for decisive steps
-      content = step[:content] || ""
-      evaluation = ThoughtEvaluator.evaluate(content, %{})
-      evaluation.quality == :good
+      (step[:type] == :thought or step[:type] == :action) and
+        match?(:good, ThoughtEvaluator.evaluate(step[:content] || "", %{}).quality)
     end)
     |> Enum.map(fn step ->
       truncate(step[:content] || "", 80)
@@ -403,11 +398,11 @@ defmodule Mimo.Cognitive.Strategies.Reflexion do
     # Find steps that led to significant progress
     trajectory
     |> Enum.filter(fn step ->
-      step[:type] == :thought
-    end)
-    |> Enum.filter(fn step ->
-      content = String.downcase(step[:content] || "")
-      String.match?(content, ~r/\b(decided|realized|key insight|important|crucial)\b/)
+      step[:type] == :thought and
+        String.match?(
+          String.downcase(step[:content] || ""),
+          ~r/\b(decided|realized|key insight|important|crucial)\b/
+        )
     end)
   end
 
@@ -436,18 +431,18 @@ defmodule Mimo.Cognitive.Strategies.Reflexion do
 
     # Capture effective patterns
     lessons =
-      if length(success_factors) > 0 do
-        ["Pattern that worked: #{List.first(success_factors)}" | lessons]
-      else
+      if Enum.empty?(success_factors) do
         lessons
+      else
+        ["Pattern that worked: #{List.first(success_factors)}" | lessons]
       end
 
     # Note the approach used
     lessons =
-      if length(trajectory) > 0 do
-        ["Effective approach took #{length(trajectory)} steps" | lessons]
-      else
+      if Enum.empty?(trajectory) do
         lessons
+      else
+        ["Effective approach took #{length(trajectory)} steps" | lessons]
       end
 
     Enum.reverse(lessons)
@@ -517,7 +512,7 @@ defmodule Mimo.Cognitive.Strategies.Reflexion do
     observations = Enum.filter(trajectory, &(&1[:type] == :observation))
     thoughts_after = Enum.filter(trajectory, &(&1[:type] == :thought))
 
-    if length(observations) > 2 and length(thoughts_after) > 0 do
+    if length(observations) > 2 and thoughts_after != [] do
       last_obs = List.last(observations)
       obs_content = last_obs[:content] || ""
 

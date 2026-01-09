@@ -5,6 +5,212 @@ All notable changes to Mimo-MCP Gateway will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] - 2026-01-07
+
+**Major Release** - Phase 3-6 Complete: Learning Loop + True Emergence + Evolution + Self-Directed Learning
+
+### Added
+
+- **ARCHITECTURE.md** - Canonical documentation for Tools vs Skills distinction
+  - Tools = MCP-exposed interfaces (14 core tools)
+  - Skills = Elixir implementation modules (lib/mimo/skills/*.ex)
+  - Dispatchers = Routing logic (lib/mimo/tools/dispatchers/*.ex)
+  - Clear layered architecture diagram
+  - Human memory model comparison (65-70% toward vision)
+
+- **Phase 6 S1: Learning Objective Generator**
+  - New `Mimo.Cognitive.LearningObjectives` GenServer for proactive goal setting
+  - Added to supervision tree for automatic startup
+  - `generate/0` creates objectives from calibration, meta-learning, evolution, and error data
+  - `prioritized/0` sorts objectives by urgency and impact
+  - `mark_addressed/1` and `current_focus/0` for tracking
+  - Four objective types: calibration, strategy, knowledge, skill_gap
+
+- **Phase 6 S2: Autonomous Learning Executor**
+  - New `Mimo.Cognitive.LearningExecutor` GenServer for autonomous learning
+  - Checks for learning opportunities every 5 minutes
+  - Executes up to 3 actions per cycle (research, synthesis, consolidation, practice)
+  - Cooldown management prevents action spam
+  - `execute_now/0`, `pause/0`, `resume/0` for control
+
+- **Phase 6 S3: Learning Progress Tracker**
+  - New `Mimo.Cognitive.LearningProgress` module for effectiveness tracking
+  - `summary/0` provides overall learning health status
+  - `detailed_metrics/0` shows execution stats and type distribution
+  - `stuck_objectives/0` identifies objectives active > 1 hour
+  - `strategy_recommendations/0` suggests improvements
+  - `learning_velocity/0` tracks learning rate over time
+
+- **Phase 5 C1: Autonomous Health Monitoring**
+  - New `Mimo.Cognitive.HealthWatcher` GenServer for proactive monitoring
+  - Added to supervision tree for automatic startup
+  - 5-minute health check intervals via `@check_interval_ms`
+  - 12-check history window for trend analysis (1 hour)
+  - Detects degradation (20% drop) and critical issues (40% drop)
+  - Auto-triggers SafeHealer interventions on critical drop
+  - APIs: `status/0`, `history/0`, `alerts/0`, `check_now/0`
+
+- **Phase 5 C2: Self-Healing Patterns**
+  - New `Mimo.Cognitive.SafeHealer` module for autonomous healing
+  - Catalog of 6 healing actions with risk levels (low/medium)
+  - Condition-based triggers (cache bloated, breakers tripped, etc.)
+  - Cooldown management prevents healing storms
+  - `diagnose/0` - Analyzes current state, recommends actions
+  - `heal/1` - Executes specific healing action
+  - `auto_heal/0` - Runs all low-risk interventions automatically
+  - Available actions: cache clearing, circuit breaker reset, maintenance cycles
+
+- **Phase 5 C3: Evolution Metrics Dashboard**
+  - New `Mimo.Cognitive.EvolutionDashboard` for unified metrics
+  - `snapshot/0` - Complete cognitive evolution report
+  - `memory_evolution/0` - Memory stats, growth, quality
+  - `learning_evolution/0` - Strategy effectiveness, calibration
+  - `emergence_evolution/0` - Pattern detection and promotion metrics
+  - `health_evolution/0` - System stability and uptime
+  - `evolution_score/0` - Single 0-1 score with level interpretation
+  - Evolution levels: initializing → nascent → developing → learning → evolved → transcendent
+
+- **Phase 3 L5: Confidence Calibration (SPEC-074 extension)**
+  - New `@calibration_table` ETS in FeedbackLoop for tracking predicted vs actual confidence
+  - `get_calibration/1` returns calibration factor, per-bucket analysis, and recommendations
+  - `calibrated_confidence/2` applies calibration to raw confidence scores (clamps to [0,1])
+  - `calibration_warnings/0` surfaces categories with significant miscalibration
+  - Per-bucket tracking divides [0,1] into 10 buckets for granular calibration
+  - Calibration factors: < 1.0 = overconfident, > 1.0 = underconfident
+
+- **Phase 3 L6: Meta-Learning**
+  - New `Mimo.Cognitive.MetaLearner` module for learning about learning
+  - `analyze_strategy_effectiveness/0` - Compares all learning strategies
+  - `recommend_parameter_adjustments/0` - Suggests parameter changes based on data
+  - `detect_meta_patterns/0` - Finds patterns in how patterns emerge
+  - `meta_insights/0` - Synthesizes high-level learning insights
+  - Added `Pattern.stats/0` and `Promoter.stats/0` for meta-learning data
+  - Added `Detector.available_modes/0` for mode enumeration
+
+- **Calibration Integration**
+  - MetaCognitiveRouter.classify/1 now applies calibration before returning
+  - Response includes both `confidence` (calibrated) and `raw_confidence`
+  - record_outcome passes predicted_confidence for tracking
+  - SystemHealth.quality_metrics/0 includes calibration summary and warnings
+
+- **Phase 4 E1: LLM-Enhanced Pattern Detection (SPEC-044)**
+  - New `:semantic_clustering` detection mode in Detector
+  - Uses LLM embeddings for semantic similarity instead of string matching
+  - Clusters interactions by meaning using cosine similarity (threshold: 0.85)
+  - Batch embedding via `LLM.get_embeddings/1` for efficiency
+  - Greedy clustering algorithm with centroid computation
+
+- **Phase 4 E2: Promoter→Skill Bridge**
+  - Promoted patterns now actually register as callable procedures
+  - `:workflow` patterns → Procedural store registration
+  - `:skill` patterns → Procedure registration with tool chain
+  - Patterns become callable via `orchestrate operation=run_procedure name="..."`
+  - Returns `callable_as` field showing how to invoke the promoted pattern
+
+- **Phase 4 E3: Cross-Session Pattern Tracking**
+  - New `:cross_session` detection mode in Detector
+  - Detects patterns that persist across multiple sessions
+  - N-gram analysis (2-gram and 3-gram) for tool sequences
+  - Session derivation from timestamps when session_id not available
+  - Patterns marked with `cross_session: true` metadata
+
+### Technical Details
+- Emergence moves from GROUP BY counting to semantic understanding
+- Promoted patterns are now genuinely callable, not just stored
+- Cross-session patterns weighted higher for promotion (more reliable)
+- All new detection modes integrate with existing Scheduler
+
+### Fixed
+- **Critical: Dispatcher return type mismatches in cognitive.ex**
+  - `dispatch_health_status` accessed non-existent map keys (`.status`, `.score`, `.trend`)
+  - `dispatch_health_check_now` expected `{:ok, result}` but module returns map directly
+  - `dispatch_heal_auto` expected `{:ok, result}` but module returns map directly
+  - `dispatch_learning_objectives_generate` expected tuple but module returns list directly
+
+- **Critical: ETS table crash on GenServer restart (LearningObjectives)**
+  - `init/1` called `:ets.new` without checking if table exists
+  - Added `:ets.whereis` check to prevent `badarg` crash on GenServer restart
+
+- **Critical: Deadlock between HealthWatcher and SafeHealer**
+  - `HealthWatcher.handle_info` → `SafeHealer.auto_heal()` → `HealthWatcher.alerts()` caused deadlock
+  - Wrapped intervention execution in `Task.start` to prevent GenServer self-blocking
+
+- **Bug: Catalog evolution field type mismatch**
+  - `catalog.ex` accessed `pattern.evolution["key"]` but evolution is a list, not a map
+  - Changed to use `metadata` field which is the correct map type
+
+- **Compiler Warnings (Clean Build)**
+  - Fixed unused variable `context` in `confidence_estimator.ex:406`
+  - Fixed unused variable `trend` in `meta_learner.ex:158`
+  - Fixed variable shadowing for `insights` in `meta_learner.ex:331,362` (was also a logic bug)
+  - Removed unused `@calibration_decay_factor` module attribute in `feedback_loop.ex`
+  - Fixed emit_telemetry/4 unused default parameter in `meta_cognitive_router.ex`
+  - Fixed run_stage/1 clause grouping in `sleep_cycle.ex:423` (moved catch-all to proper location)
+  - Fixed distinct type comparison warning in `meta_learner.ex:121` (emergence_data != %{})
+  - Commented out preserved decay functions in `background_cognition.ex` (Elixir 1.19 @compile issue)
+
+- **Defensive: Pattern match in emergence dispatcher**
+  - Changed `{:ok, result} = Emergence.detect_patterns(opts)` to proper case statement
+  - Handles potential {:error, reason} return gracefully
+
+- **ETS Table Restart Crash Prevention (4 additional modules)**
+  - `gateway/session.ex`: Agent init now checks `:ets.whereis` before creating table
+  - `knowledge/refresher.ex`: GenServer init now checks `:ets.whereis` before creating table
+  - `cognitive/feedback_bridge.ex`: GenServer init now checks `:ets.whereis` before creating table
+  - `cognitive/feedback_loop.ex`: GenServer init now checks `:ets.whereis` for all 3 tables
+
+### Tests Added
+- `test/mimo/cognitive/health_watcher_test.exs` - 11 tests for Phase 5 C1
+- `test/mimo/cognitive/safe_healer_test.exs` - 15 tests for Phase 5 C2
+- `test/mimo/cognitive/learning_objectives_test.exs` - 10 tests for Phase 6 S1
+- `test/mimo/cognitive/learning_executor_test.exs` - 10 tests for Phase 6 S2
+- `test/mimo/cognitive/learning_progress_test.exs` - 14 tests for Phase 6 S3
+
+---
+
+## [2.8.0] - 2026-01-06
+
+**Major Release** - Phase 3 Learning Loop: Closed-loop cognitive learning system.
+
+### Added
+- **Phase 3 L2: Router Adjustment**
+  - MetaCognitiveRouter now applies feedback-based boosts to classification
+  - `get_feedback_boosts/0` queries FeedbackLoop for accuracy data
+  - Boost weights configurable via `@feedback_boost_weight` (default 0.2)
+  - Results include `feedback_boosts` field showing adjustments applied
+
+- **Phase 3 L3: Experience Integration**
+  - `FeedbackLoop.tool_execution_stats/1` for tool-specific success rates
+  - `ToolInterface.add_experience_context/2` enriches results with historical data
+  - Results include `_experience_context` when ≥5 past executions exist
+  - Trend calculation (improving/stable/declining) included
+
+- **Phase 3 L4: Tool Selection Learning**
+  - `SuggestNextTool` enhanced with experience-based insights
+  - `get_tool_experience_insight/2` queries historical success rates
+  - Returns confidence levels and alternative recommendations
+  - Low success tools (<60%) trigger alternative suggestions
+
+- **Phase 3 L5: Confidence Calibration**
+  - `ConfidenceEstimator.apply_calibration/2` uses FeedbackLoop data
+  - Historical accuracy adjusts confidence scores
+  - Overconfident predictions get reduced scores
+  - Accurate predictions get slight boost
+
+- **Phase 3 L6: Meta-Learning**
+  - `FeedbackLoop.learning_effectiveness/0` for introspection
+  - Reports prediction, classification, and tool learning effectiveness
+  - Computes overall learning health (excellent/healthy/needs_attention/struggling)
+  - Generates actionable recommendations based on patterns
+
+### Technical Details
+- FeedbackLoop (SPEC-074) now actively applies learning to behavior
+- First closed-loop learning system in Mimo
+- All learning is self-adjusting based on actual outcomes
+- Memory integration persists learning across sessions
+
+---
+
 ## [2.7.0] - 2025-12-03
 
 **Major Release** - Tool Consolidation (Phases 1-4): Unified tools for simpler orchestration.

@@ -12,7 +12,7 @@ defmodule Mimo.SPEC051.BenchmarkTest do
   use Mimo.DataCase
 
   alias Mimo.Brain.HybridScorer
-  alias Mimo.Context.{BudgetAllocator, AccessPatternTracker}
+  alias Mimo.Context.{AccessPatternTracker, BudgetAllocator}
 
   describe "task type detection" do
     test "detect_task_type identifies coding tasks" do
@@ -133,7 +133,7 @@ defmodule Mimo.SPEC051.BenchmarkTest do
 
     test "tier thresholds match spec" do
       # SPEC-051: tier1 >= 0.85, tier2 >= 0.65, tier3 < 0.65
-      # 
+      #
       # classify_tier calculates URS from item components, not from a score key.
       # Test using explain_tier to verify threshold classification is correct.
 
@@ -149,7 +149,7 @@ defmodule Mimo.SPEC051.BenchmarkTest do
 
       high_result = HybridScorer.explain_tier(high_importance_item)
 
-      # Medium importance item  
+      # Medium importance item
       medium_importance_item = %{
         content: "normal data",
         importance: 0.5,
@@ -250,7 +250,7 @@ defmodule Mimo.SPEC051.BenchmarkTest do
       assert length(kept_items) < length(items), "Expected items to be reduced"
 
       # Kept items should be highest scored (tier1 preferred)
-      if length(kept_items) > 0 do
+      if kept_items != [] do
         kept_tiers = Enum.map(kept_items, & &1.tier)
         tier1_kept = Enum.count(kept_tiers, &(&1 == :tier1))
 

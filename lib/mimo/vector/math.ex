@@ -1,4 +1,6 @@
 defmodule Mimo.Vector.Math do
+  alias Mimo.Vector.Fallback
+
   @moduledoc """
   Rust NIF wrapper for SIMD-accelerated vector operations.
 
@@ -28,7 +30,7 @@ defmodule Mimo.Vector.Math do
 
       iex> Mimo.Vector.Math.cosine_similarity([1.0, 2.0, 3.0], [1.0, 2.0, 3.0])
       {:ok, 1.0}
-      
+
       iex> Mimo.Vector.Math.batch_similarity([1.0, 0.0], [[1.0, 0.0], [0.0, 1.0]])
       {:ok, [1.0, 0.0]}
 
@@ -73,10 +75,6 @@ defmodule Mimo.Vector.Math do
     end
   end
 
-  # ===========================================================================
-  # Float32 Vector Operations
-  # ===========================================================================
-
   @doc """
   Computes cosine similarity between two vectors.
 
@@ -94,7 +92,7 @@ defmodule Mimo.Vector.Math do
 
       iex> Mimo.Vector.Math.cosine_similarity([1.0, 0.0], [1.0, 0.0])
       {:ok, 1.0}
-      
+
       iex> Mimo.Vector.Math.cosine_similarity([1.0, 0.0], [0.0, 1.0])
       {:ok, 0.0}
   """
@@ -103,7 +101,7 @@ defmodule Mimo.Vector.Math do
 
   # NIF stub - replaced at runtime if NIF loads
   def cosine_similarity(a, b) when is_list(a) and is_list(b) do
-    Mimo.Vector.Fallback.cosine_similarity(a, b)
+    Fallback.cosine_similarity(a, b)
   end
 
   @doc """
@@ -131,7 +129,7 @@ defmodule Mimo.Vector.Math do
 
   # NIF stub - replaced at runtime if NIF loads
   def batch_similarity(query, corpus) when is_list(query) and is_list(corpus) do
-    Mimo.Vector.Fallback.batch_similarity(query, corpus)
+    Fallback.batch_similarity(query, corpus)
   end
 
   @doc """
@@ -154,9 +152,9 @@ defmodule Mimo.Vector.Math do
           {:ok, [{non_neg_integer(), float()}]} | {:error, atom()}
   def top_k_similar(query, corpus, k)
 
-  # NIF stub - replaced at runtime if NIF loads  
+  # NIF stub - replaced at runtime if NIF loads
   def top_k_similar(query, corpus, k) when is_list(query) and is_list(corpus) and is_integer(k) do
-    Mimo.Vector.Fallback.top_k_similar(query, corpus, k)
+    Fallback.top_k_similar(query, corpus, k)
   end
 
   @doc """
@@ -176,12 +174,8 @@ defmodule Mimo.Vector.Math do
 
   # NIF stub - replaced at runtime if NIF loads
   def normalize_vector(vec) when is_list(vec) do
-    Mimo.Vector.Fallback.normalize_vector(vec)
+    Fallback.normalize_vector(vec)
   end
-
-  # ===========================================================================
-  # Int8 Quantization Operations (SPEC-031 Phase 2)
-  # ===========================================================================
 
   @doc """
   Quantizes a float32 vector to int8 for storage optimization.
@@ -197,7 +191,7 @@ defmodule Mimo.Vector.Math do
 
     - `{:ok, {binary, scale, offset}}` where:
       - `binary` - Binary containing int8 values (1 byte per dimension)
-      - `scale` - Scale factor for dequantization  
+      - `scale` - Scale factor for dequantization
       - `offset` - Offset for dequantization
     - `{:error, reason}` - Error if vector is invalid
 
@@ -216,7 +210,7 @@ defmodule Mimo.Vector.Math do
 
   # NIF stub - replaced at runtime if NIF loads
   def quantize_int8(vec) when is_list(vec) do
-    Mimo.Vector.Fallback.quantize_int8(vec)
+    Fallback.quantize_int8(vec)
   end
 
   @doc """
@@ -248,7 +242,7 @@ defmodule Mimo.Vector.Math do
   # NIF stub - replaced at runtime if NIF loads
   def dequantize_int8(binary, scale, offset)
       when is_binary(binary) and is_number(scale) and is_number(offset) do
-    Mimo.Vector.Fallback.dequantize_int8(binary, scale, offset)
+    Fallback.dequantize_int8(binary, scale, offset)
   end
 
   @doc """
@@ -283,7 +277,7 @@ defmodule Mimo.Vector.Math do
 
   # NIF stub - replaced at runtime if NIF loads
   def cosine_similarity_int8(a, b) when is_binary(a) and is_binary(b) do
-    Mimo.Vector.Fallback.cosine_similarity_int8(a, b)
+    Fallback.cosine_similarity_int8(a, b)
   end
 
   @doc """
@@ -306,7 +300,7 @@ defmodule Mimo.Vector.Math do
 
   # NIF stub - replaced at runtime if NIF loads
   def batch_similarity_int8(query, corpus) when is_binary(query) and is_list(corpus) do
-    Mimo.Vector.Fallback.batch_similarity_int8(query, corpus)
+    Fallback.batch_similarity_int8(query, corpus)
   end
 
   @doc """
@@ -330,12 +324,8 @@ defmodule Mimo.Vector.Math do
   # NIF stub - replaced at runtime if NIF loads
   def top_k_similar_int8(query, corpus, k)
       when is_binary(query) and is_list(corpus) and is_integer(k) do
-    Mimo.Vector.Fallback.top_k_similar_int8(query, corpus, k)
+    Fallback.top_k_similar_int8(query, corpus, k)
   end
-
-  # ===========================================================================
-  # Binary Quantization Operations (SPEC-033 Phase 3a)
-  # ===========================================================================
 
   @doc """
   Converts a float32 vector to binary representation (sign bits).
@@ -368,7 +358,7 @@ defmodule Mimo.Vector.Math do
 
   # NIF stub - replaced at runtime if NIF loads
   def to_binary(vec) when is_list(vec) do
-    Mimo.Vector.Fallback.to_binary(vec)
+    Fallback.to_binary(vec)
   end
 
   @doc """
@@ -396,7 +386,7 @@ defmodule Mimo.Vector.Math do
 
   # NIF stub - replaced at runtime if NIF loads
   def int8_to_binary(int8_vec) when is_binary(int8_vec) do
-    Mimo.Vector.Fallback.int8_to_binary(int8_vec)
+    Fallback.int8_to_binary(int8_vec)
   end
 
   @doc """
@@ -423,7 +413,7 @@ defmodule Mimo.Vector.Math do
       iex> {:ok, dist} = Mimo.Vector.Math.hamming_distance(<<255>>, <<255>>)
       iex> dist
       0
-      
+
       iex> {:ok, dist} = Mimo.Vector.Math.hamming_distance(<<255>>, <<0>>)
       iex> dist
       8
@@ -433,7 +423,7 @@ defmodule Mimo.Vector.Math do
 
   # NIF stub - replaced at runtime if NIF loads
   def hamming_distance(a, b) when is_binary(a) and is_binary(b) do
-    Mimo.Vector.Fallback.hamming_distance(a, b)
+    Fallback.hamming_distance(a, b)
   end
 
   @doc """
@@ -458,7 +448,7 @@ defmodule Mimo.Vector.Math do
 
   # NIF stub - replaced at runtime if NIF loads
   def batch_hamming_distance(query, corpus) when is_binary(query) and is_list(corpus) do
-    Mimo.Vector.Fallback.batch_hamming_distance(query, corpus)
+    Fallback.batch_hamming_distance(query, corpus)
   end
 
   @doc """
@@ -495,7 +485,7 @@ defmodule Mimo.Vector.Math do
   # NIF stub - replaced at runtime if NIF loads
   def top_k_hamming(query, corpus, k)
       when is_binary(query) and is_list(corpus) and is_integer(k) do
-    Mimo.Vector.Fallback.top_k_hamming(query, corpus, k)
+    Fallback.top_k_hamming(query, corpus, k)
   end
 
   @doc """
@@ -519,7 +509,7 @@ defmodule Mimo.Vector.Math do
       iex> {:ok, sim} = Mimo.Vector.Math.hamming_to_similarity(0, 256)
       iex> sim
       1.0
-      
+
       iex> {:ok, sim} = Mimo.Vector.Math.hamming_to_similarity(128, 256)
       iex> sim
       0.5
@@ -531,12 +521,8 @@ defmodule Mimo.Vector.Math do
   # NIF stub - replaced at runtime if NIF loads
   def hamming_to_similarity(distance, total_bits)
       when is_integer(distance) and is_integer(total_bits) do
-    Mimo.Vector.Fallback.hamming_to_similarity(distance, total_bits)
+    Fallback.hamming_to_similarity(distance, total_bits)
   end
-
-  # ===========================================================================
-  # HNSW Index Operations (SPEC-033 Phase 3b)
-  # ===========================================================================
 
   @doc """
   Creates a new HNSW index for approximate nearest neighbor search.
@@ -854,10 +840,6 @@ defmodule Mimo.Vector.Math do
   def hnsw_stats(_index) do
     :erlang.nif_error(:nif_not_loaded)
   end
-
-  # ===========================================================================
-  # Utility Functions
-  # ===========================================================================
 
   @doc """
   Checks if the Rust NIF is loaded and available.

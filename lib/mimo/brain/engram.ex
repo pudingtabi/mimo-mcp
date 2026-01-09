@@ -95,6 +95,11 @@ defmodule Mimo.Brain.Engram do
     field(:decay_rate, :float, default: 0.01)
     field(:protected, :boolean, default: false)
 
+    # Archive-not-delete decay strategy
+    # Archived memories are excluded from default search but never deleted
+    field(:archived, :boolean, default: false)
+    field(:archived_at, :naive_datetime_usec)
+
     # Passive Memory fields (SPEC-012)
     field(:original_importance, :float)
     field(:thread_id, :binary_id)
@@ -166,6 +171,8 @@ defmodule Mimo.Brain.Engram do
       :last_accessed_at,
       :decay_rate,
       :protected,
+      :archived,
+      :archived_at,
       :original_importance,
       :thread_id,
       :project_id,
@@ -290,7 +297,7 @@ defmodule Mimo.Brain.Engram do
   """
   @spec get_embedding(%__MODULE__{}) :: {:ok, list(float())} | {:error, atom()}
   def get_embedding(%__MODULE__{embedding_int8: nil, embedding: embedding})
-      when is_list(embedding) and length(embedding) > 0 do
+      when is_list(embedding) and embedding != [] do
     {:ok, embedding}
   end
 
@@ -304,7 +311,7 @@ defmodule Mimo.Brain.Engram do
   end
 
   def get_embedding(%__MODULE__{embedding: embedding})
-      when is_list(embedding) and length(embedding) > 0 do
+      when is_list(embedding) and embedding != [] do
     {:ok, embedding}
   end
 
@@ -434,10 +441,6 @@ defmodule Mimo.Brain.Engram do
 
     original * :math.exp(-decay_rate * days_since_creation)
   end
-
-  # =============================================================================
-  # SPEC-034: Temporal Memory Chain Helpers
-  # =============================================================================
 
   @doc """
   Checks if this engram is currently active (not superseded).

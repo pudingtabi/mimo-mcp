@@ -126,10 +126,6 @@ defmodule Mimo.ProceduralStore.AutoGenerator do
     |> Enum.take(limit)
   end
 
-  # ============================================================================
-  # Private Functions
-  # ============================================================================
-
   defp do_generate(session, opts) do
     with {:ok, definition} <- build_definition(session),
          :ok <- Validator.validate(definition),
@@ -379,9 +375,7 @@ defmodule Mimo.ProceduralStore.AutoGenerator do
   end
 
   defp find_best_session_for_pattern(_pattern_id) do
-    # In a full implementation, this would look up sessions associated
-    # with the pattern and return the most successful one.
-    # For now, return an error as we need more infrastructure.
+    # Session lookup requires additional infrastructure.
     {:error, :not_implemented}
   end
 end

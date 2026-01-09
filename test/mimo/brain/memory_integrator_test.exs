@@ -7,7 +7,7 @@ defmodule Mimo.Brain.MemoryIntegratorTest do
 
   use Mimo.DataCase, async: false
 
-  alias Mimo.Brain.{MemoryIntegrator, Memory, Engram}
+  alias Mimo.Brain.{Engram, Memory, MemoryIntegrator}
   alias Mimo.Repo
 
   # =============================================================================

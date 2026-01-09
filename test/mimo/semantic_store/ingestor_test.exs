@@ -26,7 +26,7 @@ defmodule Mimo.SemanticStore.IngestorTest do
 
       # Check that predicate was normalized
       triples = Repository.get_by_predicate("depends_on")
-      assert length(triples) >= 1
+      assert triples != []
     end
 
     test "adds provenance to context" do

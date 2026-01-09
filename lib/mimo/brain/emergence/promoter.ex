@@ -30,7 +30,9 @@ defmodule Mimo.Brain.Emergence.Promoter do
 
   require Logger
 
-  alias Mimo.Brain.Emergence.{Pattern, Catalog}
+  alias Ingestor
+  alias Mimo.Brain.Emergence.{Catalog, Pattern}
+  alias Mimo.ProceduralStore.Loader, as: ProcLoader
 
   @default_thresholds %{
     occurrences: 10,
@@ -177,8 +179,10 @@ defmodule Mimo.Brain.Emergence.Promoter do
     # Convert workflow pattern to procedural memory
     Logger.debug("[Promoter] Converting workflow to procedure: #{pattern.description}")
 
+    procedure_name = generate_procedure_name(pattern)
+
     procedure_def = %{
-      name: generate_procedure_name(pattern),
+      name: procedure_name,
       description: pattern.description,
       steps: convert_components_to_steps(pattern.components),
       triggers: pattern.trigger_conditions,
@@ -189,13 +193,71 @@ defmodule Mimo.Brain.Emergence.Promoter do
       }
     }
 
-    # Would integrate with ProceduralStore
-    # For now, return the definition
-    {:ok,
-     %{
-       type: :procedure,
-       definition: procedure_def
-     }}
+    # E2: Actually register the procedure in ProceduralStore
+    registration_attrs = %{
+      name: procedure_name,
+      version: "1.0",
+      description: "Emerged from pattern: #{pattern.description}",
+      definition: %{
+        "steps" => format_steps_for_procedure(pattern.components),
+        "on_failure" => "abort",
+        "timeout_ms" => 300_000
+      },
+      metadata: %{
+        "source" => "emergence",
+        "pattern_id" => pattern.id,
+        "success_rate" => pattern.success_rate,
+        "promoted_at" => DateTime.to_iso8601(DateTime.utc_now())
+      }
+    }
+
+    case ProcLoader.register(registration_attrs) do
+      {:ok, registered} ->
+        Logger.info(
+          "[Emergence.Promoter] ✅ Registered procedure: #{procedure_name} (v#{registered.version})"
+        )
+
+        {:ok,
+         %{
+           type: :procedure,
+           definition: procedure_def,
+           registered: true,
+           procedure_id: registered.id,
+           callable_as: "orchestrate operation=run_procedure name=\"#{procedure_name}\""
+         }}
+
+      {:error, changeset} ->
+        Logger.warning(
+          "[Emergence.Promoter] ⚠️ Failed to register procedure: #{inspect(changeset.errors)}"
+        )
+
+        # Still return success - pattern is promoted, just not registered as callable
+        {:ok,
+         %{
+           type: :procedure,
+           definition: procedure_def,
+           registered: false,
+           registration_error: inspect(changeset.errors)
+         }}
+    end
+  end
+
+  # Format pattern components as procedure steps
+  defp format_steps_for_procedure(components) do
+    components
+    |> Enum.with_index(1)
+    |> Enum.map(fn {component, order} ->
+      tool = component[:tool] || component["tool"] || "unknown"
+      args = Map.drop(component, [:tool, "tool"])
+
+      %{
+        "order" => order,
+        "type" => "tool",
+        "tool" => tool,
+        "args" => args,
+        "description" => "Step #{order}: #{tool}"
+      }
+    end)
   end
 
   defp promote_to_knowledge(pattern) do
@@ -258,21 +320,62 @@ defmodule Mimo.Brain.Emergence.Promoter do
     # Register skill as an explicit capability
     Logger.debug("[Promoter] Registering skill as capability: #{pattern.description}")
 
+    capability_name = generate_capability_name(pattern)
+    tools_involved = extract_tools(pattern.components)
+
     capability = %{
-      name: generate_capability_name(pattern),
+      name: capability_name,
       description: pattern.description,
-      tools_involved: extract_tools(pattern.components),
+      tools_involved: tools_involved,
       domains: pattern.metadata[:domains] || [],
       proficiency: pattern.success_rate,
       source: "emergence",
       pattern_id: pattern.id
     }
 
-    {:ok,
-     %{
-       type: :capability,
-       definition: capability
-     }}
+    # E2: Also register as a callable procedure
+    # Skills become composite procedures that chain their tools
+    registration_attrs = %{
+      name: capability_name,
+      version: "1.0",
+      description: "Emerged skill: #{pattern.description}",
+      definition: %{
+        "steps" => format_steps_for_procedure(pattern.components),
+        "on_failure" => "abort",
+        "timeout_ms" => 300_000
+      },
+      metadata: %{
+        "source" => "emergence",
+        "type" => "skill",
+        "pattern_id" => pattern.id,
+        "success_rate" => pattern.success_rate,
+        "tools_involved" => tools_involved,
+        "promoted_at" => DateTime.to_iso8601(DateTime.utc_now())
+      }
+    }
+
+    case ProcLoader.register(registration_attrs) do
+      {:ok, registered} ->
+        Logger.info("[Emergence.Promoter] ✅ Registered skill as procedure: #{capability_name}")
+
+        {:ok,
+         %{
+           type: :capability,
+           definition: capability,
+           registered: true,
+           procedure_id: registered.id,
+           callable_as: "orchestrate operation=run_procedure name=\"#{capability_name}\""
+         }}
+
+      {:error, _changeset} ->
+        # Still return the capability definition even if registration fails
+        {:ok,
+         %{
+           type: :capability,
+           definition: capability,
+           registered: false
+         }}
+    end
   end
 
   # ─────────────────────────────────────────────────────────────────
@@ -355,5 +458,39 @@ defmodule Mimo.Brain.Emergence.Promoter do
     |> Enum.map(&(&1[:tool] || &1["tool"]))
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
+  end
+
+  @doc """
+  Gets promotion statistics for meta-learning.
+
+  Returns aggregated statistics about pattern promotion activity.
+  Used by MetaLearner for L6 meta-learning analysis.
+  """
+  @spec stats() :: map()
+  def stats do
+    promoted_count = Pattern.count_promoted()
+    total_patterns = Pattern.count_all()
+
+    promotion_rate = if total_patterns > 0, do: promoted_count / total_patterns, else: 0.0
+
+    %{
+      promoted_count: promoted_count,
+      total_patterns: total_patterns,
+      promotion_rate: Float.round(promotion_rate, 3),
+      # Count by type that got promoted
+      promoted_by_type: count_promoted_by_type()
+    }
+  end
+
+  defp count_promoted_by_type do
+    import Ecto.Query
+
+    from(p in Pattern,
+      where: p.status == :promoted,
+      group_by: p.type,
+      select: {p.type, count(p.id)}
+    )
+    |> Mimo.Repo.all()
+    |> Map.new()
   end
 end

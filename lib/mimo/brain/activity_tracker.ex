@@ -41,10 +41,6 @@ defmodule Mimo.Brain.ActivityTracker do
   @table :mimo_activity_tracker
   @inactivity_threshold_hours 24
 
-  # ==========================================================================
-  # Client API
-  # ==========================================================================
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: @name)
   end
@@ -92,10 +88,6 @@ defmodule Mimo.Brain.ActivityTracker do
   def last_activity do
     GenServer.call(@name, :last_activity)
   end
-
-  # ==========================================================================
-  # Server Callbacks
-  # ==========================================================================
 
   @impl true
   def init(_opts) do
@@ -205,10 +197,6 @@ defmodule Mimo.Brain.ActivityTracker do
     {:reply, state.last_activity, state}
   end
 
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
-
   defp load_activity_history(state) do
     # Load from ETS first (for restart recovery)
     last_activity =
@@ -217,8 +205,7 @@ defmodule Mimo.Brain.ActivityTracker do
         [] -> nil
       end
 
-    # Load active dates from database metadata or a dedicated table
-    # For now, use a simple approach: count distinct days from engram access
+    # Count distinct days from engram access timestamps.
     active_dates =
       try do
         query =
@@ -248,8 +235,8 @@ defmodule Mimo.Brain.ActivityTracker do
   end
 
   defp persist_active_day(_date) do
-    # Could persist to a dedicated table for durability
-    # For now, activity is reconstructed from engram access timestamps
+    # Activity is reconstructed from engram access timestamps.
+    # No separate persistence needed.
     :ok
   end
 

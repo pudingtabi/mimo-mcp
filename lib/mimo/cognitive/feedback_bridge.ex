@@ -46,10 +46,6 @@ defmodule Mimo.Cognitive.FeedbackBridge do
   # Cleanup interval
   @cleanup_interval_ms 60_000
 
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -86,14 +82,12 @@ defmodule Mimo.Cognitive.FeedbackBridge do
     :exit, _ -> %{status: :unavailable}
   end
 
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
-
   @impl true
   def init(_opts) do
-    # Create ETS table for session memory tracking
-    :ets.new(@session_memories_table, [:named_table, :public, :set])
+    # Create ETS table for session memory tracking (check if exists to prevent crash on restart)
+    if :ets.whereis(@session_memories_table) == :undefined do
+      :ets.new(@session_memories_table, [:named_table, :public, :set])
+    end
 
     # Attach to FeedbackLoop telemetry events
     :telemetry.attach(
@@ -156,10 +150,6 @@ defmodule Mimo.Cognitive.FeedbackBridge do
   @impl true
   def handle_info(_msg, state), do: {:noreply, state}
 
-  # ==========================================================================
-  # Telemetry Handlers
-  # ==========================================================================
-
   @doc false
   def handle_tool_execution_feedback(_event, measurements, metadata, _config) do
     # Extract relevant data
@@ -199,10 +189,6 @@ defmodule Mimo.Cognitive.FeedbackBridge do
       Logger.warning("[FeedbackBridge] Error processing feedback: #{inspect(e)}")
       :ok
   end
-
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
 
   defp extract_session_id(context) do
     # Try various context fields that might contain session ID

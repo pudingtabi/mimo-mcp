@@ -295,8 +295,7 @@ defmodule Mimo.Cognitive.ProblemAnalyzer do
     |> String.downcase()
     |> String.replace(~r/[^\w\s]/, "")
     |> String.split()
-    |> Enum.reject(&(String.length(&1) < 3))
-    |> Enum.reject(&MapSet.member?(common_words, &1))
+    |> Enum.reject(fn x -> String.length(x) < 3 or MapSet.member?(common_words, x) end)
     |> Enum.uniq()
     |> Enum.take(10)
   end

@@ -26,8 +26,9 @@ defmodule Mimo.Synapse.Traversal do
       subgraph = Traversal.ego_graph(center_id, hops: 2)
   """
 
+  alias Ecto.Adapters.SQL, as: EctoSQL
   alias Mimo.Repo
-  alias Mimo.Synapse.{Graph, GraphNode, GraphEdge}
+  alias Mimo.Synapse.{Graph, GraphEdge, GraphNode}
 
   require Logger
 
@@ -36,10 +37,6 @@ defmodule Mimo.Synapse.Traversal do
           depth: non_neg_integer(),
           path: [String.t()]
         }
-
-  # ============================================
-  # BFS Traversal
-  # ============================================
 
   @doc """
   Breadth-First Search traversal from a starting node.
@@ -83,7 +80,7 @@ defmodule Mimo.Synapse.Traversal do
 
       sql = build_traversal_sql(direction, edge_types_str, safe_min_weight)
 
-      case Ecto.Adapters.SQL.query(Repo, sql, [start_node_id, max_depth]) do
+      case EctoSQL.query(Repo, sql, [start_node_id, max_depth]) do
         {:ok, %{rows: rows}} ->
           rows
           |> Enum.map(fn [id, node_type, name, properties, depth, path] ->
@@ -272,10 +269,6 @@ defmodule Mimo.Synapse.Traversal do
     """
   end
 
-  # ============================================
-  # DFS Traversal
-  # ============================================
-
   @doc """
   Depth-First Search traversal from a starting node.
 
@@ -292,10 +285,6 @@ defmodule Mimo.Synapse.Traversal do
     bfs(start_node_id, opts)
     |> Enum.sort_by(fn %{path: path} -> -length(path) end)
   end
-
-  # ============================================
-  # Shortest Path
-  # ============================================
 
   @doc """
   Find the shortest path between two nodes.
@@ -357,7 +346,7 @@ defmodule Mimo.Synapse.Traversal do
       LIMIT 1
       """
 
-      case Ecto.Adapters.SQL.query(Repo, sql, [from_id, to_id, max_depth]) do
+      case EctoSQL.query(Repo, sql, [from_id, to_id, max_depth]) do
         {:ok, %{rows: [[path]]}} ->
           {:ok, String.split(path, "->")}
 
@@ -370,10 +359,6 @@ defmodule Mimo.Synapse.Traversal do
       end
     end
   end
-
-  # ============================================
-  # All Paths
-  # ============================================
 
   @doc """
   Find all paths between two nodes up to a maximum length.
@@ -426,7 +411,7 @@ defmodule Mimo.Synapse.Traversal do
       LIMIT ?4
       """
 
-      case Ecto.Adapters.SQL.query(Repo, sql, [from_id, to_id, max_length, limit]) do
+      case EctoSQL.query(Repo, sql, [from_id, to_id, max_length, limit]) do
         {:ok, %{rows: rows}} ->
           Enum.map(rows, fn [path] -> String.split(path, "->") end)
 
@@ -436,10 +421,6 @@ defmodule Mimo.Synapse.Traversal do
       end
     end
   end
-
-  # ============================================
-  # Ego Graph (Subgraph)
-  # ============================================
 
   @doc """
   Get the ego graph (neighborhood) around a center node.
@@ -469,15 +450,15 @@ defmodule Mimo.Synapse.Traversal do
 
     # Get all edges between these nodes
     edges =
-      if length(node_ids) > 0 do
+      if Enum.empty?(node_ids) do
+        []
+      else
         import Ecto.Query
 
         GraphEdge
         |> where([e], e.source_node_id in ^node_ids and e.target_node_id in ^node_ids)
         |> preload([:source_node, :target_node])
         |> Repo.all()
-      else
-        []
       end
 
     %{
@@ -485,10 +466,6 @@ defmodule Mimo.Synapse.Traversal do
       edges: edges
     }
   end
-
-  # ============================================
-  # Centrality (PageRank-style)
-  # ============================================
 
   @doc """
   Compute centrality scores for nodes in the graph.
@@ -535,7 +512,7 @@ defmodule Mimo.Synapse.Traversal do
       LIMIT ?1
       """
 
-      case Ecto.Adapters.SQL.query(Repo, sql, [limit]) do
+      case EctoSQL.query(Repo, sql, [limit]) do
         {:ok, %{rows: rows}} ->
           Enum.map(rows, fn [id, name, type, centrality] ->
             {id, %{name: name, node_type: safe_atom(type), centrality: centrality || 0.0}}
@@ -547,10 +524,6 @@ defmodule Mimo.Synapse.Traversal do
       end
     end
   end
-
-  # ============================================
-  # Helpers
-  # ============================================
 
   defp safe_atom(nil), do: nil
 

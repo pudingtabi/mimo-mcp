@@ -30,8 +30,8 @@ defmodule Mix.Tasks.Mimo.TruncateEmbeddings do
   use Mix.Task
   require Logger
 
-  alias Mimo.Repo
   alias Mimo.Brain.Engram
+  alias Mimo.Repo
   import Ecto.Query
 
   @shortdoc "Truncate embeddings using MRL (no re-embedding needed)"

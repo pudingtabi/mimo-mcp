@@ -10,20 +10,13 @@ defmodule Mimo.CrossSpecIntegrationTest do
   use Mimo.DataCase, async: false
 
   # SPEC-051: Tiered Context Delivery
-  alias Mimo.Context.{BudgetAllocator, AccessPatternTracker, Prefetcher}
+  alias Mimo.AdaptiveWorkflow.{LearningTracker, ModelProfiler, TemplateAdapter}
   alias Mimo.Brain.HybridScorer
-
-  # SPEC-052: Neuro-Symbolic Reasoning
-  alias Mimo.NeuroSymbolic.{RuleGenerator, CrossModalityLinker}
+  alias Mimo.Context.{AccessPatternTracker, BudgetAllocator, Prefetcher}
+  alias Mimo.NeuroSymbolic.{CrossModalityLinker, RuleGenerator}
   alias Mimo.SemanticStore.Repository
-
-  # SPEC-053: Workflow Orchestration
   alias Mimo.Workflow
   alias Mimo.Workflow.{Pattern, PatternRegistry, Predictor}
-  alias Mimo.AdaptiveWorkflow.TemplateAdapter
-
-  # SPEC-054: Adaptive Workflow Engine
-  alias Mimo.AdaptiveWorkflow.{ModelProfiler, LearningTracker}
 
   # =============================================================================
   # Setup

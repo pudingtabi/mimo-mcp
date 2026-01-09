@@ -54,8 +54,8 @@ defmodule Mimo.AdaptiveWorkflow.TemplateAdapter do
   """
   require Logger
 
-  alias Mimo.Workflow.Pattern
   alias Mimo.AdaptiveWorkflow.ModelProfiler
+  alias Mimo.Workflow.Pattern
 
   @type adaptation_opts :: [
           model_id: String.t(),
@@ -63,10 +63,6 @@ defmodule Mimo.AdaptiveWorkflow.TemplateAdapter do
           force_tier: ModelProfiler.tier() | nil,
           skip_adaptations: [atom()]
         ]
-
-  # =============================================================================
-  # Public API
-  # =============================================================================
 
   @doc """
   Adapt a workflow pattern for a specific model.
@@ -156,10 +152,6 @@ defmodule Mimo.AdaptiveWorkflow.TemplateAdapter do
         metadata: Map.put(pattern.metadata || %{}, :tier_template, tier)
     }
   end
-
-  # =============================================================================
-  # Adaptation Functions
-  # =============================================================================
 
   defp maybe_add_context_step(pattern, tier, skip, context) do
     if tier == :tier3 and :context_step not in skip do
@@ -362,10 +354,6 @@ defmodule Mimo.AdaptiveWorkflow.TemplateAdapter do
           })
     }
   end
-
-  # =============================================================================
-  # Preview Helpers
-  # =============================================================================
 
   defp list_adaptations(pattern, tier, recommendations) do
     adaptations = []

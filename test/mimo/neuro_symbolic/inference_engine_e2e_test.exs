@@ -1,9 +1,9 @@
 defmodule Mimo.NeuroSymbolic.InferenceEngineE2ETest do
   use Mimo.DataCase, async: false
 
-  alias Mimo.SemanticStore.{Repository, InferenceEngine}
   alias Mimo.NeuroSymbolic.Rule
   alias Mimo.Repo
+  alias Mimo.SemanticStore.{InferenceEngine, Repository}
 
   describe "forward_chain neuro_symbolic + persist" do
     test "uses persisted rule to infer and persist with inferred_by_rule_id" do
@@ -33,7 +33,7 @@ defmodule Mimo.NeuroSymbolic.InferenceEngineE2ETest do
       # Run forward chain with neuro symbolic
       # Ensure the rule is persisted and visible to queries
       persisted_rules = Repo.all(from(r in Rule, where: r.validation_status == "validated"))
-      assert length(persisted_rules) > 0
+      refute Enum.empty?(persisted_rules)
 
       # Confirm persisted rules for this predicate exist per the inference query
       persisted_for_pred =
@@ -46,7 +46,7 @@ defmodule Mimo.NeuroSymbolic.InferenceEngineE2ETest do
         )
         |> Repo.all()
 
-      assert length(persisted_for_pred) > 0, "No persisted rule found for predicate 'reports_to'"
+      refute Enum.empty?(persisted_for_pred), "No persisted rule found for predicate 'reports_to'"
 
       # persisted_for_pred contains validated rules for 'reports_to' predicate
 

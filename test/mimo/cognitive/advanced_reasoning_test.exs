@@ -13,13 +13,13 @@ defmodule Mimo.Cognitive.AdvancedReasoningTest do
   use Mimo.DataCase, async: false
 
   alias Mimo.Cognitive.{
-    SelfDiscover,
+    MetaTaskDetector,
+    MetaTaskHandler,
+    Reasoner,
+    ReasoningTelemetry,
     RephraseRespond,
     SelfAsk,
-    MetaTaskHandler,
-    MetaTaskDetector,
-    ReasoningTelemetry,
-    Reasoner
+    SelfDiscover
   }
 
   # ============================================================================
@@ -133,7 +133,7 @@ defmodule Mimo.Cognitive.AdvancedReasoningTest do
         {:ok, sub_questions} ->
           assert is_list(sub_questions)
           # May be empty if deemed simple enough
-          if length(sub_questions) > 0 do
+          unless Enum.empty?(sub_questions) do
             Enum.each(sub_questions, fn q ->
               assert is_binary(q)
               assert String.length(q) > 5

@@ -20,10 +20,6 @@ defmodule Mimo.Skills.ProcessManager do
   @type timeout_ref :: {:timeout_monitor, pid()} | nil
   @type spawn_result :: {:ok, port_ref(), timeout_ref()} | {:error, term()}
 
-  # ==========================================================================
-  # Port Spawning
-  # ==========================================================================
-
   @doc """
   Spawns a subprocess for an MCP skill using secure execution.
 
@@ -64,10 +60,6 @@ defmodule Mimo.Skills.ProcessManager do
   def spawn_secure(config) do
     SecureExecutor.execute_skill(config)
   end
-
-  # ==========================================================================
-  # Port Communication
-  # ==========================================================================
 
   @doc """
   Sends a command to a port.
@@ -129,10 +121,6 @@ defmodule Mimo.Skills.ProcessManager do
     end
   end
 
-  # ==========================================================================
-  # Port Lifecycle
-  # ==========================================================================
-
   @doc """
   Safely closes a port, handling already-closed cases.
   """
@@ -176,10 +164,6 @@ defmodule Mimo.Skills.ProcessManager do
   rescue
     ArgumentError -> nil
   end
-
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
 
   # Normalize port data to binary (handles both raw and line-mode)
   defp normalize_port_data({:eol, line}), do: line <> "\n"

@@ -40,11 +40,13 @@ defmodule Mimo.ActiveInference do
   use GenServer
   require Logger
 
-  alias Mimo.Context.AccessPatternTracker
+  alias Observer
+  alias SymbolIndex
   alias Mimo.Brain.{Memory, MemoryRouter}
-  alias Mimo.Synapse.Graph
-  alias Mimo.MetaCognitiveRouter
   alias Mimo.Cognitive.FeedbackLoop
+  alias Mimo.Context.AccessPatternTracker
+  alias Mimo.MetaCognitiveRouter
+  alias Mimo.Synapse.Graph
 
   # Configuration
   @prediction_timeout_ms 100
@@ -62,10 +64,6 @@ defmodule Mimo.ActiveInference do
     # NEW: Learned adjustments from feedback
     :learned_weights
   ]
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -123,10 +121,6 @@ defmodule Mimo.ActiveInference do
   catch
     :exit, _ -> %{status: :unavailable}
   end
-
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
 
   @impl true
   def init(_opts) do
@@ -230,10 +224,6 @@ defmodule Mimo.ActiveInference do
     {:noreply, state}
   end
 
-  # ==========================================================================
-  # Phase 1: PREDICT
-  # ==========================================================================
-
   defp predict_context_needs(query, opts, learned_weights) do
     # Get task type from router classification
     classification = MetaCognitiveRouter.classify(query)
@@ -313,10 +303,6 @@ defmodule Mimo.ActiveInference do
     |> Enum.map(fn {need, _} -> need end)
   end
 
-  # ==========================================================================
-  # Phase 2: PREFETCH
-  # ==========================================================================
-
   defp prefetch_context(predictions, _opts) do
     # Launch parallel prefetch tasks
     tasks =
@@ -349,7 +335,7 @@ defmodule Mimo.ActiveInference do
     query = predictions.classification.reasoning
 
     case Mimo.Code.SymbolIndex.search(query, limit: 3) do
-      {:ok, symbols} -> {:related_code, symbols}
+      symbols when is_list(symbols) -> {:related_code, symbols}
       _ -> {:related_code, []}
     end
   rescue
@@ -438,10 +424,6 @@ defmodule Mimo.ActiveInference do
     nil
   end
 
-  # ==========================================================================
-  # Phase 3: Generate Suggestions
-  # ==========================================================================
-
   defp generate_suggestions(predictions, prefetched) do
     suggestions = []
 
@@ -449,7 +431,7 @@ defmodule Mimo.ActiveInference do
     suggestions =
       case Map.get(prefetched, :past_errors, []) do
         [_error | _] = errors when errors != [] ->
-          suggestion = "💡 Similar past issue: #{String.slice(List.first(errors), 0, 100)}..."
+          suggestion = "Similar past issue: #{String.slice(List.first(errors), 0, 100)}..."
           [suggestion | suggestions]
 
         _ ->
@@ -484,10 +466,6 @@ defmodule Mimo.ActiveInference do
 
     Enum.take(suggestions, 3)
   end
-
-  # ==========================================================================
-  # Helpers
-  # ==========================================================================
 
   defp empty_inference do
     %{
@@ -537,10 +515,6 @@ defmodule Mimo.ActiveInference do
     |> Enum.map(fn [_, match] -> match end)
     |> Enum.take(5)
   end
-
-  # ==========================================================================
-  # Learning Functions (NEW for SPEC-074 Integration)
-  # ==========================================================================
 
   defp generate_tracking_id do
     :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)

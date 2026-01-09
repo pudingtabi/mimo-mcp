@@ -40,7 +40,7 @@ defmodule Mimo.Skills.DiagnosticsTest do
       {:ok, result} = Diagnostics.check(ex_path)
       assert result.language == :elixir
 
-      # Test TypeScript  
+      # Test TypeScript
       ts_path = Path.join(test_dir, "test.ts")
       File.write!(ts_path, "const x = 1;")
       {:ok, result} = Diagnostics.check(ts_path)

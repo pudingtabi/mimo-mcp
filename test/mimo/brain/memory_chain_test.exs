@@ -4,7 +4,7 @@ defmodule Mimo.Brain.MemoryChainTest do
   """
   use Mimo.DataCase, async: false
 
-  alias Mimo.Brain.{Memory, Engram}
+  alias Mimo.Brain.{Engram, Memory}
   alias Mimo.Repo
 
   # Helper to create an engram with minimal embedding data

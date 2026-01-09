@@ -6,7 +6,10 @@ config :logger, :console,
 
 config :mimo_mcp, Mimo.Repo,
   database: System.get_env("MIMO_DB_PATH") || "priv/mimo_mcp.db",
-  pool_size: 5,
+  # SPEC-STABILITY: SQLite only allows ONE writer at a time.
+  # pool_size > 1 causes "Database busy" errors even with WriteSerializer
+  # because multiple connections can attempt concurrent writes.
+  pool_size: 1,
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
   # SQLite concurrency settings for concurrent access

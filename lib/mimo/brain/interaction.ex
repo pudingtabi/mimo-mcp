@@ -16,8 +16,8 @@ defmodule Mimo.Brain.Interaction do
   use Ecto.Schema
   import Ecto.Changeset
   import Ecto.Query
-  alias Mimo.Repo
   alias Mimo.Brain.Thread
+  alias Mimo.Repo
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id

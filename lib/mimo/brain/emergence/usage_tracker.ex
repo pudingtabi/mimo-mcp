@@ -345,10 +345,10 @@ defmodule Mimo.Brain.Emergence.UsageTracker do
       end)
       |> Enum.reject(&is_nil/1)
 
-    if length(rates) > 0 do
-      Float.round(Enum.sum(rates) / length(rates), 3)
-    else
+    if Enum.empty?(rates) do
       0.0
+    else
+      Float.round(Enum.sum(rates) / length(rates), 3)
     end
   end
 

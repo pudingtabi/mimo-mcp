@@ -341,7 +341,7 @@ defmodule Mimo.Integration.ProceduralStoreIntegrationTest do
         from(e in Execution, where: e.procedure_name == "simple_concurrent")
         |> Repo.all()
 
-      assert length(executions) >= 1
+      refute Enum.empty?(executions)
 
       execution = hd(executions)
       assert execution.status == "completed"

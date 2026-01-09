@@ -33,10 +33,6 @@ defmodule Mimo.Cognitive.OutcomeDetector do
           details: map()
         }
 
-  # ============================================================================
-  # Terminal Output Patterns
-  # ============================================================================
-
   @success_patterns [
     # Test success
     ~r/(\d+) (tests?|specs?|examples?),? (\d+|no) failures?/i,
@@ -81,10 +77,6 @@ defmodule Mimo.Cognitive.OutcomeDetector do
     ~r/\d+ warnings?/i
   ]
 
-  # ============================================================================
-  # User Feedback Patterns
-  # ============================================================================
-
   @positive_user_patterns [
     ~r/\b(thanks|thank you|thx|ty)\b/i,
     ~r/\b(perfect|great|awesome|excellent|nice|good job)\b/i,
@@ -101,10 +93,6 @@ defmodule Mimo.Cognitive.OutcomeDetector do
     ~r/\b(try again|redo|fix)\b/i,
     ~r/^(no|nope)$/i
   ]
-
-  # ============================================================================
-  # Public API
-  # ============================================================================
 
   @doc """
   Detect outcome from terminal command output.
@@ -346,10 +334,6 @@ defmodule Mimo.Cognitive.OutcomeDetector do
       }
     }
   end
-
-  # ============================================================================
-  # Private Helpers
-  # ============================================================================
 
   defp analyze_output_patterns(output) do
     success_count = count_pattern_matches(output, @success_patterns)

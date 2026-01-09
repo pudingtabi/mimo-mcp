@@ -39,17 +39,14 @@ defmodule Mimo.Brain.InteractionConsolidator do
   require Logger
 
   import Ecto.Query
-  alias Mimo.{Repo, Brain}
-  alias Mimo.Brain.{Interaction, Engram, LLMCurator, ThreadManager}
+  alias Math
+  alias Mimo.{Brain, Repo}
+  alias Mimo.Brain.{Engram, Interaction, LLMCurator, ThreadManager}
 
   @default_interval 60_000
   @default_batch_size 20
   @default_min_interactions 5
   @default_min_age_minutes 5
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -87,10 +84,6 @@ defmodule Mimo.Brain.InteractionConsolidator do
   def enabled? do
     get_config(:enabled, true)
   end
-
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
 
   @impl true
   def init(opts) do
@@ -148,10 +141,6 @@ defmodule Mimo.Brain.InteractionConsolidator do
     schedule_next(state.interval)
     {:noreply, new_state}
   end
-
-  # ==========================================================================
-  # Private Implementation
-  # ==========================================================================
 
   defp run_consolidation(state, opts) do
     # Handle sandbox errors in tests
@@ -261,7 +250,7 @@ defmodule Mimo.Brain.InteractionConsolidator do
   defp create_engram_from_candidate(candidate, thread_id, all_interactions) do
     # Generate embedding for the curated content
     case Brain.LLM.generate_embedding(candidate.content) do
-      {:ok, embedding} when is_list(embedding) and length(embedding) > 0 ->
+      {:ok, embedding} when is_list(embedding) and embedding != [] ->
         # SPEC-031 + SPEC-033: Quantize to int8 and binary for searchability
         {embedding_to_store, quantized_attrs} =
           case Mimo.Vector.Math.quantize_int8(embedding) do

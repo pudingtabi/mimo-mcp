@@ -36,10 +36,6 @@ defmodule Mimo.Workflow.BindingsResolver do
 
   @type context :: map()
 
-  # ============================================================================
-  # Public API
-  # ============================================================================
-
   @doc """
   Resolves all bindings for a pattern's steps given the current context.
 
@@ -144,10 +140,6 @@ defmodule Mimo.Workflow.BindingsResolver do
       {:error, missing}
     end
   end
-
-  # ============================================================================
-  # Private Functions
-  # ============================================================================
 
   defp normalize_binding(binding) when is_map(binding) do
     %{

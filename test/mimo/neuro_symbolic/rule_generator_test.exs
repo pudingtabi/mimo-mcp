@@ -1,10 +1,9 @@
 defmodule Mimo.NeuroSymbolic.RuleGeneratorTest do
   use Mimo.DataCase
 
-  alias Mimo.NeuroSymbolic.RuleGenerator
-  alias Mimo.NeuroSymbolic.Rule
-  alias Mimo.SemanticStore.Repository
+  alias Mimo.NeuroSymbolic.{Rule, RuleGenerator}
   alias Mimo.Repo
+  alias Mimo.SemanticStore.Repository
 
   describe "validate_and_persist/2" do
     test "persists validated rules when persist_validated is true" do

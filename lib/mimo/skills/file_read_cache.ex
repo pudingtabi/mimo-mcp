@@ -41,10 +41,6 @@ defmodule Mimo.Skills.FileReadCache do
   @default_ttl 300
   @max_file_size_kb 500
 
-  # ============================================================================
-  # CLIENT API
-  # ============================================================================
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -173,10 +169,6 @@ defmodule Mimo.Skills.FileReadCache do
     end
   end
 
-  # ============================================================================
-  # GENSERVER CALLBACKS
-  # ============================================================================
-
   @impl true
   def init(_opts) do
     # Create ETS table
@@ -206,10 +198,6 @@ defmodule Mimo.Skills.FileReadCache do
   def handle_info(_msg, state) do
     {:noreply, state}
   end
-
-  # ============================================================================
-  # PRIVATE
-  # ============================================================================
 
   defp do_cleanup do
     current_size = :ets.info(@cache_table, :size)

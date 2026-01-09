@@ -180,7 +180,7 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinkerTest do
 
       library_links = Enum.filter(links, &(&1.target_type == "library"))
 
-      if length(library_links) > 0 do
+      unless Enum.empty?(library_links) do
         assert Enum.any?(library_links, &(&1.target_id == "phoenix"))
       end
     end
@@ -190,7 +190,7 @@ defmodule Mimo.NeuroSymbolic.CrossModalityLinkerTest do
 
       library_links = Enum.filter(links, &(&1.target_type == "library"))
 
-      if length(library_links) > 0 do
+      unless Enum.empty?(library_links) do
         assert Enum.any?(library_links, &(&1.target_id == "ecto"))
       end
     end

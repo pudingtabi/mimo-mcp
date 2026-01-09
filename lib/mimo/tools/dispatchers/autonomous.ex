@@ -29,7 +29,7 @@ defmodule Mimo.Tools.Dispatchers.Autonomous do
 
   require Logger
 
-  alias Mimo.Autonomous.{TaskRunner, SafetyGuard}
+  alias Mimo.Autonomous.{SafetyGuard, TaskRunner}
 
   @doc """
   Dispatch autonomous operation based on args.
@@ -54,10 +54,6 @@ defmodule Mimo.Tools.Dispatchers.Autonomous do
      "Unknown autonomous operation: #{op}. Valid: queue, status, pause, resume, reset_circuit, list_queue, clear_queue"}
   end
 
-  # =============================================================================
-  # OPERATION DISPATCHERS
-  # =============================================================================
-
   defp dispatch_queue(args) do
     # Build task spec from args
     task_spec = %{
@@ -77,7 +73,7 @@ defmodule Mimo.Tools.Dispatchers.Autonomous do
          %{
            status: "queued",
            task_id: task_id,
-           message: "Task queued successfully. It will be executed automatically.",
+           message: "Task queued",
            type: Map.get(task_spec, "type"),
            description: Map.get(task_spec, "description")
          }}
@@ -224,10 +220,6 @@ defmodule Mimo.Tools.Dispatchers.Autonomous do
          }}
     end
   end
-
-  # =============================================================================
-  # HELPERS
-  # =============================================================================
 
   defp format_status_message(status) do
     circuit_msg =

@@ -33,7 +33,8 @@ defmodule Mimo.Brain.ContradictionGuard do
   """
 
   require Logger
-  alias Mimo.Brain.{Memory, LLM}
+  alias InferenceScheduler
+  alias Mimo.Brain.{LLM, Memory}
 
   @claim_extraction_prompt """
   Extract the key factual claims from this text. Return as a JSON array of strings.
@@ -74,7 +75,7 @@ defmodule Mimo.Brain.ContradictionGuard do
 
     with {:ok, claims} <- extract_claims(proposed_response, max_claims),
          {:ok, warnings} <- check_claims(claims, similarity_threshold) do
-      if length(warnings) > 0 do
+      unless Enum.empty?(warnings) do
         Logger.info("[ContradictionGuard] Found #{length(warnings)} potential contradictions")
       end
 
@@ -126,8 +127,7 @@ defmodule Mimo.Brain.ContradictionGuard do
           {:ok, claims} when is_list(claims) ->
             valid_claims =
               claims
-              |> Enum.filter(&is_binary/1)
-              |> Enum.filter(&(String.length(&1) > 10))
+              |> Enum.filter(fn x -> is_binary(x) and String.length(x) > 10 end)
               |> Enum.take(max_claims)
 
             {:ok, valid_claims}
@@ -176,7 +176,7 @@ defmodule Mimo.Brain.ContradictionGuard do
   defp check_single_claim(claim, threshold) do
     # Search for related memories
     case Memory.search_memories(claim, limit: 3, min_similarity: threshold) do
-      related when is_list(related) and length(related) > 0 ->
+      related when is_list(related) and related != [] ->
         # Found related memories - check for contradictions
         check_against_memories(claim, related)
 
@@ -239,10 +239,6 @@ defmodule Mimo.Brain.ContradictionGuard do
         {:error, {:llm_check_failed, reason}}
     end
   end
-
-  # =============================================================================
-  # Integration Helpers
-  # =============================================================================
 
   @doc """
   Format warnings for injection into LLM context.

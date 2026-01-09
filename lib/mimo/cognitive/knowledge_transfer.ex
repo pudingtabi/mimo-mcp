@@ -87,10 +87,6 @@ defmodule Mimo.Cognitive.KnowledgeTransfer do
           related_memories: [map()]
         }
 
-  # ============================================================================
-  # Public API
-  # ============================================================================
-
   @doc """
   Find cross-domain insights relevant to the current context.
 
@@ -277,10 +273,6 @@ defmodule Mimo.Cognitive.KnowledgeTransfer do
   def supported_concepts do
     Map.keys(@concept_mappings)
   end
-
-  # ============================================================================
-  # Private Functions
-  # ============================================================================
 
   defp find_concept_transfers(concept, target_domain, context) do
     # Get other domains to search

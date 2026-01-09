@@ -39,10 +39,10 @@ defmodule Mimo.SleepCycle do
   use GenServer
   require Logger
 
-  alias Mimo.Brain.{Memory, Consolidator, LLM}
-  alias Mimo.Synapse.{Graph, EdgePredictor}
-  alias Mimo.ProceduralStore
+  alias Mimo.Brain.{Consolidator, HnswIndex, LLM, Memory}
   alias Mimo.Cognitive.FeedbackLoop
+  alias Mimo.ProceduralStore
+  alias Mimo.Synapse.{EdgePredictor, Graph}
 
   # Configuration
   # 5 minutes of quiet
@@ -58,10 +58,6 @@ defmodule Mimo.SleepCycle do
     :stats,
     :quiet_since
   ]
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -104,10 +100,6 @@ defmodule Mimo.SleepCycle do
     :exit, _ -> %{status: :unavailable}
   end
 
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
-
   @impl true
   def init(_opts) do
     # Schedule periodic quiet period checks
@@ -123,6 +115,8 @@ defmodule Mimo.SleepCycle do
         procedures_created: 0,
         memories_pruned: 0,
         edges_predicted: 0,
+        hebbian_edges_cleaned: 0,
+        quality_issues_fixed: 0,
         last_cycle_at: nil
       }
     }
@@ -138,14 +132,17 @@ defmodule Mimo.SleepCycle do
 
     stages =
       Keyword.get(opts, :stages, [
+        :hnsw_health_check,
+        :quality_maintenance,
         :episodic_to_semantic,
         :semantic_to_procedural,
         :edge_prediction,
+        :hebbian_cleanup,
         :pruning
       ])
 
     # Check if we should run
-    in_quiet_period = is_quiet_period?(state)
+    in_quiet_period = quiet_period?(state)
 
     if force or in_quiet_period do
       Logger.info("[SleepCycle] Starting consolidation cycle (stages: #{inspect(stages)})")
@@ -173,7 +170,7 @@ defmodule Mimo.SleepCycle do
     full_stats =
       Map.merge(state.stats, %{
         cycle_count: state.cycle_count,
-        in_quiet_period: is_quiet_period?(state),
+        in_quiet_period: quiet_period?(state),
         quiet_duration_ms: quiet_duration(state)
       })
 
@@ -196,10 +193,6 @@ defmodule Mimo.SleepCycle do
   def handle_info(_msg, state) do
     {:noreply, state}
   end
-
-  # ==========================================================================
-  # Stage Execution
-  # ==========================================================================
 
   defp run_stages(stages) do
     Enum.reduce(stages, %{}, fn stage, acc ->
@@ -280,6 +273,26 @@ defmodule Mimo.SleepCycle do
     end
   end
 
+  defp run_stage(:hebbian_cleanup) do
+    Logger.debug("[SleepCycle] Running Hebbian edge cleanup (SPEC-092)")
+
+    try do
+      alias Mimo.Brain.HebbianLearner
+
+      # Clean up stale edges older than 7 days with no access
+      {:ok, deleted} = HebbianLearner.cleanup_stale_edges(max_age_days: 7)
+
+      %{
+        edges_deleted: deleted,
+        max_age_days: 7
+      }
+    rescue
+      e ->
+        Logger.warning("[SleepCycle] Hebbian cleanup failed: #{Exception.message(e)}")
+        %{error: Exception.message(e)}
+    end
+  end
+
   defp run_stage(:pruning) do
     Logger.debug("[SleepCycle] Running memory pruning")
 
@@ -328,13 +341,96 @@ defmodule Mimo.SleepCycle do
     end
   end
 
+  defp run_stage(:hnsw_health_check) do
+    Logger.info("[SleepCycle] Running HNSW health check...")
+
+    case HnswIndex.rebuild_if_needed() do
+      :ok ->
+        %{status: :healthy, action: :none}
+
+      {:rebuilt, count} ->
+        Logger.info("[SleepCycle] HNSW index rebuilt with #{count} vectors")
+        %{status: :rebuilt, vectors: count}
+
+      {:error, reason} ->
+        Logger.error("[SleepCycle] HNSW health check failed: #{inspect(reason)}")
+        %{status: :error, reason: inspect(reason)}
+    end
+  end
+
+  # Phase 2 Q7: Automated Quality Maintenance
+  # Runs during each sleep cycle to detect and fix memory quality issues
+  @min_entity_anchor_length 50
+  @stale_anchor_days 30
+
+  defp run_stage(:quality_maintenance) do
+    Logger.info("[SleepCycle] Running quality maintenance...")
+
+    try do
+      alias Mimo.Repo
+      alias Mimo.Brain.Engram
+      import Ecto.Query
+
+      # 1. Count and log current quality metrics
+      quality_stats =
+        Repo.all(
+          from(e in Engram,
+            where: e.category == "entity_anchor",
+            select: {count(e.id), avg(fragment("LENGTH(content)"))}
+          )
+        )
+
+      {anchor_count, anchor_avg_len} = List.first(quality_stats) || {0, 0}
+
+      # 2. Delete stale entity anchors not accessed in 30+ days
+      stale_cutoff = DateTime.utc_now() |> DateTime.add(-@stale_anchor_days, :day)
+
+      {stale_deleted, _} =
+        Repo.delete_all(
+          from(e in Engram,
+            where: e.category == "entity_anchor",
+            where: e.last_accessed_at < ^stale_cutoff or is_nil(e.last_accessed_at),
+            where: fragment("LENGTH(content)") < @min_entity_anchor_length
+          )
+        )
+
+      # 3. Check for synthesis duplicates
+      synthesis_dups =
+        Repo.one(
+          from(e in Engram,
+            where: like(e.content, "%[Synthesized Insight]%"),
+            group_by: e.content,
+            having: count(e.id) > 1,
+            select: count()
+          )
+        ) || 0
+
+      Logger.info(
+        "[SleepCycle] Quality maintenance: anchors=#{anchor_count} (avg #{round_safe(anchor_avg_len)} chars), stale_deleted=#{stale_deleted}, dup_syntheses=#{synthesis_dups}"
+      )
+
+      %{
+        entity_anchors: anchor_count,
+        avg_anchor_length: round_safe(anchor_avg_len),
+        stale_anchors_deleted: stale_deleted,
+        duplicate_syntheses_detected: synthesis_dups,
+        status: :completed
+      }
+    rescue
+      e ->
+        Logger.warning("[SleepCycle] Quality maintenance failed: #{Exception.message(e)}")
+        %{error: Exception.message(e)}
+    end
+  end
+
+  # Catch-all clause for unknown stages (must be grouped with other run_stage clauses)
   defp run_stage(unknown) do
     %{error: "Unknown stage: #{inspect(unknown)}"}
   end
 
-  # ==========================================================================
-  # Pattern Extraction (Episodic → Semantic)
-  # ==========================================================================
+  defp round_safe(nil), do: 0
+  defp round_safe(val) when is_float(val), do: Float.round(val, 1)
+  defp round_safe(val), do: val
 
   defp find_patterns(memories) when is_list(memories) do
     # Simple pattern finding: group memories by similar content
@@ -426,14 +522,10 @@ defmodule Mimo.SleepCycle do
     _ -> :ok
   end
 
-  # ==========================================================================
-  # Workflow Identification (Semantic → Procedural)
-  # ==========================================================================
-
   defp identify_workflows(memories) when is_list(memories) do
     # Group by action type
     memories
-    |> Enum.filter(&is_action_memory?/1)
+    |> Enum.filter(&action_memory?/1)
     |> Enum.group_by(&extract_action_type/1)
     |> Enum.filter(fn {_type, mems} -> length(mems) >= 2 end)
     |> Enum.map(fn {action_type, mems} ->
@@ -445,7 +537,7 @@ defmodule Mimo.SleepCycle do
     end)
   end
 
-  defp is_action_memory?(memory) do
+  defp action_memory?(memory) do
     content = memory.content || ""
     String.contains?(String.downcase(content), ["implement", "fix", "create", "build", "run"])
   end
@@ -481,18 +573,39 @@ defmodule Mimo.SleepCycle do
             "[SleepCycle] Detected workflow pattern: #{procedure_name} (#{occurrences} occurrences)"
           )
 
-          # Store as a memory for future reference
-          steps = extract_steps_from_examples(examples)
+          # STABILITY FIX: Check if we already stored a memory for this pattern
+          # to prevent duplicate auto-detected workflow memories (was creating 50+ duplicates)
+          # NOTE: Using direct SQL query with LIKE instead of Memory.search() because
+          # vector search can fail when HNSW index is out of sync, causing duplicates.
+          existing_pattern_memory =
+            case Mimo.Repo.query(
+                   "SELECT 1 FROM engrams WHERE content LIKE ? LIMIT 1",
+                   ["%[Auto-detected workflow pattern]%Name: #{procedure_name}%"]
+                 ) do
+              {:ok, %{num_rows: n}} when n > 0 -> true
+              _ -> false
+            end
 
-          content = """
-          [Auto-detected workflow pattern]
-          Name: #{procedure_name}
-          Occurrences: #{occurrences}
-          Steps: #{inspect(steps)}
-          """
+          if existing_pattern_memory do
+            Logger.debug(
+              "[SleepCycle] Pattern #{procedure_name} already stored in memory, skipping"
+            )
 
-          Memory.store(%{content: content, category: "plan", importance: 0.7})
-          true
+            false
+          else
+            # Store as a memory for future reference
+            steps = extract_steps_from_examples(examples)
+
+            content = """
+            [Auto-detected workflow pattern]
+            Name: #{procedure_name}
+            Occurrences: #{occurrences}
+            Steps: #{inspect(steps)}
+            """
+
+            Memory.store(%{content: content, category: "plan", importance: 0.7})
+            true
+          end
 
         _ ->
           false
@@ -524,11 +637,7 @@ defmodule Mimo.SleepCycle do
     end)
   end
 
-  # ==========================================================================
-  # Quiet Period Detection
-  # ==========================================================================
-
-  defp is_quiet_period?(state) do
+  defp quiet_period?(state) do
     quiet_duration(state) >= @quiet_period_ms
   end
 
@@ -538,7 +647,7 @@ defmodule Mimo.SleepCycle do
   end
 
   defp check_and_maybe_run(state) do
-    if is_quiet_period?(state) and should_run_cycle?(state) do
+    if quiet_period?(state) and should_run_cycle?(state) do
       Logger.info("[SleepCycle] Quiet period detected - running automatic consolidation")
 
       # Run in background to not block
@@ -574,10 +683,12 @@ defmodule Mimo.SleepCycle do
   end
 
   defp update_stats(stats, results) do
-    patterns = get_in(results, [:episodic_to_semantic, :patterns_found]) || 0
+    patterns = get_in(results, [:hnsw_health_check, :episodic_to_semantic, :patterns_found]) || 0
     procedures = get_in(results, [:semantic_to_procedural, :procedures_created]) || 0
     pruned = get_in(results, [:pruning, :consolidated]) || 0
     edges = get_in(results, [:edge_prediction, :edges_created]) || 0
+    hebbian_cleaned = get_in(results, [:hebbian_cleanup, :edges_deleted]) || 0
+    quality_fixed = get_in(results, [:quality_maintenance, :stale_anchors_deleted]) || 0
 
     %{
       stats
@@ -586,13 +697,11 @@ defmodule Mimo.SleepCycle do
         procedures_created: stats.procedures_created + procedures,
         memories_pruned: stats.memories_pruned + pruned,
         edges_predicted: stats.edges_predicted + edges,
+        hebbian_edges_cleaned: stats.hebbian_edges_cleaned + hebbian_cleaned,
+        quality_issues_fixed: stats.quality_issues_fixed + quality_fixed,
         last_cycle_at: DateTime.utc_now()
     }
   end
-
-  # ==========================================================================
-  # LLM-Enhanced Pattern Recognition (NEW for SPEC-074 Integration)
-  # ==========================================================================
 
   @doc false
   # Get feedback patterns from FeedbackLoop for learning analysis

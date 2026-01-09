@@ -46,10 +46,6 @@ defmodule Mimo.Knowledge.ContradictionDetector do
           warning: String.t()
         }
 
-  # ============================================================================
-  # PUBLIC API
-  # ============================================================================
-
   @doc """
   Check if a proposed action contradicts stored knowledge.
 
@@ -88,17 +84,11 @@ defmodule Mimo.Knowledge.ContradictionDetector do
 
   def check_result(_), do: {:ok, []}
 
-  # ============================================================================
-  # CONTRADICTION DETECTION
-  # ============================================================================
-
   defp find_contradictions(action, memories) when is_list(memories) do
     contradictions =
       memories
-      |> Enum.filter(&is_map/1)
       |> Enum.filter(fn m ->
-        content = Map.get(m, :content, "")
-        potentially_contradicts?(content, action)
+        is_map(m) and potentially_contradicts?(Map.get(m, :content, ""), action)
       end)
       |> Enum.take(@max_contradictions)
       |> Enum.map(fn m ->
@@ -114,7 +104,7 @@ defmodule Mimo.Knowledge.ContradictionDetector do
         }
       end)
 
-    if length(contradictions) > 0 do
+    unless Enum.empty?(contradictions) do
       Logger.info(
         "[ContradictionDetector] Found #{length(contradictions)} potential contradictions"
       )
@@ -143,10 +133,6 @@ defmodule Mimo.Knowledge.ContradictionDetector do
   end
 
   def potentially_contradicts?(_, _), do: false
-
-  # ============================================================================
-  # TOPIC ANALYSIS
-  # ============================================================================
 
   defp has_topic_overlap?(text1, text2) do
     words1 = extract_keywords(text1)
@@ -221,10 +207,6 @@ defmodule Mimo.Knowledge.ContradictionDetector do
     end)
     |> Enum.take(20)
   end
-
-  # ============================================================================
-  # UTILITIES
-  # ============================================================================
 
   defp truncate(text, max) when is_binary(text) do
     if String.length(text) > max do

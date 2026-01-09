@@ -23,6 +23,7 @@ defmodule Mimo.AutoMemory do
     categories: [:file_ops, :search, :browser, :process, :errors]
   ```
   """
+  alias SafeMemory
   require Logger
 
   @doc """
@@ -117,10 +118,6 @@ defmodule Mimo.AutoMemory do
     end
   end
 
-  # ============================================================================
-  # Unified Tool Handlers (Phase 2)
-  # ============================================================================
-
   # Handle unified file tool operations
   defp handle_file_operation(arguments, {:ok, result}) do
     operation = arguments["operation"] || "read"
@@ -139,10 +136,15 @@ defmodule Mimo.AutoMemory do
         end
 
       op when op in ["write", "edit", "replace_string", "multi_replace"] ->
+        # Phase 3 Enhancement: Include more meaningful change details
+        old_content = arguments["old_str"] || arguments["target_content"] || ""
+        new_content = arguments["new_str"] || arguments["replacement_content"] || ""
+        description = summarize_edit_change(op, path, old_content, new_content)
+
         store_memory(
-          "Modified file: #{path} (operation: #{op})",
+          description,
           "action",
-          0.6
+          calculate_edit_importance(op, old_content, new_content)
         )
 
       op when op in ["find_definition", "find_references", "symbols", "call_graph"] ->
@@ -603,6 +605,82 @@ defmodule Mimo.AutoMemory do
       length > 1000 -> 0.6
       length > 200 -> 0.4
       true -> 0.3
+    end
+  end
+
+  # Generate a meaningful summary of file edits
+  defp summarize_edit_change(op, path, old_content, new_content) do
+    basename = Path.basename(path)
+    change_type = detect_change_type(old_content, new_content)
+
+    case op do
+      "write" ->
+        size = String.length(new_content)
+        "Created/wrote file: #{basename} (#{size} bytes)"
+
+      "edit" ->
+        "Edited #{basename}: #{change_type}"
+
+      "replace_string" ->
+        if old_content != "" do
+          "In #{basename}: replaced '#{summarize_content(old_content, 50)}' with '#{summarize_content(new_content, 50)}'"
+        else
+          "Modified #{basename}: #{change_type}"
+        end
+
+      "multi_replace" ->
+        "Multi-edit in #{basename}: #{change_type}"
+
+      _ ->
+        "Modified #{basename} (#{op})"
+    end
+  end
+
+  # Detect the type of change being made
+  defp detect_change_type(old_content, new_content) do
+    cond do
+      old_content == "" and new_content != "" ->
+        "added new content"
+
+      old_content != "" and new_content == "" ->
+        "removed content"
+
+      String.length(new_content) > String.length(old_content) * 1.5 ->
+        "significant expansion"
+
+      String.length(new_content) < String.length(old_content) * 0.5 ->
+        "significant reduction"
+
+      String.contains?(new_content, "fix") or String.contains?(new_content, "Fix") ->
+        "bug fix"
+
+      String.contains?(new_content, "refactor") or String.contains?(new_content, "Refactor") ->
+        "refactoring"
+
+      String.contains?(new_content, "test") or String.contains?(new_content, "Test") ->
+        "test update"
+
+      true ->
+        "content modification"
+    end
+  end
+
+  # Calculate importance for edit operations
+  defp calculate_edit_importance(op, old_content, new_content) do
+    base_importance =
+      case op do
+        "write" -> 0.5
+        "multi_replace" -> 0.7
+        _ -> 0.6
+      end
+
+    # Increase importance for larger changes
+    change_size = abs(String.length(new_content) - String.length(old_content))
+
+    cond do
+      change_size > 500 -> min(base_importance + 0.2, 0.9)
+      change_size > 100 -> min(base_importance + 0.1, 0.8)
+      true -> base_importance
     end
   end
 end

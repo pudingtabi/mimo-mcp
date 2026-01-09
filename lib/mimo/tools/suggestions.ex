@@ -69,10 +69,6 @@ defmodule Mimo.Tools.Suggestions do
 
   def maybe_add_suggestion(other, _tool_name, _args), do: other
 
-  # ==========================================================================
-  # SPEC-040 v1.2: BEHAVIORAL REINFORCEMENT
-  # ==========================================================================
-
   @doc """
   Get behavioral reinforcement suggestion based on current session patterns.
   This actively counters factory LLM bias by reminding about the mimo-cognitive workflow.
@@ -90,17 +86,13 @@ defmodule Mimo.Tools.Suggestions do
     Process.get(:mimo_session_id)
   end
 
-  # ==========================================================================
-  # SUGGESTION GENERATORS
-  # ==========================================================================
-
   defp generate_suggestion(tool_name, args, response)
 
   # File search for code patterns → code_symbols
   defp generate_suggestion("file", %{"operation" => "search", "pattern" => pattern}, _response)
        when is_binary(pattern) do
     if looks_like_code_search?(pattern) do
-      "💡 For precise symbol lookup, try code definition (name: #{extract_symbol_name(pattern)})."
+      "For precise symbol lookup, try code definition (name: #{extract_symbol_name(pattern)})."
     else
       nil
     end
@@ -110,7 +102,7 @@ defmodule Mimo.Tools.Suggestions do
   defp generate_suggestion("file", %{"operation" => "read", "path" => path}, _response)
        when is_binary(path) do
     if code_file?(path) do
-      "💡 List all functions/classes with code symbols (path: #{path})."
+      "List all functions/classes with code symbols (path: #{path})."
     else
       nil
     end
@@ -118,13 +110,13 @@ defmodule Mimo.Tools.Suggestions do
 
   # Memory search → knowledge query
   defp generate_suggestion("memory", %{"operation" => "search"}, _response) do
-    "💡 For entity relationships, also check the knowledge graph (query)."
+    "For entity relationships, also check the knowledge graph (query)."
   end
 
   # Terminal with error output → diagnostics
   defp generate_suggestion("terminal", _args, %{output: output}) when is_binary(output) do
     if has_error_indicators?(output) do
-      "💡 For structured error analysis, try code diagnose."
+      "For structured error analysis, try code diagnose."
     else
       nil
     end
@@ -132,7 +124,7 @@ defmodule Mimo.Tools.Suggestions do
 
   defp generate_suggestion("terminal", _args, %{"output" => output}) when is_binary(output) do
     if has_error_indicators?(output) do
-      "💡 For structured error analysis, try code diagnose."
+      "For structured error analysis, try code diagnose."
     else
       nil
     end
@@ -140,10 +132,6 @@ defmodule Mimo.Tools.Suggestions do
 
   # Catch-all
   defp generate_suggestion(_tool_name, _args, _response), do: nil
-
-  # ==========================================================================
-  # HELPER FUNCTIONS
-  # ==========================================================================
 
   defp looks_like_code_search?(pattern) do
     pattern_lower = String.downcase(pattern)

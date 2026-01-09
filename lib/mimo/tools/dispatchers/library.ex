@@ -12,6 +12,8 @@ defmodule Mimo.Tools.Dispatchers.Library do
   Supports: Hex.pm (Elixir), PyPI (Python), NPM (JavaScript), crates.io (Rust)
   """
 
+  alias Mimo.Library.{AutoDiscovery, CacheManager, Index}
+  alias Mimo.Library.Fetchers.{CratesFetcher, HexFetcher, NPMFetcher, PyPIFetcher}
   alias Mimo.Tools.Helpers
   alias Mimo.Utils.InputValidation
 
@@ -28,12 +30,8 @@ defmodule Mimo.Tools.Dispatchers.Library do
   defp do_dispatch("search", args), do: dispatch_search(args)
   defp do_dispatch("ensure", args), do: dispatch_ensure(args)
   defp do_dispatch("discover", args), do: dispatch_discover(args)
-  defp do_dispatch("stats", _args), do: {:ok, Mimo.Library.CacheManager.stats()}
+  defp do_dispatch("stats", _args), do: {:ok, CacheManager.stats()}
   defp do_dispatch(op, _args), do: {:error, "Unknown library operation: #{op}"}
-
-  # ==========================================================================
-  # PRIVATE HELPERS
-  # ==========================================================================
 
   defp dispatch_get(args) do
     name = args["name"]
@@ -44,7 +42,7 @@ defmodule Mimo.Tools.Dispatchers.Library do
     else
       opts = if args["version"], do: [version: args["version"]], else: []
 
-      case Mimo.Library.Index.get_package(name, ecosystem, opts) do
+      case Index.get_package(name, ecosystem, opts) do
         {:ok, package} ->
           {:ok, Helpers.format_package(package)}
 
@@ -67,7 +65,7 @@ defmodule Mimo.Tools.Dispatchers.Library do
       {:error, "Search query is required"}
     else
       # First search local cache
-      cached_results = Mimo.Library.Index.search(query, ecosystem: ecosystem, limit: limit)
+      cached_results = Index.search(query, ecosystem: ecosystem, limit: limit)
 
       # If no cached results, search external API and cache results
       if Enum.empty?(cached_results) do
@@ -120,10 +118,10 @@ defmodule Mimo.Tools.Dispatchers.Library do
   end
 
   # Multi-head fetcher lookup
-  defp fetcher_for_ecosystem(:hex), do: Mimo.Library.Fetchers.HexFetcher
-  defp fetcher_for_ecosystem(:pypi), do: Mimo.Library.Fetchers.PyPIFetcher
-  defp fetcher_for_ecosystem(:npm), do: Mimo.Library.Fetchers.NPMFetcher
-  defp fetcher_for_ecosystem(:crates), do: Mimo.Library.Fetchers.CratesFetcher
+  defp fetcher_for_ecosystem(:hex), do: HexFetcher
+  defp fetcher_for_ecosystem(:pypi), do: PyPIFetcher
+  defp fetcher_for_ecosystem(:npm), do: NPMFetcher
+  defp fetcher_for_ecosystem(:crates), do: CratesFetcher
 
   defp cache_top_results_async(results, ecosystem) do
     spawn(fn ->
@@ -131,7 +129,7 @@ defmodule Mimo.Tools.Dispatchers.Library do
       |> Enum.take(3)
       |> Enum.each(fn pkg ->
         name = pkg[:name] || pkg["name"]
-        if name, do: Mimo.Library.Index.ensure_cached(name, ecosystem, [])
+        if name, do: Index.ensure_cached(name, ecosystem, [])
       end)
     end)
   end
@@ -155,7 +153,7 @@ defmodule Mimo.Tools.Dispatchers.Library do
     else
       opts = if args["version"], do: [version: args["version"]], else: []
 
-      case Mimo.Library.Index.ensure_cached(name, ecosystem, opts) do
+      case Index.ensure_cached(name, ecosystem, opts) do
         :ok ->
           {:ok, %{name: name, ecosystem: ecosystem, cached: true}}
 
@@ -168,7 +166,7 @@ defmodule Mimo.Tools.Dispatchers.Library do
   defp dispatch_discover(args) do
     path = args["path"] || File.cwd!()
 
-    case Mimo.Library.AutoDiscovery.discover_and_cache(path) do
+    case AutoDiscovery.discover_and_cache(path) do
       {:ok, result} ->
         {:ok,
          %{

@@ -59,7 +59,7 @@ defmodule Mimo.Brain.CognitiveLifecycleTest do
       # Jump directly to action without context
       {:ok, result} = CognitiveLifecycle.track_transition(thread_id, "file", "edit")
       assert result.phase == :action
-      assert length(result.warnings) > 0
+      refute Enum.empty?(result.warnings)
       assert Enum.any?(result.warnings, &(&1.type == :action_without_context))
     end
 

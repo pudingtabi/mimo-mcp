@@ -3,7 +3,7 @@ defmodule Mimo.Synapse.GraphTest do
   Tests for the Synapse Web Graph core module.
   """
   use Mimo.DataCase, async: false
-  alias Mimo.Synapse.{Graph, GraphNode, GraphEdge}
+  alias Mimo.Synapse.{Graph, GraphEdge, GraphNode}
 
   setup do
     # Clean up test data before each test

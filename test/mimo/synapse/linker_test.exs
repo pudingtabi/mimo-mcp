@@ -3,7 +3,7 @@ defmodule Mimo.Synapse.LinkerTest do
   Tests for the Synapse Web Linker - auto-linking code, libraries, and memories.
   """
   use Mimo.DataCase, async: false
-  alias Mimo.Synapse.{Graph, Linker, GraphNode, GraphEdge}
+  alias Mimo.Synapse.{Graph, GraphEdge, GraphNode, Linker}
 
   setup do
     # Clean up test data before each test
@@ -49,7 +49,7 @@ defmodule Mimo.Synapse.LinkerTest do
 
       # Verify edge exists (concept should have been created)
       edges = Graph.outgoing_edges(fn_node.id, edge_type: :implements)
-      assert length(edges) >= 1
+      assert edges != []
     end
 
     test "creates concept if it doesn't exist" do

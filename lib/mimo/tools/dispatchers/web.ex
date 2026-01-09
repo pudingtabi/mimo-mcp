@@ -46,21 +46,19 @@ defmodule Mimo.Tools.Dispatchers.Web do
 
   require Logger
 
+  alias Mimo.Brain.LLM
+  alias Mimo.Skills.Blink
+  alias Mimo.Skills.Browser
+  alias Mimo.Skills.Network
+  alias Mimo.Skills.Sonar
+  alias Mimo.Skills.Web, as: SkillsWeb
   alias Mimo.Tools.Helpers
   alias Mimo.Utils.InputValidation
-
-  # ==========================================================================
-  # HELPERS
-  # ==========================================================================
 
   # Get the current vision model name for response messages
   defp vision_model do
     System.get_env("OPENROUTER_VISION_MODEL", "google/gemma-3-27b-it:free")
   end
-
-  # ==========================================================================
-  # UNIFIED DISPATCHER
-  # ==========================================================================
 
   @doc """
   Unified web tool dispatcher with operation-based routing.
@@ -99,10 +97,6 @@ defmodule Mimo.Tools.Dispatchers.Web do
     do_dispatch(operation, args)
   end
 
-  # ==========================================================================
-  # Multi-Head Dispatch by Operation
-  # ==========================================================================
-
   # Content Retrieval
   defp do_dispatch("fetch", args), do: dispatch_fetch(args)
   defp do_dispatch("extract", args), do: dispatch_web_extract(args)
@@ -139,10 +133,6 @@ defmodule Mimo.Tools.Dispatchers.Web do
      "Unknown web operation: #{op}. Valid operations: fetch, extract, parse, search, code_search, image_search, blink, blink_analyze, blink_smart, browser, screenshot, pdf, evaluate, interact, test, vision, sonar"}
   end
 
-  # ==========================================================================
-  # FETCH DISPATCHER
-  # ==========================================================================
-
   @doc """
   Dispatch fetch operation.
   """
@@ -165,7 +155,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
       args["prompt"] ||
         "Describe this image in detail, including any text, objects, people, colors, and layout. Be comprehensive so a non-vision AI can understand the image content."
 
-    case Mimo.Brain.LLM.analyze_image(url, prompt, max_tokens: 1500) do
+    case LLM.analyze_image(url, prompt, max_tokens: 1500) do
       {:ok, analysis} ->
         {:ok,
          %{
@@ -220,7 +210,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
     if rss_url do
       Logger.info("[Reddit] Using RSS strategy for #{url} -> #{rss_url}")
 
-      case Mimo.Skills.Network.fetch_txt(rss_url) do
+      case Network.fetch_txt(rss_url) do
         {:ok, rss_content} when is_binary(rss_content) and byte_size(rss_content) > 100 ->
           # Successfully got RSS, parse and format
           parsed = parse_reddit_rss(rss_content, format)
@@ -445,16 +435,16 @@ defmodule Mimo.Tools.Dispatchers.Web do
   defp do_fetch_content(url, format, args) do
     case format do
       "text" ->
-        Mimo.Skills.Network.fetch_txt(url)
+        Network.fetch_txt(url)
 
       "html" ->
-        Mimo.Skills.Network.fetch_html(url)
+        Network.fetch_html(url)
 
       "json" ->
-        Mimo.Skills.Network.fetch_json(url)
+        Network.fetch_json(url)
 
       "markdown" ->
-        Mimo.Skills.Network.fetch_markdown(url)
+        Network.fetch_markdown(url)
 
       "raw" ->
         method = if args["method"] == "post", do: :post, else: :get
@@ -469,16 +459,12 @@ defmodule Mimo.Tools.Dispatchers.Web do
             do: Keyword.put(opts, :headers, Helpers.normalize_headers(args["headers"])),
             else: opts
 
-        Mimo.Skills.Network.fetch(url, opts)
+        Network.fetch(url, opts)
 
       _ ->
         {:error, "Unknown format: #{format}"}
     end
   end
-
-  # ==========================================================================
-  # SEARCH DISPATCHER
-  # ==========================================================================
 
   @doc """
   Dispatch search operation.
@@ -572,7 +558,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
         opts
       end
 
-    Mimo.Skills.Network.web_search(query, opts)
+    Network.web_search(query, opts)
   end
 
   defp perform_search(op, query, args, analyze_images, max_analyze) do
@@ -593,10 +579,10 @@ defmodule Mimo.Tools.Dispatchers.Web do
 
     case op do
       "web" ->
-        Mimo.Skills.Network.web_search(query, opts)
+        Network.web_search(query, opts)
 
       "code" ->
-        Mimo.Skills.Network.code_search(query, opts)
+        Network.code_search(query, opts)
 
       "images" ->
         search_images(query, opts, analyze_images, max_analyze)
@@ -609,13 +595,13 @@ defmodule Mimo.Tools.Dispatchers.Web do
   defp search_images(query, opts, analyze_images, max_analyze) do
     search_url = "https://duckduckgo.com/?q=#{URI.encode_www_form(query)}&t=h_&iax=images&ia=images"
 
-    case Mimo.Skills.Network.fetch_html(search_url) do
+    case Network.fetch_html(search_url) do
       {:ok, html} ->
         image_urls = extract_image_urls(html)
         num_results = Keyword.get(opts, :num_results, 10)
         image_urls = Enum.take(image_urls, num_results)
 
-        if analyze_images and length(image_urls) > 0 do
+        if analyze_images and image_urls != [] do
           analyzed = analyze_search_images(image_urls, max_analyze)
 
           {:ok,
@@ -663,7 +649,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
       prompt =
         "Describe this image concisely: what it shows, any text visible, colors, and key elements. Keep it under 100 words."
 
-      case Mimo.Brain.LLM.analyze_image(url, prompt, max_tokens: 300) do
+      case LLM.analyze_image(url, prompt, max_tokens: 300) do
         {:ok, analysis} ->
           %{url: url, description: analysis, analyzed: true}
 
@@ -672,10 +658,6 @@ defmodule Mimo.Tools.Dispatchers.Web do
       end
     end)
   end
-
-  # ==========================================================================
-  # BLINK DISPATCHER
-  # ==========================================================================
 
   @doc """
   Dispatch blink operation (HTTP-level browser emulation).
@@ -721,7 +703,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
   end
 
   defp do_dispatch_blink("analyze", url, _browser, _layer, _max_retries, _format, _browser_input) do
-    case Mimo.Skills.Blink.analyze_protection(url) do
+    case Blink.analyze_protection(url) do
       {:ok, analysis} -> {:ok, analysis}
       {:error, reason} -> {:error, "Protection analysis failed: #{inspect(reason)}"}
     end
@@ -736,7 +718,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
   end
 
   defp dispatch_blink_fetch(url, browser, layer, format, browser_input) do
-    case Mimo.Skills.Blink.fetch(url, browser: browser, layer: layer) do
+    case Blink.fetch(url, browser: browser, layer: layer) do
       {:ok, response} ->
         handle_blink_response(response, url, format, browser, layer, browser_input)
 
@@ -758,7 +740,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
   end
 
   defp dispatch_blink_smart(url, browser, max_retries, format, browser_input) do
-    case Mimo.Skills.Blink.smart_fetch(url, max_retries, browser: browser) do
+    case Blink.smart_fetch(url, max_retries, browser: browser) do
       {:ok, response} ->
         handle_blink_response(response, url, format, browser, "smart", browser_input)
 
@@ -855,7 +837,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
         |> String.trim()
 
       "markdown" ->
-        case Mimo.Skills.Web.parse(body) do
+        case SkillsWeb.parse(body) do
           {:ok, md} -> md
           _ -> body
         end
@@ -864,10 +846,6 @@ defmodule Mimo.Tools.Dispatchers.Web do
         body
     end
   end
-
-  # ==========================================================================
-  # BROWSER DISPATCHER
-  # ==========================================================================
 
   @doc """
   Dispatch browser operation (full Puppeteer automation).
@@ -897,7 +875,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
   end
 
   defp do_dispatch_browser("fetch", url, _args, opts) do
-    Mimo.Skills.Browser.fetch(url, opts)
+    Browser.fetch(url, opts)
   end
 
   defp do_dispatch_browser("screenshot", url, args, opts) do
@@ -910,7 +888,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
           selector: args["selector"]
         ]
 
-    Mimo.Skills.Browser.screenshot(url, screenshot_opts)
+    Browser.screenshot(url, screenshot_opts)
   end
 
   defp do_dispatch_browser("pdf", url, args, opts) do
@@ -922,7 +900,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
           margin: args["margin"]
         ]
 
-    Mimo.Skills.Browser.pdf(url, pdf_opts)
+    Browser.pdf(url, pdf_opts)
   end
 
   defp do_dispatch_browser("evaluate", url, args, opts) do
@@ -950,7 +928,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
   end
 
   defp do_browser_evaluate(url, script, opts) do
-    Mimo.Skills.Browser.evaluate(url, script, opts)
+    Browser.evaluate(url, script, opts)
   end
 
   # Browser interact - extracted for clarity
@@ -960,7 +938,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
 
   defp do_browser_interact(url, actions, opts) do
     normalized_actions = normalize_browser_actions(actions)
-    Mimo.Skills.Browser.interact(url, normalized_actions, opts)
+    Browser.interact(url, normalized_actions, opts)
   end
 
   # Browser test - extracted for clarity
@@ -970,7 +948,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
 
   defp do_browser_test(url, tests, opts) do
     normalized_tests = normalize_browser_tests(tests)
-    Mimo.Skills.Browser.test(url, normalized_tests, opts)
+    Browser.test(url, normalized_tests, opts)
   end
 
   defp normalize_browser_actions(actions) when is_binary(actions) do
@@ -1024,10 +1002,6 @@ defmodule Mimo.Tools.Dispatchers.Web do
 
   defp normalize_browser_tests(_), do: []
 
-  # ==========================================================================
-  # VISION DISPATCHER
-  # ==========================================================================
-
   @doc """
   Dispatch vision operation (image analysis).
   """
@@ -1043,7 +1017,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
     if is_nil(image) or image == "" do
       {:error, "Image URL or base64 data is required"}
     else
-      case Mimo.Brain.LLM.analyze_image(image, prompt, max_tokens: max_tokens) do
+      case LLM.analyze_image(image, prompt, max_tokens: max_tokens) do
         {:ok, analysis} ->
           {:ok, %{analysis: analysis, model: vision_model()}}
 
@@ -1056,10 +1030,6 @@ defmodule Mimo.Tools.Dispatchers.Web do
     end
   end
 
-  # ==========================================================================
-  # SONAR DISPATCHER
-  # ==========================================================================
-
   @doc """
   Dispatch sonar operation (UI accessibility scanner).
   """
@@ -1071,15 +1041,15 @@ defmodule Mimo.Tools.Dispatchers.Web do
         "Analyze this UI screenshot for accessibility issues, layout problems, text readability, color contrast, and interactive elements. List any potential usability concerns."
 
     basic_scan =
-      case Mimo.Skills.Sonar.scan_ui() do
+      case Sonar.scan_ui() do
         {:ok, scan_result} -> scan_result
         {:error, reason} -> "Accessibility scan unavailable: #{inspect(reason)}"
       end
 
     if use_vision do
-      case Mimo.Skills.Sonar.take_screenshot() do
+      case Sonar.take_screenshot() do
         {:ok, screenshot_base64} ->
-          case Mimo.Brain.LLM.analyze_image(screenshot_base64, prompt, max_tokens: 1500) do
+          case LLM.analyze_image(screenshot_base64, prompt, max_tokens: 1500) do
             {:ok, vision_analysis} ->
               {:ok,
                %{
@@ -1115,10 +1085,6 @@ defmodule Mimo.Tools.Dispatchers.Web do
     end
   end
 
-  # ==========================================================================
-  # WEB_EXTRACT DISPATCHER
-  # ==========================================================================
-
   @doc """
   Dispatch web_extract operation (content extraction).
   """
@@ -1134,8 +1100,8 @@ defmodule Mimo.Tools.Dispatchers.Web do
   end
 
   defp do_extract_content(url, include_structured) do
-    with {:ok, html} <- Mimo.Skills.Network.fetch_html(url),
-         {:ok, content} <- Mimo.Skills.Network.extract_content(html) do
+    with {:ok, html} <- Network.fetch_html(url),
+         {:ok, content} <- Network.extract_content(html) do
       result = build_extract_result(url, content)
 
       if include_structured do
@@ -1162,20 +1128,16 @@ defmodule Mimo.Tools.Dispatchers.Web do
   end
 
   defp maybe_add_structured_data(result, html) do
-    case Mimo.Skills.Network.extract_structured_data(html) do
+    case Network.extract_structured_data(html) do
       {:ok, structured} -> {:ok, Map.merge(result, %{structured_data: structured})}
       _ -> {:ok, result}
     end
   end
 
-  # ==========================================================================
-  # WEB_PARSE DISPATCHER
-  # ==========================================================================
-
   @doc """
   Dispatch web_parse operation (HTML to Markdown).
   """
   def dispatch_web_parse(args) do
-    {:ok, Mimo.Skills.Web.parse(args["html"] || "")}
+    {:ok, SkillsWeb.parse(args["html"] || "")}
   end
 end

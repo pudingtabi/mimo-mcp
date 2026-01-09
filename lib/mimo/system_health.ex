@@ -1,310 +1,327 @@
 defmodule Mimo.SystemHealth do
   @moduledoc """
-  System health monitoring for Mimo infrastructure.
+  Aggregates health metrics from all robustness subsystems.
 
-  Tracks memory corpus size, query latency, ETS table usage.
-  Provides visibility into system health before performance degradation.
-
-  Part of IMPLEMENTATION_PLAN_Q1_2026 Phase 1: Foundation Hardening.
-
-  ## Alert Thresholds
-
-  Thresholds are set at ~70% of estimated capacity to give early warning:
-  - memory_count: 50,000 (70% of ~70K estimated before degradation)
-  - relationship_count: 100,000 (70% of ~140K estimated)
-  - ets_table_mb: 500 MB total across all Mimo ETS tables
-  - query_latency_ms: 1,000 ms for semantic search
+  Provides a single function to check overall system health, combining:
+  - HNSW Index status
+  - Backup verification status
+  - Instance lock status
+  - Database metrics
+  - Memory usage
 
   ## Usage
 
-      # Get current metrics
-      Mimo.SystemHealth.get_metrics()
+      # Get full health report
+      health = Mimo.SystemHealth.check()
+      #=> %{status: :healthy, checks: %{...}, timestamp: ~U[...]}
 
-      # Check health status
-      Mimo.SystemHealth.healthy?()
+      # Quick health check (just status)
+      :healthy = Mimo.SystemHealth.status()
+
+  ## Integration
+
+  Called by:
+  - HealthController for HTTP /health endpoint
+  - MCP tools for monitoring
+  - SleepCycle for periodic health logging
   """
 
-  use GenServer
   require Logger
 
-  @check_interval :timer.minutes(5)
-  @alert_thresholds %{
-    memory_count: 50_000,
-    relationship_count: 100_000,
-    ets_table_mb: 500,
-    query_latency_ms: 1000
-  }
+  alias Mimo.Brain.{BackupVerifier, Engram, HnswIndex}
+  alias Mimo.Cognitive.FeedbackLoop
+  alias Mimo.InstanceLock
+  alias Mimo.Repo
 
-  # Known Mimo ETS tables to monitor
-  @mimo_ets_tables [
-    :adoption_metrics,
-    :working_memory,
-    :uncertainty_tracker,
-    :classifier_cache,
-    :embedding_cache,
-    :file_read_cache,
-    :emergence_patterns,
-    :reasoning_sessions,
-    :awakening_sessions,
-    :cognitive_lifecycle,
-    :reflector_optimizer,
-    :knowledge_syncer,
-    :onboard_tracker,
-    :verification_tracker
-  ]
-
-  # Client API
-
-  def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-  end
+  import Ecto.Query
 
   @doc """
-  Get current health metrics and any active alerts.
+  Performs a comprehensive health check of all subsystems.
 
   Returns a map with:
-  - `timestamp` - When metrics were last collected
-  - `metrics` - Current metric values
-  - `alerts` - List of threshold violations (empty if healthy)
-  - `thresholds` - Current alert threshold values
+  - `:status` - Overall status (:healthy, :degraded, :critical)
+  - `:checks` - Individual check results
+  - `:timestamp` - When the check was performed
   """
-  def get_metrics do
-    GenServer.call(__MODULE__, :get_metrics)
-  end
-
-  @doc """
-  Returns true if no alerts are active.
-  """
-  def healthy? do
-    case get_metrics() do
-      %{alerts: []} -> true
-      %{alerts: alerts} when is_list(alerts) -> alerts == []
-      _ -> false
-    end
-  end
-
-  @doc """
-  Force a health check immediately (useful for testing).
-  """
-  def check_now do
-    GenServer.call(__MODULE__, :check_now)
-  end
-
-  # Server Callbacks
-
-  @impl true
-  def init(_opts) do
-    # Schedule first check after a short delay to let system stabilize
-    Process.send_after(self(), :check_health, :timer.seconds(30))
-
-    Logger.info("[SystemHealth] Started health monitoring (check interval: 5 min)")
-
-    {:ok,
-     %{
-       last_check: nil,
-       alerts: [],
-       metrics: %{},
-       check_count: 0
-     }}
-  end
-
-  @impl true
-  def handle_info(:check_health, state) do
-    metrics = collect_metrics()
-    alerts = check_thresholds(metrics)
-
-    # Log alerts if any
-    if alerts != [] do
-      Logger.warning("""
-      [SystemHealth] ⚠️ Health alerts detected:
-      #{format_alerts(alerts)}
-      """)
-    end
-
-    schedule_check()
-
-    {:noreply,
-     %{
-       state
-       | last_check: DateTime.utc_now(),
-         alerts: alerts,
-         metrics: metrics,
-         check_count: state.check_count + 1
-     }}
-  end
-
-  @impl true
-  def handle_call(:get_metrics, _from, state) do
-    result = %{
-      timestamp: state.last_check,
-      metrics: state.metrics,
-      alerts: state.alerts,
-      thresholds: @alert_thresholds,
-      check_count: state.check_count
+  @spec check() :: map()
+  def check do
+    checks = %{
+      hnsw: check_hnsw(),
+      backup: check_backup(),
+      instance_lock: check_lock(),
+      database: check_database(),
+      system: check_system()
     }
 
-    {:reply, result, state}
-  end
+    overall_status = determine_overall_status(checks)
 
-  @impl true
-  def handle_call(:check_now, _from, state) do
-    metrics = collect_metrics()
-    alerts = check_thresholds(metrics)
-
-    new_state = %{
-      state
-      | last_check: DateTime.utc_now(),
-        alerts: alerts,
-        metrics: metrics,
-        check_count: state.check_count + 1
-    }
-
-    result = %{
-      timestamp: new_state.last_check,
-      metrics: new_state.metrics,
-      alerts: new_state.alerts,
-      thresholds: @alert_thresholds,
-      check_count: new_state.check_count
-    }
-
-    {:reply, result, new_state}
-  end
-
-  # Private Functions
-
-  defp collect_metrics do
     %{
-      memory_count: count_memories(),
-      relationship_count: count_relationships(),
-      ets_tables: ets_table_stats(),
-      ets_total_mb: calculate_total_ets_mb(),
-      query_latency_ms: measure_query_latency()
+      status: overall_status,
+      checks: checks,
+      timestamp: DateTime.utc_now()
     }
   end
 
-  defp count_memories do
-    # Query episodic store for engram count
-    try do
-      Mimo.Repo.aggregate(Mimo.Brain.Engram, :count, :id)
-    rescue
-      e ->
-        Logger.debug("[SystemHealth] Failed to count memories: #{Exception.message(e)}")
-        0
-    end
+  @doc """
+  Returns just the overall health status.
+  """
+  @spec status() :: :healthy | :degraded | :critical
+  def status do
+    check().status
   end
 
-  defp count_relationships do
-    # Query semantic store for triple count
-    try do
-      Mimo.Repo.aggregate(Mimo.SemanticStore.Triple, :count, :id)
-    rescue
-      e ->
-        Logger.debug("[SystemHealth] Failed to count relationships: #{Exception.message(e)}")
-        0
-    end
-  end
+  @doc """
+  Returns a summary suitable for logging.
+  """
+  @spec summary() :: String.t()
+  def summary do
+    health = check()
 
-  defp ets_table_stats do
-    # Get info for all known Mimo ETS tables
-    @mimo_ets_tables
-    |> Enum.map(fn table ->
-      stats =
-        try do
-          case :ets.info(table) do
-            :undefined ->
-              %{size: 0, memory_bytes: 0, status: :not_found}
-
-            info when is_list(info) ->
-              %{
-                size: Keyword.get(info, :size, 0),
-                memory_bytes: Keyword.get(info, :memory, 0) * :erlang.system_info(:wordsize)
-              }
-
-            _ ->
-              %{size: 0, memory_bytes: 0, status: :not_found}
-          end
-        rescue
-          ArgumentError ->
-            %{size: 0, memory_bytes: 0, status: :not_found}
-        end
-
-      {table, stats}
-    end)
-    |> Enum.into(%{})
-  end
-
-  defp calculate_total_ets_mb do
-    # Sum all ETS table memory in MB
-    @mimo_ets_tables
-    |> Enum.map(fn table ->
-      try do
-        info = :ets.info(table)
-
-        if info do
-          Keyword.get(info, :memory, 0) * :erlang.system_info(:wordsize)
-        else
-          0
-        end
-      rescue
-        _ -> 0
+    status_emoji =
+      case health.status do
+        :healthy -> "✓"
+        :degraded -> "⚠"
+        :critical -> "✗"
       end
-    end)
-    |> Enum.sum()
-    # Convert to MB
-    |> Kernel./(1024 * 1024)
-    |> Float.round(2)
+
+    checks_summary =
+      health.checks
+      |> Enum.map(fn {name, result} ->
+        check_status = Map.get(result, :status, :unknown)
+        "#{name}=#{check_status}"
+      end)
+      |> Enum.join(", ")
+
+    "#{status_emoji} System #{health.status}: #{checks_summary}"
   end
 
-  defp measure_query_latency do
-    # Simple semantic search benchmark
-    # Uses a common query pattern to measure real-world latency
-    start = System.monotonic_time(:millisecond)
+  # Individual check functions
 
-    try do
-      # Use Brain.Memory.search with a simple query
-      Mimo.Brain.Memory.search("system health benchmark query", limit: 5)
-      System.monotonic_time(:millisecond) - start
-    rescue
-      e ->
-        Logger.debug("[SystemHealth] Failed to measure query latency: #{Exception.message(e)}")
-        0
+  defp check_hnsw do
+    case HnswIndex.health_check() do
+      {:healthy, db_count, index_count} ->
+        %{status: :healthy, db_count: db_count, index_count: index_count}
+
+      {:desync, db_count, index_count} ->
+        %{status: :degraded, db_count: db_count, index_count: index_count, issue: :desync}
+
+      {:empty_index, db_count, index_count} ->
+        %{status: :degraded, db_count: db_count, index_count: index_count, issue: :empty}
+
+      {:not_running, _, _} ->
+        %{status: :unknown, issue: :not_running}
+
+      {:not_initialized, _, _} ->
+        %{status: :unknown, issue: :not_initialized}
     end
   end
 
-  defp check_thresholds(metrics) do
+  defp check_backup do
+    case BackupVerifier.latest_status() do
+      nil ->
+        %{status: :unknown, issue: :no_backups}
+
+      status ->
+        if status.verified do
+          %{
+            status: :healthy,
+            latest: status.name,
+            verified_at: status.verified_at,
+            engram_count: status.engram_count
+          }
+        else
+          %{
+            status: :degraded,
+            latest: status.name,
+            issue: :unverified
+          }
+        end
+    end
+  end
+
+  defp check_lock do
+    lock_status = InstanceLock.status()
+
+    %{
+      status: if(lock_status.locked, do: :healthy, else: :unknown),
+      locked: lock_status.locked,
+      holder_pid: lock_status.holder_pid,
+      started_at: lock_status.started_at
+    }
+  end
+
+  defp check_database do
+    try do
+      engram_count = Repo.one(from(e in Engram, select: count(e.id))) || 0
+
+      # Quick integrity check (just verify we can query)
+      _test_query = Repo.one(from(e in Engram, limit: 1, select: e.id))
+
+      %{
+        status: :healthy,
+        engram_count: engram_count,
+        connection: :ok
+      }
+    rescue
+      e ->
+        %{
+          status: :critical,
+          error: Exception.message(e),
+          connection: :error
+        }
+    end
+  end
+
+  defp check_system do
+    # Get BEAM uptime
+    {uptime_ms, _} = :erlang.statistics(:wall_clock)
+    uptime_formatted = format_uptime(uptime_ms)
+
+    # Memory info
+    memory = :erlang.memory()
+    total_mb = Float.round(memory[:total] / 1024 / 1024, 1)
+    processes_mb = Float.round(memory[:processes] / 1024 / 1024, 1)
+
+    %{
+      status: :healthy,
+      uptime: uptime_formatted,
+      uptime_ms: uptime_ms,
+      memory_total_mb: total_mb,
+      memory_processes_mb: processes_mb,
+      scheduler_count: :erlang.system_info(:schedulers_online)
+    }
+  end
+
+  # Status determination
+
+  defp determine_overall_status(checks) do
+    statuses = Enum.map(checks, fn {_name, result} -> Map.get(result, :status, :unknown) end)
+
+    cond do
+      :critical in statuses -> :critical
+      :degraded in statuses -> :degraded
+      Enum.all?(statuses, &(&1 == :healthy)) -> :healthy
+      true -> :degraded
+    end
+  end
+
+  @doc """
+  Returns metrics suitable for tool dispatchers.
+  Alias for check() for backward compatibility.
+  """
+  @spec get_metrics() :: map()
+  def get_metrics, do: check()
+
+  @doc """
+  Returns memory quality metrics for data quality monitoring.
+
+  Part of Phase 2: Data Quality Excellence (Q6).
+
+  Returns:
+  - Category distribution (counts per memory type)
+  - Average content length by category
+  - Quality thresholds and current values
+  - Alerts for any metrics below threshold
+  """
+  @spec quality_metrics() :: map()
+  def quality_metrics do
+    try do
+      # Get category distribution
+      category_stats =
+        Repo.all(
+          from(e in Engram,
+            group_by: e.category,
+            select: {e.category, count(e.id), avg(fragment("LENGTH(content)"))}
+          )
+        )
+
+      categories =
+        Enum.into(category_stats, %{}, fn {cat, count, avg_len} ->
+          {cat, %{count: count, avg_length: round_or_nil(avg_len)}}
+        end)
+
+      # Check synthesized insights specifically
+      synthesis_stats =
+        Repo.one(
+          from(e in Engram,
+            where: like(e.content, "%[Synthesized Insight]%"),
+            select: {count(e.id), avg(fragment("LENGTH(content)")), avg(e.importance)}
+          )
+        )
+
+      {synth_count, synth_avg_len, synth_avg_imp} = synthesis_stats || {0, 0, 0}
+
+      # Quality thresholds (from Phase 2 implementation)
+      thresholds = %{
+        entity_anchor_min_length: 50,
+        synthesis_min_length: 100,
+        synthesis_min_importance: 0.6
+      }
+
+      # Calculate alerts
+      alerts = calculate_quality_alerts(categories, synth_avg_len, synth_avg_imp, thresholds)
+
+      # L5: Get confidence calibration warnings
+      calibration_warnings = get_calibration_warnings()
+      all_alerts = alerts ++ calibration_warnings
+
+      %{
+        status: if(all_alerts == [], do: :healthy, else: :warning),
+        categories: categories,
+        synthesis: %{
+          count: synth_count,
+          avg_length: round_or_nil(synth_avg_len),
+          avg_importance: round_or_nil(synth_avg_imp)
+        },
+        thresholds: thresholds,
+        alerts: all_alerts,
+        calibration: get_calibration_summary(),
+        timestamp: DateTime.utc_now()
+      }
+    rescue
+      e ->
+        %{
+          status: :error,
+          error: Exception.message(e),
+          timestamp: DateTime.utc_now()
+        }
+    end
+  end
+
+  defp calculate_quality_alerts(categories, synth_avg_len, synth_avg_imp, thresholds) do
     alerts = []
 
-    # Check memory count
-    alerts =
-      if metrics.memory_count > @alert_thresholds.memory_count do
-        [{:memory_count, metrics.memory_count, @alert_thresholds.memory_count} | alerts]
-      else
-        alerts
-      end
+    # Check entity anchor quality
+    entity_stats = Map.get(categories, "entity_anchor", %{avg_length: 0})
 
-    # Check relationship count
     alerts =
-      if metrics.relationship_count > @alert_thresholds.relationship_count do
+      if entity_stats[:avg_length] &&
+           entity_stats[:avg_length] < thresholds.entity_anchor_min_length do
         [
-          {:relationship_count, metrics.relationship_count, @alert_thresholds.relationship_count}
+          "Entity anchors below length threshold (#{entity_stats[:avg_length]} < #{thresholds.entity_anchor_min_length})"
           | alerts
         ]
       else
         alerts
       end
 
-    # Check ETS memory
+    # Check synthesis quality
     alerts =
-      if metrics.ets_total_mb > @alert_thresholds.ets_table_mb do
-        [{:ets_table_mb, metrics.ets_total_mb, @alert_thresholds.ets_table_mb} | alerts]
+      if synth_avg_len && synth_avg_len < thresholds.synthesis_min_length do
+        [
+          "Synthesized insights below length threshold (#{round_or_nil(synth_avg_len)} < #{thresholds.synthesis_min_length})"
+          | alerts
+        ]
       else
         alerts
       end
 
-    # Check query latency
     alerts =
-      if metrics.query_latency_ms > @alert_thresholds.query_latency_ms do
-        [{:query_latency_ms, metrics.query_latency_ms, @alert_thresholds.query_latency_ms} | alerts]
+      if synth_avg_imp && synth_avg_imp < thresholds.synthesis_min_importance do
+        [
+          "Synthesized insights below importance threshold (#{round_or_nil(synth_avg_imp)} < #{thresholds.synthesis_min_importance})"
+          | alerts
+        ]
       else
         alerts
       end
@@ -312,13 +329,61 @@ defmodule Mimo.SystemHealth do
     alerts
   end
 
-  defp format_alerts(alerts) do
-    Enum.map_join(alerts, "\n", fn {metric, value, threshold} ->
-      "  - #{metric}: #{value} (threshold: #{threshold})"
-    end)
+  defp round_or_nil(nil), do: nil
+  defp round_or_nil(value) when is_float(value), do: Float.round(value, 1)
+  defp round_or_nil(value), do: value
+
+  # Helpers
+
+  defp format_uptime(ms) do
+    seconds = div(ms, 1000)
+    minutes = div(seconds, 60)
+    hours = div(minutes, 60)
+    days = div(hours, 24)
+
+    cond do
+      days > 0 -> "#{days}d #{rem(hours, 24)}h"
+      hours > 0 -> "#{hours}h #{rem(minutes, 60)}m"
+      minutes > 0 -> "#{minutes}m #{rem(seconds, 60)}s"
+      true -> "#{seconds}s"
+    end
   end
 
-  defp schedule_check do
-    Process.send_after(self(), :check_health, @check_interval)
+  # ─────────────────────────────────────────────────────────────────
+  # L5: Confidence Calibration Integration
+  # ─────────────────────────────────────────────────────────────────
+
+  defp get_calibration_warnings do
+    try do
+      FeedbackLoop.calibration_warnings()
+      |> Enum.map(fn warning ->
+        warning.message
+      end)
+    rescue
+      _ -> []
+    catch
+      :exit, _ -> []
+    end
+  end
+
+  defp get_calibration_summary do
+    try do
+      [:prediction, :classification, :retrieval, :tool_execution]
+      |> Enum.map(fn category ->
+        cal = FeedbackLoop.get_calibration(category)
+
+        {category,
+         %{
+           factor: cal.calibration_factor,
+           samples: cal.sample_count,
+           reliability: cal.reliability
+         }}
+      end)
+      |> Map.new()
+    rescue
+      _ -> %{}
+    catch
+      :exit, _ -> %{}
+    end
   end
 end

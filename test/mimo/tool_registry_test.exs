@@ -258,7 +258,8 @@ defmodule Mimo.ToolRegistryTest do
       tools = ToolRegistry.list_all_tools()
 
       tool_names = Enum.map(tools, & &1["name"])
-      assert "ask_mimo" in tool_names
+      # Note: ask_mimo was deprecated in Phase 2 and consolidated into memory
+      assert "memory" in tool_names
     end
 
     test "includes registered skill tools" do

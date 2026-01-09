@@ -150,10 +150,6 @@ defmodule Mimo.Skills.Validator do
 
   def allowed_interpolation?(_), do: false
 
-  # ==========================================================================
-  # Key Normalization
-  # ==========================================================================
-
   defp normalize_keys(config) when is_map(config) do
     config
     |> Enum.map(fn {k, v} -> {to_string(k), normalize_value(v)} end)
@@ -163,10 +159,6 @@ defmodule Mimo.Skills.Validator do
   defp normalize_value(v) when is_map(v), do: normalize_keys(v)
   defp normalize_value(v) when is_list(v), do: Enum.map(v, &normalize_value/1)
   defp normalize_value(v), do: v
-
-  # ==========================================================================
-  # Validation Functions
-  # ==========================================================================
 
   defp validate_required_fields(config) do
     case Map.get(config, "command") do
@@ -222,11 +214,11 @@ defmodule Mimo.Skills.Validator do
       |> Enum.map(&to_string/1)
       |> Enum.reject(&safe_arg?/1)
 
-    if length(dangerous_args) > 0 do
+    if Enum.empty?(dangerous_args) do
+      validate_arg_lengths(args)
+    else
       log_validation_failure(:dangerous_args, %{args: dangerous_args})
       {:error, {:dangerous_args, dangerous_args}}
-    else
-      validate_arg_lengths(args)
     end
   end
 
@@ -236,20 +228,18 @@ defmodule Mimo.Skills.Validator do
         String.length(to_string(arg)) > @max_string_length
       end)
 
-    if length(long_args) > 0 do
-      {:error, {:arg_too_long, @max_string_length}}
-    else
+    if Enum.empty?(long_args) do
       :ok
+    else
+      {:error, {:arg_too_long, @max_string_length}}
     end
   end
 
   defp validate_env(%{"env" => env}) when is_map(env) do
-    cond do
-      map_size(env) > @max_env_properties ->
-        {:error, {:too_many_env_vars, map_size(env), @max_env_properties}}
-
-      true ->
-        validate_env_entries(env)
+    if map_size(env) > @max_env_properties do
+      {:error, {:too_many_env_vars, map_size(env), @max_env_properties}}
+    else
+      validate_env_entries(env)
     end
   end
 
@@ -266,12 +256,10 @@ defmodule Mimo.Skills.Validator do
       |> Map.keys()
       |> Enum.reject(&valid_env_var_name?/1)
 
-    cond do
-      length(invalid_keys) > 0 ->
-        {:error, {:invalid_env_var_names, invalid_keys}}
-
-      true ->
-        validate_env_values(env)
+    if invalid_keys != [] do
+      {:error, {:invalid_env_var_names, invalid_keys}}
+    else
+      validate_env_values(env)
     end
   end
 
@@ -288,12 +276,10 @@ defmodule Mimo.Skills.Validator do
   end
 
   defp validate_env_value(key, value) when is_binary(value) do
-    cond do
-      String.length(value) > @max_string_length ->
-        {:error, {:env_value_too_long, key, @max_string_length}}
-
-      true ->
-        validate_interpolation(key, value)
+    if String.length(value) > @max_string_length do
+      {:error, {:env_value_too_long, key, @max_string_length}}
+    else
+      validate_interpolation(key, value)
     end
   end
 
@@ -312,11 +298,11 @@ defmodule Mimo.Skills.Validator do
       |> Enum.map(fn [_, var] -> var end)
       |> Enum.reject(&allowed_interpolation?/1)
 
-    if length(invalid_vars) > 0 do
+    if Enum.empty?(invalid_vars) do
+      :ok
+    else
       log_validation_failure(:invalid_interpolation, %{key: key, vars: invalid_vars})
       {:error, {:invalid_interpolation, key, invalid_vars, @allowed_interpolation_vars}}
-    else
-      :ok
     end
   end
 
@@ -324,16 +310,12 @@ defmodule Mimo.Skills.Validator do
     allowed_fields = ~w(command args env)
     extra_fields = Map.keys(config) -- allowed_fields
 
-    if length(extra_fields) > 0 do
-      {:error, {:extra_fields, extra_fields, allowed_fields}}
-    else
+    if Enum.empty?(extra_fields) do
       :ok
+    else
+      {:error, {:extra_fields, extra_fields, allowed_fields}}
     end
   end
-
-  # ==========================================================================
-  # Logging
-  # ==========================================================================
 
   defp log_validation_failure(reason, metadata) do
     :telemetry.execute(

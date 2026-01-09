@@ -19,9 +19,10 @@ defmodule Mimo.Tools.Dispatchers.Terminal do
   SPEC-087: Wired to OutcomeDetector for feedback loop closure.
   """
 
+  alias Mimo.Cognitive.{FeedbackLoop, OutcomeDetector}
   alias Mimo.Tools.{Helpers, Suggestions}
+  alias Mimo.Skills.Terminal, as: TerminalSkill
   alias Mimo.Utils.InputValidation
-  alias Mimo.Cognitive.{OutcomeDetector, FeedbackLoop}
 
   @doc """
   Dispatch terminal operation based on args.
@@ -42,24 +43,24 @@ defmodule Mimo.Tools.Dispatchers.Terminal do
         "read_output" ->
           # CORRECT: Terminal.read_process_output (NOT read_output!)
           timeout = InputValidation.validate_timeout(args["timeout"], default: 1000)
-          Mimo.Skills.Terminal.read_process_output(args["pid"], timeout_ms: timeout)
+          TerminalSkill.read_process_output(args["pid"], timeout_ms: timeout)
 
         "interact" ->
           # CORRECT: Terminal.interact_with_process (NOT interact!)
-          Mimo.Skills.Terminal.interact_with_process(args["pid"], args["input"] || "")
+          TerminalSkill.interact_with_process(args["pid"], args["input"] || "")
 
         "kill" ->
-          Mimo.Skills.Terminal.kill_process(args["pid"])
+          TerminalSkill.kill_process(args["pid"])
 
         "force_kill" ->
           # CORRECT: Terminal.force_terminate (NOT force_kill_process!)
-          Mimo.Skills.Terminal.force_terminate(args["pid"])
+          TerminalSkill.force_terminate(args["pid"])
 
         "list_sessions" ->
-          Mimo.Skills.Terminal.list_sessions()
+          TerminalSkill.list_sessions()
 
         "list_processes" ->
-          Mimo.Skills.Terminal.list_processes()
+          TerminalSkill.list_processes()
 
         _ ->
           {:error, "Unknown terminal operation: #{op}"}
@@ -68,10 +69,6 @@ defmodule Mimo.Tools.Dispatchers.Terminal do
     # Add cross-tool suggestions (SPEC-031 Phase 2)
     Suggestions.maybe_add_suggestion(result, "terminal", args)
   end
-
-  # ==========================================================================
-  # PRIVATE HELPERS
-  # ==========================================================================
 
   defp dispatch_execute(command, args, skip_context) do
     # Validate timeout (default 30s, max 5min)
@@ -95,7 +92,7 @@ defmodule Mimo.Tools.Dispatchers.Terminal do
     opts = if shell, do: Keyword.put(opts, :shell, shell), else: opts
     opts = if name, do: Keyword.put(opts, :name, name), else: opts
 
-    raw_result = Mimo.Skills.Terminal.execute(command, opts)
+    raw_result = TerminalSkill.execute(command, opts)
 
     # SPEC-087: Detect outcome and record to feedback loop
     record_terminal_outcome(command, raw_result)
@@ -152,6 +149,6 @@ defmodule Mimo.Tools.Dispatchers.Terminal do
     timeout = InputValidation.validate_timeout(args["timeout"], default: 5000)
     opts = [timeout_ms: timeout]
     opts = if name, do: Keyword.put(opts, :name, name), else: opts
-    Mimo.Skills.Terminal.start_process(command, opts)
+    TerminalSkill.start_process(command, opts)
   end
 end

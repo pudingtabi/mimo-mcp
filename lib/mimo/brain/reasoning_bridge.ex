@@ -20,12 +20,8 @@ defmodule Mimo.Brain.ReasoningBridge do
 
   require Logger
 
+  alias Mimo.Brain.{Engram, LLM}
   alias Mimo.Cognitive.Reasoner
-  alias Mimo.Brain.{LLM, Engram}
-
-  # ============================================================================
-  # Type Specifications
-  # ============================================================================
 
   @type reasoning_context :: %{
           session_id: String.t() | nil,
@@ -46,10 +42,6 @@ defmodule Mimo.Brain.ReasoningBridge do
   @type query_analysis :: %{
           String.t() => term()
         }
-
-  # ============================================================================
-  # Ingestion Path
-  # ============================================================================
 
   @doc """
   Analyze content before memory storage.
@@ -168,7 +160,7 @@ defmodule Mimo.Brain.ReasoningBridge do
       # => [%{type: :supersedes, target_id: 1, confidence: 0.92}]
   """
   @spec detect_relationships(String.t(), [Engram.t()]) :: [relationship()]
-  def detect_relationships(content, similar_memories) when length(similar_memories) > 0 do
+  def detect_relationships(content, similar_memories) when similar_memories != [] do
     if reasoning_enabled?() do
       existing_summaries =
         similar_memories
@@ -243,10 +235,6 @@ defmodule Mimo.Brain.ReasoningBridge do
       []
     end
   end
-
-  # ============================================================================
-  # Retrieval Path
-  # ============================================================================
 
   @doc """
   Analyze query intent for better retrieval.
@@ -339,10 +327,6 @@ defmodule Mimo.Brain.ReasoningBridge do
 
   def rerank(_, results, _), do: results
 
-  # ============================================================================
-  # Public Helpers
-  # ============================================================================
-
   @doc """
   Check if reasoning-memory integration is enabled.
 
@@ -368,10 +352,6 @@ defmodule Mimo.Brain.ReasoningBridge do
       confidence: 0.5
     }
   end
-
-  # ============================================================================
-  # Private Helpers
-  # ============================================================================
 
   defp build_ingestion_problem(content, category, similar) do
     similar_summary =

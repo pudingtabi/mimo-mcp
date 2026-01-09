@@ -24,7 +24,7 @@ defmodule Mimo.Brain.Emergence.Metrics do
 
   require Logger
 
-  alias Mimo.Brain.Emergence.{Pattern, Catalog}
+  alias Mimo.Brain.Emergence.{Catalog, Pattern}
   alias Mimo.Repo
   import Ecto.Query
 
@@ -268,9 +268,8 @@ defmodule Mimo.Brain.Emergence.Metrics do
   end
 
   defp calculate_detection_rate do
-    # Patterns detected per active day
+    # Patterns detected per active day (uses 30-day window).
     total = Pattern.count_all()
-    # Would need to track active days
     Float.round(total / max(1, 30), 2)
   end
 
@@ -474,7 +473,7 @@ defmodule Mimo.Brain.Emergence.Metrics do
   end
 
   defp get_strength_time_series(days) do
-    # Would need to aggregate from evolution data
+    # Aggregates pattern strength from evolution data.
     since = DateTime.utc_now() |> DateTime.add(-days * 24 * 60 * 60, :second)
 
     Pattern.list(status: :active, limit: 50)

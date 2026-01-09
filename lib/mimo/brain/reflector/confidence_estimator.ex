@@ -55,6 +55,8 @@ defmodule Mimo.Brain.Reflector.ConfidenceEstimator do
   #   very_low: {0.0, 0.24}
   # }
 
+  alias Mimo.Cognitive.FeedbackLoop
+
   @signal_weights %{
     memory_grounding: 0.30,
     source_reliability: 0.25,
@@ -139,7 +141,7 @@ defmodule Mimo.Brain.Reflector.ConfidenceEstimator do
     cond do
       length(memories) >= 5 -> :high
       length(memories) >= 2 -> :medium
-      length(memories) >= 1 -> :low
+      memories != [] -> :low
       true -> :very_low
     end
   end
@@ -183,10 +185,6 @@ defmodule Mimo.Brain.Reflector.ConfidenceEstimator do
     score >= 0.75
   end
 
-  # ============================================
-  # Signal Calculations
-  # ============================================
-
   defp memory_grounding_signal(output, context) do
     memories = context[:memories] || []
 
@@ -222,7 +220,7 @@ defmodule Mimo.Brain.Reflector.ConfidenceEstimator do
         cond do
           length(memories) >= 5 -> 1.0
           length(memories) >= 3 -> 0.9
-          length(memories) >= 1 -> 0.7
+          memories != [] -> 0.7
           true -> 0.3
         end
 
@@ -236,7 +234,7 @@ defmodule Mimo.Brain.Reflector.ConfidenceEstimator do
     cond do
       length(memories) >= 5 -> 0.9
       length(memories) >= 3 -> 0.7
-      length(memories) >= 1 -> 0.5
+      memories != [] -> 0.5
       true -> 0.2
     end
   end
@@ -405,26 +403,48 @@ defmodule Mimo.Brain.Reflector.ConfidenceEstimator do
     end
   end
 
-  # ============================================
-  # Calibration
-  # ============================================
-
   defp apply_calibration(score, _context) do
-    # In a full implementation, this would use historical data
-    # to calibrate confidence predictions.
-    # For now, apply a conservative adjustment.
+    # Phase 3 L5: Historical data-based confidence calibration
+    # Adjusts raw confidence based on actual prediction accuracy
+    try do
+      # Get prediction accuracy from FeedbackLoop
+      prediction_accuracy = FeedbackLoop.prediction_accuracy()
 
-    # Slightly reduce overconfidence
-    if score > 0.8 do
-      score * 0.95
-    else
-      score
+      # Only apply calibration if we have enough data
+      if prediction_accuracy > 0 do
+        # If predictions are historically overconfident, reduce new scores
+        # If historically underconfident, increase new scores
+        # Use 0.5 as the neutral point
+        calibration_factor =
+          cond do
+            # Historical accuracy significantly lower than typical confidence
+            # → predictions have been overconfident, reduce score
+            prediction_accuracy < 0.4 -> 0.85
+            prediction_accuracy < 0.5 -> 0.90
+            prediction_accuracy < 0.6 -> 0.95
+            # Accuracy matches confidence well → no adjustment
+            prediction_accuracy < 0.75 -> 1.0
+            # Historical accuracy higher than expected → can be slightly more confident
+            prediction_accuracy >= 0.75 -> min(1.05, 1.0 + (prediction_accuracy - 0.75) * 0.2)
+            true -> 1.0
+          end
+
+        # Apply calibration but never exceed 1.0 or go below 0.1
+        calibrated = score * calibration_factor
+        Float.round(min(1.0, max(0.1, calibrated)), 3)
+      else
+        # No historical data - apply conservative default (slight reduction for high scores)
+        if score > 0.8, do: score * 0.95, else: score
+      end
+    rescue
+      _ ->
+        # Fallback to simple calibration if FeedbackLoop unavailable
+        if score > 0.8, do: score * 0.95, else: score
+    catch
+      _, _ ->
+        if score > 0.8, do: score * 0.95, else: score
     end
   end
-
-  # ============================================
-  # Helpers
-  # ============================================
 
   defp weighted_average(signals) do
     @signal_weights
@@ -446,8 +466,7 @@ defmodule Mimo.Brain.Reflector.ConfidenceEstimator do
     |> String.downcase()
     |> String.replace(~r/[^\w\s]/, "")
     |> String.split()
-    |> Enum.reject(&(String.length(&1) < 3))
-    |> Enum.reject(&(&1 in common_words))
+    |> Enum.reject(fn x -> String.length(x) < 3 or x in common_words end)
     |> Enum.uniq()
   end
 

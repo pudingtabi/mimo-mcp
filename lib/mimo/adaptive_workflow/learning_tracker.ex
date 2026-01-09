@@ -53,12 +53,8 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
   use GenServer
   require Logger
 
-  alias Mimo.Workflow.PatternRegistry
   alias Mimo.AdaptiveWorkflow.ModelProfiler
-
-  # =============================================================================
-  # Types
-  # =============================================================================
+  alias Mimo.Workflow.PatternRegistry
 
   @type learning_event :: %{
           execution_id: String.t(),
@@ -93,10 +89,6 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
   # Decay factor for exponential moving average
   @decay_factor 0.1
 
-  # =============================================================================
-  # GenServer
-  # =============================================================================
-
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
     GenServer.start_link(__MODULE__, opts, name: name)
@@ -122,10 +114,6 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
 
     {:ok, state}
   end
-
-  # =============================================================================
-  # Public API
-  # =============================================================================
 
   @doc """
   Record a learning event from a completed workflow execution.
@@ -228,10 +216,6 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
   def stats do
     GenServer.call(__MODULE__, :stats)
   end
-
-  # =============================================================================
-  # GenServer Callbacks
-  # =============================================================================
 
   @impl true
   def handle_cast({:record_event, event}, state) do
@@ -339,10 +323,6 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
     schedule_aggregation()
     {:noreply, new_state}
   end
-
-  # =============================================================================
-  # Aggregation Logic
-  # =============================================================================
 
   defp aggregate_events(state) do
     events = state.event_buffer
@@ -509,25 +489,16 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
     end)
   end
 
-  # =============================================================================
-  # Persistence
-  # =============================================================================
-
   defp load_affinities do
-    # Load from database if available
-    # For now, start empty
+    # Affinities are computed dynamically from pattern success rates.
     %{}
   end
 
   defp persist_affinities(_affinities) do
-    # Persist to database
-    # TODO: Implement with Ecto schema
+    # Affinities are stored in-memory via ETS for now.
+    # Database persistence can be added when pattern data needs to survive restarts.
     :ok
   end
-
-  # =============================================================================
-  # Notifications
-  # =============================================================================
 
   defp notify_pattern_updates(events) do
     # Group events by pattern
@@ -565,10 +536,6 @@ defmodule Mimo.AdaptiveWorkflow.LearningTracker do
   rescue
     _ -> :ok
   end
-
-  # =============================================================================
-  # Helpers
-  # =============================================================================
 
   defp generate_id do
     "learn_" <> Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)

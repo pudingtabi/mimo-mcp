@@ -9,10 +9,6 @@ defmodule Mimo.Vector.Fallback do
   Includes binary quantization fallbacks added in SPEC-033 Phase 3a.
   """
 
-  # ===========================================================================
-  # Float32 Vector Operations
-  # ===========================================================================
-
   @doc """
   Pure Elixir cosine similarity implementation.
   """
@@ -111,10 +107,6 @@ defmodule Mimo.Vector.Fallback do
       {:ok, Enum.map(vec, &(&1 / magnitude))}
     end
   end
-
-  # ===========================================================================
-  # Int8 Quantization Operations (SPEC-031 Phase 2)
-  # ===========================================================================
 
   @doc """
   Pure Elixir int8 quantization implementation.
@@ -269,10 +261,6 @@ defmodule Mimo.Vector.Fallback do
         error
     end
   end
-
-  # ===========================================================================
-  # Binary Quantization Operations (SPEC-033 Phase 3a)
-  # ===========================================================================
 
   @doc """
   Pure Elixir binary quantization from float32.
@@ -438,10 +426,6 @@ defmodule Mimo.Vector.Fallback do
     similarity = 1.0 - distance / total_bits
     {:ok, similarity}
   end
-
-  # ===========================================================================
-  # Private Helpers
-  # ===========================================================================
 
   @spec binary_to_signed_list(binary()) :: [integer()]
   defp binary_to_signed_list(binary) do

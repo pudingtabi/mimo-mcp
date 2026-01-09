@@ -2,8 +2,8 @@ defmodule Mix.Tasks.Mimo.KeysTest do
   use ExUnit.Case, async: true
 
   alias Mix.Tasks.Mimo.Keys.Generate
-  alias Mix.Tasks.Mimo.Keys.Verify
   alias Mix.Tasks.Mimo.Keys.Hash
+  alias Mix.Tasks.Mimo.Keys.Verify
 
   @moduletag :mix_task
 

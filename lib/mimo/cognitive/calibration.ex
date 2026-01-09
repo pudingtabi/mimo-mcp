@@ -45,10 +45,6 @@ defmodule Mimo.Cognitive.Calibration do
           timestamp: DateTime.t()
         }
 
-  # ============================================================================
-  # PUBLIC API
-  # ============================================================================
-
   @doc """
   Log a confidence claim for a topic/answer.
 
@@ -179,20 +175,20 @@ defmodule Mimo.Cognitive.Calibration do
     patterns = VerificationTracker.detect_overconfidence(brier_threshold: 0.3)
 
     analysis =
-      if length(patterns) > 0 do
+      if Enum.empty?(patterns) do
+        %{
+          detected: false,
+          pattern_count: 0,
+          patterns: [],
+          recommendation: "Confidence calibration appears healthy"
+        }
+      else
         %{
           detected: true,
           pattern_count: length(patterns),
           patterns: patterns,
           recommendation:
             "Consider using verify tool before claiming high confidence on similar topics"
-        }
-      else
-        %{
-          detected: false,
-          pattern_count: 0,
-          patterns: [],
-          recommendation: "Confidence calibration appears healthy"
         }
       end
 
@@ -247,10 +243,6 @@ defmodule Mimo.Cognitive.Calibration do
 
     {:ok, buckets}
   end
-
-  # ============================================================================
-  # PRIVATE HELPERS
-  # ============================================================================
 
   defp normalize_confidence(c) when c > 1 and c <= 100, do: c
   defp normalize_confidence(c) when c >= 0 and c <= 1, do: c * 100

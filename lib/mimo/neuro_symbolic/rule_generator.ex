@@ -38,9 +38,8 @@ defmodule Mimo.NeuroSymbolic.RuleGenerator do
   Returns: {:ok, %{candidates: [...], persisted: [...]}} | {:error, reason}
   """
   def generate_and_persist_rules(prompt, opts \\ []) when is_binary(prompt) do
-    with {:ok, candidates} <- generate_rules(prompt, opts) do
-      validate_and_persist(candidates, opts)
-    else
+    case generate_rules(prompt, opts) do
+      {:ok, candidates} -> validate_and_persist(candidates, opts)
       {:error, reason} -> {:error, reason}
     end
   end

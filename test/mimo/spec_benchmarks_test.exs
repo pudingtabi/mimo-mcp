@@ -11,14 +11,10 @@ defmodule Mimo.Spec052to054BenchmarkTest do
   use Mimo.DataCase, async: false
 
   # SPEC-052: Neuro-Symbolic Reasoning
-  alias Mimo.NeuroSymbolic.{RuleGenerator, RuleValidator, CrossModalityLinker}
+  alias Mimo.AdaptiveWorkflow.{LearningTracker, ModelProfiler, TemplateAdapter}
+  alias Mimo.NeuroSymbolic.{CrossModalityLinker, RuleGenerator, RuleValidator}
   alias Mimo.SemanticStore.Repository
-
-  # SPEC-053: Workflow Orchestration
-  alias Mimo.Workflow.{Pattern, PatternRegistry, Predictor, Clusterer}
-
-  # SPEC-054: Adaptive Workflow Engine
-  alias Mimo.AdaptiveWorkflow.{ModelProfiler, TemplateAdapter, LearningTracker}
+  alias Mimo.Workflow.{Clusterer, Pattern, PatternRegistry, Predictor}
 
   # Performance thresholds (in milliseconds)
   @rule_validation_threshold_ms 100

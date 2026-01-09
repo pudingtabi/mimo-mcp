@@ -31,6 +31,7 @@ defmodule MimoWeb.CortexChannel do
 
   use Phoenix.Channel
 
+  alias Memory
   alias Mimo.Synapse.{ConnectionManager, InterruptManager}
   alias Phoenix.PubSub
 
@@ -122,10 +123,6 @@ defmodule MimoWeb.CortexChannel do
     {:reply, :ok, socket}
   end
 
-  # ============================================================================
-  # Outgoing Event Handlers
-  # ============================================================================
-
   @doc """
   Intercepts thought events for transformation before sending.
   """
@@ -153,10 +150,6 @@ defmodule MimoWeb.CortexChannel do
     push(socket, "interrupted", %{ref: ref, reason: reason})
     {:noreply, socket}
   end
-
-  # ============================================================================
-  # Internal Message Handlers
-  # ============================================================================
 
   def handle_info(:after_join, socket) do
     agent_id = socket.assigns.agent_id
@@ -189,20 +182,12 @@ defmodule MimoWeb.CortexChannel do
     {:noreply, socket}
   end
 
-  # ============================================================================
-  # Termination
-  # ============================================================================
-
   def terminate(reason, socket) do
     agent_id = socket.assigns.agent_id
     Logger.info("Agent #{agent_id} disconnected: #{inspect(reason)}")
     ConnectionManager.untrack(agent_id)
     :ok
   end
-
-  # ============================================================================
-  # Private Functions
-  # ============================================================================
 
   defp authenticate(api_key) do
     configured_key = Application.get_env(:mimo_mcp, :api_key)

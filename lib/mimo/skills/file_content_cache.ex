@@ -109,10 +109,6 @@ defmodule Mimo.Skills.FileContentCache do
     ]
   }
 
-  # ============================================================================
-  # PUBLIC API
-  # ============================================================================
-
   @doc """
   After a file read, optionally cache key content for future interception.
 
@@ -161,15 +157,13 @@ defmodule Mimo.Skills.FileContentCache do
   """
   def cacheable_extensions, do: @cacheable_extensions
 
-  # ============================================================================
-  # PRIVATE
-  # ============================================================================
-
   defp do_cache_content(path, content, ext) do
     language = extension_to_language(ext)
     extracts = extract_key_content(content, language)
 
-    if length(extracts) > 0 do
+    if Enum.empty?(extracts) do
+      {:skipped, :no_extracts}
+    else
       summary = build_summary(path, extracts, language)
 
       case store_in_memory(path, summary) do
@@ -180,8 +174,6 @@ defmodule Mimo.Skills.FileContentCache do
         {:error, reason} ->
           {:error, reason}
       end
-    else
-      {:skipped, :no_extracts}
     end
   end
 

@@ -23,10 +23,10 @@ defmodule Mimo.Brain.Emergence.Amplifier do
 
   require Logger
 
-  alias Mimo.Brain.{Memory, Interaction}
   alias Mimo.Brain.Emergence.Pattern
-  alias Mimo.SemanticStore.Ingestor
+  alias Mimo.Brain.{Interaction, Memory}
   alias Mimo.Repo
+  alias Mimo.SemanticStore.Ingestor
   import Ecto.Query
 
   # ─────────────────────────────────────────────────────────────────
@@ -186,11 +186,9 @@ defmodule Mimo.Brain.Emergence.Amplifier do
   # ─────────────────────────────────────────────────────────────────
 
   defp analyze_strategy_diversity do
-    # Analyze if reasoning strategies are being varied
-    # A healthy system uses different strategies for different problems
-
-    # Get recent reasoning sessions (would need access to Reason module data)
-    # For now, return analysis placeholder
+    # Analyze if reasoning strategies are being varied.
+    # A healthy system uses different strategies for different problems.
+    # Returns static defaults when no session data is available.
     %{
       strategies_used: ["cot", "tot", "react"],
       diversity_score: 0.7,
@@ -479,8 +477,8 @@ defmodule Mimo.Brain.Emergence.Amplifier do
   end
 
   defp get_recent_memory_queries(_opts) do
-    # Would need to track memory router queries
-    # Placeholder for now
+    # Memory query tracking not yet implemented.
+    # Returns empty list when MemoryRouter telemetry is unavailable.
     []
   end
 

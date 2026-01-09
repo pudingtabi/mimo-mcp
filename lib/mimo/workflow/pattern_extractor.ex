@@ -56,10 +56,6 @@ defmodule Mimo.Workflow.PatternExtractor do
             patterns_cache: %{},
             last_flush: nil
 
-  # ============================================================================
-  # Public API
-  # ============================================================================
-
   @doc """
   Starts the PatternExtractor GenServer.
   """
@@ -253,10 +249,6 @@ defmodule Mimo.Workflow.PatternExtractor do
     GenServer.call(__MODULE__, :stats)
   end
 
-  # ============================================================================
-  # GenServer Callbacks
-  # ============================================================================
-
   @impl true
   def init(_opts) do
     # Schedule periodic flush
@@ -274,7 +266,7 @@ defmodule Mimo.Workflow.PatternExtractor do
   def handle_cast({:log, entry}, state) do
     new_buffer = [entry | state.log_buffer]
 
-    if length(new_buffer) >= @log_batch_size do
+    if Enum.count(new_buffer) >= @log_batch_size do
       do_flush_buffer(new_buffer)
       {:noreply, %{state | log_buffer: [], last_flush: DateTime.utc_now()}}
     else
@@ -291,7 +283,7 @@ defmodule Mimo.Workflow.PatternExtractor do
   @impl true
   def handle_call(:stats, _from, state) do
     stats = %{
-      buffer_size: length(state.log_buffer),
+      buffer_size: Enum.count(state.log_buffer),
       patterns_cached: map_size(state.patterns_cache),
       last_flush: state.last_flush
     }
@@ -301,19 +293,15 @@ defmodule Mimo.Workflow.PatternExtractor do
 
   @impl true
   def handle_info(:periodic_flush, state) do
-    if length(state.log_buffer) > 0 do
+    if Enum.empty?(state.log_buffer) do
+      schedule_flush()
+      {:noreply, state}
+    else
       do_flush_buffer(state.log_buffer)
       schedule_flush()
       {:noreply, %{state | log_buffer: [], last_flush: DateTime.utc_now()}}
-    else
-      schedule_flush()
-      {:noreply, state}
     end
   end
-
-  # ============================================================================
-  # Private Functions
-  # ============================================================================
 
   defp schedule_flush do
     Process.send_after(self(), :periodic_flush, @batch_flush_interval)
@@ -350,7 +338,7 @@ defmodule Mimo.Workflow.PatternExtractor do
 
     try do
       Repo.insert_all(ToolLog, records)
-      Logger.debug("Flushed #{length(records)} tool logs")
+      Logger.debug("Flushed #{Enum.count(records)} tool logs")
     rescue
       e ->
         Logger.error("Failed to flush tool logs: #{inspect(e)}")
@@ -371,7 +359,7 @@ defmodule Mimo.Workflow.PatternExtractor do
       end
 
     query =
-      if session_ids && length(session_ids) > 0 do
+      if session_ids && session_ids != [] do
         from(l in query, where: l.session_id in ^session_ids)
       else
         query
@@ -411,7 +399,7 @@ defmodule Mimo.Workflow.PatternExtractor do
         | Enum.take_while(tail, fn log -> DateTime.compare(log.timestamp, window_end) != :gt end)
       ]
 
-    if length(window_logs) >= @min_sequence_length do
+    if Enum.count(window_logs) >= @min_sequence_length do
       sequence = Enum.map(window_logs, &tool_signature/1)
 
       # Only add if sequence is unique in current accumulator
@@ -444,7 +432,7 @@ defmodule Mimo.Workflow.PatternExtractor do
     subsequences =
       all_sequences
       |> Enum.flat_map(fn seq ->
-        for len <- @min_sequence_length..min(length(seq), @max_sequence_length),
+        for len <- @min_sequence_length..min(Enum.count(seq), @max_sequence_length),
             subseq <- subsequences(seq, len),
             do: subseq
       end)
@@ -470,12 +458,16 @@ defmodule Mimo.Workflow.PatternExtractor do
     end)
   end
 
-  defp subsequences(seq, len) when length(seq) < len, do: []
+  defp subsequences(seq, len) when is_list(seq) do
+    seq_len = Enum.count(seq)
 
-  defp subsequences(seq, len) do
-    # Generate contiguous subsequences
-    0..(length(seq) - len)
-    |> Enum.map(fn start -> Enum.slice(seq, start, len) end)
+    if seq_len < len do
+      []
+    else
+      # Generate contiguous subsequences
+      0..(seq_len - len)
+      |> Enum.map(fn start -> Enum.slice(seq, start, len) end)
+    end
   end
 
   defp normalize_sequence(seq) do
@@ -495,12 +487,17 @@ defmodule Mimo.Workflow.PatternExtractor do
     |> Enum.map(fn {session_id, _} -> session_id end)
   end
 
-  defp contains_subsequence?(seq, subseq) when length(seq) < length(subseq), do: false
+  defp contains_subsequence?(seq, subseq) when is_list(seq) and is_list(subseq) do
+    seq_len = Enum.count(seq)
+    subseq_len = Enum.count(subseq)
 
-  defp contains_subsequence?(seq, subseq) do
-    Enum.any?(0..(length(seq) - length(subseq)), fn start ->
-      Enum.slice(seq, start, length(subseq)) == subseq
-    end)
+    if seq_len < subseq_len do
+      false
+    else
+      Enum.any?(0..(seq_len - subseq_len), fn start ->
+        Enum.slice(seq, start, subseq_len) == subseq
+      end)
+    end
   end
 
   defp build_pattern(%{sequence: sequence, support: _support, sessions: sessions}) do
@@ -538,7 +535,7 @@ defmodule Mimo.Workflow.PatternExtractor do
     # Generate a descriptive name based on the sequence
     tools = sequence |> Enum.map(&(String.split(&1, ".") |> hd())) |> Enum.uniq()
 
-    case length(tools) do
+    case Enum.count(tools) do
       1 -> "#{hd(tools)}_workflow"
       _ -> "#{hd(tools)}_to_#{List.last(tools)}_workflow"
     end

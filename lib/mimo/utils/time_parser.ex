@@ -78,10 +78,6 @@ defmodule Mimo.Utils.TimeParser do
     end
   end
 
-  # ============================================================================
-  # Private: Relative Time Parsing
-  # ============================================================================
-
   defp parse_relative(expr, now) do
     cond do
       # "N days ago", "N day ago"
@@ -137,10 +133,6 @@ defmodule Mimo.Utils.TimeParser do
         {:error, "Cannot parse time expression: #{expr}"}
     end
   end
-
-  # ============================================================================
-  # Private: Time Arithmetic
-  # ============================================================================
 
   defp subtract_time(datetime, amount, unit) do
     unit_normalized = String.replace(unit, ~r/s$/, "")

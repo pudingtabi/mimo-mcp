@@ -134,10 +134,6 @@ defmodule Mimo.Brain.Emergence.ABTesting do
     end
   end
 
-  # ============================================================================
-  # Private Functions
-  # ============================================================================
-
   defp get_or_create_session_id do
     case Process.get(@session_id_key) do
       nil ->
@@ -247,8 +243,7 @@ defmodule Mimo.Brain.Emergence.ABTesting do
         pattern_id: suggestion.pattern_id,
         description: suggestion.description,
         relevance: suggestion.relevance,
-        hint:
-          "💡 This pattern has shown #{format_success_rate(suggestion.success_rate)} success rate"
+        hint: "This pattern has shown #{format_success_rate(suggestion.success_rate)} success rate"
       }
     end)
   end

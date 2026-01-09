@@ -1,8 +1,10 @@
 defmodule Mimo.Sandbox do
+  alias Ecto.Adapters.SQL.Sandbox
+
   @moduledoc """
   Helper utilities for sandbox-aware operations in tests.
 
-  Provides `maybe_allow/3` which calls `Ecto.Adapters.SQL.Sandbox.allow/3`
+  Provides `maybe_allow/3` which calls `Sandbox.allow/3`
   when available. This is a no-op outside of tests.
   """
 
@@ -13,7 +15,7 @@ defmodule Mimo.Sandbox do
   def maybe_allow(repo, owner, pid) do
     try do
       if function_exported?(Ecto.Adapters.SQL.Sandbox, :allow, 3) do
-        Ecto.Adapters.SQL.Sandbox.allow(repo, owner, pid)
+        Sandbox.allow(repo, owner, pid)
       else
         :ok
       end

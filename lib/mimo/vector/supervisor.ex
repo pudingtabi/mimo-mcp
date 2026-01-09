@@ -1,4 +1,5 @@
 defmodule Mimo.Vector.Supervisor do
+  # alias Mimo.Vector.Math (already using full path)
   @moduledoc """
   Supervisor for vector computation infrastructure.
 

@@ -10,13 +10,12 @@ defmodule Mimo.Cognitive.MetaTaskHandler do
 
   alias Mimo.Cognitive.{
     MetaTaskDetector,
-    SelfDiscover,
+    Reasoner,
+    ReasoningTelemetry,
     RephraseRespond,
     SelfAsk,
-    ReasoningTelemetry
+    SelfDiscover
   }
-
-  alias Mimo.Cognitive.Reasoner
 
   @type strategy :: :auto | :self_discover | :rephrase | :self_ask | :combined
 

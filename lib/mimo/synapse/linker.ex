@@ -26,10 +26,11 @@ defmodule Mimo.Synapse.Linker do
 
   require Logger
   alias Mimo.Synapse.Graph
-
-  # ============================================
-  # Code Linking (from SPEC-021 Symbol Index)
-  # ============================================
+  alias Mimo.Brain.Memory
+  alias Mimo.Code.SymbolIndex
+  alias Mimo.Code.TreeSitter
+  alias Mimo.Synapse.GraphNode
+  alias Mimo.Vector.Math, as: VectorMath
 
   @doc """
   Link code symbols from a file to the graph.
@@ -175,10 +176,6 @@ defmodule Mimo.Synapse.Linker do
     end
   end
 
-  # ============================================
-  # Memory Linking (Semantic)
-  # ============================================
-
   @doc """
   Link a memory/engram to related nodes via semantic similarity.
 
@@ -211,34 +208,38 @@ defmodule Mimo.Synapse.Linker do
                source_ref_id: to_string(engram_id)
              }) do
           {:ok, memory_node} ->
-            edges_created =
-              if engram.embedding && length(engram.embedding) > 0 do
-                # Find similar nodes by embedding
-                similar_nodes = find_similar_nodes(engram.embedding, threshold, max_links)
-
-                # Create "mentions" edges
-                Enum.map(similar_nodes, fn {node, _similarity} ->
-                  case Graph.ensure_edge(memory_node.id, node.id, :mentions, %{
-                         source: "semantic_inference",
-                         created_at: DateTime.utc_now() |> DateTime.to_iso8601()
-                       }) do
-                    {:ok, _} -> 1
-                    _ -> 0
-                  end
-                end)
-                |> Enum.sum()
-              else
-                0
-              end
-
-            # Also link by entity extraction
+            edges_created = create_semantic_edges(memory_node, engram, threshold, max_links)
             entity_edges = link_memory_entities(memory_node, engram.content)
-
             {:ok, edges_created + entity_edges}
 
           {:error, reason} ->
             {:error, "Failed to create memory node: #{inspect(reason)}"}
         end
+    end
+  end
+
+  # Extracted: Create edges based on semantic similarity
+  defp create_semantic_edges(memory_node, engram, threshold, max_links) do
+    if engram.embedding && engram.embedding != [] do
+      similar_nodes = find_similar_nodes(engram.embedding, threshold, max_links)
+
+      Enum.map(similar_nodes, fn {node, _similarity} ->
+        create_mention_edge(memory_node.id, node.id)
+      end)
+      |> Enum.sum()
+    else
+      0
+    end
+  end
+
+  # Extracted: Create a single mention edge
+  defp create_mention_edge(source_id, target_id) do
+    case Graph.ensure_edge(source_id, target_id, :mentions, %{
+           source: "semantic_inference",
+           created_at: DateTime.utc_now() |> DateTime.to_iso8601()
+         }) do
+      {:ok, _} -> 1
+      _ -> 0
     end
   end
 
@@ -271,10 +272,6 @@ defmodule Mimo.Synapse.Linker do
     end)
     |> Enum.sum()
   end
-
-  # ============================================
-  # Concept Management
-  # ============================================
 
   @doc """
   Create or update a concept node.
@@ -410,10 +407,6 @@ defmodule Mimo.Synapse.Linker do
     {:ok, count}
   end
 
-  # ============================================
-  # Bulk Linking Operations
-  # ============================================
-
   @doc """
   Link all code files in a directory to the graph.
 
@@ -470,15 +463,11 @@ defmodule Mimo.Synapse.Linker do
      }}
   end
 
-  # ============================================
-  # Private Helpers
-  # ============================================
-
   defp get_code_symbols(file_path) do
     # First try to get from SymbolIndex
     symbols =
       try do
-        Mimo.Code.SymbolIndex.symbols_in_file(file_path)
+        SymbolIndex.symbols_in_file(file_path)
       rescue
         _ -> []
       end
@@ -492,8 +481,8 @@ defmodule Mimo.Synapse.Linker do
   end
 
   defp parse_symbols_with_treesitter(file_path) do
-    with {:ok, tree} <- Mimo.Code.TreeSitter.parse_file(file_path),
-         {:ok, symbols} <- Mimo.Code.TreeSitter.get_symbols(tree) do
+    with {:ok, tree} <- TreeSitter.parse_file(file_path),
+         {:ok, symbols} <- TreeSitter.get_symbols(tree) do
       # Convert TreeSitter output to expected format
       Enum.map(symbols, fn sym ->
         %{
@@ -517,7 +506,7 @@ defmodule Mimo.Synapse.Linker do
     # First try to get from SymbolIndex
     refs =
       try do
-        Mimo.Code.SymbolIndex.references_in_file(file_path)
+        SymbolIndex.references_in_file(file_path)
       rescue
         _ -> []
       end
@@ -531,8 +520,8 @@ defmodule Mimo.Synapse.Linker do
   end
 
   defp parse_references_with_treesitter(file_path) do
-    with {:ok, tree} <- Mimo.Code.TreeSitter.parse_file(file_path),
-         {:ok, refs} <- Mimo.Code.TreeSitter.get_references(tree) do
+    with {:ok, tree} <- TreeSitter.parse_file(file_path),
+         {:ok, refs} <- TreeSitter.get_references(tree) do
       refs
     else
       _ -> []
@@ -541,14 +530,14 @@ defmodule Mimo.Synapse.Linker do
 
   defp get_engram(engram_id) do
     try do
-      Mimo.Brain.Memory.get_memory(engram_id)
+      Memory.get_memory(engram_id)
     rescue
       _ -> nil
     end
   end
 
   defp find_similar_nodes(embedding, threshold, limit)
-       when is_list(embedding) and length(embedding) > 0 do
+       when is_list(embedding) and embedding != [] do
     # Query all nodes that have embeddings
     import Ecto.Query
     alias Mimo.Repo
@@ -562,7 +551,7 @@ defmodule Mimo.Synapse.Linker do
         |> limit(^(limit * 10))
         |> Repo.all()
         |> Enum.filter(fn node ->
-          is_list(node.embedding) and length(node.embedding) > 0
+          is_list(node.embedding) and node.embedding != []
         end)
 
       if Enum.empty?(nodes_with_embeddings) do
@@ -572,7 +561,7 @@ defmodule Mimo.Synapse.Linker do
         corpus = Enum.map(nodes_with_embeddings, & &1.embedding)
 
         # Use Vector.Math for efficient similarity computation
-        case Mimo.Vector.Math.batch_similarity(embedding, corpus) do
+        case VectorMath.batch_similarity(embedding, corpus) do
           {:ok, similarities} ->
             nodes_with_embeddings
             |> Enum.zip(similarities)

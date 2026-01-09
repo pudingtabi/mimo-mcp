@@ -24,7 +24,7 @@ defmodule Mimo.Brain.ThreadManager do
   use GenServer
   require Logger
 
-  alias Mimo.Brain.{Thread, Interaction}
+  alias Mimo.Brain.{Interaction, Thread}
 
   @cleanup_interval :timer.minutes(5)
   # Note: @idle_timeout is not currently used but kept for future auto-close
@@ -144,19 +144,40 @@ defmodule Mimo.Brain.ThreadManager do
     # Schedule periodic cleanup
     schedule_cleanup()
 
-    # Try to resume the most recent active thread
-    state =
-      case Thread.get_or_create_current() do
-        {:ok, thread} ->
-          Logger.info("[ThreadManager] Resumed thread #{thread.id}")
-          %{current_thread_id: thread.id, thread_cache: %{thread.id => thread}}
+    # Initial state - thread will be loaded via handle_continue to avoid blocking supervision tree
+    # This is critical for test mode where Ecto sandbox may not be available during init
+    state = %{current_thread_id: nil, thread_cache: %{}}
 
-        {:error, reason} ->
-          Logger.warning("[ThreadManager] Could not create thread: #{inspect(reason)}")
-          %{current_thread_id: nil, thread_cache: %{}}
+    {:ok, state, {:continue, :load_thread}}
+  end
+
+  @impl true
+  def handle_continue(:load_thread, state) do
+    # Deferred DB access - safe for both test and production
+    # In test mode with sandbox, this may fail if sandbox isn't checked out yet
+    # That's OK - we'll lazily create thread on first access via ensure_thread/1
+    new_state =
+      try do
+        case Thread.get_or_create_current() do
+          {:ok, thread} ->
+            Logger.info("[ThreadManager] Resumed thread #{thread.id}")
+            %{current_thread_id: thread.id, thread_cache: %{thread.id => thread}}
+
+          {:error, reason} ->
+            Logger.debug("[ThreadManager] Could not create thread: #{inspect(reason)}")
+            state
+        end
+      rescue
+        e ->
+          Logger.debug("[ThreadManager] Deferred thread loading (sandbox not ready): #{inspect(e)}")
+          state
+      catch
+        :exit, reason ->
+          Logger.debug("[ThreadManager] Deferred thread loading (exit): #{inspect(reason)}")
+          state
       end
 
-    {:ok, state}
+    {:noreply, new_state}
   end
 
   @impl true

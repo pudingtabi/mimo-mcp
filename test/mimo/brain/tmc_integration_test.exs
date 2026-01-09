@@ -6,7 +6,7 @@ defmodule Mimo.Brain.TMCIntegrationTest do
   """
   use Mimo.DataCase, async: false
 
-  alias Mimo.Brain.{Memory, Engram, NoveltyDetector, MemoryIntegrator}
+  alias Mimo.Brain.{Engram, Memory, MemoryIntegrator, NoveltyDetector}
   alias Mimo.Repo
 
   # Helper to enable TMC for tests

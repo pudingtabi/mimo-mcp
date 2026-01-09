@@ -1,10 +1,8 @@
 defmodule Mimo.Brain.CleanupTest do
   use Mimo.DataCase, async: false
 
-  alias Mimo.Brain.Cleanup
-  alias Mimo.Brain.Memory
+  alias Mimo.Brain.{Cleanup, Engram, Memory}
   alias Mimo.Repo
-  alias Mimo.Brain.Engram
 
   import Ecto.Query
 

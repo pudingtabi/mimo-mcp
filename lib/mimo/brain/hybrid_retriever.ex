@@ -32,20 +32,16 @@ defmodule Mimo.Brain.HybridRetriever do
   """
   require Logger
 
-  alias Mimo.Brain.{Memory, HybridScorer, AccessTracker, LLM, Engram}
+  alias Mimo.Brain.{AccessTracker, Engram, HybridScorer, LLM, Memory, VocabularyIndex}
+  alias Mimo.Repo
   alias Mimo.SemanticStore
   alias Mimo.Synapse.SpreadingActivation
-  alias Mimo.Repo
   import Ecto.Query
 
   @default_vector_limit 20
   @default_graph_limit 10
   @default_keyword_limit 15
   @default_final_limit 10
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
 
   @doc """
   Perform hybrid search across all memory stores.
@@ -191,10 +187,6 @@ defmodule Mimo.Brain.HybridRetriever do
     }
   end
 
-  # ==========================================================================
-  # Retrieval Strategies
-  # ==========================================================================
-
   defp vector_search(_query, nil, _opts), do: []
 
   defp vector_search(_query, embedding, opts) do
@@ -246,6 +238,33 @@ defmodule Mimo.Brain.HybridRetriever do
   defp keyword_search(query, opts) do
     limit = Keyword.get(opts, :keyword_limit, @default_keyword_limit)
 
+    # Use FTS5 VocabularyIndex for BM25-ranked lexical search
+    # Falls back to ILIKE automatically if FTS5 unavailable
+    case VocabularyIndex.search(query, limit: limit) do
+      {:ok, results} ->
+        # Convert to format expected by rest of pipeline
+        results
+        |> Enum.map(fn {memory, score} ->
+          memory
+          |> Map.put(:similarity, score)
+          |> Map.put(:source, :fts5)
+        end)
+
+      {:error, reason} ->
+        Logger.warning("[HybridRetriever] VocabularyIndex search failed: #{inspect(reason)}")
+        # Fallback to legacy ILIKE search
+        keyword_search_fallback(query, opts)
+    end
+  rescue
+    e ->
+      Logger.warning("Keyword search failed: #{Exception.message(e)}")
+      []
+  end
+
+  # Legacy ILIKE-based keyword search (fallback when FTS5 unavailable)
+  defp keyword_search_fallback(query, opts) do
+    limit = Keyword.get(opts, :keyword_limit, @default_keyword_limit)
+
     # Extract keywords from query (split on whitespace, filter short words)
     keywords =
       query
@@ -258,7 +277,12 @@ defmodule Mimo.Brain.HybridRetriever do
     else
       # Build LIKE conditions for each keyword
       # SQLite uses LIKE with COLLATE NOCASE for case-insensitive matching
-      base_query = from(e in Engram, limit: ^limit, order_by: [desc: e.importance])
+      base_query =
+        from(e in Engram,
+          where: e.archived == false or is_nil(e.archived),
+          limit: ^limit,
+          order_by: [desc: e.importance]
+        )
 
       # Add WHERE conditions for keywords using fragments
       query_with_conditions =
@@ -278,7 +302,7 @@ defmodule Mimo.Brain.HybridRetriever do
     end
   rescue
     e ->
-      Logger.warning("Keyword search failed: #{Exception.message(e)}")
+      Logger.warning("Keyword search fallback failed: #{Exception.message(e)}")
       []
   end
 
@@ -341,10 +365,6 @@ defmodule Mimo.Brain.HybridRetriever do
     |> String.replace("_", "\\_")
   end
 
-  # ==========================================================================
-  # Scoring & Ranking
-  # ==========================================================================
-
   defp score_and_rank(memories, query_embedding, weights) do
     # Pre-compute graph scores for memories
     graph_scores = compute_graph_scores(memories)
@@ -382,10 +402,6 @@ defmodule Mimo.Brain.HybridRetriever do
       Logger.warning("Graph scores failed: #{Exception.message(e)}")
       %{}
   end
-
-  # ==========================================================================
-  # Helpers
-  # ==========================================================================
 
   defp get_query_embedding(query) do
     case LLM.generate_embedding(query) do
@@ -450,10 +466,6 @@ defmodule Mimo.Brain.HybridRetriever do
   end
 
   defp triple_to_memories(_), do: []
-
-  # ==========================================================================
-  # Task Helpers (Sandbox-aware)
-  # ==========================================================================
 
   # Spawn a task that propagates $callers for Ecto Sandbox allowance in tests.
   # This ensures spawned tasks inherit database connection access from the caller.

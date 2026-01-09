@@ -45,10 +45,6 @@ defmodule Mimo.Cache.Embedding do
   @table :mimo_embedding_cache
   @stats_table :mimo_embedding_cache_stats
 
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
-
   @doc """
   Start the embedding cache.
   """
@@ -141,10 +137,6 @@ defmodule Mimo.Cache.Embedding do
     :ets.whereis(@table) != :undefined
   end
 
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
-
   @impl GenServer
   def init(_opts) do
     # Create ETS tables
@@ -201,10 +193,6 @@ defmodule Mimo.Cache.Embedding do
     {:noreply, state}
   end
 
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
-
   defp content_hash(content) do
     :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
   end
@@ -257,7 +245,7 @@ defmodule Mimo.Cache.Embedding do
       :ets.delete(@table, hash)
     end)
 
-    if length(expired) > 0 do
+    unless Enum.empty?(expired) do
       :ets.update_counter(@stats_table, :expired, {2, length(expired)}, {:expired, 0})
       Logger.debug("[EmbeddingCache] Cleaned up #{length(expired)} expired entries")
     end

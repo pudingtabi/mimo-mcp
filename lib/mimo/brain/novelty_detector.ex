@@ -27,7 +27,7 @@ defmodule Mimo.Brain.NoveltyDetector do
   """
   require Logger
 
-  alias Mimo.Brain.{Memory, Engram}
+  alias Mimo.Brain.{Engram, Memory}
   alias Mimo.Repo
 
   # Category-specific thresholds (tuned per-category based on semantic density)
@@ -78,6 +78,94 @@ defmodule Mimo.Brain.NoveltyDetector do
     else
       {:new, []}
     end
+  end
+
+  @doc """
+  Classify content using a pre-computed embedding.
+
+  SPEC-STABILITY: This version avoids generating embeddings inside transactions,
+  preventing "Database busy" errors from slow network I/O holding locks.
+
+  If TMC is disabled, returns `{:new, []}` directly.
+  """
+  @spec classify_with_embedding(String.t(), String.t(), list(), keyword()) ::
+          {:redundant, Engram.t()}
+          | {:ambiguous, [similar_memory()]}
+          | {:new, []}
+  def classify_with_embedding(content, category, embedding, opts \\ [])
+      when is_binary(content) and is_binary(category) and is_list(embedding) do
+    if tmc_enabled?() do
+      do_classify_with_embedding(content, category, embedding, opts)
+    else
+      {:new, []}
+    end
+  end
+
+  defp do_classify_with_embedding(content, category, embedding, opts) do
+    %{redundant: redundant_thresh, ambiguous: ambiguous_thresh} = thresholds_for(category)
+
+    # Find similar using pre-computed embedding
+    similar = find_similar_with_embedding(content, category, embedding, opts)
+
+    case similar do
+      [] ->
+        {:new, []}
+
+      [%{similarity: sim, engram: engram} | _rest] when sim >= redundant_thresh ->
+        Logger.debug("NoveltyDetector: redundant memory found (sim=#{Float.round(sim, 3)})")
+        {:redundant, engram}
+
+      matches ->
+        ambiguous = Enum.filter(matches, fn %{similarity: s} -> s >= ambiguous_thresh end)
+
+        if Enum.empty?(ambiguous) do
+          {:new, []}
+        else
+          Logger.debug("NoveltyDetector: #{length(ambiguous)} ambiguous matches found")
+          {:ambiguous, ambiguous}
+        end
+    end
+  end
+
+  # Find similar using pre-computed embedding
+  defp find_similar_with_embedding(_content, category, embedding, opts) do
+    limit = Keyword.get(opts, :limit, 5)
+    min_similarity = Keyword.get(opts, :min_similarity, 0.70)
+    project_id = Keyword.get(opts, :project_id)
+
+    # Use Memory.search_with_embedding if available, otherwise fall back
+    search_opts = [
+      limit: limit * 2,
+      min_similarity: min_similarity,
+      strategy: :auto,
+      embedding: embedding
+    ]
+
+    # search_with_embedding always returns {:ok, results} - unwrap it
+    # Note: {:error, _} clause removed as Memory.search_with_embedding never returns error
+    results =
+      case Memory.search_with_embedding(embedding, search_opts) do
+        {:ok, list} when is_list(list) -> list
+        _ -> []
+      end
+
+    results
+    |> Enum.filter(fn result ->
+      result[:category] == category and
+        is_nil(result[:superseded_at]) and
+        (is_nil(project_id) or result[:project_id] == project_id)
+    end)
+    |> Enum.take(limit)
+    |> Enum.map(fn result ->
+      case Repo.get(Engram, result[:id]) do
+        nil -> nil
+        engram -> %{engram: engram, similarity: result[:similarity] || 0.0}
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  rescue
+    # If search_with_embedding doesn't exist, return empty (skip TMC check)
+    UndefinedFunctionError -> []
   end
 
   defp do_classify(content, category, opts) do

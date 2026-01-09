@@ -8,9 +8,9 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
   use Mimo.DataCase, async: false
 
   alias Mimo.AdaptiveWorkflow.{
+    LearningTracker,
     ModelProfiler,
-    TemplateAdapter,
-    LearningTracker
+    TemplateAdapter
   }
 
   alias Mimo.AdaptiveWorkflow.Benchmarking.{
@@ -20,8 +20,8 @@ defmodule Mimo.AdaptiveWorkflow.Spec054EdgeCasesTest do
     ToolProficiency
   }
 
-  alias Mimo.Workflow.{Pattern, PatternRegistry}
   alias Mimo.Workflow
+  alias Mimo.Workflow.{Pattern, PatternRegistry}
 
   # =============================================================================
   # Setup

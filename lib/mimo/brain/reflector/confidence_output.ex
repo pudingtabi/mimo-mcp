@@ -111,10 +111,6 @@ defmodule Mimo.Brain.Reflector.ConfidenceOutput do
     end
   end
 
-  # ============================================
-  # Format Implementations
-  # ============================================
-
   defp format_structured(output, confidence, include_explanation) do
     %{
       content: output,
@@ -181,10 +177,6 @@ defmodule Mimo.Brain.Reflector.ConfidenceOutput do
       }
     }
   end
-
-  # ============================================
-  # Helpers
-  # ============================================
 
   defp lowercase_first(<<first::utf8, rest::binary>>) do
     String.downcase(<<first::utf8>>) <> rest

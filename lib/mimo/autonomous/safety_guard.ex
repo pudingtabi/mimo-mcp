@@ -192,10 +192,6 @@ defmodule Mimo.Autonomous.SafetyGuard do
     "Task blocked for safety: #{inspect(reason)}"
   end
 
-  # =============================================================================
-  # Private Functions
-  # =============================================================================
-
   defp check_command(%{command: command}) when is_binary(command) do
     validate_command(command)
   end

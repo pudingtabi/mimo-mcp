@@ -3,8 +3,8 @@ defmodule Mimo.MemoryLeakTestSuite do
   Comprehensive test suite for validating memory leak fixes
   """
   use ExUnit.Case
-  alias Mimo.{Brain.Memory, Registry, Skills, Repo}
   alias Mimo.Brain.Engram
+  alias Mimo.{Brain.Memory, Registry, Repo, Skills}
 
   setup do
     # Clean up before each test
@@ -154,7 +154,7 @@ defmodule Mimo.MemoryLeakTestSuite do
 
       # Should return results for relevant queries
       if query != "nonexistent topic" do
-        assert length(results) > 0, "Should find results for: #{query}"
+        refute Enum.empty?(results), "Should find results for: #{query}"
       end
 
       # Results should be properly ranked
@@ -272,7 +272,7 @@ defmodule Mimo.MemoryLeakTestSuite do
 
     # Test search with stored embedding
     results = Memory.search_memories(content, limit: 1)
-    assert length(results) > 0, "Should find stored memory"
+    refute Enum.empty?(results), "Should find stored memory"
 
     found_memory = hd(results)
     assert found_memory.id == memory_id, "Should find the correct memory"

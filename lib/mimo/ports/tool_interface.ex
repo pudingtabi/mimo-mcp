@@ -32,6 +32,7 @@ defmodule Mimo.ToolInterface do
   alias Mimo.Utils.InputValidation
   alias Mimo.Cognitive.FeedbackLoop
   alias Mimo.Repo
+  alias Mimo.Awakening.Hooks, as: AwakeningHooks
 
   # Timeouts
   @procedure_sync_timeout 60_000
@@ -54,6 +55,31 @@ defmodule Mimo.ToolInterface do
     # Track cognitive lifecycle (non-blocking)
     track_cognitive_lifecycle(tool_name, arguments)
 
+    # 🦾 IRON MAN SUIT: Gateway enforcement (SPEC-091)
+    # Uses ReasoningSession.list_active() which persists across MCP calls!
+    # Set MIMO_GATEWAY_ENABLED=false to disable
+    gateway_enabled = Application.get_env(:mimo_mcp, :gateway_enabled, true)
+
+    if gateway_enabled do
+      session_id = arguments["_gateway_session"] || arguments[:_gateway_session]
+
+      case Mimo.Gateway.would_allow?(session_id, tool_name, arguments) do
+        {:blocked, reason, suggestion} ->
+          # Gateway blocked - return string error that MCP can handle
+          {:error, "🛡️ Gateway blocked: #{reason}. Suggestion: #{suggestion}"}
+
+        _ ->
+          # Gateway allows - proceed with execution
+          execute_with_enrichment(tool_name, arguments)
+      end
+    else
+      # Gateway disabled - proceed directly
+      execute_with_enrichment(tool_name, arguments)
+    end
+  end
+
+  # Extracted the original execute logic
+  defp execute_with_enrichment(tool_name, arguments) do
     # SPEC-INTERCEPTOR: Analyze request for cognitive enhancement
     result =
       case Mimo.RequestInterceptor.analyze_and_enrich(tool_name, arguments) do
@@ -73,6 +99,9 @@ defmodule Mimo.ToolInterface do
           do_execute(tool_name, arguments)
       end
 
+    # Phase 3 L3: Add experience context to results (non-blocking enhancement)
+    result = add_experience_context(result, tool_name)
+
     # Auto-reflect on significant outputs (non-blocking, feeds Optimizer)
     maybe_auto_reflect(tool_name, arguments, result)
 
@@ -84,6 +113,9 @@ defmodule Mimo.ToolInterface do
 
     # SPEC-074: Record tool execution outcome for cognitive learning (non-blocking)
     record_tool_outcome(tool_name, arguments, result)
+
+    # SPEC-040: Award XP for tool execution (non-blocking)
+    AwakeningHooks.tool_executed(tool_name, result)
 
     result
   end
@@ -147,15 +179,42 @@ defmodule Mimo.ToolInterface do
 
   defp add_cognitive_suggestion(result, _tool, _query, _reason), do: result
 
-  defp build_suggestion_hint(:reason, problem) do
+  # Phase 3 L3: Add experience context to results for learning-aware execution
+  # Shows historical success rates for this tool, helping agents make informed decisions
+  defp add_experience_context({:ok, result}, tool_name) when is_map(result) do
+    try do
+      stats = Mimo.Cognitive.FeedbackLoop.tool_execution_stats(tool_name)
+
+      # Only add context if there's meaningful data (at least 5 executions)
+      if stats.total >= 5 do
+        experience = %{
+          past_executions: stats.total,
+          success_rate: stats.success_rate,
+          trend: stats.recent_trend
+        }
+
+        {:ok, Map.put(result, :_experience_context, experience)}
+      else
+        {:ok, result}
+      end
+    rescue
+      _ -> {:ok, result}
+    catch
+      _, _ -> {:ok, result}
+    end
+  end
+
+  defp add_experience_context(result, _tool_name), do: result
+
+  defp build_suggestion_hint("reason", problem) do
     "💡 Consider using structured reasoning (reason: guided) for: #{String.slice(problem, 0, 50)}..."
   end
 
-  defp build_suggestion_hint(:knowledge, query) do
+  defp build_suggestion_hint("knowledge", query) do
     "💡 Consider querying the knowledge graph for: #{String.slice(query, 0, 50)}..."
   end
 
-  defp build_suggestion_hint(:prepare_context, query) do
+  defp build_suggestion_hint("prepare_context", query) do
     "💡 Consider preparing context first (meta: prepare_context) for: #{String.slice(query, 0, 50)}..."
   end
 
@@ -317,41 +376,42 @@ defmodule Mimo.ToolInterface do
   defp analyze_result({:error, _}), do: {false, 0}
   defp analyze_result(_), do: {true, 0}
 
+  # Tool-specific field priorities for query extraction
+  @query_fields %{
+    "memory" => ~w(query content),
+    "file" => ~w(path pattern),
+    "knowledge" => ~w(query text),
+    "code" => ~w(name path),
+    "ask_mimo" => ~w(query),
+    "reason" => ~w(problem thought),
+    "web" => ~w(query url)
+  }
+
+  @default_query_fields ~w(query path name)
+
   # Extract query/context from tool arguments based on tool type
+  defp extract_query_from_args("terminal", arguments) do
+    cmd = get_arg(arguments, "command") || ""
+    extract_command_context(cmd)
+  end
+
   defp extract_query_from_args(tool_name, arguments) do
-    case tool_name do
-      "memory" ->
-        arguments["query"] || arguments[:query] || arguments["content"] || arguments[:content]
+    fields = Map.get(@query_fields, tool_name, @default_query_fields)
+    find_first_arg(arguments, fields)
+  end
 
-      "file" ->
-        arguments["path"] || arguments[:path] || arguments["pattern"] || arguments[:pattern]
+  # Find first non-nil argument from a list of field names
+  defp find_first_arg(arguments, fields) do
+    Enum.find_value(fields, fn field ->
+      get_arg(arguments, field)
+    end)
+  end
 
-      "knowledge" ->
-        arguments["query"] || arguments[:query] || arguments["text"] || arguments[:text]
-
-      "code" ->
-        arguments["name"] || arguments[:name] || arguments["path"] || arguments[:path]
-
-      "ask_mimo" ->
-        arguments["query"] || arguments[:query]
-
-      "reason" ->
-        arguments["problem"] || arguments[:problem] || arguments["thought"] || arguments[:thought]
-
-      "terminal" ->
-        # Extract key info from command
-        cmd = arguments["command"] || arguments[:command] || ""
-        extract_command_context(cmd)
-
-      "web" ->
-        arguments["query"] || arguments[:query] || arguments["url"] || arguments[:url]
-
-      _ ->
-        # Try common field names
-        arguments["query"] || arguments[:query] ||
-          arguments["path"] || arguments[:path] ||
-          arguments["name"] || arguments[:name]
-    end
+  # Get argument by name, checking both string and atom keys
+  defp get_arg(arguments, field) when is_binary(field) do
+    arguments[field] || arguments[String.to_existing_atom(field)]
+  rescue
+    ArgumentError -> arguments[field]
   end
 
   defp extract_command_context(command) when is_binary(command) do
@@ -393,26 +453,23 @@ defmodule Mimo.ToolInterface do
     end
   end
 
-  defp extract_source_id(tool_name, arguments, result) do
-    case tool_name do
-      "memory" ->
-        # Use first result ID if available
-        case result do
-          %{items: [%{id: id} | _]} -> id
-          %{"items" => [%{"id" => id} | _]} -> id
-          _ -> arguments["query"] || arguments[:query] || "unknown"
-        end
-
-      "file" ->
-        arguments["path"] || arguments[:path] || "unknown"
-
-      "code" ->
-        arguments["name"] || arguments[:name] || arguments["path"] || arguments[:path] || "unknown"
-
-      _ ->
-        "unknown"
-    end
+  defp extract_source_id("memory", arguments, result) do
+    extract_memory_result_id(result) || get_arg(arguments, "query") || "unknown"
   end
+
+  defp extract_source_id("file", arguments, _result) do
+    get_arg(arguments, "path") || "unknown"
+  end
+
+  defp extract_source_id("code", arguments, _result) do
+    get_arg(arguments, "name") || get_arg(arguments, "path") || "unknown"
+  end
+
+  defp extract_source_id(_tool_name, _arguments, _result), do: "unknown"
+
+  defp extract_memory_result_id(%{items: [%{id: id} | _]}), do: id
+  defp extract_memory_result_id(%{"items" => [%{"id" => id} | _]}), do: id
+  defp extract_memory_result_id(_), do: nil
 
   # Prefetch context predicted to be needed next
   defp prefetch_predicted_context(query, tool_name) do
@@ -457,15 +514,7 @@ defmodule Mimo.ToolInterface do
     end
   end
 
-  # ============================================================================
-  # Tool Handlers
-  # ============================================================================
-
   defp do_execute(tool_name, arguments)
-
-  # ============================================================================
-  # SPEC-011.1: Procedural Store Tools (consolidated)
-  # ============================================================================
 
   # Execute or check status of a procedure
   # operation=status: Check execution status by execution_id
@@ -636,10 +685,6 @@ defmodule Mimo.ToolInterface do
     end
   end
 
-  # ============================================================================
-  # SPEC-011.2: Unified Memory Tool
-  # ============================================================================
-
   # Unified memory operations: store, search, list, delete, stats, decay_check.
   defp do_execute("memory", %{"operation" => "store"} = args) do
     # Delegate to store_fact logic
@@ -747,10 +792,6 @@ defmodule Mimo.ToolInterface do
     {:error, "Missing required argument: 'operation'"}
   end
 
-  # ============================================================================
-  # Tool Usage Analytics
-  # ============================================================================
-
   # Get comprehensive tool usage statistics
   defp do_execute("tool_usage", %{"operation" => "stats"} = args) do
     days = Map.get(args, "days", 30)
@@ -798,10 +839,6 @@ defmodule Mimo.ToolInterface do
     {:error, "Unknown tool_usage operation: #{op}. Valid: stats, detail"}
   end
 
-  # ============================================================================
-  # SPEC-011.3: File Ingestion Tool
-  # ============================================================================
-
   # Ingest file content into memory with automatic chunking.
   defp do_execute("ingest", %{"path" => path} = args) do
     strategy = args["strategy"] |> parse_strategy()
@@ -847,10 +884,6 @@ defmodule Mimo.ToolInterface do
   defp do_execute("ingest", _args) do
     {:error, "Missing required argument: 'path'"}
   end
-
-  # ============================================================================
-  # Legacy Tools (kept for backward compatibility)
-  # ============================================================================
 
   defp do_execute("search_vibes", %{"query" => _query} = args) do
     Logger.warning("search_vibes is deprecated, use memory operation=search")
@@ -1095,36 +1128,52 @@ defmodule Mimo.ToolInterface do
     Mimo.ToolRegistry.list_all_tools()
   end
 
-  # ============================================================================
-  # Private: Memory Operations
-  # ============================================================================
-
   # SPEC-060: Support temporal validity options
+  # SPEC-SQLite: Memory.persist_memory already handles WriteSerializer internally
+  # DO NOT wrap here - causes calling_self deadlock (nested GenServer.call)
   defp execute_memory_store(content, category, importance, opts) do
     # SPEC-034: Route through Memory.persist_memory for TMC integration
-    # This ensures contradiction detection and supersession for explicit user stores
-    # SPEC-060: Pass temporal validity options (valid_from, valid_until, validity_source)
-    case Mimo.Brain.Memory.persist_memory(content, category, importance, opts) do
-      {:ok, id} ->
-        # Build response data with temporal info if provided
+    # SPEC-060: Pass temporal validity options
+    # Memory.persist_memory handles serialization internally - no wrapper needed
+    result = Mimo.Brain.Memory.persist_memory(content, category, importance, opts)
+
+    case result do
+      {:ok, {:ok, id}} ->
         base_data = %{stored: true, id: id, embedding_generated: true}
         temporal_data = build_temporal_response(opts)
 
         {:ok,
-         %{
-           tool_call_id: UUID.uuid4(),
-           status: "success",
-           data: Map.merge(base_data, temporal_data)
-         }}
+         %{tool_call_id: UUID.uuid4(), status: "success", data: Map.merge(base_data, temporal_data)}}
 
-      {:duplicate, id} ->
-        # Handle duplicate detection from TMC
+      {:ok, {:duplicate, id}} ->
         {:ok,
          %{
            tool_call_id: UUID.uuid4(),
            status: "success",
            data: %{stored: true, id: id, duplicate: true, embedding_generated: true}
          }}
+
+      {:ok, {:error, reason}} ->
+        {:error, "Failed to store memory: #{inspect(reason)}"}
+
+      # Direct result (fallback path)
+      {:ok, id} when is_integer(id) ->
+        base_data = %{stored: true, id: id, embedding_generated: true}
+        temporal_data = build_temporal_response(opts)
+
+        {:ok,
+         %{tool_call_id: UUID.uuid4(), status: "success", data: Map.merge(base_data, temporal_data)}}
+
+      {:duplicate, id} ->
+        {:ok,
+         %{
+           tool_call_id: UUID.uuid4(),
+           status: "success",
+           data: %{stored: true, id: id, duplicate: true, embedding_generated: true}
+         }}
+
+      {:error, :write_timeout} ->
+        {:error, "Memory store timed out due to high database load. Please retry."}
 
       {:error, reason} ->
         {:error, "Failed to store memory: #{inspect(reason)}"}
@@ -1142,6 +1191,42 @@ defmodule Mimo.ToolInterface do
   end
 
   defp execute_memory_search(args) do
+    query = Map.get(args, "query")
+
+    # SPEC-092: Check for operation redirect FIRST
+    # Strong temporal queries like "latest plan" should use list, not search
+    case Mimo.Brain.MemoryRouter.recommend_operation(query) do
+      {:list, opts, :temporal_redirect} ->
+        # Auto-redirect to list operation for accurate chronological results
+        list_args = %{
+          "sort" => Keyword.get(opts, :sort, :recent) |> to_string(),
+          "limit" => Keyword.get(opts, :limit, 5)
+        }
+
+        case execute_memory_list(list_args) do
+          {:ok, result} ->
+            # Add routing metadata to inform caller of the redirect
+            {:ok,
+             Map.merge(result, %{
+               routing: %{
+                 type: :temporal_redirect,
+                 original_query: query,
+                 note:
+                   "Query was auto-redirected from search to list due to strong temporal intent (SPEC-092)"
+               }
+             })}
+
+          error ->
+            error
+        end
+
+      _ ->
+        # Continue with normal search
+        execute_memory_search_impl(args)
+    end
+  end
+
+  defp execute_memory_search_impl(args) do
     query = Map.get(args, "query")
     limit = InputValidation.validate_limit(Map.get(args, "limit"), default: 10, max: 200)
     threshold = InputValidation.validate_threshold(Map.get(args, "threshold"), default: 0.3)
@@ -1247,6 +1332,16 @@ defmodule Mimo.ToolInterface do
     # Build temporal context for response
     temporal_context = build_search_temporal_context(as_of, valid_at)
 
+    # SPEC-095: Coverage metrics to help AI understand search completeness
+    total_memories = Memory.count_memories()
+    results_count = length(formatted)
+
+    coverage_pct =
+      if total_memories > 0, do: Float.round(results_count / total_memories * 100, 2), else: 0.0
+
+    # Smart suggestion based on coverage
+    suggestion = build_search_suggestion(query, results_count, total_memories, coverage_pct)
+
     {:ok,
      %{
        tool_call_id: UUID.uuid4(),
@@ -1258,13 +1353,42 @@ defmodule Mimo.ToolInterface do
              total_searched: length(base_results),
              # SPEC-XXX: MemoryRouter integration - query type for observability
              query_type: query_type,
-             routing_confidence: Float.round(routing_confidence, 2)
+             routing_confidence: Float.round(routing_confidence, 2),
+             # SPEC-095: Coverage metrics for AI self-correction
+             coverage: %{
+               returned: results_count,
+               total_in_database: total_memories,
+               percentage: coverage_pct
+             }
            },
            temporal_context
          ),
-       # SPEC-031 Phase 2: Cross-tool suggestion
-       suggestion: "💡 For entity relationships, also check `knowledge operation=query`"
+       # SPEC-095: Dynamic suggestion based on query/coverage analysis
+       suggestion: suggestion
      }}
+  end
+
+  # SPEC-095: Build smart suggestion based on query analysis and coverage
+  defp build_search_suggestion(query, results_count, total_memories, coverage_pct) do
+    query_lower = String.downcase(query || "")
+
+    cond do
+      # Aggregation query pattern detected
+      String.contains?(query_lower, ["how many", "all ", "count ", "total ", "list all"]) ->
+        "⚠️ Aggregation query detected. For accurate counts, use: memory operation=stats"
+
+      # Very low coverage with potential for more results
+      coverage_pct < 1.0 and results_count < 20 and total_memories > 100 ->
+        "💡 Low coverage (#{coverage_pct}%). For comprehensive results, try: limit=100 or memory operation=stats first"
+
+      # SPEC query pattern - suggest higher limit
+      String.contains?(query_lower, "spec") and results_count < 30 ->
+        "💡 For SPEC queries, consider: limit=100 to capture all specifications"
+
+      # Default cross-tool suggestion
+      true ->
+        "💡 For entity relationships, also check `knowledge operation=query`"
+    end
   end
 
   # SPEC-060: Apply temporal validity filters to search results
@@ -1428,19 +1552,65 @@ defmodule Mimo.ToolInterface do
         )
       )
 
+    # Get cluster summary if GnnPredictor is trained
+    cluster_summary = get_cluster_summary()
+
+    base_data = %{
+      total_memories: stats.total || 0,
+      by_category: by_category,
+      avg_importance: stats.avg_importance && Float.round(stats.avg_importance, 2),
+      at_risk_count: at_risk_count || 0,
+      oldest: format_datetime(stats.min_inserted),
+      newest: format_datetime(stats.max_inserted)
+    }
+
+    # Add cluster info if available
+    data =
+      if cluster_summary do
+        Map.put(base_data, :clusters, cluster_summary)
+      else
+        base_data
+      end
+
     {:ok,
      %{
        tool_call_id: UUID.uuid4(),
        status: "success",
-       data: %{
-         total_memories: stats.total || 0,
-         by_category: by_category,
-         avg_importance: stats.avg_importance && Float.round(stats.avg_importance, 2),
-         at_risk_count: at_risk_count || 0,
-         oldest: format_datetime(stats.min_inserted),
-         newest: format_datetime(stats.max_inserted)
-       }
+       data: data
      }}
+  end
+
+  # Get cluster summary from GnnPredictor if model is trained
+  defp get_cluster_summary do
+    alias Mimo.NeuroSymbolic.GnnPredictor
+
+    clusters = GnnPredictor.cluster_similar(nil, :memory)
+
+    if clusters == [] do
+      nil
+    else
+      %{
+        count: length(clusters),
+        largest: Enum.max_by(clusters, & &1.size, fn -> nil end) |> cluster_to_summary(),
+        available: true,
+        hint: "Use 'neuro_symbolic_inference operation=cluster_memories' for full details"
+      }
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp cluster_to_summary(nil), do: nil
+
+  defp cluster_to_summary(cluster) do
+    %{
+      id: cluster.cluster_id,
+      size: cluster.size,
+      top_category:
+        cluster.category_breakdown
+        |> Enum.max_by(fn {_k, v} -> v end, fn -> {nil, 0} end)
+        |> elem(0)
+    }
   end
 
   defp execute_memory_health do
@@ -1646,10 +1816,6 @@ defmodule Mimo.ToolInterface do
         end
     end
   end
-
-  # ============================================================================
-  # Private: Helpers
-  # ============================================================================
 
   defp get_latest_execution(procedure_name) do
     Repo.one(

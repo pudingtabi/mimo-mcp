@@ -163,11 +163,11 @@ defmodule Mimo.Cognitive.CalibratedResponse do
       end
 
     messages =
-      if length(uncertainty.gap_indicators) > 0 do
+      if Enum.empty?(uncertainty.gap_indicators) do
+        messages
+      else
         gaps = Enum.take(uncertainty.gap_indicators, 2) |> Enum.join("; ")
         ["Note: #{gaps}" | messages]
-      else
-        messages
       end
 
     case messages do

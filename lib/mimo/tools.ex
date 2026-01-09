@@ -45,8 +45,8 @@ defmodule Mimo.Tools do
 
   require Logger
 
-  alias Mimo.Tools.{Definitions, Dispatchers}
   alias Mimo.Knowledge.InjectionMiddleware
+  alias Mimo.Tools.{Definitions, Dispatchers}
 
   @doc """
   Returns all MCP tool definitions.
@@ -76,6 +76,9 @@ defmodule Mimo.Tools do
 
     # Track tool usage for adoption metrics (measures AUTO-REASONING workflow adoption)
     Mimo.AdoptionMetrics.track_tool_call(tool_name)
+
+    # Record activity for BackgroundCognition (prevents background cycles during active sessions)
+    Mimo.Brain.BackgroundCognition.record_activity()
 
     # SPEC-083: Pre-dispatch intelligence check
     pre_context = IntelligentMiddleware.pre_dispatch(tool_name, arguments)
@@ -150,13 +153,9 @@ defmodule Mimo.Tools do
     %{
       memories: Map.get(injection, :memories, []),
       source: Map.get(injection, :source, "SPEC-065"),
-      hint: "💡 Mimo surfaced this knowledge proactively based on your action"
+      hint: "auto-injected context"
     }
   end
-
-  # ============================================================================
-  # A/B Testing Helpers
-  # ============================================================================
 
   # Get A/B testing pattern suggestions for test group sessions
   defp get_ab_suggestions(tool_name, arguments) do
@@ -201,7 +200,7 @@ defmodule Mimo.Tools do
            source: "emergence_ab_test",
            group: :test,
            suggestions: suggestions,
-           hint: "💡 These patterns have been promoted from observed agent behaviors"
+           hint: "These patterns have been promoted from observed agent behaviors"
          })}
 
       other ->
@@ -230,10 +229,6 @@ defmodule Mimo.Tools do
     }
   end
 
-  # ==========================================================================
-  # Multi-Head Tool Dispatch (CC=49 → CC≈2)
-  # ==========================================================================
-
   # --- Primary Tools ---
   defp do_dispatch("file", args), do: Dispatchers.File.dispatch(args)
   defp do_dispatch("terminal", args), do: Dispatchers.Terminal.dispatch(args)
@@ -249,6 +244,7 @@ defmodule Mimo.Tools do
   defp do_dispatch("reflector", args), do: Dispatchers.Reflector.dispatch(args)
   defp do_dispatch("autonomous", args), do: Dispatchers.Autonomous.dispatch(args)
   defp do_dispatch("verify", args), do: Dispatchers.Verify.dispatch(args)
+  defp do_dispatch("orchestrate", args), do: Dispatchers.Orchestrate.dispatch(args)
 
   # --- Legacy Web Tools (redirect to unified web dispatcher) ---
   defp do_dispatch("fetch", args), do: dispatch_legacy_web("fetch", args)
@@ -318,10 +314,6 @@ defmodule Mimo.Tools do
     {:error,
      "Unknown tool: #{unknown}. Available: file, terminal, web, code, knowledge, cognitive, reason, think, onboard, meta, autonomous, emergence, reflector, verify. Deprecated but working: fetch, search, blink, browser, vision, sonar, web_extract, web_parse, code_symbols, library, diagnostics, graph, analyze_file, debug_error, prepare_context, suggest_next_tool"}
   end
-
-  # ==========================================================================
-  # Legacy Tool Helpers (keep logic out of dispatch heads)
-  # ==========================================================================
 
   defp dispatch_legacy_web(operation, args) do
     Dispatchers.Web.dispatch(Map.put(args, "operation", operation))

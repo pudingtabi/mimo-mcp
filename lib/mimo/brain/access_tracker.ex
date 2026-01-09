@@ -56,15 +56,11 @@ defmodule Mimo.Brain.AccessTracker do
   require Logger
 
   import Ecto.Query
-  alias Mimo.{Repo, Brain.Engram}
+  alias Mimo.{Brain.Engram, Repo}
   alias Mimo.SafeCall
 
   @flush_interval 5_000
   @batch_size 100
-
-  # ==========================================================================
-  # Neuroscience-Inspired Decay Parameters (Spacing Effect)
-  # ==========================================================================
   # Each memory retrieval reduces the decay rate, implementing the spacing effect:
   # "Memories that are retrieved more often decay more slowly"
   # Reference: Ebbinghaus forgetting curve, spaced repetition research
@@ -72,18 +68,14 @@ defmodule Mimo.Brain.AccessTracker do
   @decay_reduction_factor 0.95
   # Floor to prevent zero decay (693 day half-life)
   @min_decay_rate 0.0001
-
-  # ==========================================================================
-  # Hebbian Co-Activation Parameters
-  # ==========================================================================
   # Track memories accessed together for "fire together, wire together"
   # Co-activation window: memories accessed within this time window are linked
   # 30 seconds
   @coactivation_window_ms 30_000
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
+  # Auto-protect threshold: memories accessed this many times get protected from decay
+  @auto_protect_threshold 10
+  # Minimum importance for auto-protection (prevents protecting garbage)
+  @auto_protect_min_importance 0.5
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -129,10 +121,6 @@ defmodule Mimo.Brain.AccessTracker do
       fallback: %{status: :unavailable, total_tracked: 0}
     )
   end
-
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
 
   @impl true
   def init(_opts) do
@@ -209,10 +197,6 @@ defmodule Mimo.Brain.AccessTracker do
     {:noreply, new_state}
   end
 
-  # ==========================================================================
-  # Private Implementation
-  # ==========================================================================
-
   defp do_flush(%{pending: pending} = state) when map_size(pending) == 0 do
     state
   end
@@ -252,6 +236,21 @@ defmodule Mimo.Brain.AccessTracker do
         ]
       )
       |> Repo.update_all([])
+
+      # Auto-protect frequently accessed valuable memories
+      # This prevents Forgetting from deleting memories users actually use
+      {protected_count, _} =
+        from(e in Engram,
+          where: e.id in ^id_list,
+          where: e.access_count >= ^@auto_protect_threshold,
+          where: e.importance >= ^@auto_protect_min_importance,
+          where: e.protected == false or is_nil(e.protected)
+        )
+        |> Repo.update_all(set: [protected: true])
+
+      if protected_count > 0 do
+        Logger.info("Auto-protected #{protected_count} frequently accessed memories")
+      end
     end)
 
     flush_count = map_size(pending)
@@ -270,10 +269,6 @@ defmodule Mimo.Brain.AccessTracker do
   defp schedule_flush do
     Process.send_after(self(), :flush, @flush_interval)
   end
-
-  # ==========================================================================
-  # Hebbian Co-Activation Helpers
-  # ==========================================================================
 
   # Find memories accessed within the co-activation window (excluding self)
   defp find_coactivated_memories(recent_accesses, current_id, now_ms) do

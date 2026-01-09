@@ -36,10 +36,6 @@ defmodule Mimo.Brain.WorkingMemory do
   @default_max_items 100
   @default_ttl 600
 
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -146,10 +142,6 @@ defmodule Mimo.Brain.WorkingMemory do
   def clear_all do
     GenServer.call(__MODULE__, :clear_all)
   end
-
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
 
   @impl true
   def init(_opts) do
@@ -396,10 +388,6 @@ defmodule Mimo.Brain.WorkingMemory do
     :ets.delete_all_objects(@table_name)
     {:reply, :ok, %{state | count: 0}}
   end
-
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
 
   defp find_by_id(id) do
     :ets.tab2list(@table_name)

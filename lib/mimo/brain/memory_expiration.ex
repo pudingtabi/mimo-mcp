@@ -41,10 +41,6 @@ defmodule Mimo.Brain.MemoryExpiration do
   @default_interval_ms :timer.hours(1)
   @default_batch_size 100
 
-  # ============================================================================
-  # Client API
-  # ============================================================================
-
   @doc """
   Start the MemoryExpiration GenServer.
   """
@@ -77,10 +73,6 @@ defmodule Mimo.Brain.MemoryExpiration do
   def enabled? do
     config()[:enabled] || false
   end
-
-  # ============================================================================
-  # GenServer Callbacks
-  # ============================================================================
 
   @impl true
   def init(opts) do
@@ -154,10 +146,6 @@ defmodule Mimo.Brain.MemoryExpiration do
       {:noreply, state}
     end
   end
-
-  # ============================================================================
-  # Private Implementation
-  # ============================================================================
 
   defp schedule_scan(interval_ms) do
     Process.send_after(self(), :scheduled_scan, interval_ms)

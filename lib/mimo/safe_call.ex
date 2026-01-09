@@ -30,15 +30,12 @@ defmodule Mimo.SafeCall do
   3. Log degradation transparently for observability
   4. Support circuit breaker integration
   """
+  alias LLM
 
   require Logger
 
   @default_timeout Mimo.TimeoutConfig.genserver_default()
   @task_supervisor Mimo.TaskSupervisor
-
-  # ============================================================================
-  # GenServer Calls
-  # ============================================================================
 
   @doc """
   Safely call a GenServer, returning fallback if process is down or times out.
@@ -109,10 +106,6 @@ defmodule Mimo.SafeCall do
   def call(name, message, opts \\ []) do
     genserver(name, message, Keyword.put(opts, :raw, true))
   end
-
-  # ============================================================================
-  # Task Spawning
-  # ============================================================================
 
   @doc """
   Safely spawn an async task, falling back to synchronous execution if supervisor is down.
@@ -224,10 +217,6 @@ defmodule Mimo.SafeCall do
     end
   end
 
-  # ============================================================================
-  # Database Operations
-  # ============================================================================
-
   @doc """
   Safely execute a database operation with timeout and error handling.
 
@@ -262,10 +251,6 @@ defmodule Mimo.SafeCall do
         if fallback, do: {:ok, fallback}, else: {:error, {:db_error, reason}}
     end
   end
-
-  # ============================================================================
-  # Embedding Operations
-  # ============================================================================
 
   @doc """
   Generate embedding with multi-backend fallback.
@@ -332,7 +317,7 @@ defmodule Mimo.SafeCall do
 
     Enum.reduce_while(backends, {:error, :all_backends_failed}, fn backend, _acc ->
       case backend.() do
-        {:ok, embedding} when is_list(embedding) and length(embedding) > 0 ->
+        {:ok, embedding} when is_list(embedding) and embedding != [] ->
           {:halt, {:ok, embedding}}
 
         _ ->
@@ -363,10 +348,6 @@ defmodule Mimo.SafeCall do
   defp zero_vector(dimension) do
     List.duplicate(0.0, dimension)
   end
-
-  # ============================================================================
-  # Utility Functions
-  # ============================================================================
 
   @doc """
   Check if a named process is alive and responsive.

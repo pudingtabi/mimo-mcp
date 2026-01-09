@@ -10,9 +10,12 @@
  * 
  * CRITICAL: MCP stdio transport requires ZERO output to stdout except JSON-RPC.
  * All logs MUST go to stderr only.
+ * 
+ * NOTE: Uses Node's child_process.spawn for stdin piping (Bun's native spawn has stdin bugs)
  */
 
-import { spawn, spawnSync } from "bun";
+import { spawn } from "child_process";  // Use Node's spawn for reliable stdin.pipe()
+import { spawnSync } from "bun";  // Keep Bun's spawnSync for preflight checks
 import { existsSync, readdirSync, statSync } from "fs";
 import { join, resolve, isAbsolute } from "path";
 import { homedir } from "os";
@@ -246,8 +249,12 @@ const KILL_EXISTING = ['1', 'true', 'yes'].includes((Bun.env.MIMO_WRAPPER_KILL_E
 
 if (KILL_EXISTING) {
   try {
+    // Kill existing Mimo processes
     spawnSync({ cmd: ['pkill', '-f', 'Mimo.McpServer.Stdio'], stdout: 'ignore', stderr: 'ignore' });
+    spawnSync({ cmd: ['pkill', '-f', 'beam.smp.*mimo'], stdout: 'ignore', stderr: 'ignore' });
+    // Clean up all lock files (both old /tmp style and new priv/ style)
     spawnSync({ cmd: ['rm', '-f', '/tmp/mimo_mcp_stdio.lock'], stdout: 'ignore', stderr: 'ignore' });
+    spawnSync({ cmd: ['rm', '-f', `${MIMO_DIR}/priv/mimo.lock`, `${MIMO_DIR}/priv/mimo.lock.info`, `${MIMO_DIR}/priv/mimo.pid`], stdout: 'ignore', stderr: 'ignore' });
     // Use sync sleep via spawnSync instead of top-level await
     spawnSync({ cmd: ['sleep', '0.5'], stdout: 'ignore', stderr: 'ignore' });
   } catch { }
@@ -265,28 +272,46 @@ ensureCompiledSync();
 
 log('Starting Mimo MCP server...');
 
-const elixir = spawn({
-  cmd: ['bash', '-c', `
-    cd "${MIMO_DIR}" 2>/dev/null
-    export PATH="${ELIXIR_PATH}:$PATH"
-    [ -f .env ] && { set -a; . .env 2>/dev/null || true; set +a; }
-    export MIX_ENV="${mixEnv}"
-    export MIX_QUIET=1
-    export ELIXIR_ERL_OPTIONS="+fnu"
-    export MIMO_HTTP_PORT=$((50000 + $$ % 10000))
-    export MCP_PORT=$((40000 + $$ % 10000))
-    export PROMETHEUS_DISABLED=true
-    export MIMO_DISABLE_HTTP=true
-    export LOGGER_LEVEL=none
-    export MIMO_ROOT="${MIMO_DIR}"
-    export MIMO_ALLOWED_PATHS="/root:/tmp:/home"
-    exec mix run --no-halt --no-compile -e "Mimo.McpServer.Stdio.start()"
-  `],
+// Build env with all required vars set BEFORE spawn (no bash wrapper)
+const spawnEnv = {
+  ...buildEnv(),
+  MIX_QUIET: '1',
+  MIMO_HTTP_PORT: String(50000 + (process.pid % 10000)),
+  MCP_PORT: String(40000 + (process.pid % 10000)),
+  PROMETHEUS_DISABLED: 'true',
+  MIMO_DISABLE_HTTP: 'true',
+  LOGGER_LEVEL: 'none',
+  MIMO_ROOT: MIMO_DIR,
+  MIMO_ALLOWED_PATHS: '/root:/tmp:/home',
+};
+
+// Find elixir executable - ELIXIR_PATH is a PATH-style string
+const elixirBinDirs = ELIXIR_PATH.split(':').filter(Boolean);
+let elixirBin = 'elixir'; // default fallback to PATH
+for (const dir of elixirBinDirs) {
+  const candidate = `${dir}/elixir`;
+  const check = Bun.spawnSync({ cmd: ['test', '-x', candidate] });
+  if (check.exitCode === 0) {
+    elixirBin = candidate;
+    break;
+  }
+}
+
+// Find mix executable
+const mixBin = elixirBinDirs.map(d => `${d}/mix`).find(p => {
+  const check = Bun.spawnSync({ cmd: ['test', '-x', p] });
+  return check.exitCode === 0;
+}) || 'mix';
+
+// Spawn using Node's child_process.spawn for reliable stdin.pipe()
+// Bun's native spawn has known stdin bugs (GitHub #13978)
+const elixir = spawn(mixBin, [
+  'run', '--no-halt', '--no-compile',
+  '-e', 'Mimo.McpServer.Stdio.start()'
+], {
   cwd: MIMO_DIR,
-  env: buildEnv(),
-  stdin: 'pipe',
-  stdout: 'pipe',
-  stderr: 'pipe',
+  env: spawnEnv,
+  stdio: ['pipe', 'pipe', 'pipe']  // stdin/stdout/stderr all piped
 });
 
 // --- Startup Timeout ---
@@ -304,102 +329,112 @@ const startupTimer = setTimeout(() => {
 
 // --- STDIO Forwarding ---
 
-// Forward stdin to Elixir
-(async () => {
-  const reader = Bun.stdin.stream().getReader();
-  const writer = elixir.stdin;
+// Error handlers for pipe stability
+process.stdin.on('error', (err) => {
+  log('stdin error:', err.message);
+  // Don't exit immediately - try to continue
+});
 
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        writer.end();
-        break;
+// Forward stdin using Node's reliable pipe() method
+process.stdin.pipe(elixir.stdin);
+
+// Handle stdin errors on the elixir side
+elixir.stdin.on('error', (err) => {
+  log('elixir.stdin error:', err.message);
+});
+
+// Handle stdin end
+process.stdin.on('end', () => {
+  log('stdin ended - client disconnected');
+  try { elixir.stdin.end(); } catch { }
+});
+
+// Handle stdin close (different from end)
+process.stdin.on('close', () => {
+  log('stdin closed');
+});
+
+// Forward stdout - only JSON-RPC lines (using Node's event-based API)
+let stdoutBuffer = '';
+let lastActivity = Date.now();
+
+// Stdout error handler
+elixir.stdout.on('error', (err) => {
+  log('elixir.stdout error:', err.message);
+});
+
+elixir.stdout.on('data', (data) => {
+  lastActivity = Date.now();
+  stdoutBuffer += data.toString();
+  const lines = stdoutBuffer.split('\n');
+
+  // Keep the last incomplete line in the buffer
+  stdoutBuffer = lines.pop() || '';
+
+  for (const line of lines) {
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith('{')) {
+      if (!startupComplete) {
+        startupComplete = true;
+        clearTimeout(startupTimer);
       }
-      writer.write(value);
+      process.stdout.write(line + '\n');
+    } else if (trimmed.length > 0) {
+      process.stderr.write(`[Mimo Stdout Noise] ${line}\n`);
     }
-  } catch {
-    // stdin closed
   }
+});
 
-  // Give child time to flush, then exit
-  await Bun.sleep(500);
-  process.exit(0);
-})();
-
-// Forward stdout - only JSON-RPC lines
-(async () => {
-  const reader = elixir.stdout.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        const trimmed = line.trimStart();
-        if (trimmed.startsWith('{')) {
-          if (!startupComplete) {
-            startupComplete = true;
-            clearTimeout(startupTimer);
-          }
-          process.stdout.write(line + '\n');
-        } else if (trimmed.length > 0) {
-          process.stderr.write(`[Mimo Stdout Noise] ${line}\n`);
-        }
-      }
-    }
-
-    // Flush remaining buffer
-    if (buffer.trimStart().startsWith('{')) {
-      process.stdout.write(buffer + '\n');
-    } else if (buffer.trim().length > 0) {
-      process.stderr.write(`[Mimo Stdout Noise] ${buffer}\n`);
-    }
-  } catch { }
-})();
+elixir.stdout.on('end', () => {
+  if (stdoutBuffer.trimStart().startsWith('{')) {
+    process.stdout.write(stdoutBuffer + '\n');
+  } else if (stdoutBuffer.trim().length > 0) {
+    process.stderr.write(`[Mimo Stdout Noise] ${stdoutBuffer}\n`);
+  }
+});
 
 // Forward stderr with Hex error detection
 let hexReinstallAttempted = false;
 
-(async () => {
-  const reader = elixir.stderr.getReader();
-  const decoder = new TextDecoder();
+elixir.stderr.on('data', (data) => {
+  const output = data.toString();
 
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const output = decoder.decode(value, { stream: true });
-
-      // Detect Hex/OTP mismatch
-      if (!hexReinstallAttempted &&
-        ['Hex.State', 'op bs_add', 'beam_load', 're-compile this module']
-          .some(p => output.includes(p))) {
-        hexReinstallAttempted = true;
-        log('Runtime Hex.State OTP mismatch - attempting reinstall');
-        if (reinstallHex()) {
-          process.stderr.write('[Mimo] OTP mismatch fixed. Please restart MCP server.\n');
-        }
-      }
-
-      process.stderr.write(output);
+  // Detect Hex/OTP mismatch
+  if (!hexReinstallAttempted &&
+    ['Hex.State', 'op bs_add', 'beam_load', 're-compile this module']
+      .some(p => output.includes(p))) {
+    hexReinstallAttempted = true;
+    log('Runtime Hex.State OTP mismatch - attempting reinstall');
+    if (reinstallHex()) {
+      process.stderr.write('[Mimo] OTP mismatch fixed. Please restart MCP server.\n');
     }
-  } catch { }
-})();
+  }
+
+  process.stderr.write(output);
+});
+
+// --- Activity Watchdog ---
+// Log warning if no activity for extended period (may indicate stuck connection)
+const ACTIVITY_WARNING_INTERVAL = 300000; // 5 minutes
+setInterval(() => {
+  if (startupComplete && !elixir.killed) {
+    const inactiveMs = Date.now() - lastActivity;
+    if (inactiveMs > ACTIVITY_WARNING_INTERVAL) {
+      log(`No activity for ${Math.round(inactiveMs / 60000)} minutes - connection may be stuck`);
+    }
+  }
+}, 60000); // Check every minute
 
 // --- Process Exit ---
 
-elixir.exited.then((code) => {
+elixir.on('error', (err) => {
+  log('Spawn error:', err.message);
+  process.exit(1);
+});
+
+elixir.on('close', (code) => {
   clearTimeout(startupTimer);
-  process.exit(code);
+  process.exit(code || 0);
 });
 
 // --- Signal Handlers ---

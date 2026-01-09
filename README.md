@@ -9,6 +9,17 @@ Mimo is a memory system for AI agents. It stores memories, builds knowledge grap
 
 ---
 
+## Documentation
+
+| Document | Purpose |
+|----------|---------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Tools vs Skills explained |
+| [AGENTS.md](AGENTS.md) | Quick reference for AI agents |
+| [VISION.md](VISION.md) | Long-term roadmap |
+| [CHANGELOG.md](CHANGELOG.md) | Version history |
+
+---
+
 ## Quick Start
 
 ### Prerequisites
@@ -59,27 +70,26 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (Mac):
 
 ## Tools
 
-Mimo provides 17 unified tools via MCP:
+Mimo provides **14 unified tools** via MCP (consolidated from 36+):
 
-| Tool | Purpose |
-|------|---------|
-| `memory` | Store and search memories |
-| `file` | Read, write, edit files |
-| `terminal` | Run shell commands |
-| `web` | Fetch URLs, web search, screenshots |
-| `code` | Code symbols, library docs, diagnostics |
-| `knowledge` | Knowledge graph queries |
-| `reason` | Structured reasoning |
-| `cognitive` | Meta-cognition, verification |
-| `meta` | Composite operations |
-| `onboard` | Index project at session start |
-| `ask_mimo` | Query the AI memory |
-| `ingest` | Bulk import files to memory |
-| `think` | Extended thinking |
-| `autonomous` | Background task execution |
-| `run_procedure` | Execute stored procedures |
-| `tool_usage` | Usage analytics |
-| `awakening_status` | System status |
+| Tool | Purpose | Key Operations |
+|------|---------|----------------|
+| `memory` | Persistent memory + knowledge | store, search, synthesize, graph |
+| `file` | File operations | read, write, edit, glob |
+| `terminal` | Shell execution | execute, start_process |
+| `web` | Web operations | fetch, search, browser, vision |
+| `code` | Code intelligence | symbols, definition, library_get, diagnose |
+| `reason` | Structured reasoning | guided, assess, plan, amplify |
+| `cognitive` | Meta-cognition | assess, gaps, emergence_*, verify_* |
+| `meta` | Composite operations | analyze_file, debug_error, prepare_context |
+| `onboard` | Project initialization | indexes code, deps, knowledge |
+| `autonomous` | Background tasks | queue, pause, resume |
+| `orchestrate` | Multi-tool orchestration | execute, run_procedure |
+| `awakening_status` | Agent progression | XP, achievements, power level |
+| `tool_usage` | Analytics | stats, detail |
+
+> **Architecture**: Tools are MCP interfaces. Skills are Elixir implementations.  
+> See [ARCHITECTURE.md](ARCHITECTURE.md) for the complete breakdown.
 
 ---
 

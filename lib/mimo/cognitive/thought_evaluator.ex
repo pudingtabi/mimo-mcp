@@ -363,8 +363,7 @@ defmodule Mimo.Cognitive.ThoughtEvaluator do
     |> String.downcase()
     |> String.replace(~r/[^\w\s]/, "")
     |> String.split()
-    |> Enum.reject(&(String.length(&1) < 3))
-    |> Enum.reject(&MapSet.member?(common_words, &1))
+    |> Enum.reject(fn x -> String.length(x) < 3 or MapSet.member?(common_words, x) end)
   end
 
   defp calculate_similarity(text1, text2) do

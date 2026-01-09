@@ -31,10 +31,6 @@ defmodule Mimo.Synapse.PathFinder do
   alias Mimo.Repo
   alias Mimo.Synapse.{Graph, GraphEdge, Traversal}
 
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
-
   @doc """
   Find shortest path between two nodes.
 
@@ -348,10 +344,6 @@ defmodule Mimo.Synapse.PathFinder do
     end
   end
 
-  # ==========================================================================
-  # Private Functions - Node Resolution
-  # ==========================================================================
-
   defp resolve_node(id) when is_binary(id) do
     case Graph.get_node_by_id(id) do
       nil -> {:error, :node_not_found}
@@ -374,10 +366,6 @@ defmodule Mimo.Synapse.PathFinder do
   end
 
   defp resolve_node(_), do: {:error, :invalid_node_reference}
-
-  # ==========================================================================
-  # Private Functions - Pattern Following
-  # ==========================================================================
 
   defp find_nodes_by_type_and_name(type, nil) do
     Graph.find_by_type(type, limit: 100)
@@ -431,10 +419,6 @@ defmodule Mimo.Synapse.PathFinder do
   defp matches_end_criteria?(target, end_type, end_name) do
     target.node_type == end_type and String.contains?(target.name, end_name)
   end
-
-  # ==========================================================================
-  # Private Functions - Formatting
-  # ==========================================================================
 
   defp get_node_info(node_id) do
     case Graph.get_node_by_id(node_id) do

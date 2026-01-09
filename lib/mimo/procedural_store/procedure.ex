@@ -5,6 +5,7 @@ defmodule Mimo.ProceduralStore.Procedure do
   Procedures are deterministic state machines that execute
   critical tasks without LLM involvement.
   """
+  alias Validator
   use Ecto.Schema
   import Ecto.Changeset
 

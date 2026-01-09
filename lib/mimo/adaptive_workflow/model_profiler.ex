@@ -51,10 +51,6 @@ defmodule Mimo.AdaptiveWorkflow.ModelProfiler do
   use GenServer
   require Logger
 
-  # =============================================================================
-  # Types
-  # =============================================================================
-
   @type model_id :: String.t()
   @type tier :: :tier1 | :tier2 | :tier3
   @type capability :: :reasoning | :coding | :analysis | :synthesis | :tool_use | :context_handling
@@ -76,10 +72,6 @@ defmodule Mimo.AdaptiveWorkflow.ModelProfiler do
           sample_count: pos_integer(),
           last_updated: DateTime.t()
         }
-
-  # =============================================================================
-  # Known Model Profiles (Seed Data)
-  # =============================================================================
 
   @known_models %{
     # Tier 1 - Large Models
@@ -243,10 +235,6 @@ defmodule Mimo.AdaptiveWorkflow.ModelProfiler do
     }
   }
 
-  # =============================================================================
-  # GenServer
-  # =============================================================================
-
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
     GenServer.start_link(__MODULE__, opts, name: name)
@@ -265,10 +253,6 @@ defmodule Mimo.AdaptiveWorkflow.ModelProfiler do
 
     {:ok, state}
   end
-
-  # =============================================================================
-  # Public API
-  # =============================================================================
 
   @doc """
   Get the profile for a specific model.
@@ -361,10 +345,6 @@ defmodule Mimo.AdaptiveWorkflow.ModelProfiler do
     GenServer.call(__MODULE__, :list_profiles)
   end
 
-  # =============================================================================
-  # GenServer Callbacks
-  # =============================================================================
-
   @impl true
   def handle_call({:get_profile, model_id}, _from, state) do
     profile = build_profile(model_id, state)
@@ -439,13 +419,8 @@ defmodule Mimo.AdaptiveWorkflow.ModelProfiler do
     {:noreply, new_state}
   end
 
-  # =============================================================================
-  # Internal Functions
-  # =============================================================================
-
   defp load_profiles do
-    # Load any persisted profiles from database
-    # For now, use known models as base
+    # Uses predefined model profiles as baseline.
     @known_models
   end
 

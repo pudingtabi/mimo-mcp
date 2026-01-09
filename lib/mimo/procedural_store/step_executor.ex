@@ -40,10 +40,6 @@ defmodule Mimo.ProceduralStore.StepExecutor do
               {:ok, map()} | {:ok, term()} | :ok | {:error, term()} | {:transition, atom()}
 end
 
-# ============================================================================
-# Built-in Step Executors
-# ============================================================================
-
 defmodule Mimo.ProceduralStore.Steps.Log do
   @moduledoc """
   Simple logging step for debugging procedures.

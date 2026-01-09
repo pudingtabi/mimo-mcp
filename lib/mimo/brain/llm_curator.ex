@@ -37,7 +37,7 @@ defmodule Mimo.Brain.LLMCurator do
   """
 
   require Logger
-  alias Mimo.Brain.{LLM, Engram, Interaction}
+  alias Mimo.Brain.{Engram, Interaction, LLM}
 
   @curator_prompt """
   You are Mimo's Memory Curator. Analyze these recent AI interactions and determine what's worth remembering long-term.
@@ -348,7 +348,9 @@ defmodule Mimo.Brain.LLMCurator do
       |> Enum.filter(&(byte_size(&1) > 0))
       |> Enum.take(3)
 
-    if length(queries) >= 1 do
+    if Enum.empty?(queries) do
+      []
+    else
       ids = Enum.map(interactions, fn i -> to_string(i.id || i["id"]) end)
 
       [
@@ -361,8 +363,6 @@ defmodule Mimo.Brain.LLMCurator do
           source_interaction_ids: ids
         }
       ]
-    else
-      []
     end
   end
 
@@ -375,7 +375,9 @@ defmodule Mimo.Brain.LLMCurator do
         byte_size(to_string(result)) > 50
       end)
 
-    if length(with_output) >= 1 do
+    if Enum.empty?(with_output) do
+      []
+    else
       commands =
         with_output
         |> Enum.map(fn i ->
@@ -397,8 +399,6 @@ defmodule Mimo.Brain.LLMCurator do
           source_interaction_ids: ids
         }
       ]
-    else
-      []
     end
   end
 

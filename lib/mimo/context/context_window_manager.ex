@@ -44,10 +44,6 @@ defmodule Mimo.Context.ContextWindowManager do
   # Default model limits (tokens)
   @default_model_limit 200_000
 
-  # ============================================================================
-  # Type Definitions
-  # ============================================================================
-
   @type thread_id :: String.t()
   @type usage_status :: :ok | :warning | :critical | :summarize_recommended
   @type session_state :: %{
@@ -61,10 +57,6 @@ defmodule Mimo.Context.ContextWindowManager do
           last_updated: DateTime.t(),
           history: [non_neg_integer()]
         }
-
-  # ============================================================================
-  # Client API
-  # ============================================================================
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -138,10 +130,6 @@ defmodule Mimo.Context.ContextWindowManager do
       _ -> false
     end
   end
-
-  # ============================================================================
-  # Server Implementation
-  # ============================================================================
 
   @impl true
   def init(_opts) do
@@ -353,17 +341,13 @@ defmodule Mimo.Context.ContextWindowManager do
     stale_ids = Map.keys(state.sessions) -- Map.keys(active_sessions)
     Enum.each(stale_ids, &:ets.delete(@table_name, &1))
 
-    if length(stale_ids) > 0 do
+    unless Enum.empty?(stale_ids) do
       Logger.debug("[ContextWindowManager] Cleaned #{length(stale_ids)} stale sessions")
     end
 
     schedule_cleanup()
     {:noreply, %{state | sessions: active_sessions}}
   end
-
-  # ============================================================================
-  # Private Helpers
-  # ============================================================================
 
   defp update_status(session) do
     status =

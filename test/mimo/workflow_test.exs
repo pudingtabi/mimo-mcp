@@ -4,10 +4,10 @@ defmodule Mimo.WorkflowTest do
   """
   use Mimo.DataCase, async: false
 
-  alias Mimo.Workflow
-  alias Mimo.Workflow.{Pattern, PatternRegistry, Predictor, Executor, Clusterer, BindingsResolver}
-  alias Mimo.AdaptiveWorkflow.{ModelProfiler, TemplateAdapter, LearningTracker}
+  alias Mimo.AdaptiveWorkflow.{LearningTracker, ModelProfiler, TemplateAdapter}
   alias Mimo.MetaCognitiveRouter
+  alias Mimo.Workflow
+  alias Mimo.Workflow.{BindingsResolver, Clusterer, Executor, Pattern, PatternRegistry, Predictor}
 
   # =============================================================================
   # Setup
@@ -62,7 +62,7 @@ defmodule Mimo.WorkflowTest do
       changeset = Pattern.changeset(%Pattern{}, %{description: "no name or id"})
       refute changeset.valid?
       # Both id and name are required
-      assert length(changeset.errors) >= 1
+      assert changeset.errors != []
     end
 
     test "validates category enum" do
@@ -75,7 +75,6 @@ defmodule Mimo.WorkflowTest do
   describe "PatternRegistry" do
     test "seeds default patterns" do
       patterns = PatternRegistry.list_patterns()
-      # We created 5 seed patterns
       assert length(patterns) >= 5
     end
 
@@ -119,7 +118,7 @@ defmodule Mimo.WorkflowTest do
 
         {:suggest, patterns} ->
           assert is_list(patterns)
-          assert length(patterns) > 0
+          assert patterns != []
 
         {:manual, reason} ->
           assert is_binary(reason)
@@ -538,7 +537,7 @@ defmodule Mimo.WorkflowTest do
 
       # Verify events are registered
       events = Mimo.Workflow.Telemetry.events()
-      assert length(events) > 0
+      assert events != []
 
       Mimo.Workflow.Telemetry.detach()
     end

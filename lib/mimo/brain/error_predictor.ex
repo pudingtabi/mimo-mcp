@@ -10,7 +10,15 @@ defmodule Mimo.Brain.ErrorPredictor do
   1. Before major actions, analyze the plan/intent
   2. Check against known failure patterns from emergence system
   3. Check against heuristic rules (Haiku's common mistakes)
-  4. Return warnings and mandatory checkpoints
+  4. Check against LEARNED failure patterns from actual failures (Phase 3)
+  5. Return warnings and mandatory checkpoints
+
+  ## Phase 3 Learning Integration
+
+  ErrorPredictor now learns from actual failures:
+  - Listens to [:mimo, :learning, :outcome] telemetry with success=false
+  - Stores failure patterns in ETS with context and error details
+  - Uses learned patterns to warn about similar actions in the future
 
   ## Usage
 
@@ -22,6 +30,9 @@ defmodule Mimo.Brain.ErrorPredictor do
 
       # Before committing changes
       {:checkpoints, checkpoints} = ErrorPredictor.mandatory_checkpoints(:commit)
+
+      # Get learned failure stats
+      ErrorPredictor.stats()
   """
 
   require Logger
@@ -30,6 +41,15 @@ defmodule Mimo.Brain.ErrorPredictor do
 
   @type action_type ::
           :file_edit | :terminal_command | :commit | :deploy | :refactor | :debug | :implement
+
+  # ETS table for learned failure patterns (Phase 3)
+  @learned_patterns_table :mimo_error_predictor_learned
+
+  # Maximum learned patterns to keep (prevent unbounded growth)
+  @max_learned_patterns 500
+
+  # Pattern expiry in days
+  @pattern_expiry_days 30
 
   # Known failure patterns from Haiku's C+ grade session
   @haiku_mistakes [
@@ -185,10 +205,6 @@ defmodule Mimo.Brain.ErrorPredictor do
     Enum.any?(warnings, fn w -> w.severity == :critical end)
   end
 
-  # ==========================================================================
-  # WARNING GENERATORS
-  # ==========================================================================
-
   defp add_action_specific_warnings(warnings, :file_edit, context) do
     path = Map.get(context, :path, "")
     changes = Map.get(context, :changes, "")
@@ -274,9 +290,9 @@ defmodule Mimo.Brain.ErrorPredictor do
     action_string = to_string(action_type)
     query = "#{action_string} #{Map.get(context, :description, "")}"
 
-    case Pattern.search_by_description(query, limit: 3) do
-      patterns when is_list(patterns) ->
-        pattern_warnings =
+    emergence_warnings =
+      case Pattern.search_by_description(query, limit: 3) do
+        patterns when is_list(patterns) ->
           patterns
           |> Enum.filter(fn p -> (p.success_rate || 1.0) < 0.7 end)
           |> Enum.map(fn p ->
@@ -289,11 +305,24 @@ defmodule Mimo.Brain.ErrorPredictor do
             }
           end)
 
-        warnings ++ pattern_warnings
+        _ ->
+          []
+      end
 
-      _ ->
-        warnings
-    end
+    # Phase 3: Also check learned failure patterns from actual failures
+    learned_warnings =
+      get_learned_patterns(action_type)
+      |> Enum.map(fn pattern ->
+        %{
+          id: String.to_atom("learned_#{pattern.id}"),
+          severity: if(pattern.occurrences >= 3, do: :high, else: :medium),
+          message: "Learned failure: #{pattern.error_excerpt}",
+          suggestion:
+            "This type of failure has occurred #{pattern.occurrences} time(s) in similar actions"
+        }
+      end)
+
+    warnings ++ emergence_warnings ++ learned_warnings
   rescue
     _ -> warnings
   end
@@ -344,10 +373,6 @@ defmodule Mimo.Brain.ErrorPredictor do
     warnings ++ haiku_warnings ++ additional_warnings
   end
 
-  # ==========================================================================
-  # HELPERS
-  # ==========================================================================
-
   defp relevant_to_action?(mistake_id, action_type) do
     mapping = %{
       skip_compile: [:file_edit, :implement, :refactor, :commit],
@@ -366,7 +391,9 @@ defmodule Mimo.Brain.ErrorPredictor do
 
     # Warnings section
     sections =
-      if length(warnings) > 0 do
+      if Enum.empty?(warnings) do
+        sections
+      else
         warning_lines =
           Enum.map(warnings, fn w ->
             icon = severity_icon(w.severity)
@@ -374,8 +401,6 @@ defmodule Mimo.Brain.ErrorPredictor do
           end)
 
         sections ++ ["## ⚠️ Warnings\n" <> Enum.join(warning_lines, "\n")]
-      else
-        sections
       end
 
     # Checkpoints section
@@ -389,11 +414,11 @@ defmodule Mimo.Brain.ErrorPredictor do
 
     # Haiku lessons section
     sections =
-      if length(haiku_lessons) > 0 do
+      if Enum.empty?(haiku_lessons) do
+        sections
+      else
         lesson_lines = Enum.map(haiku_lessons, fn l -> "- #{l.description}: #{l.checkpoint}" end)
         sections ++ ["## 📚 Lessons from Past Sessions\n" <> Enum.join(lesson_lines, "\n")]
-      else
-        sections
       end
 
     Enum.join(sections, "\n\n")
@@ -404,4 +429,223 @@ defmodule Mimo.Brain.ErrorPredictor do
   defp severity_icon(:medium), do: "⚡"
   defp severity_icon(:low), do: "💡"
   defp severity_icon(_), do: "ℹ️"
+
+  # ============================================================================
+  # PHASE 3: Learning from Actual Failures
+  # ============================================================================
+
+  @doc """
+  Initialize the learned patterns ETS table.
+  Should be called from Application supervision tree.
+  """
+  @spec init_learning() :: :ok
+  def init_learning do
+    if :ets.whereis(@learned_patterns_table) == :undefined do
+      :ets.new(@learned_patterns_table, [:named_table, :public, :set])
+      Logger.info("[ErrorPredictor] Phase 3 learning initialized")
+
+      # Attach to failure telemetry
+      :telemetry.attach(
+        "error-predictor-learning",
+        [:mimo, :learning, :outcome],
+        &__MODULE__.handle_learning_outcome/4,
+        nil
+      )
+    end
+
+    :ok
+  rescue
+    ArgumentError ->
+      # Table already exists
+      :ok
+  end
+
+  @doc """
+  Get statistics about learned patterns.
+  """
+  @spec stats() :: map()
+  def stats do
+    init_learning()
+
+    patterns =
+      try do
+        :ets.tab2list(@learned_patterns_table)
+      rescue
+        _ -> []
+      end
+
+    by_action_type =
+      Enum.group_by(patterns, fn {_key, pattern} -> pattern.action_type end)
+      |> Enum.map(fn {action, pats} -> {action, length(pats)} end)
+      |> Map.new()
+
+    %{
+      total_learned_patterns: length(patterns),
+      by_action_type: by_action_type,
+      static_haiku_patterns: length(@haiku_mistakes),
+      max_patterns: @max_learned_patterns,
+      pattern_expiry_days: @pattern_expiry_days
+    }
+  end
+
+  @doc """
+  Record a failure pattern for learning.
+  Called when a tool execution fails.
+  """
+  @spec record_failure(action_type(), map(), String.t()) :: :ok
+  def record_failure(action_type, context, error_message) do
+    init_learning()
+
+    pattern_id = generate_pattern_id(action_type, context, error_message)
+
+    pattern = %{
+      id: pattern_id,
+      action_type: action_type,
+      context_keys: Map.keys(context),
+      error_excerpt: String.slice(error_message, 0, 200),
+      occurrences: 1,
+      created_at: DateTime.utc_now(),
+      updated_at: DateTime.utc_now()
+    }
+
+    # Update existing or insert new
+    case :ets.lookup(@learned_patterns_table, pattern_id) do
+      [{^pattern_id, existing}] ->
+        updated = %{
+          existing
+          | occurrences: existing.occurrences + 1,
+            updated_at: DateTime.utc_now()
+        }
+
+        :ets.insert(@learned_patterns_table, {pattern_id, updated})
+
+      [] ->
+        # Check if we need to evict old patterns
+        maybe_evict_old_patterns()
+        :ets.insert(@learned_patterns_table, {pattern_id, pattern})
+    end
+
+    Logger.debug("[ErrorPredictor] Learned failure pattern: #{action_type}")
+    :ok
+  rescue
+    e ->
+      Logger.warning("[ErrorPredictor] Failed to record failure: #{Exception.message(e)}")
+      :ok
+  end
+
+  @doc """
+  Handle learning outcome telemetry from FeedbackBridge.
+  Records failures for future prediction.
+  """
+  def handle_learning_outcome(_event, _measurements, metadata, _config) do
+    success = Map.get(metadata, :success, true)
+
+    unless success do
+      # Extract context for pattern learning
+      context = Map.get(metadata, :context, %{})
+      action_type = detect_action_type(context)
+      error_message = extract_error_message(context)
+
+      if action_type && error_message do
+        record_failure(action_type, context, error_message)
+      end
+    end
+  rescue
+    _ -> :ok
+  end
+
+  @doc """
+  Get learned patterns relevant to an action.
+  """
+  @spec get_learned_patterns(action_type()) :: [map()]
+  def get_learned_patterns(action_type) do
+    init_learning()
+
+    try do
+      cutoff = DateTime.utc_now() |> DateTime.add(-@pattern_expiry_days, :day)
+
+      :ets.tab2list(@learned_patterns_table)
+      |> Enum.filter(fn {_key, pattern} ->
+        pattern.action_type == action_type and
+          DateTime.compare(pattern.updated_at, cutoff) == :gt
+      end)
+      |> Enum.map(fn {_key, pattern} -> pattern end)
+      |> Enum.sort_by(& &1.occurrences, :desc)
+      |> Enum.take(5)
+    rescue
+      _ -> []
+    end
+  end
+
+  # Generate a unique pattern ID based on action type and error characteristics
+  defp generate_pattern_id(action_type, context, error_message) do
+    # Extract key identifying features
+    path = Map.get(context, :path, "")
+    command = Map.get(context, :command, "")
+
+    # Create a fingerprint
+    fingerprint_data = [
+      to_string(action_type),
+      Path.extname(path),
+      extract_error_type(error_message),
+      if(String.length(command) > 0, do: "cmd", else: "")
+    ]
+
+    :crypto.hash(:md5, Enum.join(fingerprint_data, ":"))
+    |> Base.encode16(case: :lower)
+    |> String.slice(0, 16)
+  end
+
+  defp extract_error_type(error_message) do
+    cond do
+      String.contains?(error_message, "undefined function") -> "undefined_function"
+      String.contains?(error_message, "UndefinedFunctionError") -> "undefined_function"
+      String.contains?(error_message, "CompileError") -> "compile_error"
+      String.contains?(error_message, "SyntaxError") -> "syntax_error"
+      String.contains?(error_message, "exit code") -> "exit_code"
+      String.contains?(error_message, "timeout") -> "timeout"
+      String.contains?(error_message, "not found") -> "not_found"
+      true -> "unknown"
+    end
+  end
+
+  defp detect_action_type(context) do
+    cond do
+      Map.has_key?(context, :command) -> :terminal_command
+      Map.has_key?(context, :path) and Map.has_key?(context, :operation) -> :file_edit
+      Map.has_key?(context, :signal_type) and context.signal_type == :file -> :file_edit
+      true -> nil
+    end
+  end
+
+  defp extract_error_message(context) do
+    cond do
+      Map.has_key?(context, :error) -> to_string(context.error)
+      Map.has_key?(context, :output) -> String.slice(to_string(context.output), 0, 500)
+      Map.has_key?(context, :details) -> inspect(context.details)
+      true -> nil
+    end
+  end
+
+  defp maybe_evict_old_patterns do
+    try do
+      count = :ets.info(@learned_patterns_table, :size) || 0
+
+      if count >= @max_learned_patterns do
+        # Evict oldest 10%
+        patterns = :ets.tab2list(@learned_patterns_table)
+
+        to_evict =
+          patterns
+          |> Enum.sort_by(fn {_key, p} -> DateTime.to_unix(p.updated_at) end)
+          |> Enum.take(div(@max_learned_patterns, 10))
+
+        Enum.each(to_evict, fn {key, _} -> :ets.delete(@learned_patterns_table, key) end)
+
+        Logger.debug("[ErrorPredictor] Evicted #{length(to_evict)} old patterns")
+      end
+    rescue
+      _ -> :ok
+    end
+  end
 end

@@ -28,10 +28,6 @@ defmodule Mimo.Cognitive.ReasoningTelemetry do
   # ETS table for tracking stats (simple in-memory aggregation)
   @stats_table :reasoning_telemetry_stats
 
-  # ============================================================================
-  # INITIALIZATION
-  # ============================================================================
-
   @doc """
   Initialize the telemetry stats table.
   Called by application supervisor or on first use.
@@ -52,10 +48,6 @@ defmodule Mimo.Cognitive.ReasoningTelemetry do
         :ok
     end
   end
-
-  # ============================================================================
-  # TELEMETRY EMITTERS
-  # ============================================================================
 
   @doc """
   Emit telemetry for technique usage.
@@ -141,10 +133,6 @@ defmodule Mimo.Cognitive.ReasoningTelemetry do
     :ok
   end
 
-  # ============================================================================
-  # STATS RETRIEVAL
-  # ============================================================================
-
   @doc """
   Get aggregated statistics for all reasoning techniques.
 
@@ -226,10 +214,6 @@ defmodule Mimo.Cognitive.ReasoningTelemetry do
     :ets.delete_all_objects(@stats_table)
     :ok
   end
-
-  # ============================================================================
-  # PRIVATE HELPERS
-  # ============================================================================
 
   defp update_stats(technique, operation, success, duration_ms) do
     key = {:technique, technique, operation}

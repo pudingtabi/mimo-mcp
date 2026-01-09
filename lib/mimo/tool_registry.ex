@@ -1,4 +1,6 @@
 defmodule Mimo.ToolRegistry do
+  alias Mimo.Skills.Catalog
+
   @moduledoc """
   Thread-safe tool registry with distributed process coordination.
 
@@ -50,10 +52,6 @@ defmodule Mimo.ToolRegistry do
     "tool_usage"
   ]
 
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
-
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -93,9 +91,18 @@ defmodule Mimo.ToolRegistry do
 
   @doc """
   List all available tools (internal + mimo core + catalog + active skills).
+  Filters out deprecated tools that should no longer be exposed via MCP.
   """
   def list_all_tools do
-    internal_tools() ++ mimo_core_tools() ++ catalog_tools() ++ active_skill_tools()
+    all_tools = internal_tools() ++ mimo_core_tools() ++ catalog_tools() ++ active_skill_tools()
+
+    # Filter out deprecated tools from MCP exposure
+    deprecated = Mimo.Tools.Definitions.deprecated_tools()
+
+    Enum.reject(all_tools, fn tool ->
+      tool_name = tool["name"] || tool[:name]
+      MapSet.member?(deprecated, to_string(tool_name))
+    end)
   end
 
   @doc """
@@ -142,10 +149,6 @@ defmodule Mimo.ToolRegistry do
   def reload_skills do
     GenServer.call(__MODULE__, :reload_skills, 60_000)
   end
-
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
 
   @impl true
   def init(_opts) do
@@ -239,8 +242,8 @@ defmodule Mimo.ToolRegistry do
 
   @impl true
   def handle_call(:all_drained?, _from, state) do
-    # Check if all skills are idle (no in-flight requests)
-    # In a real implementation, this would check request counters
+    # Checks if all skills are idle (no in-flight requests).
+    # Returns true if no skills registered or draining mode active.
     all_drained = map_size(state.skills) == 0 or state.draining
     {:reply, all_drained, state}
   end
@@ -298,7 +301,7 @@ defmodule Mimo.ToolRegistry do
 
     # Reload catalog
     if Code.ensure_loaded?(Mimo.Skills.Catalog) do
-      Mimo.Skills.Catalog.reload()
+      Catalog.reload()
     end
 
     Logger.warning("✅ Hot reload complete")
@@ -355,10 +358,6 @@ defmodule Mimo.ToolRegistry do
     Logger.debug("ToolRegistry received unexpected message: #{inspect(msg)}")
     {:noreply, state}
   end
-
-  # ==========================================================================
-  # Private Functions
-  # ==========================================================================
 
   defp classify_tool("ask_mimo"), do: {:internal, :ask_mimo}
   defp classify_tool("search_vibes"), do: {:internal, :search_vibes}
@@ -449,6 +448,9 @@ defmodule Mimo.ToolRegistry do
   # Autonomous Task Execution (SPEC-071)
   defp classify_tool("autonomous"), do: {:mimo_core, :autonomous}
 
+  # SPEC-072: Multi-tool Orchestrator
+  defp classify_tool("orchestrate"), do: {:mimo_core, :orchestrate}
+
   defp classify_tool(_), do: :external
 
   defp cleanup_skill(state, skill_name) do
@@ -481,7 +483,7 @@ defmodule Mimo.ToolRegistry do
 
   defp lookup_catalog_and_spawn(tool_name, _state) do
     if Code.ensure_loaded?(Mimo.Skills.Catalog) do
-      case Mimo.Skills.Catalog.get_skill_for_tool(tool_name) do
+      case Catalog.get_skill_for_tool(tool_name) do
         {:ok, skill_name, config} ->
           # Don't spawn synchronously - this would block the GenServer
           # Instead, return a special marker that tells the caller to use call_tool_sync
@@ -494,10 +496,6 @@ defmodule Mimo.ToolRegistry do
       {:error, :not_found}
     end
   end
-
-  # ==========================================================================
-  # Internal Tools
-  # ==========================================================================
 
   defp internal_tools do
     [
@@ -578,9 +576,6 @@ defmodule Mimo.ToolRegistry do
         "description" => "Hot-reload all skills from skills.json without restart",
         "inputSchema" => %{"type" => "object", "properties" => %{}}
       },
-      # ========================================================================
-      # SPEC-011.1: Procedural Store Tools (consolidated)
-      # ========================================================================
       %{
         "name" => "run_procedure",
         "description" =>
@@ -634,29 +629,50 @@ defmodule Mimo.ToolRegistry do
           "properties" => %{}
         }
       },
-      # ========================================================================
-      # SPEC-011.2: Unified Memory Tool
-      # ========================================================================
       %{
         "name" => "memory",
         "description" => """
         🧠 MEMORY - Your persistent knowledge store. Search BEFORE reading files!
 
-        WORKFLOW EXAMPLES:
+        ## WHEN TO USE
+        • Need to recall facts, patterns, or context from past sessions
+        • Before reading a file - check if you already know its contents
+        • After discovering something important - store it for future sessions
+        • To find similar past problems and their solutions
+        • To track user preferences and project-specific patterns
+
+        ## INSTEAD OF (common mistakes)
+        • ❌ For entity relationships → ✅ Use `knowledge operation=query`
+        • ❌ For synthesized wisdom → ✅ Use `ask_mimo` (combines memory + knowledge)
+        • ❌ For code structure → ✅ Use `code operation=symbols`
+
+        ## WORKFLOW EXAMPLES
         ✓ Before file read: memory search "auth patterns" → found context → skipped file read
         ✓ After discovery: memory store "Phoenix uses Ecto" category=fact → persists forever
         ✓ Session start: memory search "user preferences" → personalized behavior
         ✓ Check health: memory stats → see memory count, categories, decay status
+        ✓ Bulk import: memory ingest path="README.md" → chunks file into memories
 
-        Unified memory operations: store, search, list, delete, stats, decay_check. Replaces store_fact and search_vibes.
+        Operations: store, search, list, delete, stats, decay_check, ingest, synthesize, graph
         """,
         "inputSchema" => %{
           "type" => "object",
           "properties" => %{
             "operation" => %{
               "type" => "string",
-              "enum" => ["store", "search", "list", "delete", "stats", "decay_check"],
-              "description" => "Memory operation to perform"
+              "enum" => [
+                "store",
+                "search",
+                "list",
+                "delete",
+                "stats",
+                "decay_check",
+                "ingest",
+                "synthesize",
+                "graph"
+              ],
+              "description" =>
+                "Memory operation to perform. synthesize=combined wisdom (was ask_mimo), graph=relationship query (was knowledge query)"
             },
             # Store operation
             "content" => %{
@@ -711,14 +727,31 @@ defmodule Mimo.ToolRegistry do
             "id" => %{
               "type" => "string",
               "description" => "For delete: memory ID to delete"
+            },
+            # Ingest operation (consolidated from standalone ingest tool)
+            "path" => %{
+              "type" => "string",
+              "description" => "For ingest: file path to ingest"
+            },
+            "strategy" => %{
+              "type" => "string",
+              "enum" => ["auto", "paragraphs", "markdown", "lines", "sentences", "whole"],
+              "default" => "auto",
+              "description" => "For ingest: chunking strategy (auto detects from file extension)"
+            },
+            "tags" => %{
+              "type" => "array",
+              "items" => %{"type" => "string"},
+              "description" => "For ingest: tags to apply to all chunks"
+            },
+            "metadata" => %{
+              "type" => "object",
+              "description" => "For ingest: additional metadata for chunks"
             }
           },
           "required" => ["operation"]
         }
       },
-      # ========================================================================
-      # Tool Usage Analytics
-      # ========================================================================
       %{
         "name" => "tool_usage",
         "description" =>
@@ -756,9 +789,6 @@ defmodule Mimo.ToolRegistry do
           "required" => []
         }
       },
-      # ========================================================================
-      # SPEC-011.3: File Ingestion
-      # ========================================================================
       %{
         "name" => "ingest",
         "description" =>
@@ -802,9 +832,6 @@ defmodule Mimo.ToolRegistry do
           "required" => ["path"]
         }
       },
-      # ========================================================================
-      # SPEC-040: Awakening Status Tool
-      # ========================================================================
       %{
         "name" => "awakening_status",
         "description" =>
@@ -836,7 +863,7 @@ defmodule Mimo.ToolRegistry do
   defp catalog_tools do
     if Code.ensure_loaded?(Mimo.Skills.Catalog) do
       try do
-        Mimo.Skills.Catalog.list_tools()
+        Catalog.list_tools()
       rescue
         _ -> []
       end

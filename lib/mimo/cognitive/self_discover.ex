@@ -28,10 +28,6 @@ defmodule Mimo.Cognitive.SelfDiscover do
   alias Mimo.Brain.LLM
   alias Mimo.Cognitive.ReasoningTelemetry
 
-  # ============================================================================
-  # 39 ATOMIC REASONING MODULES (from Google DeepMind paper)
-  # ============================================================================
-
   @atomic_modules [
     # Problem decomposition (1-10)
     "How can I break down this problem into smaller, more manageable parts?",
@@ -82,10 +78,6 @@ defmodule Mimo.Cognitive.SelfDiscover do
   @cache_table :self_discover_cache
   # 1 hour in seconds
   @cache_ttl 3_600
-
-  # ============================================================================
-  # PUBLIC API
-  # ============================================================================
 
   @doc """
   Initialize the ETS cache for structure caching.
@@ -232,10 +224,6 @@ defmodule Mimo.Cognitive.SelfDiscover do
   @spec atomic_modules() :: [String.t()]
   def atomic_modules, do: @atomic_modules
 
-  # ============================================================================
-  # STAGE 1: SELECT
-  # ============================================================================
-
   defp select_modules(task, max_modules) do
     numbered_modules =
       @atomic_modules
@@ -305,10 +293,6 @@ defmodule Mimo.Cognitive.SelfDiscover do
     ]
   end
 
-  # ============================================================================
-  # STAGE 2: ADAPT
-  # ============================================================================
-
   defp adapt_modules(task, selected_modules) do
     modules_text =
       selected_modules
@@ -338,10 +322,6 @@ defmodule Mimo.Cognitive.SelfDiscover do
         {:ok, modules_text}
     end
   end
-
-  # ============================================================================
-  # STAGE 3: IMPLEMENT
-  # ============================================================================
 
   defp implement_structure(task, adapted_modules) do
     prompt = """
@@ -412,10 +392,6 @@ defmodule Mimo.Cognitive.SelfDiscover do
     }
   end
 
-  # ============================================================================
-  # CACHING
-  # ============================================================================
-
   defp task_signature(task) do
     # Create a semantic signature for caching similar tasks
     # Normalize the task to catch similar variations
@@ -463,10 +439,6 @@ defmodule Mimo.Cognitive.SelfDiscover do
       ArgumentError -> :ok
     end
   end
-
-  # ============================================================================
-  # HELPERS
-  # ============================================================================
 
   defp format_structure(structure) when is_map(structure) do
     Jason.encode!(structure, pretty: true)

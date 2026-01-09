@@ -208,8 +208,7 @@ defmodule Mimo.ProceduralStore.Validator do
       transitions
       |> Enum.filter(&is_map/1)
       |> Enum.map(&Map.get(&1, "target"))
-      |> Enum.reject(&is_nil/1)
-      |> Enum.reject(&MapSet.member?(state_names, &1))
+      |> Enum.reject(fn x -> is_nil(x) or MapSet.member?(state_names, x) end)
 
     case invalid_targets do
       [] ->
@@ -262,8 +261,7 @@ defmodule Mimo.ProceduralStore.Validator do
           transitions
           |> Enum.filter(&is_map/1)
           |> Enum.map(&Map.get(&1, "target"))
-          |> Enum.reject(&is_nil/1)
-          |> Enum.reject(&MapSet.member?(visited, &1))
+          |> Enum.reject(fn x -> is_nil(x) or MapSet.member?(visited, x) end)
 
         new_visited = Enum.reduce(targets, visited, &MapSet.put(&2, &1))
 

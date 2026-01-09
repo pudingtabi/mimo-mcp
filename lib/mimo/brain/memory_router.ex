@@ -28,7 +28,8 @@ defmodule Mimo.Brain.MemoryRouter do
   """
   require Logger
 
-  alias Mimo.Brain.HybridRetriever
+  alias Mimo.Brain.{HybridRetriever, SafeMemory}
+  alias Mimo.Cache.SearchResult
   alias Mimo.ProceduralStore
 
   # Query type indicators
@@ -41,9 +42,61 @@ defmodule Mimo.Brain.MemoryRouter do
   @factual_indicators ~w(define meaning explain describe definition)
   @factual_patterns ["what is", "what are", "what does", "what's the", "what are the"]
 
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
+  # SPEC-092: Strong temporal indicators that should redirect to list operation
+  @strong_temporal_indicators ~w(latest newest)
+  @strong_temporal_patterns ["most recent", "last created", "just added"]
+
+  @doc """
+  SPEC-092: Recommend the appropriate operation based on query intent.
+
+  For queries with strong temporal signals (e.g., "latest plan", "newest memory"),
+  recommends redirecting from search to list operation for accurate chronological results.
+
+  ## Returns
+
+    - `{:list, opts, :temporal_redirect}` - Query should use list, not search
+    - `{:search, opts, :temporal}` - Use search with recency boost
+    - `{:search, opts, :semantic}` - Normal semantic search
+
+  ## Examples
+
+      iex> MemoryRouter.recommend_operation("what is my latest plan?")
+      {:list, [sort: :recent, limit: 5], :temporal_redirect}
+
+      iex> MemoryRouter.recommend_operation("recent changes to auth")
+      {:search, [strategy: :recency_heavy], :temporal}
+
+      iex> MemoryRouter.recommend_operation("how does auth work?")
+      {:search, [strategy: :auto], :semantic}
+  """
+  @spec recommend_operation(String.t()) :: {atom(), keyword(), atom()}
+  def recommend_operation(query) do
+    query_lower = String.downcase(query)
+
+    cond do
+      has_strong_temporal?(query_lower) ->
+        {:list, [sort: :recent, limit: 5], :temporal_redirect}
+
+      has_temporal?(query_lower) ->
+        {:search, [strategy: :recency_heavy], :temporal}
+
+      true ->
+        {:search, [strategy: :auto], :semantic}
+    end
+  end
+
+  defp has_strong_temporal?(query) do
+    # Check for strong temporal words
+    has_word = Enum.any?(@strong_temporal_indicators, &String.contains?(query, &1))
+    # Check for strong temporal patterns
+    has_pattern = Enum.any?(@strong_temporal_patterns, &String.contains?(query, &1))
+    has_word or has_pattern
+  end
+
+  defp has_temporal?(query) do
+    words = query |> String.replace(~r/[^\w\s]/, "") |> String.split()
+    Enum.any?(words, &(&1 in @temporal_indicators))
+  end
 
   @doc """
   Route a query to appropriate memory stores and return results.
@@ -70,8 +123,10 @@ defmodule Mimo.Brain.MemoryRouter do
     # SPEC-073: Check search cache first for fast repeated queries
     skip_cache = Keyword.get(opts, :skip_cache, false)
 
-    if not skip_cache do
-      case Mimo.Cache.SearchResult.get(query, opts) do
+    if skip_cache do
+      do_route(query, opts)
+    else
+      case SearchResult.get(query, opts) do
         {:ok, cached_results} ->
           Logger.debug("[MemoryRouter] Cache hit for query")
           {:ok, cached_results}
@@ -79,8 +134,6 @@ defmodule Mimo.Brain.MemoryRouter do
         :miss ->
           do_route(query, opts)
       end
-    else
-      do_route(query, opts)
     end
   end
 
@@ -130,7 +183,7 @@ defmodule Mimo.Brain.MemoryRouter do
     final_results = Enum.take(results, limit)
 
     # SPEC-073: Cache results for fast repeated queries
-    Mimo.Cache.SearchResult.put(query, opts, final_results)
+    SearchResult.put(query, opts, final_results)
 
     {:ok, final_results}
   rescue
@@ -251,10 +304,6 @@ defmodule Mimo.Brain.MemoryRouter do
     }
   end
 
-  # ==========================================================================
-  # Routing Strategies
-  # ==========================================================================
-
   defp vector_route(query, opts) do
     case HybridRetriever.search(query, Keyword.merge(opts, strategy: :vector_heavy)) do
       results when is_list(results) -> results
@@ -300,12 +349,8 @@ defmodule Mimo.Brain.MemoryRouter do
     HybridRetriever.search(query, Keyword.merge(opts, strategy: :balanced))
   end
 
-  # ==========================================================================
-  # Working Memory Integration
-  # ==========================================================================
-
   defp search_working_memory(query, limit) do
-    case Mimo.Brain.SafeMemory.search(query, limit: limit) do
+    case SafeMemory.search(query, limit: limit) do
       results when is_list(results) ->
         # Convert WorkingMemoryItem structs to maps for JSON encoding
         # Add source marker and convert to scored tuples with working memory boost
@@ -326,10 +371,6 @@ defmodule Mimo.Brain.MemoryRouter do
   rescue
     _ -> []
   end
-
-  # ==========================================================================
-  # Helpers
-  # ==========================================================================
 
   defp score_indicators(words, indicators) do
     matched = Enum.count(words, &(&1 in indicators))

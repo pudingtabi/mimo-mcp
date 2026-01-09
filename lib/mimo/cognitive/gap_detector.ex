@@ -24,7 +24,7 @@ defmodule Mimo.Cognitive.GapDetector do
   - `:proceed_normally` - Continue without special handling
   """
 
-  alias Mimo.Cognitive.{Uncertainty, ConfidenceAssessor}
+  alias Mimo.Cognitive.{ConfidenceAssessor, Uncertainty}
 
   @type gap_type ::
           :no_knowledge
@@ -149,7 +149,7 @@ defmodule Mimo.Cognitive.GapDetector do
         }
 
       # Has gap indicators but otherwise okay
-      length(uncertainty.gap_indicators) > 0 ->
+      uncertainty.gap_indicators != [] ->
         %{
           gap_type: :partial_coverage,
           severity: :minor,

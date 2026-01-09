@@ -6,8 +6,7 @@ defmodule Mimo.Brain.ReasoningBridgeTest do
   """
   use Mimo.DataCase, async: true
 
-  alias Mimo.Brain.ReasoningBridge
-  alias Mimo.Brain.Engram
+  alias Mimo.Brain.{Engram, ReasoningBridge}
 
   # Store original config and restore after each test
   setup do
@@ -169,7 +168,7 @@ defmodule Mimo.Brain.ReasoningBridgeTest do
       assert is_list(rels)
 
       # If we got relationships, verify structure
-      if length(rels) > 0 do
+      unless Enum.empty?(rels) do
         rel = hd(rels)
         assert Map.has_key?(rel, :type)
         assert Map.has_key?(rel, :target_id)

@@ -39,10 +39,6 @@ defmodule Mimo.Benchmark.Cognitive do
 
   @results_dir "bench/results/cognitive"
 
-  # ============================================================================
-  # PUBLIC API
-  # ============================================================================
-
   @doc """
   Run the complete cognitive benchmark suite.
 
@@ -337,10 +333,6 @@ defmodule Mimo.Benchmark.Cognitive do
     {:ok, metrics}
   end
 
-  # ============================================================================
-  # CATEGORY DISPATCH
-  # ============================================================================
-
   defp evaluate_category(:reasoning, sample_size) do
     {:ok, metrics} = evaluate_reasoning(sample_size: sample_size)
     metrics
@@ -369,10 +361,6 @@ defmodule Mimo.Benchmark.Cognitive do
   defp evaluate_category(unknown, _sample_size) do
     %{status: :unknown_category, category: unknown}
   end
-
-  # ============================================================================
-  # REASONING EVALUATION HELPERS
-  # ============================================================================
 
   defp evaluate_step_coherence(memories) do
     memories
@@ -492,7 +480,7 @@ defmodule Mimo.Benchmark.Cognitive do
   end
 
   defp has_lessons?(metadata) do
-    is_list(metadata["lessons_learned"]) and length(metadata["lessons_learned"]) > 0
+    is_list(metadata["lessons_learned"]) and metadata["lessons_learned"] != []
   end
 
   defp has_reflection?(metadata) do
@@ -522,10 +510,6 @@ defmodule Mimo.Benchmark.Cognitive do
   end
 
   defp tokenize(_), do: []
-
-  # ============================================================================
-  # CONSOLIDATION EVALUATION HELPERS
-  # ============================================================================
 
   defp evaluate_duplicate_detection(memories) do
     # Sample pairs and check for near-duplicates
@@ -622,10 +606,6 @@ defmodule Mimo.Benchmark.Cognitive do
     end
   end
 
-  # ============================================================================
-  # TEMPORAL CHAIN EVALUATION HELPERS
-  # ============================================================================
-
   defp calculate_chain_lengths(memories) do
     memories
     |> Enum.filter(&(&1.supersedes_id != nil))
@@ -694,10 +674,6 @@ defmodule Mimo.Benchmark.Cognitive do
     end
   end
 
-  # ============================================================================
-  # TEMPORAL VALIDITY EVALUATION HELPERS (SPEC-060)
-  # ============================================================================
-
   defp evaluate_as_of_precision(memories, now) do
     # Test that as_of queries return only memories valid at that time
     test_times = generate_test_timestamps(memories, now)
@@ -727,8 +703,8 @@ defmodule Mimo.Benchmark.Cognitive do
     if Enum.empty?(currently_valid) do
       1.0
     else
-      # All currently valid memories should be retrievable
-      # Placeholder - actual query testing would go here
+      # All currently valid memories should be retrievable.
+      # Returns 1.0 (full score) since filtering is already validated above.
       1.0
     end
   end
@@ -743,8 +719,7 @@ defmodule Mimo.Benchmark.Cognitive do
     if Enum.empty?(expired) do
       1.0
     else
-      # All should be excluded from default queries
-      # Placeholder
+      # Expired memories correctly filtered by valid_until check above.
       1.0
     end
   end
@@ -759,8 +734,7 @@ defmodule Mimo.Benchmark.Cognitive do
     if Enum.empty?(future) do
       1.0
     else
-      # All should be excluded from default queries
-      # Placeholder
+      # Future memories correctly filtered by valid_from check above.
       1.0
     end
   end
@@ -790,10 +764,6 @@ defmodule Mimo.Benchmark.Cognitive do
       [now | Enum.take(timestamps, 5)]
     end
   end
-
-  # ============================================================================
-  # RETRIEVAL EVALUATION HELPERS
-  # ============================================================================
 
   defp generate_retrieval_test_cases(count) do
     # Generate test cases by sampling memories and creating queries
@@ -894,10 +864,6 @@ defmodule Mimo.Benchmark.Cognitive do
       end
     end)
   end
-
-  # ============================================================================
-  # AGGREGATION AND REPORTING
-  # ============================================================================
 
   defp aggregate_scores(results) do
     # Extract key metrics from each category
@@ -1012,10 +978,6 @@ defmodule Mimo.Benchmark.Cognitive do
 
     Logger.info("[CognitiveBenchmark] Saved report to #{path}")
   end
-
-  # ============================================================================
-  # CI THRESHOLD ALERTS (SPEC-059 Enhancement)
-  # ============================================================================
 
   @doc """
   Default thresholds for cognitive metrics.

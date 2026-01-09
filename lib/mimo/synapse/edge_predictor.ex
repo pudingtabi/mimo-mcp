@@ -42,13 +42,9 @@ defmodule Mimo.Synapse.EdgePredictor do
   require Logger
 
   import Ecto.Query
-  alias Mimo.{Repo, Brain.Engram}
-  alias Mimo.Synapse.{GraphNode, GraphEdge}
+  alias Mimo.{Brain.Engram, Repo}
+  alias Mimo.Synapse.{GraphEdge, GraphNode}
   alias Mimo.Vector.Math, as: VectorMath
-
-  # ==========================================================================
-  # Configuration
-  # ==========================================================================
 
   # Minimum cosine similarity to consider an edge
   @similarity_threshold 0.7
@@ -62,9 +58,114 @@ defmodule Mimo.Synapse.EdgePredictor do
   # Edge type for predicted edges (uses existing :relates_to from schema)
   @edge_type :relates_to
 
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
+  # ─────────────────────────────────────────────────────────────────
+  # Phase 3 L3: Learning-enhanced prediction
+  # ─────────────────────────────────────────────────────────────────
+
+  # ETS table for storing validated predictions (from learning outcomes)
+  @validated_pairs_table :mimo_edge_predictor_validated
+
+  # Boost factor for pairs that were used successfully together
+  @validation_boost 0.15
+
+  @doc """
+  Initialize learning integration for EdgePredictor.
+
+  Creates ETS table for tracking validated predictions and
+  attaches telemetry handler for learning outcomes.
+  """
+  @spec init_learning() :: :ok
+  def init_learning do
+    # Create ETS table for validated pairs if it doesn't exist
+    if :ets.whereis(@validated_pairs_table) == :undefined do
+      :ets.new(@validated_pairs_table, [:named_table, :public, :set])
+    end
+
+    # Attach telemetry handler for learning outcomes
+    handler_id = {__MODULE__, :learning_outcome}
+
+    # Detach first to avoid duplicate handlers
+    :telemetry.detach(handler_id)
+
+    :telemetry.attach(
+      handler_id,
+      [:mimo, :learning, :outcome],
+      &handle_learning_outcome/4,
+      %{}
+    )
+
+    Logger.debug("[EdgePredictor] Learning integration initialized")
+    :ok
+  end
+
+  @doc false
+  def handle_learning_outcome(_event, _measurements, metadata, _config) do
+    success = Map.get(metadata, :success, false)
+    memory_ids = Map.get(metadata, :memory_ids, [])
+
+    # Only track successful memory pair validations
+    if success and length(memory_ids) >= 2 do
+      # Record these pairs as validated
+      for {id1, id2} <- generate_pairs(memory_ids) do
+        record_validated_pair(id1, id2)
+      end
+    end
+
+    :ok
+  rescue
+    e ->
+      Logger.warning("[EdgePredictor] Error handling learning outcome: #{Exception.message(e)}")
+      :ok
+  end
+
+  @doc """
+  Record that a pair of memories was used successfully together.
+
+  This information is used to boost predictions for these pairs.
+  """
+  @spec record_validated_pair(integer(), integer()) :: :ok
+  def record_validated_pair(id1, id2) when is_integer(id1) and is_integer(id2) do
+    # Always store with smaller ID first for consistency
+    key = if id1 < id2, do: {id1, id2}, else: {id2, id1}
+
+    case :ets.lookup(@validated_pairs_table, key) do
+      [{^key, count}] ->
+        :ets.insert(@validated_pairs_table, {key, count + 1})
+
+      [] ->
+        :ets.insert(@validated_pairs_table, {key, 1})
+    end
+
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  @doc """
+  Get validation count for a memory pair.
+
+  Returns the number of times this pair was used successfully together.
+  """
+  @spec get_validation_count(integer(), integer()) :: non_neg_integer()
+  def get_validation_count(id1, id2) when is_integer(id1) and is_integer(id2) do
+    key = if id1 < id2, do: {id1, id2}, else: {id2, id1}
+
+    case :ets.lookup(@validated_pairs_table, key) do
+      [{^key, count}] -> count
+      [] -> 0
+    end
+  rescue
+    _ -> 0
+  end
+
+  defp generate_pairs(ids) when length(ids) < 2, do: []
+
+  defp generate_pairs(ids) do
+    for i <- 0..(length(ids) - 2),
+        j <- (i + 1)..(length(ids) - 1) do
+      {Enum.at(ids, i), Enum.at(ids, j)}
+    end
+  end
 
   @doc """
   Predict potential edges for a specific memory.
@@ -76,11 +177,13 @@ defmodule Mimo.Synapse.EdgePredictor do
 
     - `:limit` - Maximum predictions to return (default: 5)
     - `:min_similarity` - Minimum similarity threshold (default: 0.7)
+    - `:use_validation_boost` - Apply boost for validated pairs (default: true)
   """
   @spec predict_for(integer(), keyword()) :: [{integer(), float()}]
   def predict_for(memory_id, opts \\ []) do
     limit = Keyword.get(opts, :limit, 5)
     min_sim = Keyword.get(opts, :min_similarity, @similarity_threshold)
+    use_boost = Keyword.get(opts, :use_validation_boost, true)
 
     # Get the source memory with embedding
     case get_memory_with_embedding(memory_id) do
@@ -96,9 +199,34 @@ defmodule Mimo.Synapse.EdgePredictor do
 
         similar
         |> Enum.reject(fn {id, _sim} -> id == memory_id || id in existing_edges end)
+        |> maybe_apply_validation_boost(memory_id, use_boost)
         |> Enum.filter(fn {_id, sim} -> sim >= min_sim end)
+        |> Enum.sort_by(fn {_id, sim} -> sim end, :desc)
         |> Enum.take(limit)
     end
+  end
+
+  # Apply validation boost to similarity scores for pairs that were
+  # used successfully together (Phase 3 L3 learning integration)
+  defp maybe_apply_validation_boost(predictions, _source_id, false), do: predictions
+
+  defp maybe_apply_validation_boost(predictions, source_id, true) do
+    Enum.map(predictions, fn {target_id, similarity} ->
+      validation_count = get_validation_count(source_id, target_id)
+
+      # Boost = base similarity + (validation_boost * log2(count + 1))
+      # This gives diminishing returns: 1 validation = +0.15, 3 = +0.30, 7 = +0.45
+      boost =
+        if validation_count > 0 do
+          @validation_boost * :math.log2(validation_count + 1)
+        else
+          0.0
+        end
+
+      # Cap boosted similarity at 0.99
+      boosted_sim = min(similarity + boost, 0.99)
+      {target_id, boosted_sim}
+    end)
   end
 
   @doc """
@@ -181,6 +309,8 @@ defmodule Mimo.Synapse.EdgePredictor do
 
   @doc """
   Get prediction statistics.
+
+  Includes Phase 3 learning metrics for validated pairs.
   """
   def stats do
     # Count edges created by edge_predictor (identified by source field)
@@ -200,17 +330,30 @@ defmodule Mimo.Synapse.EdgePredictor do
         )
       ) || 0
 
+    # Phase 3 L3: Count validated pairs from learning
+    validated_pair_count = get_validated_pair_count()
+
     %{
       predicted_edges_created: predicted_edge_count,
       engrams_with_embeddings: total_engrams_with_embeddings,
       similarity_threshold: @similarity_threshold,
-      edge_type: @edge_type
+      edge_type: @edge_type,
+      # Phase 3 learning metrics
+      validated_pairs: validated_pair_count,
+      validation_boost: @validation_boost
     }
   end
 
-  # ==========================================================================
-  # Private Implementation
-  # ==========================================================================
+  # Count total validated pairs in ETS
+  defp get_validated_pair_count do
+    if :ets.whereis(@validated_pairs_table) != :undefined do
+      :ets.info(@validated_pairs_table, :size) || 0
+    else
+      0
+    end
+  rescue
+    _ -> 0
+  end
 
   defp get_memory_with_embedding(memory_id) do
     Repo.one(

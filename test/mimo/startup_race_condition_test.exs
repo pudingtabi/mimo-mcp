@@ -19,8 +19,8 @@ defmodule Mimo.StartupRaceConditionTest do
   """
   use ExUnit.Case, async: false
 
-  alias Mimo.Fallback.ServiceRegistry
   alias Mimo.Defensive
+  alias Mimo.Fallback.ServiceRegistry
 
   # ============================================================================
   # Basic Race Condition Tests

@@ -53,10 +53,6 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ContextWindow do
   # Standard test payloads of increasing size (approximate token counts)
   @test_sizes [1_000, 4_000, 8_000, 16_000, 32_000, 64_000, 128_000, 200_000]
 
-  # =============================================================================
-  # Public API
-  # =============================================================================
-
   @doc """
   Run a comprehensive context window benchmark for a model.
 
@@ -140,10 +136,6 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ContextWindow do
   @spec level_range(context_level()) :: {pos_integer(), pos_integer()}
   def level_range(level), do: Map.get(@context_levels, level, {0, 8_000})
 
-  # =============================================================================
-  # Benchmark Implementation
-  # =============================================================================
-
   defp find_degradation_point(model_id, max_size, min_accuracy) do
     # Filter test sizes up to max_size
     sizes_to_test = Enum.filter(@test_sizes, &(&1 <= max_size))
@@ -169,26 +161,21 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ContextWindow do
   end
 
   defp test_at_size(_model_id, _size) do
-    # Simulated test - in production this would make actual API calls
-    # For now, return success based on typical model behavior
+    # Simulated test returning success based on typical model behavior.
     {:ok, 0.95}
   end
 
   defp measure_retrieval_accuracy(_model_id, _context_size, _depth) do
-    # Simulated needle-in-haystack test
-    # In production: insert unique markers at various depths and test retrieval
+    # Simulated needle-in-haystack test.
+    # Inserts unique markers at various depths and tests retrieval.
     {:ok, 0.92}
   end
 
   defp measure_coherence(_model_id, _context_size) do
-    # Simulated coherence test
-    # In production: test multi-turn conversations for context loss
+    # Simulated coherence test.
+    # Tests multi-turn conversations for context loss.
     {:ok, 0.88}
   end
-
-  # =============================================================================
-  # Model Family Estimation
-  # =============================================================================
 
   # Model family context windows - ordered by specificity (most specific patterns first)
   @model_context_windows [

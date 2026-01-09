@@ -85,10 +85,6 @@ defmodule Mimo.Cognitive.Amplifier.ChallengeGenerator do
     ]
   }
 
-  # ============================================================================
-  # Public API
-  # ============================================================================
-
   @doc """
   Generate challenges for a thought or reasoning step.
 
@@ -218,10 +214,6 @@ defmodule Mimo.Cognitive.Amplifier.ChallengeGenerator do
     end
   end
 
-  # ============================================================================
-  # Private: Template-based Generation
-  # ============================================================================
-
   defp generate_from_templates(thought, context, types) do
     Enum.flat_map(types, fn type ->
       templates = Map.get(@challenge_templates, type, [])
@@ -270,14 +262,10 @@ defmodule Mimo.Cognitive.Amplifier.ChallengeGenerator do
     end)
   end
 
-  # ============================================================================
-  # Private: Memory-based Generation
-  # ============================================================================
-
   defp generate_from_memory(thought, _context) do
     # Search for contradicting facts in memory
     case Memory.search_memories(thought, limit: 5, min_similarity: 0.5) do
-      memories when is_list(memories) and length(memories) > 0 ->
+      memories when is_list(memories) and memories != [] ->
         memories
         |> Enum.filter(&potentially_contradicts?(thought, &1))
         |> Enum.take(2)
@@ -314,10 +302,6 @@ defmodule Mimo.Cognitive.Amplifier.ChallengeGenerator do
     thought_has_negation != memory_has_negation
   end
 
-  # ============================================================================
-  # Private: Correction-based Generation
-  # ============================================================================
-
   defp generate_from_corrections(thought, _context) do
     case CorrectionLearning.check_against_corrections(thought) do
       {:contradiction, correction} ->
@@ -337,10 +321,6 @@ defmodule Mimo.Cognitive.Amplifier.ChallengeGenerator do
   rescue
     _ -> []
   end
-
-  # ============================================================================
-  # Private: Severity Assignment
-  # ============================================================================
 
   defp default_severity(type) do
     case type do

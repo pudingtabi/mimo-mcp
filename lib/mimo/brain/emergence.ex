@@ -91,13 +91,13 @@ defmodule Mimo.Brain.Emergence do
   require Logger
 
   alias Mimo.Brain.Emergence.{
-    Detector,
-    Pattern,
+    Alerts,
     Amplifier,
-    Promoter,
     Catalog,
+    Detector,
     Metrics,
-    Alerts
+    Pattern,
+    Promoter
   }
 
   # ─────────────────────────────────────────────────────────────────

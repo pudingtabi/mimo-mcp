@@ -82,6 +82,12 @@ defmodule Mimo.Skills.Browser do
   - `:cookies` - List of cookies to set
   - `:headers` - Additional headers
 
+  ## 2025 Stealth Options (for protected sites)
+
+  - `:proxy` - Proxy URL (http://user:pass@host:port) for IP rotation
+  - `:headed` - Run with visible browser for hard targets (default: false)
+  - `:session_id` - Save/load cookies for persistent sessions
+
   ## Returns
 
   - `{:ok, %{status: int, body: binary, ...}}`
@@ -119,7 +125,16 @@ defmodule Mimo.Skills.Browser do
   end
 
   @doc """
-  Fetch URL using full browser with Puppeteer.
+  Fetch URL using full browser with Puppeteer (enhanced stealth mode).
+
+  ## 2025 Stealth Features
+
+  - Viewport randomization (defeats fingerprinting)
+  - Canvas noise injection (breaks canvas fingerprinting)
+  - WebGL vendor spoofing (hides GPU info)
+  - Session persistence (cookies saved/loaded automatically)
+  - Proxy support (IP rotation)
+  - Headed mode option (for Turnstile/hard targets)
   """
   def browser_fetch(url, opts \\ []) do
     if puppeteer_available?() do
@@ -131,7 +146,11 @@ defmodule Mimo.Skills.Browser do
         waitForNavigation: Keyword.get(opts, :wait_for_navigation, true),
         waitForChallenge: Keyword.get(opts, :wait_for_challenge, true),
         cookies: Keyword.get(opts, :cookies, []),
-        headers: Keyword.get(opts, :headers, %{})
+        headers: Keyword.get(opts, :headers, %{}),
+        # 2025 stealth options
+        proxy: Keyword.get(opts, :proxy),
+        headed: Keyword.get(opts, :headed, false),
+        sessionId: Keyword.get(opts, :session_id)
       }
 
       execute_command("fetch", options)

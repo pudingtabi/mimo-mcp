@@ -1,4 +1,8 @@
 defmodule Mimo.McpServer.Stdio do
+  alias Mimo.Awakening.PromptResource
+  alias Mimo.Brain.ThreadManager
+  alias Mimo.Skills.Client, as: SkillsClient
+
   @moduledoc """
   Native Elixir implementation of the MCP Model Context Protocol over Stdio.
   Replaces the legacy Python bridge and Mimo.McpCli.
@@ -207,7 +211,7 @@ defmodule Mimo.McpServer.Stdio do
 
   # SPEC-040: Prompts/list handler
   defp handle_request(%{"method" => "prompts/list", "id" => id}) do
-    prompts = Mimo.Awakening.PromptResource.list_prompts()
+    prompts = PromptResource.list_prompts()
     send_response(id, %{"prompts" => prompts})
   end
 
@@ -216,7 +220,7 @@ defmodule Mimo.McpServer.Stdio do
     name = params["name"]
     arguments = params["arguments"] || %{}
 
-    case Mimo.Awakening.PromptResource.get_prompt(name, arguments) do
+    case PromptResource.get_prompt(name, arguments) do
       {:ok, result} ->
         send_response(id, result)
 
@@ -245,7 +249,7 @@ defmodule Mimo.McpServer.Stdio do
         # External skill - already running (with timeout)
         execute_with_timeout(
           fn ->
-            result = Mimo.Skills.Client.call_tool(skill_name, tool_name, args)
+            result = SkillsClient.call_tool(skill_name, tool_name, args)
             duration = System.monotonic_time(:millisecond) - start_time
             # Auto-memory: record tool interactions
             Mimo.AutoMemory.wrap_tool_call(tool_name, args, result)
@@ -261,7 +265,7 @@ defmodule Mimo.McpServer.Stdio do
         # External skill - lazy spawn (with timeout)
         execute_with_timeout(
           fn ->
-            result = Mimo.Skills.Client.call_tool_sync(skill_name, config, tool_name, args)
+            result = SkillsClient.call_tool_sync(skill_name, config, tool_name, args)
             duration = System.monotonic_time(:millisecond) - start_time
             # Auto-memory: record tool interactions
             Mimo.AutoMemory.wrap_tool_call(tool_name, args, result)
@@ -355,7 +359,7 @@ defmodule Mimo.McpServer.Stdio do
   defp record_interaction(tool_name, args, result, duration_ms) do
     result_summary = summarize_result(result)
 
-    Mimo.Brain.ThreadManager.record_interaction(tool_name,
+    ThreadManager.record_interaction(tool_name,
       arguments: args,
       result_summary: result_summary,
       duration_ms: duration_ms

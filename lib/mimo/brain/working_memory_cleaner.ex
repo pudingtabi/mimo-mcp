@@ -1,4 +1,6 @@
 defmodule Mimo.Brain.WorkingMemoryCleaner do
+  alias Mimo.Brain.WorkingMemory
+
   @moduledoc """
   Periodic cleanup process for expired working memory items.
 
@@ -45,7 +47,7 @@ defmodule Mimo.Brain.WorkingMemoryCleaner do
   end
 
   defp run_cleanup(state) do
-    case Mimo.Brain.WorkingMemory.clear_expired() do
+    case WorkingMemory.clear_expired() do
       {:ok, deleted} ->
         {deleted,
          %{

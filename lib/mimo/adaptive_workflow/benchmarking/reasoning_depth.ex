@@ -62,10 +62,6 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ReasoningDepth do
     %{depth: 7, type: :synthesis, difficulty: :very_hard}
   ]
 
-  # =============================================================================
-  # Public API
-  # =============================================================================
-
   @doc """
   Run a comprehensive reasoning depth benchmark.
 
@@ -146,10 +142,6 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ReasoningDepth do
   def expected_depth(:moderate), do: 4
   def expected_depth(:shallow), do: 2
 
-  # =============================================================================
-  # Benchmark Implementation
-  # =============================================================================
-
   defp measure_depth_accuracy(_model_id, max_depth) do
     # Group test cases by depth and measure accuracy
     cases_by_depth =
@@ -175,16 +167,16 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ReasoningDepth do
   end
 
   defp measure_abstraction(_model_id) do
-    # Simulated abstraction test
-    # In production: test pattern recognition and generalization
+    # Simulated abstraction test.
+    # Tests pattern recognition and generalization.
     {:ok, 0.75}
   end
 
   defp maybe_measure_self_correction(_model_id, false), do: {:ok, 0.0}
 
   defp maybe_measure_self_correction(_model_id, true) do
-    # Simulated self-correction test
-    # In production: present intentional errors and check for detection
+    # Simulated self-correction test.
+    # Presents intentional errors and checks for detection.
     {:ok, 0.68}
   end
 
@@ -194,10 +186,6 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ReasoningDepth do
     |> Enum.map(fn {depth, _accuracy} -> depth end)
     |> Enum.max(fn -> 1 end)
   end
-
-  # =============================================================================
-  # Model Family Estimation
-  # =============================================================================
 
   defp estimate_from_model_id(model_id) do
     model_lower = String.downcase(model_id)

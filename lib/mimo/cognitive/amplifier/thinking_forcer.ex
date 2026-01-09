@@ -27,8 +27,8 @@ defmodule Mimo.Cognitive.Amplifier.ThinkingForcer do
 
   require Logger
 
-  alias Mimo.Cognitive.ProblemAnalyzer
   alias Mimo.Cognitive.Amplifier.AmplificationLevel
+  alias Mimo.Cognitive.ProblemAnalyzer
 
   @type decomposition_strategy ::
           :sub_questions
@@ -102,10 +102,6 @@ defmodule Mimo.Cognitive.Amplifier.ThinkingForcer do
     decision: [:alternatives, :constraints, :assumptions]
   }
 
-  # ============================================================================
-  # Public API
-  # ============================================================================
-
   @doc """
   Analyze a prompt and determine if decomposition should be forced.
 
@@ -113,9 +109,7 @@ defmodule Mimo.Cognitive.Amplifier.ThinkingForcer do
   """
   @spec force(String.t(), AmplificationLevel.t(), keyword()) :: forcing_result()
   def force(prompt, level, opts \\ []) do
-    if not level.decomposition do
-      %{required: false, prompts: [], strategies_used: [], min_responses: 0}
-    else
+    if level.decomposition do
       complexity = analyze_complexity(prompt)
 
       if should_force?(complexity, level, opts) do
@@ -131,6 +125,8 @@ defmodule Mimo.Cognitive.Amplifier.ThinkingForcer do
       else
         %{required: false, prompts: [], strategies_used: [], min_responses: 0}
       end
+    else
+      %{required: false, prompts: [], strategies_used: [], min_responses: 0}
     end
   end
 
@@ -203,10 +199,6 @@ defmodule Mimo.Cognitive.Amplifier.ThinkingForcer do
     Map.get(@pattern_strategies, problem_type, [:sub_questions, :assumptions])
   end
 
-  # ============================================================================
-  # Private Implementation
-  # ============================================================================
-
   defp analyze_complexity(prompt) do
     # Use existing ProblemAnalyzer
     analysis = ProblemAnalyzer.analyze(prompt)
@@ -244,12 +236,9 @@ defmodule Mimo.Cognitive.Amplifier.ThinkingForcer do
     # Adjust count based on complexity
     count =
       case complexity do
-        :trivial -> 1
         :simple -> 1
         :moderate -> 2
         :complex -> 3
-        :very_complex -> 4
-        _ -> 2
       end
 
     # Override with explicit strategies if provided

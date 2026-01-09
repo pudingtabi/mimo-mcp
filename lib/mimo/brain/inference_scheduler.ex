@@ -46,10 +46,6 @@ defmodule Mimo.Brain.InferenceScheduler do
   # Wait 1 minute after rate limit
   @rate_limit_backoff_ms 60_000
 
-  # =============================================================================
-  # Public API
-  # =============================================================================
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -105,10 +101,6 @@ defmodule Mimo.Brain.InferenceScheduler do
   def stats do
     GenServer.call(__MODULE__, :stats)
   end
-
-  # =============================================================================
-  # GenServer Callbacks
-  # =============================================================================
 
   @impl true
   def init(_opts) do
@@ -205,7 +197,7 @@ defmodule Mimo.Brain.InferenceScheduler do
   @impl true
   def handle_info(:process, state) do
     new_state =
-      if idle?(state) and length(state.pending_batch) > 0 do
+      if idle?(state) and state.pending_batch != [] do
         process_batch(state)
       else
         state
@@ -221,10 +213,6 @@ defmodule Mimo.Brain.InferenceScheduler do
     new_state = process_batch(state)
     {:noreply, %{new_state | batch_timer: nil}}
   end
-
-  # =============================================================================
-  # Private Implementation
-  # =============================================================================
 
   defp process_single_request(request, state) do
     result = do_llm_request(request.prompt, request.opts)

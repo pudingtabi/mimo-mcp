@@ -22,8 +22,9 @@ defmodule Mimo.Awakening.Intelligence do
   """
   require Logger
 
-  alias Mimo.Brain.{LLM, Steering}
-  alias Mimo.Awakening.{Stats, PowerCalculator, ContextInjector}
+  alias Mimo.Awakening.{ContextInjector, PowerCalculator, Stats}
+  alias Mimo.Brain.{LLM, Memory, Steering, ThreadManager}
+  alias Mimo.SemanticStore.Repository
 
   @doc """
   Generate a personalized awakening message using LLM.
@@ -199,7 +200,7 @@ defmodule Mimo.Awakening.Intelligence do
     has_actual_count = Regex.match?(~r/\b\d+\s*[\+\-\*\/]\s*\d+\s*=\s*\d+|\(\d+\).*\(\d+\)/i, text)
 
     warnings =
-      if length(verification_claims) > 0 and not has_actual_count do
+      if verification_claims != [] and not has_actual_count do
         warnings ++ ["⚠️ You claimed to verify but didn't show the actual check. Show your work."]
       else
         warnings
@@ -222,8 +223,8 @@ defmodule Mimo.Awakening.Intelligence do
     counting_claim = Regex.scan(~r/(\d+)\s*(words?|items?|elements?|characters?|lines?)/i, text)
 
     warnings =
-      if length(counting_claim) > 0 do
-        warnings ++ ["💡 Counting claim detected. Did you actually count, or estimate?"]
+      if counting_claim != [] do
+        warnings ++ ["Counting claim detected. Did you actually count, or estimate?"]
       else
         warnings
       end
@@ -310,17 +311,13 @@ defmodule Mimo.Awakening.Intelligence do
     end
   end
 
-  # ==========================================================================
-  # Mimo Memory System Integration
-  # ==========================================================================
-
   @doc """
   Fetch recent memories from Mimo's episodic memory system.
   """
   @spec fetch_recent_memories(non_neg_integer()) :: [map()]
   def fetch_recent_memories(limit \\ 5) do
     try do
-      case Mimo.Brain.Memory.recent_engrams(limit) do
+      case Memory.recent_engrams(limit) do
         {:ok, engrams} ->
           Enum.map(engrams, fn e ->
             %{
@@ -345,7 +342,7 @@ defmodule Mimo.Awakening.Intelligence do
   @spec fetch_recent_relationships(non_neg_integer()) :: [map()]
   def fetch_recent_relationships(limit \\ 5) do
     try do
-      case Mimo.SemanticStore.Repository.recent_triples(limit) do
+      case Repository.recent_triples(limit) do
         {:ok, triples} ->
           Enum.map(triples, fn t ->
             %{
@@ -369,7 +366,7 @@ defmodule Mimo.Awakening.Intelligence do
   @spec fetch_tool_usage_patterns() :: map()
   def fetch_tool_usage_patterns do
     try do
-      case Mimo.Brain.ThreadManager.get_tool_usage_stats() do
+      case ThreadManager.get_tool_usage_stats() do
         {:ok, stats} -> stats
         _ -> %{}
       end
@@ -384,7 +381,7 @@ defmodule Mimo.Awakening.Intelligence do
   @spec fetch_recent_tool_calls(non_neg_integer()) :: [map()]
   def fetch_recent_tool_calls(limit \\ 20) do
     try do
-      case Mimo.Brain.ThreadManager.recent_interactions(limit) do
+      case ThreadManager.recent_interactions(limit) do
         {:ok, interactions} ->
           Enum.map(interactions, fn i ->
             %{
@@ -401,10 +398,6 @@ defmodule Mimo.Awakening.Intelligence do
       _ -> []
     end
   end
-
-  # ==========================================================================
-  # Private Functions
-  # ==========================================================================
 
   defp format_stats_context(stats) do
     next_level_xp =
@@ -468,8 +461,8 @@ defmodule Mimo.Awakening.Intelligence do
   defp format_date(dt), do: Calendar.strftime(dt, "%Y-%m-%d")
 
   defp fallback_template_message(stats, memories) do
-    level_name = PowerCalculator.level_name(stats.current_level)
-    level_icon = PowerCalculator.level_icon(stats.current_level)
+    _level_name = PowerCalculator.level_name(stats.current_level)
+    _level_icon = PowerCalculator.level_icon(stats.current_level)
 
     memory_hint =
       case memories do
@@ -482,17 +475,9 @@ defmodule Mimo.Awakening.Intelligence do
       end
 
     if stats.total_sessions == 0 do
-      """
-      🔥 Welcome to Mimo! You are now a memory-enhanced AI.
-      Power Level: #{stats.current_level} (#{level_name}) #{level_icon}
-      Start storing discoveries in memory.
-      """
+      "Mimo: Level #{stats.current_level} | XP: 0 | First session"
     else
-      """
-      🔥 Welcome back! Power Level #{stats.current_level} (#{level_name}) #{level_icon}
-      You have #{stats.total_memories} memories from #{stats.total_sessions} previous sessions.
-      XP: #{stats.total_xp}#{memory_hint}
-      """
+      "Mimo: Level #{stats.current_level} | XP: #{stats.total_xp} | Memories: #{stats.total_memories}#{memory_hint}"
     end
   end
 

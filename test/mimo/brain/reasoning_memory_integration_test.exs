@@ -6,8 +6,7 @@ defmodule Mimo.Brain.ReasoningMemoryIntegrationTest do
   """
   use Mimo.DataCase
 
-  alias Mimo.Brain.Memory
-  alias Mimo.Brain.Engram
+  alias Mimo.Brain.{Engram, Memory}
   alias Mimo.Repo
 
   # Store original config and restore after each test

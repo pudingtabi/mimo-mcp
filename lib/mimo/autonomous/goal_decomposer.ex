@@ -30,8 +30,8 @@ defmodule Mimo.Autonomous.GoalDecomposer do
 
   require Logger
 
-  alias Mimo.Cognitive.ProblemAnalyzer
   alias Mimo.Brain.Memory
+  alias Mimo.Cognitive.ProblemAnalyzer
 
   # Maximum sub-tasks to generate (prevent runaway decomposition)
   @max_sub_tasks 10
@@ -147,10 +147,6 @@ defmodule Mimo.Autonomous.GoalDecomposer do
     end
   end
 
-  # =============================================================================
-  # PRIVATE FUNCTIONS
-  # =============================================================================
-
   defp decompose_task(task_spec, description, complexity) do
     Logger.info(
       "[GoalDecomposer] Decomposing #{complexity} task: #{String.slice(description, 0, 50)}..."
@@ -232,8 +228,7 @@ defmodule Mimo.Autonomous.GoalDecomposer do
   defp infer_initial_dependencies(_index), do: [:previous]
 
   defp detect_dependencies(sub_tasks) do
-    # Build a dependency map based on task content
-    # For now, use sequential dependencies with some parallelization opportunities
+    # Builds dependency map with sequential dependencies and parallelization hints.
 
     sub_tasks
     |> Enum.reduce(%{}, fn task, deps ->

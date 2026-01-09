@@ -104,10 +104,6 @@ defmodule Mimo.Awakening.Hooks do
     end)
   end
 
-  # ============================================================================
-  # Private Functions
-  # ============================================================================
-
   # Check if awakening system is available
   defp awakening_available? do
     # Check if SessionTracker is running

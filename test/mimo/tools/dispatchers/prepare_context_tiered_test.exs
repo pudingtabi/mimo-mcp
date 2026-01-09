@@ -4,9 +4,9 @@ defmodule Mimo.Tools.Dispatchers.PrepareContextTieredTest do
   """
   use Mimo.DataCase, async: false
 
-  alias Mimo.Tools.Dispatchers.PrepareContext
-  alias Mimo.Context.BudgetAllocator
   alias Mimo.Brain.HybridScorer
+  alias Mimo.Context.BudgetAllocator
+  alias Mimo.Tools.Dispatchers.PrepareContext
 
   describe "dispatch/1 with tiered: true" do
     test "returns tiered response structure" do
@@ -161,7 +161,7 @@ defmodule Mimo.Tools.Dispatchers.PrepareContextTieredTest do
       _items_with_relevance = Enum.filter(all_items, &Map.has_key?(&1, :relevance))
 
       # If we have items, at least some should have relevance scores
-      if length(all_items) > 0 do
+      unless Enum.empty?(all_items) do
         # This is a soft assertion - not all items may have relevance
         assert true
       end

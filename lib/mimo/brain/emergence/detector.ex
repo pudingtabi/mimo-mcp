@@ -33,9 +33,11 @@ defmodule Mimo.Brain.Emergence.Detector do
 
   require Logger
 
-  alias Mimo.Brain.{Memory, Interaction}
   alias Mimo.Brain.Emergence.Pattern
+  alias Mimo.Brain.{Interaction, Memory, LLM}
   alias Mimo.Repo
+  alias Mimo.Synapse.Graph
+  alias Mimo.Vector.Math, as: VectorMath
   import Ecto.Query
 
   @detection_modes [
@@ -43,7 +45,11 @@ defmodule Mimo.Brain.Emergence.Detector do
     :cross_memory_inference,
     :novel_tool_chains,
     :prediction_success,
-    :capability_transfer
+    :capability_transfer,
+    # Phase 4: E1 - LLM-enhanced pattern detection
+    :semantic_clustering,
+    # Phase 4: E3 - Cross-session pattern tracking
+    :cross_session
   ]
 
   # Minimum sequence length to consider
@@ -52,8 +58,13 @@ defmodule Mimo.Brain.Emergence.Detector do
   # Minimum occurrences for a pattern to be significant
   @min_occurrences 3
 
-  # Similarity threshold for sequence matching (reserved for future use)
-  # @sequence_similarity_threshold 0.8
+  # Phase 4 E1: Semantic clustering thresholds
+  @semantic_similarity_threshold 0.85
+  @min_cluster_size 3
+
+  # Phase 4 E3: Cross-session pattern thresholds
+  @min_sessions_for_pattern 2
+  @session_window_days 7
 
   # ─────────────────────────────────────────────────────────────────
   # Public API
@@ -70,6 +81,8 @@ defmodule Mimo.Brain.Emergence.Detector do
       :novel_tool_chains -> detect_tool_patterns(context)
       :prediction_success -> detect_predictions(context)
       :capability_transfer -> detect_transfer(context)
+      :semantic_clustering -> detect_semantic_clusters(context)
+      :cross_session -> detect_cross_session(context)
     end
   end
 
@@ -87,6 +100,16 @@ defmodule Mimo.Brain.Emergence.Detector do
       |> Map.new()
 
     {:ok, results}
+  end
+
+  @doc """
+  Returns the list of available detection modes.
+
+  Used by MetaLearner to understand what detection strategies are available.
+  """
+  @spec available_modes() :: [atom()]
+  def available_modes do
+    @detection_modes
   end
 
   @doc """
@@ -345,7 +368,7 @@ defmodule Mimo.Brain.Emergence.Detector do
   # Gather knowledge graph nodes related to query
   defp gather_knowledge_nodes(query) do
     try do
-      case Mimo.Synapse.Graph.search_nodes(query, limit: 5) do
+      case Graph.search_nodes(query, limit: 5) do
         nodes when is_list(nodes) ->
           Enum.map(nodes, fn n ->
             %{content: n.name || n.id, category: "knowledge", type: n.type}
@@ -473,8 +496,7 @@ defmodule Mimo.Brain.Emergence.Detector do
   end
 
   defp filter_novel_combinations(chains) do
-    # A novel combination is one that uses unusual tool pairs
-    # For now, just filter to chains with 3+ different tools
+    # Novel combinations use 3+ different tools in sequence.
     chains
     |> Enum.filter(fn chain ->
       chain.tools |> Enum.uniq() |> length() >= 3
@@ -529,7 +551,7 @@ defmodule Mimo.Brain.Emergence.Detector do
 
     # Search for confirmation memories
     confirmations = Memory.search_memories("confirmed #{content}", limit: 5)
-    length(confirmations) > 0
+    confirmations != []
   end
 
   defp create_heuristic_pattern(prediction) do
@@ -641,6 +663,399 @@ defmodule Mimo.Brain.Emergence.Detector do
       metadata: %{
         domains: transfer.domains,
         transfer_type: "capability_transfer"
+      }
+    }
+  end
+
+  # ─────────────────────────────────────────────────────────────────
+  # Phase 4 E1: Semantic Pattern Clustering
+  # Uses embeddings to find semantically similar interaction patterns
+  # ─────────────────────────────────────────────────────────────────
+
+  # Detects patterns using semantic clustering with embeddings.
+  #
+  # Unlike string-based grouping, this finds patterns that are
+  # semantically similar even if they use different tool names.
+  #
+  # Example: "read file then edit" and "file read operation followed by write"
+  # would be clustered together despite different terminology.
+  defp detect_semantic_clusters(context) do
+    days = context[:days] || 30
+    limit = context[:limit] || 100
+
+    Logger.info("[Emergence.Detector] Running semantic clustering (Phase 4 E1)")
+
+    # Get recent interactions with their context
+    interactions = get_interactions_for_clustering(days, limit)
+
+    if length(interactions) < @min_cluster_size do
+      Logger.debug("[Emergence.Detector] Not enough interactions for clustering")
+      {:ok, []}
+    else
+      # Build semantic signatures and get embeddings
+      case build_semantic_signatures(interactions) do
+        {:ok, signatures_with_embeddings} ->
+          # Cluster by semantic similarity
+          clusters = cluster_by_similarity(signatures_with_embeddings)
+
+          # Convert clusters to patterns
+          patterns =
+            clusters
+            |> Enum.filter(fn c -> length(c.members) >= @min_cluster_size end)
+            |> Enum.map(&create_semantic_pattern/1)
+            |> Enum.map(&store_pattern/1)
+            |> Enum.reject(&is_nil/1)
+
+          Logger.info("[Emergence.Detector] Found #{length(patterns)} semantic patterns")
+          {:ok, patterns}
+
+        {:error, reason} ->
+          Logger.warning("[Emergence.Detector] Semantic clustering failed: #{inspect(reason)}")
+          {:ok, []}
+      end
+    end
+  end
+
+  defp get_interactions_for_clustering(days, limit) do
+    since = DateTime.utc_now() |> DateTime.add(-days * 24 * 60 * 60, :second)
+
+    from(i in Interaction,
+      where: i.timestamp >= ^since,
+      order_by: [desc: i.timestamp],
+      limit: ^limit,
+      select: %{
+        id: i.id,
+        tool_name: i.tool_name,
+        arguments: i.arguments,
+        result_summary: i.result_summary,
+        timestamp: i.timestamp,
+        thread_id: i.thread_id
+      }
+    )
+    |> Repo.all()
+  end
+
+  defp build_semantic_signatures(interactions) do
+    # Build semantic signatures that capture the essence of each interaction
+    signatures =
+      interactions
+      |> Enum.map(fn i ->
+        # Create a text signature combining tool, args, and result
+        args_text =
+          case i.arguments do
+            nil ->
+              ""
+
+            args when is_map(args) ->
+              args
+              # Limit to avoid huge signatures
+              |> Enum.take(3)
+              |> Enum.map(fn {k, v} -> "#{k}: #{truncate_value(v)}" end)
+              |> Enum.join(", ")
+
+            _ ->
+              ""
+          end
+
+        signature =
+          "#{i.tool_name} #{args_text} #{truncate_value(i.result_summary || "")}"
+          |> String.trim()
+          # Limit signature length
+          |> String.slice(0, 500)
+
+        %{
+          id: i.id,
+          tool_name: i.tool_name,
+          signature: signature,
+          timestamp: i.timestamp,
+          thread_id: i.thread_id
+        }
+      end)
+
+    # Get embeddings for all signatures in batch
+    texts = Enum.map(signatures, & &1.signature)
+
+    case LLM.get_embeddings(texts) do
+      {:ok, embeddings} ->
+        # Zip signatures with embeddings
+        with_embeddings =
+          Enum.zip(signatures, embeddings)
+          |> Enum.map(fn {sig, emb} -> Map.put(sig, :embedding, emb) end)
+
+        {:ok, with_embeddings}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp truncate_value(value) when is_binary(value), do: String.slice(value, 0, 100)
+  defp truncate_value(value) when is_map(value), do: inspect(value) |> String.slice(0, 100)
+  defp truncate_value(value), do: inspect(value) |> String.slice(0, 100)
+
+  defp cluster_by_similarity(signatures) do
+    # Simple greedy clustering: assign each signature to nearest cluster
+    # or create new cluster if no similar one exists
+
+    Enum.reduce(signatures, [], fn sig, clusters ->
+      case find_similar_cluster(sig, clusters) do
+        nil ->
+          # Create new cluster
+          [
+            %{
+              centroid: sig.embedding,
+              members: [sig],
+              tools: [sig.tool_name]
+            }
+            | clusters
+          ]
+
+        {cluster_idx, cluster} ->
+          # Add to existing cluster and update centroid
+          new_members = [sig | cluster.members]
+          new_centroid = compute_centroid(Enum.map(new_members, & &1.embedding))
+          new_tools = Enum.uniq([sig.tool_name | cluster.tools])
+
+          updated_cluster = %{
+            cluster
+            | members: new_members,
+              centroid: new_centroid,
+              tools: new_tools
+          }
+
+          List.replace_at(clusters, cluster_idx, updated_cluster)
+      end
+    end)
+  end
+
+  defp find_similar_cluster(sig, clusters) do
+    clusters
+    |> Enum.with_index()
+    |> Enum.find_value(fn {cluster, idx} ->
+      similarity = VectorMath.cosine_similarity(sig.embedding, cluster.centroid)
+
+      if similarity >= @semantic_similarity_threshold do
+        {idx, cluster}
+      else
+        nil
+      end
+    end)
+  end
+
+  defp compute_centroid(embeddings) do
+    # Average of all embeddings
+    count = length(embeddings)
+    dim = length(List.first(embeddings))
+
+    sums =
+      Enum.reduce(embeddings, List.duplicate(0.0, dim), fn emb, acc ->
+        Enum.zip(emb, acc)
+        |> Enum.map(fn {a, b} -> a + b end)
+      end)
+
+    Enum.map(sums, &(&1 / count))
+  end
+
+  defp create_semantic_pattern(cluster) do
+    # Create a pattern from the cluster
+    tool_summary =
+      cluster.tools
+      |> Enum.frequencies()
+      |> Enum.sort_by(fn {_, count} -> count end, :desc)
+      |> Enum.take(3)
+      |> Enum.map(fn {tool, _} -> tool end)
+      |> Enum.join(", ")
+
+    member_signatures =
+      cluster.members
+      |> Enum.take(3)
+      |> Enum.map(& &1.signature)
+
+    %{
+      type: :semantic_cluster,
+      description: "Semantic pattern: #{tool_summary} (#{length(cluster.members)} occurrences)",
+      components: Enum.map(cluster.tools, fn tool -> %{tool: tool} end),
+      trigger_conditions: member_signatures,
+      # Default, will be updated by usage tracking
+      success_rate: 0.75,
+      occurrences: length(cluster.members),
+      metadata: %{
+        cluster_size: length(cluster.members),
+        tools: cluster.tools,
+        detection_method: "semantic_clustering",
+        sample_signatures: Enum.take(member_signatures, 3)
+      }
+    }
+  end
+
+  # ─────────────────────────────────────────────────────────────────
+  # Phase 4 E3: Cross-Session Pattern Detection
+  # ─────────────────────────────────────────────────────────────────
+
+  # Detects patterns that persist across multiple sessions.
+  #
+  # Cross-session patterns are especially valuable because they represent
+  # behaviors that are consistently useful, not just one-time solutions.
+  #
+  # This analyzes:
+  # 1. Tool sequences that recur across different sessions
+  # 2. Time-of-day patterns (e.g., "always runs tests before committing")
+  # 3. Context-switching patterns (switching between domains)
+  defp detect_cross_session(context) do
+    days = Map.get(context, :window_days, @session_window_days)
+    min_sessions = Map.get(context, :min_sessions, @min_sessions_for_pattern)
+
+    Logger.debug(
+      "[Emergence.Detector] Running cross-session pattern detection (#{days} day window)"
+    )
+
+    # Get interactions grouped by session
+    interactions = get_interactions_with_sessions(days)
+
+    # Group by session ID
+    by_session = group_by_session(interactions)
+
+    # Skip if not enough sessions
+    if map_size(by_session) < min_sessions do
+      Logger.debug("[Emergence.Detector] Not enough sessions for cross-session detection")
+      {:ok, []}
+    else
+      # Find patterns that occur in multiple sessions
+      cross_session_patterns = find_recurring_patterns(by_session, min_sessions)
+
+      # Store the detected patterns
+      patterns =
+        cross_session_patterns
+        |> Enum.map(&create_cross_session_pattern/1)
+        |> Enum.map(&store_pattern/1)
+        |> Enum.reject(&is_nil/1)
+
+      Logger.info("[Emergence.Detector] Detected #{length(patterns)} cross-session patterns")
+      {:ok, patterns}
+    end
+  end
+
+  defp get_interactions_with_sessions(days) do
+    since = DateTime.utc_now() |> DateTime.add(-days * 24 * 60 * 60, :second)
+
+    from(i in Interaction,
+      where: i.timestamp >= ^since,
+      order_by: [asc: i.timestamp],
+      select: %{
+        tool_name: i.tool_name,
+        timestamp: i.timestamp,
+        # Use thread_id as session proxy
+        thread_id: i.thread_id,
+        consolidated: i.consolidated
+      }
+    )
+    |> Repo.all()
+  end
+
+  defp group_by_session(interactions) do
+    interactions
+    |> Enum.group_by(fn i ->
+      # Use thread_id if available, otherwise derive from timestamp
+      i.thread_id || derive_session_id(i.timestamp)
+    end)
+  end
+
+  # Derive a session ID based on time gaps (>30 min gap = new session)
+  defp derive_session_id(timestamp) do
+    # Simple date-based session (one session per day)
+    Date.to_iso8601(DateTime.to_date(timestamp))
+  end
+
+  defp find_recurring_patterns(by_session, min_sessions) do
+    # Extract tool sequences from each session
+    session_sequences =
+      by_session
+      |> Enum.map(fn {session_id, interactions} ->
+        tools = Enum.map(interactions, & &1.tool_name)
+        success_rate = calculate_session_success_rate(interactions)
+        {session_id, tools, success_rate}
+      end)
+
+    # Find n-gram patterns that appear in multiple sessions
+    # We look for 2-gram and 3-gram patterns
+    all_ngrams =
+      session_sequences
+      |> Enum.flat_map(fn {session_id, tools, success_rate} ->
+        ngrams_2 = extract_ngrams(tools, 2) |> Enum.map(&{&1, session_id, success_rate, 2})
+        ngrams_3 = extract_ngrams(tools, 3) |> Enum.map(&{&1, session_id, success_rate, 3})
+        ngrams_2 ++ ngrams_3
+      end)
+
+    # Group by ngram and find those in multiple sessions
+    all_ngrams
+    |> Enum.group_by(fn {ngram, _, _, _} -> ngram end)
+    |> Enum.filter(fn {_ngram, occurrences} ->
+      unique_sessions =
+        occurrences |> Enum.map(fn {_, session_id, _, _} -> session_id end) |> Enum.uniq()
+
+      length(unique_sessions) >= min_sessions
+    end)
+    |> Enum.map(fn {ngram, occurrences} ->
+      sessions = Enum.map(occurrences, fn {_, sid, _, _} -> sid end) |> Enum.uniq()
+
+      avg_success =
+        occurrences
+        |> Enum.map(fn {_, _, sr, _} -> sr end)
+        |> Enum.sum()
+        |> Kernel./(length(occurrences))
+
+      n = occurrences |> List.first() |> elem(3)
+
+      %{
+        tools: ngram,
+        sessions: sessions,
+        session_count: length(sessions),
+        occurrences: length(occurrences),
+        avg_success_rate: Float.round(avg_success, 3),
+        n: n
+      }
+    end)
+    |> Enum.sort_by(& &1.session_count, :desc)
+  end
+
+  defp extract_ngrams(tools, n) when is_list(tools) and n > 0 do
+    if length(tools) < n do
+      []
+    else
+      tools
+      |> Enum.chunk_every(n, 1, :discard)
+    end
+  end
+
+  defp calculate_session_success_rate(interactions) do
+    total = length(interactions)
+
+    if total == 0 do
+      0.0
+    else
+      # Use consolidation as proxy for "success" - consolidated interactions are significant
+      consolidated = Enum.count(interactions, & &1.consolidated)
+      consolidated / total
+    end
+  end
+
+  defp create_cross_session_pattern(pattern_data) do
+    tool_sequence = Enum.join(pattern_data.tools, " → ")
+
+    %{
+      type: :workflow,
+      description:
+        "Cross-session pattern: #{tool_sequence} (#{pattern_data.session_count} sessions)",
+      components: Enum.map(pattern_data.tools, fn tool -> %{"tool" => tool} end),
+      trigger_conditions: ["multi-session", "recurring"],
+      success_rate: pattern_data.avg_success_rate,
+      occurrences: pattern_data.occurrences,
+      metadata: %{
+        detection_method: "cross_session",
+        session_count: pattern_data.session_count,
+        sessions: Enum.take(pattern_data.sessions, 5),
+        n_gram_size: pattern_data.n,
+        cross_session: true
       }
     }
   end

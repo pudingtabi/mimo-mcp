@@ -210,7 +210,7 @@ defmodule Mimo.Cognitive.Strategies.ReActStrategy do
       problem_words = extract_key_words(problem)
 
       Enum.any?(completion_patterns, &String.match?(recent_thoughts, &1)) or
-        (length(problem_words) > 0 and
+        (problem_words != [] and
            Enum.any?(problem_words, &String.contains?(String.downcase(recent_thoughts), &1)) and
            String.match?(recent_thoughts, ~r/\b(done|complete|finished|solved)\b/i))
     end

@@ -35,10 +35,6 @@ defmodule Mimo.Tools.Dispatchers.DebugError do
     end
   end
 
-  # ==========================================================================
-  # DEBUG PIPELINE
-  # ==========================================================================
-
   defp run_debug_analysis(message, args) do
     Logger.info("[DebugError] Starting debug analysis for: #{String.slice(message, 0, 50)}...")
     start_time = System.monotonic_time(:millisecond)
@@ -98,7 +94,7 @@ defmodule Mimo.Tools.Dispatchers.DebugError do
       |> Enum.take(10)
 
     %{
-      found: length(results) > 0,
+      found: results != [],
       count: length(results),
       solutions: results
     }
@@ -147,10 +143,6 @@ defmodule Mimo.Tools.Dispatchers.DebugError do
     end
   end
 
-  # ==========================================================================
-  # RESPONSE BUILDING
-  # ==========================================================================
-
   defp build_response(message, past_solutions, definitions, current_errors, duration) do
     # Determine if we have actionable context
     has_solutions = past_solutions[:found] || false
@@ -182,7 +174,7 @@ defmodule Mimo.Tools.Dispatchers.DebugError do
         top_solution = List.first(past_solutions[:solutions] || [])
         sim = if top_solution, do: Float.round((top_solution[:similarity] || 0) * 100, 1), else: 0
 
-        "💡 Found #{past_solutions[:count]} similar past issues (top match: #{sim}% similarity). Review past solutions above."
+        "Found #{past_solutions[:count]} similar past issues (top match: #{sim}% similarity). Review past solutions above."
 
       has_definitions ->
         "🔍 Found relevant symbol definitions. Check the source code for potential issues."
@@ -191,10 +183,6 @@ defmodule Mimo.Tools.Dispatchers.DebugError do
         "📝 No past solutions found. After fixing, store the solution in memory (category: fact, importance: ~0.8) so it persists."
     end
   end
-
-  # ==========================================================================
-  # HELPERS
-  # ==========================================================================
 
   defp extract_symbols_from_error(message) do
     # Extract potential symbol names from error message

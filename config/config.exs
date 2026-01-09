@@ -15,6 +15,27 @@ config :mimo_mcp,
   auto_memory_min_importance: 0.3
 
 # =============================================================================
+# Phase 3: Auto-Context Injection Configuration
+# =============================================================================
+# Fine-grained control over automatic context injection behaviors
+
+config :mimo_mcp, :auto_context,
+  # Master enable/disable for proactive knowledge injection (SPEC-065)
+  pre_tool_injection: {:system, "AUTO_CONTEXT_INJECTION", true},
+  # Auto-memory for file write summaries (Phase 3 enhancement)
+  file_write_summaries: true,
+  # Session state tracking in WorkingMemory
+  session_state_tracking: true,
+  # Maximum memories to inject per tool call
+  max_injection_items: 5,
+  # Minimum relevance threshold for injection
+  injection_threshold: 0.7,
+  # Include user patterns in injection
+  include_patterns: true,
+  # Include warnings in injection
+  include_warnings: true
+
+# =============================================================================
 # Cognitive Memory System Configuration (SPEC-001 to SPEC-005)
 # =============================================================================
 
@@ -65,6 +86,13 @@ config :mimo_mcp, :decay_rates,
   low: 0.02,
   # Importance < 0.3: ~17 hours half-life
   ephemeral: 0.1
+
+# Hebbian Learning Rate Limiting (SPEC-088)
+# Controls graph edge creation rate to prevent database bloat
+config :mimo_mcp, :hebbian_learning,
+  # Maximum new edges created per hour (500 = ~1GB/year at 240 bytes/edge)
+  # Set to 0 to disable rate limiting, nil to use default (500)
+  max_edges_per_hour: 500
 
 # Hybrid Retrieval (SPEC-004)
 # NOTE: These weights are MANUALLY TUNED based on intuition, NOT empirically validated.

@@ -67,10 +67,6 @@ defmodule Mimo.Cognitive.ReasoningSession do
           last_activity: DateTime.t()
         }
 
-  # ============================================================================
-  # GenServer Setup
-  # ============================================================================
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -116,10 +112,6 @@ defmodule Mimo.Cognitive.ReasoningSession do
   defp schedule_cleanup do
     Process.send_after(self(), :cleanup, @cleanup_interval_ms)
   end
-
-  # ============================================================================
-  # Public API (unchanged interface, but table is now persistent)
-  # ============================================================================
 
   @doc """
   Initialize the ETS table for session storage.
@@ -461,6 +453,20 @@ defmodule Mimo.Cognitive.ReasoningSession do
       stuck: Enum.count(sessions, &(&1.status == :stuck)),
       by_strategy: Enum.frequencies_by(sessions, & &1.strategy)
     }
+  end
+
+  @doc """
+  List recent sessions (for analytics).
+  """
+  @spec list_recent(non_neg_integer()) :: {:ok, [session()]}
+  def list_recent(limit \\ 100) do
+    sessions =
+      :ets.tab2list(@table)
+      |> Enum.map(fn {_id, session} -> session end)
+      |> Enum.sort_by(& &1.last_activity, {:desc, DateTime})
+      |> Enum.take(limit)
+
+    {:ok, sessions}
   end
 
   # Private helpers

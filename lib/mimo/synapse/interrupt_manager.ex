@@ -80,10 +80,6 @@ defmodule Mimo.Synapse.InterruptManager do
     end
   end
 
-  # ============================================================================
-  # GenServer Callbacks
-  # ============================================================================
-
   @impl true
   def init(_opts) do
     Mimo.EtsSafe.ensure_table(@table, [:named_table, :set, :public, read_concurrency: true])

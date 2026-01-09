@@ -10,8 +10,7 @@ defmodule Mimo.Brain.Memory.SearchStrategyTest do
   use Mimo.DataCase, async: false
   import Bitwise
 
-  alias Mimo.Brain.Memory
-  alias Mimo.Brain.Engram
+  alias Mimo.Brain.{Engram, Memory}
   alias Mimo.Repo
 
   @dimensions 256

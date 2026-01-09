@@ -10,13 +10,13 @@ defmodule Mimo.Workflow.Spec053EdgeCasesTest do
   alias Mimo.Workflow
 
   alias Mimo.Workflow.{
+    BindingsResolver,
+    Clusterer,
+    Executor,
     Pattern,
+    PatternExtractor,
     PatternRegistry,
     Predictor,
-    Executor,
-    Clusterer,
-    BindingsResolver,
-    PatternExtractor,
     ToolLog
   }
 

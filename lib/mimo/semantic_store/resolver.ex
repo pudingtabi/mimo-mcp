@@ -7,8 +7,9 @@ defmodule Mimo.SemanticStore.Resolver do
   """
 
   require Logger
-  alias Mimo.Repo
+  alias SQL
   alias Mimo.Brain.Memory
+  alias Mimo.Repo
 
   @entity_anchor_type "entity_anchor"
   @resolution_threshold 0.85
@@ -145,10 +146,6 @@ defmodule Mimo.SemanticStore.Resolver do
     end
   end
 
-  # ==========================================================================
-  # Private Functions
-  # ==========================================================================
-
   defp search_entity_anchors(text, expected_type, graph_id, min_score) do
     # Use vector similarity search with proper threshold
     case Memory.search(text, limit: 5, type: @entity_anchor_type, min_similarity: min_score) do
@@ -187,8 +184,17 @@ defmodule Mimo.SemanticStore.Resolver do
     end
   end
 
+  # Minimum length for entity anchors to prevent garbage like "Flexibility"
+  @min_anchor_length 50
+
   defp create_entity_anchor(entity_id, text, graph_id) do
-    do_create_entity_anchor(entity_id, text, graph_id, 3)
+    # Quality gate: Don't create anchors for short fragments
+    if String.length(text) < @min_anchor_length do
+      Logger.debug("[Resolver] Skipping short entity anchor: #{inspect(text)}")
+      {:error, :too_short}
+    else
+      do_create_entity_anchor(entity_id, text, graph_id, 3)
+    end
   end
 
   defp do_create_entity_anchor(_entity_id, _text, _graph_id, 0), do: {:error, :max_retries_exceeded}

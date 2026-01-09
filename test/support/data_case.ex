@@ -28,10 +28,30 @@ defmodule Mimo.DataCase do
     repo_config = Application.get_env(:mimo_mcp, Mimo.Repo, [])
 
     if Keyword.get(repo_config, :pool) == Ecto.Adapters.SQL.Sandbox do
-      pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Mimo.Repo, shared: not tags[:async])
+      # Use shared mode to allow WriteSerializer and other GenServers to access the connection
+      # Note: This means tests cannot be async: true when using shared mode
+      pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Mimo.Repo, shared: true)
       on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
       :ok
     else
+      # SAFEGUARD: Prevent tests from running against dev/prod DB without sandbox
+      # This prevents catastrophic data loss if someone runs tests with MIX_ENV=dev
+      db_path = Keyword.get(repo_config, :database, "")
+
+      if String.contains?(db_path, "mimo_mcp.db") and not String.contains?(db_path, "test") do
+        raise """
+        FATAL: Tests attempting to run against non-test database!
+
+        Database path: #{db_path}
+
+        This would destroy all production/dev memories. Tests MUST run with:
+          MIX_ENV=test mix test
+
+        If you need to run specific tests in dev mode for debugging, use:
+          MIX_ENV=test mix test test/path/to/specific_test.exs
+        """
+      end
+
       # Repo not configured for Sandbox; proceed without ownership to avoid crashes
       :ok
     end

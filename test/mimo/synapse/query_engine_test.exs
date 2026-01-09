@@ -3,7 +3,7 @@ defmodule Mimo.Synapse.QueryEngineTest do
   Tests for the Synapse Web QueryEngine - hybrid vector + graph search.
   """
   use Mimo.DataCase, async: false
-  alias Mimo.Synapse.{Graph, QueryEngine, GraphNode, GraphEdge}
+  alias Mimo.Synapse.{Graph, GraphEdge, GraphNode, QueryEngine}
 
   setup do
     # Clean up test data before each test
@@ -65,7 +65,7 @@ defmodule Mimo.Synapse.QueryEngineTest do
       # Query for term in description, not in name
       {:ok, results} = QueryEngine.query("session management")
 
-      assert length(results.nodes) >= 1
+      assert results.nodes != []
       assert Enum.any?(results.nodes, fn n -> n.name == "process_auth" end)
     end
 

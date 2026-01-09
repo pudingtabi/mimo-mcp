@@ -63,8 +63,9 @@ defmodule Mimo.Autonomous.TaskRunner do
   use GenServer
   require Logger
 
-  alias Mimo.Autonomous.{SafetyGuard, CircuitBreaker, GoalDecomposer}
-  alias Mimo.Brain.{Memory, ContradictionGuard, Synthesizer}
+  alias Terminal
+  alias Mimo.Autonomous.{CircuitBreaker, GoalDecomposer, SafetyGuard}
+  alias Mimo.Brain.{ContradictionGuard, Memory, Synthesizer}
   alias Mimo.Synapse.Graph
 
   # Configuration defaults
@@ -101,10 +102,6 @@ defmodule Mimo.Autonomous.TaskRunner do
           circuit: CircuitBreaker.t(),
           config: map()
         }
-
-  # =============================================================================
-  # PUBLIC API
-  # =============================================================================
 
   @doc """
   Start the TaskRunner GenServer.
@@ -223,10 +220,6 @@ defmodule Mimo.Autonomous.TaskRunner do
     GenServer.call(__MODULE__, :clear_queue)
   end
 
-  # =============================================================================
-  # GOAL DECOMPOSITION HELPERS
-  # =============================================================================
-
   # Queue a single task (called from within GenServer)
   defp queue_single_task(task_spec, state) do
     task_id = generate_task_id()
@@ -302,10 +295,6 @@ defmodule Mimo.Autonomous.TaskRunner do
 
     {{:ok, Enum.reverse(task_ids)}, final_state}
   end
-
-  # =============================================================================
-  # GENSERVER CALLBACKS
-  # =============================================================================
 
   @impl true
   def init(opts) do
@@ -528,14 +517,10 @@ defmodule Mimo.Autonomous.TaskRunner do
     end
   end
 
-  # =============================================================================
-  # PRIVATE FUNCTIONS
-  # =============================================================================
-
   defp try_execute_next(state) do
     available_slots = state.config.max_concurrent - map_size(state.running)
 
-    if available_slots > 0 and length(state.queue) > 0 do
+    if available_slots > 0 and state.queue != [] do
       [task | remaining] = state.queue
 
       case start_task(task, state) do
@@ -674,7 +659,8 @@ defmodule Mimo.Autonomous.TaskRunner do
   end
 
   defp execute_task(%{type: type} = task, _context) do
-    # Placeholder for other task types
+    # Generic handler for task types without specific implementations.
+    # Logs execution and returns success to allow workflow continuation.
     Logger.info("[TaskRunner] Executing task type '#{type}': #{task.description}")
     {:ok, %{type: type, message: "Task type '#{type}' executed (no specific handler)"}}
   end

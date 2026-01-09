@@ -12,7 +12,7 @@ defmodule Mimo.Knowledge.PreToolInjector do
   This addresses the gap where knowledge is stored but not utilized (memory at 7.13% vs file at 52.81%).
   """
 
-  alias Mimo.Brain.Memory
+  alias Mimo.Brain.{Interaction, Memory}
 
   require Logger
 
@@ -93,10 +93,6 @@ defmodule Mimo.Knowledge.PreToolInjector do
           source: String.t(),
           relevance_scores: [float()]
         }
-
-  # ============================================================================
-  # PUBLIC API
-  # ============================================================================
 
   @doc """
   Inject relevant knowledge before tool execution.
@@ -219,10 +215,6 @@ defmodule Mimo.Knowledge.PreToolInjector do
     tool_name not in ["memory", "ask_mimo", "knowledge", "onboard", "awakening_status"]
   end
 
-  # ============================================================================
-  # CONTEXT EXTRACTION
-  # ============================================================================
-
   defp extract_context("file", %{"path" => path} = args) do
     %{
       file: path,
@@ -258,6 +250,69 @@ defmodule Mimo.Knowledge.PreToolInjector do
     }
   end
 
+  # SPEC-090: Web tool context extraction
+  defp extract_context("web", %{"query" => query} = args) do
+    %{
+      file: nil,
+      command: nil,
+      type: :web_search,
+      tool: "web",
+      args: args,
+      query: query,
+      operation: Map.get(args, "operation", "search")
+    }
+  end
+
+  defp extract_context("web", %{"url" => url} = args) do
+    %{
+      file: nil,
+      command: nil,
+      type: :web_fetch,
+      tool: "web",
+      args: args,
+      url: url,
+      operation: Map.get(args, "operation", "fetch")
+    }
+  end
+
+  # SPEC-090: Reason tool context extraction
+  defp extract_context("reason", %{"problem" => problem} = args) do
+    %{
+      file: nil,
+      command: nil,
+      type: :reasoning,
+      tool: "reason",
+      args: args,
+      problem: problem,
+      operation: Map.get(args, "operation", "guided")
+    }
+  end
+
+  # SPEC-090: Meta tool context extraction
+  defp extract_context("meta", %{"query" => query} = args) do
+    %{
+      file: nil,
+      command: nil,
+      type: :meta_query,
+      tool: "meta",
+      args: args,
+      query: query,
+      operation: Map.get(args, "operation", "prepare_context")
+    }
+  end
+
+  defp extract_context("meta", %{"task" => task} = args) do
+    %{
+      file: nil,
+      command: nil,
+      type: :meta_task,
+      tool: "meta",
+      args: args,
+      task: task,
+      operation: Map.get(args, "operation", "suggest_next_tool")
+    }
+  end
+
   defp extract_context(tool, args) do
     %{
       file: nil,
@@ -268,10 +323,6 @@ defmodule Mimo.Knowledge.PreToolInjector do
     }
   end
 
-  # ============================================================================
-  # MEMORY SEARCH FUNCTIONS
-  # ============================================================================
-
   defp search_related_memories(%{file: path} = context) when is_binary(path) do
     filename = context[:filename] || Path.basename(path)
 
@@ -279,7 +330,6 @@ defmodule Mimo.Knowledge.PreToolInjector do
     query = "#{filename} bug issue problem pattern"
 
     case Memory.search(query, limit: 3, threshold: @inject_threshold) do
-      {:ok, %{results: results}} -> {:ok, %{results: results, category: :file_memory}}
       {:ok, results} when is_list(results) -> {:ok, %{results: results, category: :file_memory}}
       error -> error
     end
@@ -288,7 +338,6 @@ defmodule Mimo.Knowledge.PreToolInjector do
   defp search_related_memories(%{command: cmd, is_test: true}) when is_binary(cmd) do
     # Search for test-related patterns and previous failures
     case Memory.search("test failure pattern flaky", limit: 3, threshold: @inject_threshold) do
-      {:ok, %{results: results}} -> {:ok, %{results: results, category: :test_memory}}
       {:ok, results} when is_list(results) -> {:ok, %{results: results, category: :test_memory}}
       error -> error
     end
@@ -297,25 +346,135 @@ defmodule Mimo.Knowledge.PreToolInjector do
   defp search_related_memories(%{command: cmd, is_build: true}) when is_binary(cmd) do
     # Search for build-related issues
     case Memory.search("build compile error warning", limit: 3, threshold: @inject_threshold) do
-      {:ok, %{results: results}} -> {:ok, %{results: results, category: :build_memory}}
       {:ok, results} when is_list(results) -> {:ok, %{results: results, category: :build_memory}}
+      error -> error
+    end
+  end
+
+  # SPEC-090: Web search context - find related past searches and learnings
+  defp search_related_memories(%{type: :web_search, query: query}) when is_binary(query) do
+    # Search for related past research and findings
+    case Memory.search(query, limit: 3, threshold: 0.5) do
+      {:ok, results} when is_list(results) ->
+        {:ok, %{results: results, category: :web_search_memory}}
+
+      error ->
+        error
+    end
+  end
+
+  defp search_related_memories(%{type: :web_fetch, url: url}) when is_binary(url) do
+    # Extract domain/path for context search
+    query = extract_url_context(url)
+
+    case Memory.search(query, limit: 3, threshold: 0.5) do
+      {:ok, results} when is_list(results) ->
+        {:ok, %{results: results, category: :web_fetch_memory}}
+
+      _ ->
+        empty_result()
+    end
+  end
+
+  # SPEC-090: Reasoning context - find similar past problems and their solutions
+  defp search_related_memories(%{type: :reasoning, problem: problem}) when is_binary(problem) do
+    # Use the problem statement to find related past reasoning
+    case Memory.search(problem, limit: 5, threshold: 0.4) do
+      {:ok, results} when is_list(results) ->
+        {:ok, %{results: results, category: :reasoning_memory}}
+
+      error ->
+        error
+    end
+  end
+
+  # SPEC-090: Meta tool context - find related context for the query/task
+  defp search_related_memories(%{type: :meta_query, query: query}) when is_binary(query) do
+    case Memory.search(query, limit: 3, threshold: 0.5) do
+      {:ok, results} when is_list(results) -> {:ok, %{results: results, category: :meta_memory}}
+      error -> error
+    end
+  end
+
+  defp search_related_memories(%{type: :meta_task, task: task}) when is_binary(task) do
+    case Memory.search(task, limit: 3, threshold: 0.5) do
+      {:ok, results} when is_list(results) -> {:ok, %{results: results, category: :meta_memory}}
       error -> error
     end
   end
 
   defp search_related_memories(_context), do: empty_result()
 
+  # SPEC-090: Helper to extract meaningful context from URLs
+  defp extract_url_context(url) when is_binary(url) do
+    uri = URI.parse(url)
+    host = uri.host || ""
+    path = uri.path || ""
+    # Combine host and path segments for search
+    path_segments = path |> String.split("/") |> Enum.reject(&(&1 == ""))
+    Enum.join([host | path_segments], " ")
+  rescue
+    _ -> url
+  end
+
   defp search_related_patterns(context) do
     # Search for user behavior patterns relevant to this context
     type_str = Atom.to_string(context.type)
+    tool_name = context[:tool_name] || type_str
 
     query = "user pattern preference #{type_str}"
 
-    case Memory.search(query, limit: 2, threshold: @inject_threshold, category: "observation") do
-      {:ok, %{results: results}} -> {:ok, %{results: results, category: :pattern}}
-      {:ok, results} when is_list(results) -> {:ok, %{results: results, category: :pattern}}
-      _ -> empty_result()
+    memory_patterns =
+      case Memory.search(query, limit: 2, threshold: @inject_threshold, category: "observation") do
+        {:ok, results} when is_list(results) -> results
+        _ -> []
+      end
+
+    # WIRE 4: Check tool chain patterns - what tools commonly follow this one?
+    chain_hints = get_tool_chain_hints(tool_name)
+
+    combined_results = memory_patterns ++ chain_hints
+
+    if combined_results == [] do
+      empty_result()
+    else
+      {:ok, %{results: Enum.take(combined_results, 3), category: :pattern}}
     end
+  end
+
+  # WIRE 4: Get hints about common tool chains involving this tool
+  defp get_tool_chain_hints(tool_name) do
+    # Get recent tool sequences to find common patterns
+    case Interaction.tool_usage_stats(days: 7) do
+      stats when is_map(stats) and map_size(stats) > 0 ->
+        # Find tools that are frequently used (top 5)
+        frequent_tools =
+          stats
+          |> Enum.sort_by(fn {_tool, count} -> count end, :desc)
+          |> Enum.take(5)
+          |> Enum.map(fn {tool, count} -> {tool, count} end)
+
+        # If current tool is frequently used, suggest related patterns
+        current_usage = Map.get(stats, tool_name, 0)
+
+        if current_usage > 3 do
+          [
+            %{
+              content:
+                "Tool #{tool_name} is frequently used (#{current_usage} times in 7 days). Common tools: #{inspect(Enum.map(frequent_tools, fn {t, _} -> t end))}",
+              importance: 0.6,
+              category: "pattern"
+            }
+          ]
+        else
+          []
+        end
+
+      _ ->
+        []
+    end
+  rescue
+    _ -> []
   end
 
   defp search_related_warnings(%{file: path}) when is_binary(path) do
@@ -325,7 +484,6 @@ defmodule Mimo.Knowledge.PreToolInjector do
     query = "warning gap issue #{filename}"
 
     case Memory.search(query, limit: 2, threshold: @inject_threshold) do
-      {:ok, %{results: results}} -> {:ok, %{results: results, category: :warning}}
       {:ok, results} when is_list(results) -> {:ok, %{results: results, category: :warning}}
       _ -> empty_result()
     end
@@ -338,17 +496,12 @@ defmodule Mimo.Knowledge.PreToolInjector do
     query = "warning issue #{cmd_name}"
 
     case Memory.search(query, limit: 2, threshold: @inject_threshold) do
-      {:ok, %{results: results}} -> {:ok, %{results: results, category: :warning}}
       {:ok, results} when is_list(results) -> {:ok, %{results: results, category: :warning}}
       _ -> empty_result()
     end
   end
 
   defp search_related_warnings(_context), do: empty_result()
-
-  # ============================================================================
-  # INJECTION BUILDING
-  # ============================================================================
 
   defp build_injection(memories, patterns, warnings, context) do
     profile = Map.get(context, :agent_profile, @agent_profiles["default"])
@@ -390,7 +543,7 @@ defmodule Mimo.Knowledge.PreToolInjector do
           max_items: profile.max_items,
           threshold: profile.threshold
         },
-        hint: "💡 Mimo surfaced this knowledge proactively based on your action"
+        hint: "auto-injected context"
       }
     end
   end
@@ -402,14 +555,12 @@ defmodule Mimo.Knowledge.PreToolInjector do
 
     results
     |> Enum.flat_map(fn
-      {:ok, %{results: r}} when is_list(r) -> r
       {:ok, r} when is_list(r) -> r
       _ -> []
     end)
-    |> Enum.filter(&is_map/1)
-    |> Enum.filter(&Map.has_key?(&1, :score))
-    # SPEC-MULTI-AGENT: Filter by profile threshold
-    |> Enum.filter(fn r -> Map.get(r, :score, 0) >= threshold end)
+    |> Enum.filter(fn r ->
+      is_map(r) and Map.has_key?(r, :score) and Map.get(r, :score, 0) >= threshold
+    end)
     # SPEC-065 FIX: Deduplicate by content to prevent same memory appearing multiple times
     |> Enum.uniq_by(fn r -> Map.get(r, :content, "") end)
     |> Enum.sort_by(& &1.score, :desc)
@@ -423,17 +574,13 @@ defmodule Mimo.Knowledge.PreToolInjector do
       score = Map.get(r, :score, 0.0)
 
       # Add relevance indicator for high-confidence memories
-      prefix = if score >= @high_relevance_threshold, do: "⚡", else: "💡"
+      prefix = if score >= @high_relevance_threshold, do: "⚡", else: ""
 
       "#{prefix} #{content}"
     end)
   end
 
   defp empty_result, do: {:ok, %{results: []}}
-
-  # ============================================================================
-  # INJECTION FEEDBACK TRACKING (SPEC-065 Enhancement)
-  # ============================================================================
 
   # Generate a unique injection ID for tracking.
   defp generate_injection_id do

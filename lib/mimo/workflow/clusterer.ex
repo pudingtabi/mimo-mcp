@@ -41,10 +41,6 @@ defmodule Mimo.Workflow.Clusterer do
           centroid_distance: float()
         }
 
-  # ============================================================================
-  # Public API
-  # ============================================================================
-
   @doc """
   Clusters workflow patterns by similarity.
 
@@ -128,10 +124,6 @@ defmodule Mimo.Workflow.Clusterer do
       {pattern, distance} -> {:ok, pattern, distance}
     end
   end
-
-  # ============================================================================
-  # Private Functions
-  # ============================================================================
 
   defp pattern_to_graph(%Pattern{steps: steps}) do
     steps_to_graph(steps)

@@ -9,15 +9,11 @@ defmodule Mimo.SemanticStore.Dreamer do
   use GenServer
   require Logger
 
-  alias Mimo.SemanticStore.InferenceEngine
   alias Mimo.Repo
   alias Mimo.Sandbox
+  alias Mimo.SemanticStore.InferenceEngine
 
   @debounce_ms 500
-
-  # ==========================================================================
-  # Client API
-  # ==========================================================================
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -48,10 +44,6 @@ defmodule Mimo.SemanticStore.Dreamer do
   def status do
     GenServer.call(__MODULE__, :status)
   end
-
-  # ==========================================================================
-  # Server Callbacks
-  # ==========================================================================
 
   @impl true
   def init(_opts) do
@@ -154,10 +146,6 @@ defmodule Mimo.SemanticStore.Dreamer do
     # Hook for tests
     {:noreply, state}
   end
-
-  # ==========================================================================
-  # Private Functions
-  # ==========================================================================
 
   defp cancel_timer(state, graph_id) do
     case Map.get(state.timers, graph_id) do

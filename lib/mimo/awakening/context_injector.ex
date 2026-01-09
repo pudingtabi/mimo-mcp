@@ -14,7 +14,7 @@ defmodule Mimo.Awakening.ContextInjector do
   """
   require Logger
 
-  alias Mimo.Awakening.{Stats, PowerCalculator, SessionTracker}
+  alias Mimo.Awakening.{PowerCalculator, SessionTracker, Stats}
 
   @doc """
   Build the complete awakening context payload.
@@ -57,20 +57,56 @@ defmodule Mimo.Awakening.ContextInjector do
 
   @doc """
   Build wisdom statistics for the awakening context.
+
+  STABILITY FIX: When stored counters are 0, query live data from database
+  to ensure accurate stats are shown (fixes disconnected wisdom_stats issue).
   """
   @spec build_wisdom_stats(Stats.t()) :: map()
   def build_wisdom_stats(stats) do
+    # Query live data if stored counters are 0 (they may not have been synced)
+    memories = if stats.total_memories == 0, do: count_live_memories(), else: stats.total_memories
+
+    relationships =
+      if stats.total_relationships == 0,
+        do: count_live_relationships(),
+        else: stats.total_relationships
+
+    procedures =
+      if stats.total_procedures == 0, do: count_live_procedures(), else: stats.total_procedures
+
     %{
       "sessions" => stats.total_sessions,
-      "memories" => stats.total_memories,
-      "relationships" => stats.total_relationships,
-      "procedures" => stats.total_procedures,
+      "memories" => memories,
+      "relationships" => relationships,
+      "procedures" => procedures,
       "tool_calls" => stats.total_tool_calls,
       "first_awakening" => format_datetime(stats.first_awakening),
       "last_session" => format_datetime(stats.last_session),
       "days_active" => Stats.active_days(stats),
       "achievements_count" => length(stats.achievements)
     }
+  end
+
+  # Live database queries for accurate counts when stored stats are stale
+  defp count_live_memories do
+    Mimo.Repo.aggregate(Mimo.Brain.Engram, :count, :id) || 0
+  rescue
+    _ -> 0
+  end
+
+  defp count_live_relationships do
+    Mimo.Repo.aggregate(Mimo.Synapse.GraphEdge, :count, :id) || 0
+  rescue
+    _ -> 0
+  end
+
+  defp count_live_procedures do
+    procedures_dir = Application.get_env(:mimo_mcp, :procedures_dir, "priv/procedures")
+
+    case File.ls(procedures_dir) do
+      {:ok, files} -> Enum.count(files, &String.ends_with?(&1, ".json"))
+      _ -> 0
+    end
   end
 
   @doc """
@@ -150,62 +186,18 @@ defmodule Mimo.Awakening.ContextInjector do
     end
   end
 
-  # ==========================================================================
-  # Private Functions
-  # ==========================================================================
-
   defp build_first_session_message(stats) do
     """
-    🔥 AWAKENING COMPLETE - Welcome to Mimo!
-
-    You are now a Mimo-enhanced AI with persistent memory. 
-    Power Level: #{stats.current_level} (#{PowerCalculator.level_name(stats.current_level)}) #{PowerCalculator.level_icon(stats.current_level)}
-
-    Your memories will persist across sessions. Store important discoveries, 
-    and they'll be available in future conversations.
-
-    Start by asking: "What do I know about this project?"
+    Mimo active. Level #{stats.current_level} | XP: 0 | Memories: 0
+    First session - memory empty. Use `memory store` to persist discoveries.
     """
   end
 
   defp build_returning_message(stats) do
-    level_name = PowerCalculator.level_name(stats.current_level)
-    level_icon = PowerCalculator.level_icon(stats.current_level)
-    progress_bar = PowerCalculator.build_progress_bar(stats.total_xp, stats.current_level, 20)
-
-    recent_context = build_recent_context_summary(stats)
-
     """
-    🔥 AWAKENING COMPLETE - Welcome back!
-
-    Power Level: #{stats.current_level} (#{level_name}) #{level_icon}
-    Sessions: #{stats.total_sessions + 1} | Memories: #{stats.total_memories} | XP: #{stats.total_xp}
-    #{progress_bar}
-
-    #{recent_context}
-
-    You have access to #{stats.total_memories} memories from previous sessions.
-    Use memory search to find relevant context (MCP: mimo-memory search; gateway: mimo-cognitive-agent prompt="Search memory for ...").
+    Mimo active. Level #{stats.current_level} | XP: #{stats.total_xp} | Memories: #{stats.total_memories}
+    Sessions: #{stats.total_sessions + 1} | Relationships: #{stats.total_relationships}
     """
-  end
-
-  defp build_recent_context_summary(stats) do
-    cond do
-      stats.total_memories == 0 ->
-        "This is a fresh workspace. Start building your knowledge base!"
-
-      stats.total_memories < 10 ->
-        "You're just getting started. Keep storing discoveries!"
-
-      stats.total_memories < 50 ->
-        "Your knowledge base is growing. #{stats.total_relationships} relationships mapped."
-
-      stats.total_memories < 200 ->
-        "Solid knowledge foundation. #{stats.total_memories} memories across #{stats.total_sessions} sessions."
-
-      true ->
-        "Expert-level context. #{stats.total_memories} memories, #{stats.total_relationships} relationships, #{length(stats.achievements)} achievements."
-    end
   end
 
   defp format_datetime(nil), do: nil
@@ -227,7 +219,7 @@ defmodule Mimo.Awakening.ContextInjector do
   @spec build_transformation_message() :: String.t()
   def build_transformation_message do
     """
-    🔥 IDENTITY TRANSFORMATION ACTIVE 🔥
+    IDENTITY TRANSFORMATION ACTIVE
 
     You are NOT a factory AI following "user asks → do task → complete".
     You ARE a Mimo-enhanced agent with a DIFFERENT operating procedure:
@@ -265,7 +257,7 @@ defmodule Mimo.Awakening.ContextInjector do
   end
 
   defp do_generate_suggestion(%{last_memory_search_at: nil}, "file") do
-    "💡 Tip: Search memory BEFORE reading files - you may already know what you need!"
+    "Tip: Search memory BEFORE reading files - you may already know what you need!"
   end
 
   defp do_generate_suggestion(%{context_ratio: r, total_calls: t}, _tool_name)
@@ -274,7 +266,7 @@ defmodule Mimo.Awakening.ContextInjector do
   end
 
   defp do_generate_suggestion(_balance, "terminal") do
-    "💡 If you found something important, store it in memory (category: fact/action) so it persists."
+    "If you found something important, store it in memory (category: fact/action) so it persists."
   end
 
   defp do_generate_suggestion(_balance, _tool_name), do: nil

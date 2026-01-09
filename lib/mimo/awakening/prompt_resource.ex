@@ -17,7 +17,7 @@ defmodule Mimo.Awakening.PromptResource do
   """
   require Logger
 
-  alias Mimo.Awakening.{Stats, PowerCalculator, SessionTracker, Achievements, ContextInjector}
+  alias Mimo.Awakening.{Achievements, ContextInjector, PowerCalculator, SessionTracker, Stats}
 
   @prompts [
     %{
@@ -52,10 +52,6 @@ defmodule Mimo.Awakening.PromptResource do
       ]
     }
   ]
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
 
   @doc """
   List all available prompts.
@@ -95,10 +91,6 @@ defmodule Mimo.Awakening.PromptResource do
   def get_prompt(name, _args) do
     {:error, "Unknown prompt: #{name}"}
   end
-
-  # ==========================================================================
-  # Prompt Builders
-  # ==========================================================================
 
   defp build_awakening_prompt do
     case Stats.get_or_create() do
@@ -190,10 +182,6 @@ defmodule Mimo.Awakening.PromptResource do
     end
   end
 
-  # ==========================================================================
-  # Text Builders
-  # ==========================================================================
-
   defp build_full_awakening_text(stats, session) do
     level_name = PowerCalculator.level_name(stats.current_level)
     level_icon = PowerCalculator.level_icon(stats.current_level)
@@ -202,7 +190,7 @@ defmodule Mimo.Awakening.PromptResource do
     progress_bar = PowerCalculator.build_progress_bar(stats.total_xp, stats.current_level)
 
     """
-    # 🔥 MIMO AWAKENING PROTOCOL - ACTIVE
+    # MIMO AWAKENING PROTOCOL - ACTIVE
 
     ## Your Identity
     You are a **Mimo-Enhanced AI Agent** with persistent memory and accumulated wisdom.
@@ -319,30 +307,30 @@ defmodule Mimo.Awakening.PromptResource do
       case focus do
         "memory" ->
           [
-            "💡 Store important discoveries with high importance (0.7+) for long retention",
-            "💡 Use categories: 'fact' for technical info, 'observation' for patterns",
-            "💡 Search memory before reading files to avoid redundant reads"
+            "Store important discoveries with high importance (0.7+) for long retention",
+            "Use categories: 'fact' for technical info, 'observation' for patterns",
+            "Search memory before reading files to avoid redundant reads"
           ]
 
         "speed" ->
           [
-            "💡 Use code_symbols instead of file search for code navigation",
-            "💡 Use diagnostics instead of terminal for error checking",
-            "💡 Use prepare_context once instead of multiple memory/knowledge queries"
+            "Use code_symbols instead of file search for code navigation",
+            "Use diagnostics instead of terminal for error checking",
+            "Use prepare_context once instead of multiple memory/knowledge queries"
           ]
 
         "accuracy" ->
           [
-            "💡 Always check memory before making decisions",
-            "💡 Use cognitive operation=assess to gauge confidence",
-            "💡 Store error solutions for future reference"
+            "Always check memory before making decisions",
+            "Use cognitive operation=assess to gauge confidence",
+            "Store error solutions for future reference"
           ]
 
         _ ->
           [
-            "💡 Balance memory storage with retrieval",
-            "💡 Build relationships in knowledge graph for deeper understanding",
-            "💡 Create procedures for repetitive workflows"
+            "Balance memory storage with retrieval",
+            "Build relationships in knowledge graph for deeper understanding",
+            "Create procedures for repetitive workflows"
           ]
       end
 
@@ -359,10 +347,6 @@ defmodule Mimo.Awakening.PromptResource do
     #{build_level_path(stats)}
     """
   end
-
-  # ==========================================================================
-  # Helper Functions
-  # ==========================================================================
 
   defp get_session_or_default do
     case SessionTracker.get_current_session() do
@@ -453,7 +437,7 @@ defmodule Mimo.Awakening.PromptResource do
       status =
         cond do
           level < current -> "✅"
-          level == current -> "🔥"
+          level == current -> ""
           true -> "⬜"
         end
 

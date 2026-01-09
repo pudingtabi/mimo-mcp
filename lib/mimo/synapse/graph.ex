@@ -39,7 +39,7 @@ defmodule Mimo.Synapse.Graph do
 
   import Ecto.Query
   alias Mimo.Repo
-  alias Mimo.Synapse.{GraphNode, GraphEdge}
+  alias Mimo.Synapse.{GraphEdge, GraphNode}
 
   require Logger
 
@@ -54,10 +54,6 @@ defmodule Mimo.Synapse.Graph do
     :implements,
     :documented_by
   ]
-
-  # ============================================
-  # Node Operations
-  # ============================================
 
   @doc """
   Create a new node in the graph.
@@ -228,10 +224,6 @@ defmodule Mimo.Synapse.Graph do
     {:ok, get_node_by_id(node_id)}
   end
 
-  # ============================================
-  # Embedding Operations (Phase 1 Stability)
-  # ============================================
-
   @doc """
   Create a node and automatically generate its embedding.
 
@@ -366,10 +358,6 @@ defmodule Mimo.Synapse.Graph do
 
     Enum.join(parts, ". ")
   end
-
-  # ============================================
-  # Edge Operations
-  # ============================================
 
   @doc """
   Create an edge between two nodes.
@@ -522,16 +510,40 @@ defmodule Mimo.Synapse.Graph do
   end
 
   @doc """
+  Batch track access to multiple edges (SPEC-088).
+
+  Efficiently updates access_count for multiple edges in a single query.
+  Used by SpreadingActivation to track edges traversed during retrieval.
+  """
+  @spec batch_track_edge_access([String.t()]) :: {:ok, non_neg_integer()}
+  def batch_track_edge_access([]), do: {:ok, 0}
+
+  def batch_track_edge_access(edge_ids) when is_list(edge_ids) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    {count, _} =
+      GraphEdge
+      |> where([e], e.id in ^edge_ids)
+      |> Repo.update_all(
+        set: [last_accessed_at: now],
+        inc: [access_count: 1]
+      )
+
+    Logger.debug("[Graph] Batch tracked #{count} edge accesses")
+    {:ok, count}
+  rescue
+    e ->
+      Logger.warning("[Graph] Batch track edge access failed: #{Exception.message(e)}")
+      {:ok, 0}
+  end
+
+  @doc """
   Delete an edge.
   """
   @spec delete_edge(GraphEdge.t()) :: {:ok, GraphEdge.t()} | {:error, Ecto.Changeset.t()}
   def delete_edge(%GraphEdge{} = edge) do
     Repo.delete(edge)
   end
-
-  # ============================================
-  # Bulk Operations
-  # ============================================
 
   @doc """
   Batch create nodes.
@@ -602,10 +614,6 @@ defmodule Mimo.Synapse.Graph do
       Logger.error("Batch create edges failed: #{Exception.message(e)}")
       {:error, e}
   end
-
-  # ============================================
-  # Statistics
-  # ============================================
 
   @doc """
   Get graph statistics.

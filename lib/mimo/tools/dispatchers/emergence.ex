@@ -36,9 +36,6 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
     do_dispatch(op, args)
   end
 
-  # ==========================================================================
-  # Multi-Head Dispatch by Operation
-  # ==========================================================================
   defp do_dispatch("detect", args), do: dispatch_detect(args)
   defp do_dispatch("dashboard", _args), do: dispatch_dashboard()
   defp do_dispatch("alerts", _args), do: dispatch_alerts()
@@ -60,10 +57,6 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
      "Unknown emergence operation: #{op}. Available: detect, dashboard, alerts, amplify, promote, cycle, list, search, suggest, status, pattern, impact, track_usage, usage_stats, ab_stats"}
   end
 
-  # ============================================================================
-  # Operation Dispatchers
-  # ============================================================================
-
   defp dispatch_detect(args) do
     days = args["days"] || 7
     modes = parse_modes(args["modes"])
@@ -71,15 +64,18 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
     opts = [days: days]
     opts = if modes, do: Keyword.put(opts, :modes, modes), else: opts
 
-    # detect_patterns always returns {:ok, result}
-    {:ok, result} = Emergence.detect_patterns(opts)
+    case Emergence.detect_patterns(opts) do
+      {:ok, result} ->
+        {:ok,
+         %{
+           operation: :detect,
+           days_analyzed: days,
+           detection_modes: map_detection_results(result)
+         }}
 
-    {:ok,
-     %{
-       operation: :detect,
-       days_analyzed: days,
-       detection_modes: map_detection_results(result)
-     }}
+      {:error, reason} ->
+        {:error, "Pattern detection failed: #{inspect(reason)}"}
+    end
   end
 
   defp dispatch_dashboard do
@@ -389,10 +385,6 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
         "No significant difference between test and control groups"
     end
   end
-
-  # ============================================================================
-  # Helpers
-  # ============================================================================
 
   defp format_impact(impact) do
     %{

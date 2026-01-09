@@ -188,7 +188,7 @@ defmodule Mimo.Cognitive.Strategies.TreeOfThoughts do
     # Filter to branches with some progress
     viable =
       Enum.filter(branches, fn b ->
-        length(b.thoughts) > 0 and b.evaluation != :dead_end
+        b.thoughts != [] and b.evaluation != :dead_end
       end)
 
     if viable == [] do

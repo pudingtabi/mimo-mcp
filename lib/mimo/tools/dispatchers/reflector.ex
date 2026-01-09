@@ -18,11 +18,11 @@ defmodule Mimo.Tools.Dispatchers.Reflector do
   alias Mimo.Brain.Reflector
 
   alias Mimo.Brain.Reflector.{
-    Evaluator,
     ConfidenceEstimator,
-    ErrorDetector,
     ConfidenceOutput,
-    Config
+    Config,
+    ErrorDetector,
+    Evaluator
   }
 
   @doc """
@@ -55,10 +55,6 @@ defmodule Mimo.Tools.Dispatchers.Reflector do
          "Unknown reflector operation: #{op}. Available: reflect, evaluate, confidence, errors, format, config"}
     end
   end
-
-  # ============================================================================
-  # Operation Dispatchers
-  # ============================================================================
 
   defp dispatch_reflect(args) do
     output = args["output"] || args["content"] || ""
@@ -207,10 +203,6 @@ defmodule Mimo.Tools.Dispatchers.Reflector do
         {:error, "Unknown config action: #{action}. Available: get, set"}
     end
   end
-
-  # ============================================================================
-  # Helpers
-  # ============================================================================
 
   defp build_context(args) do
     %{

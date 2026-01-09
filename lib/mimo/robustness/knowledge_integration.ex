@@ -37,7 +37,10 @@ defmodule Mimo.Robustness.KnowledgeIntegration do
   """
 
   require Logger
+  alias Mimo.Brain.Memory
   alias Mimo.Robustness.IncidentParser
+  alias Mimo.Synapse.Graph
+  alias Mimo.Synapse.QueryEngine
   # Note: PatternDetector is used indirectly via IncidentParser
 
   @doc """
@@ -189,9 +192,9 @@ defmodule Mimo.Robustness.KnowledgeIntegration do
             # Use neighbors function instead of non-existent Traversal.traverse
             neighbors =
               case direction do
-                :out -> Mimo.Synapse.Graph.outgoing_edges(node.id)
-                :in -> Mimo.Synapse.Graph.incoming_edges(node.id)
-                :both -> Mimo.Synapse.Graph.neighbors(node.id)
+                :out -> Graph.outgoing_edges(node.id)
+                :in -> Graph.incoming_edges(node.id)
+                :both -> Graph.neighbors(node.id)
               end
 
             {:ok, %{node: node, neighbors: neighbors}}
@@ -243,7 +246,7 @@ defmodule Mimo.Robustness.KnowledgeIntegration do
     case Code.ensure_loaded(Mimo.Synapse.Graph) do
       {:module, _} ->
         # Graph.stats returns a map directly, not {:ok, map}
-        graph_stats = Mimo.Synapse.Graph.stats()
+        graph_stats = Graph.stats()
 
         {:ok,
          %{
@@ -270,7 +273,7 @@ defmodule Mimo.Robustness.KnowledgeIntegration do
   defp teach(text) do
     case Code.ensure_loaded(Mimo.Brain.Memory) do
       {:module, _} ->
-        Mimo.Brain.Memory.store(%{
+        Memory.store(%{
           content: text,
           category: :fact,
           importance: 0.7
@@ -286,7 +289,7 @@ defmodule Mimo.Robustness.KnowledgeIntegration do
   defp query(text) do
     case Code.ensure_loaded(Mimo.Synapse.QueryEngine) do
       {:module, _} ->
-        Mimo.Synapse.QueryEngine.query(text)
+        QueryEngine.query(text)
 
       _ ->
         {:ok, %{results: [], status: :not_available}}
@@ -317,7 +320,7 @@ defmodule Mimo.Robustness.KnowledgeIntegration do
     case Code.ensure_loaded(Mimo.Synapse.Graph) do
       {:module, _} ->
         # Use search_nodes instead of non-existent find_node_by_name
-        case Mimo.Synapse.Graph.search_nodes(name, limit: 1) do
+        case Graph.search_nodes(name, limit: 1) do
           {:ok, [node | _]} -> {:ok, node}
           {:ok, []} -> {:error, :not_found}
           error -> error

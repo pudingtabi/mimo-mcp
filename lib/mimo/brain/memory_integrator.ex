@@ -32,21 +32,13 @@ defmodule Mimo.Brain.MemoryIntegrator do
   """
 
   require Logger
-  alias Mimo.Brain.{LLM, Memory, Engram}
+  alias Mimo.Brain.{Engram, LLM, Memory}
   alias Mimo.Repo
-
-  # =============================================================================
-  # Decision Types
-  # =============================================================================
 
   @type decision :: :update | :correction | :refinement | :redundant | :new
   @type decision_result :: {:ok, %{decision: decision(), reasoning: String.t()}} | {:error, term()}
 
   @valid_decisions [:update, :correction, :refinement, :redundant, :new]
-
-  # =============================================================================
-  # LLM Prompts
-  # =============================================================================
 
   @decision_prompt """
   You are a Memory Integration expert. Analyze these two pieces of information and decide how to handle them.
@@ -100,10 +92,6 @@ defmodule Mimo.Brain.MemoryIntegrator do
 
   OUTPUT: Just the merged content, no explanation or formatting.
   """
-
-  # =============================================================================
-  # Public API
-  # =============================================================================
 
   @doc """
   Decide how to integrate new content with an existing memory.
@@ -348,10 +336,6 @@ defmodule Mimo.Brain.MemoryIntegrator do
     end
   end
 
-  # =============================================================================
-  # Private Helpers
-  # =============================================================================
-
   # Normalize category to string (Engram schema uses :string type)
   defp normalize_category(cat) when is_atom(cat), do: Atom.to_string(cat)
   defp normalize_category(cat) when is_binary(cat), do: cat
@@ -362,7 +346,9 @@ defmodule Mimo.Brain.MemoryIntegrator do
     importance = opts[:importance] || 0.5
     supersedes_id = get_id(existing)
 
-    Repo.transaction(fn ->
+    # Use WriteSerializer.transaction to ensure all DB operations go through
+    # the same serialized path - avoids deadlock with nested transactions
+    Mimo.Brain.WriteSerializer.transaction(fn ->
       metadata = %{supersedes_id: supersedes_id}
 
       do_supersede_and_create(
@@ -390,7 +376,8 @@ defmodule Mimo.Brain.MemoryIntegrator do
     case Memory.persist_memory(new_content, category, importance, nil, metadata) do
       {:ok, new_engram} ->
         new_engram = ensure_supersedes_id(new_engram, supersedes_id)
-        mark_existing_superseded(existing, new_engram, supersession_type)
+        result = mark_existing_superseded(existing, new_engram, supersession_type)
+        {:ok, result}
 
       {:error, reason} ->
         Repo.rollback({:persist_failed, reason})
@@ -426,8 +413,18 @@ defmodule Mimo.Brain.MemoryIntegrator do
 
   defp mark_existing_superseded(_existing, new_engram, _supersession_type), do: new_engram
 
-  defp normalize_transaction_result({:ok, engram}), do: {:ok, engram}
+  # SPEC-STABILITY: WriteSerializer.transaction wraps Repo.transaction which double-wraps results
+  # Handle all possible patterns from nested transactions
+  defp normalize_transaction_result({:ok, {:ok, engram}}), do: {:ok, engram}
+  defp normalize_transaction_result({:ok, {:error, reason}}), do: {:error, reason}
+  defp normalize_transaction_result({:ok, engram}) when is_struct(engram, Engram), do: {:ok, engram}
+  defp normalize_transaction_result({:ok, engram}) when is_map(engram), do: {:ok, engram}
   defp normalize_transaction_result({:error, reason}), do: {:error, reason}
+
+  defp normalize_transaction_result(other) do
+    Logger.warning("Unexpected transaction result in MemoryIntegrator: #{inspect(other)}")
+    {:error, {:unexpected_result, other}}
+  end
 
   defp parse_decision_response(response) do
     cleaned =

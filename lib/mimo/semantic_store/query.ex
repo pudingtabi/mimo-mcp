@@ -13,8 +13,9 @@ defmodule Mimo.SemanticStore.Query do
   """
 
   import Ecto.Query
-  alias Mimo.SemanticStore.{Triple, Entity}
+  alias SQL
   alias Mimo.Repo
+  alias Mimo.SemanticStore.{Entity, Triple}
 
   require Logger
 

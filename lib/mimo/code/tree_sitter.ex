@@ -1,4 +1,6 @@
 defmodule Mimo.Code.TreeSitter do
+  alias Mimo.Code.TreeSitter.Native
+
   @moduledoc """
   Elixir interface for Tree-Sitter parsing via Rust NIF.
 
@@ -65,7 +67,7 @@ defmodule Mimo.Code.TreeSitter do
   """
   @spec parse(String.t(), language()) :: {:ok, tree()} | {:error, atom()}
   def parse(source, language) do
-    Mimo.Code.TreeSitter.Native.parse(source, language)
+    Native.parse(source, language)
   end
 
   @doc """
@@ -114,7 +116,7 @@ defmodule Mimo.Code.TreeSitter do
         ]) ::
           {:ok, tree()} | {:error, atom()}
   def parse_incremental(source, old_tree, edits \\ []) do
-    Mimo.Code.TreeSitter.Native.parse_incremental(source, old_tree, edits)
+    Native.parse_incremental(source, old_tree, edits)
   end
 
   @doc """
@@ -128,7 +130,7 @@ defmodule Mimo.Code.TreeSitter do
   """
   @spec get_sexp(tree()) :: {:ok, String.t()} | {:error, atom()}
   def get_sexp(tree) do
-    Mimo.Code.TreeSitter.Native.get_sexp(tree)
+    Native.get_sexp(tree)
   end
 
   @doc """
@@ -154,7 +156,7 @@ defmodule Mimo.Code.TreeSitter do
   """
   @spec get_symbols(tree()) :: {:ok, [symbol()]} | {:error, atom()}
   def get_symbols(tree) do
-    case Mimo.Code.TreeSitter.Native.get_symbols(tree) do
+    case Native.get_symbols(tree) do
       {:ok, raw_symbols} ->
         symbols = Enum.map(raw_symbols, &parse_symbol_tuple/1)
         {:ok, symbols}
@@ -183,7 +185,7 @@ defmodule Mimo.Code.TreeSitter do
   """
   @spec get_references(tree()) :: {:ok, [reference_info()]} | {:error, atom()}
   def get_references(tree) do
-    case Mimo.Code.TreeSitter.Native.get_references(tree) do
+    case Native.get_references(tree) do
       {:ok, raw_refs} ->
         refs = Enum.map(raw_refs, &parse_reference_tuple/1)
         {:ok, refs}
@@ -217,7 +219,7 @@ defmodule Mimo.Code.TreeSitter do
   """
   @spec query(tree(), String.t()) :: {:ok, [map()]} | {:error, atom()}
   def query(tree, pattern) do
-    case Mimo.Code.TreeSitter.Native.query(tree, pattern) do
+    case Native.query(tree, pattern) do
       {:ok, raw_matches} ->
         matches = Enum.map(raw_matches, &parse_query_result/1)
         {:ok, matches}
@@ -237,7 +239,7 @@ defmodule Mimo.Code.TreeSitter do
   """
   @spec supported_languages() :: [String.t()]
   def supported_languages do
-    Mimo.Code.TreeSitter.Native.supported_languages()
+    Native.supported_languages()
   end
 
   @doc """
@@ -254,7 +256,7 @@ defmodule Mimo.Code.TreeSitter do
   """
   @spec language_for_extension(String.t()) :: {:ok, String.t()} | {:error, :unknown_language}
   def language_for_extension(ext) do
-    Mimo.Code.TreeSitter.Native.language_for_extension(ext)
+    Native.language_for_extension(ext)
   end
 
   @doc """
@@ -333,12 +335,10 @@ defmodule Mimo.Code.TreeSitter do
       parsed_key = safe_key_to_atom(key, @reference_keys)
 
       parsed_value =
-        cond do
-          parsed_key in [:line, :col] ->
-            String.to_integer(value)
-
-          true ->
-            value
+        if parsed_key in [:line, :col] do
+          String.to_integer(value)
+        else
+          value
         end
 
       {parsed_key, parsed_value}
@@ -351,12 +351,10 @@ defmodule Mimo.Code.TreeSitter do
       parsed_key = safe_key_to_atom(key, @query_keys)
 
       parsed_value =
-        cond do
-          parsed_key in [:start_line, :start_col, :end_line, :end_col] ->
-            String.to_integer(value)
-
-          true ->
-            value
+        if parsed_key in [:start_line, :start_col, :end_line, :end_col] do
+          String.to_integer(value)
+        else
+          value
         end
 
       {parsed_key, parsed_value}

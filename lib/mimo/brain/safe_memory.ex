@@ -28,10 +28,6 @@ defmodule Mimo.Brain.SafeMemory do
   alias Mimo.SafeCall
   alias Mimo.Brain.WorkingMemory
 
-  # ==========================================================================
-  # Working Memory Operations (Resilient)
-  # ==========================================================================
-
   @doc """
   Store content in working memory with graceful degradation.
 
@@ -134,10 +130,6 @@ defmodule Mimo.Brain.SafeMemory do
       _ -> %{status: :unavailable}
     end
   end
-
-  # ==========================================================================
-  # Helpers
-  # ==========================================================================
 
   # Sanitize content to prevent UTF-8 encoding issues
   defp sanitize_content(content) when is_binary(content) do

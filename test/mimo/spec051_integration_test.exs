@@ -6,12 +6,9 @@ defmodule Mimo.SPEC051.IntegrationTest do
   """
   use Mimo.DataCase, async: false
 
-  alias Mimo.Brain.HybridScorer
-  alias Mimo.Context.BudgetAllocator
+  alias Mimo.Brain.{HybridScorer, Memory}
+  alias Mimo.Context.{AccessPatternTracker, BudgetAllocator, Prefetcher}
   alias Mimo.NeuroSymbolic.CrossModalityLinker
-  alias Mimo.Context.AccessPatternTracker
-  alias Mimo.Context.Prefetcher
-  alias Mimo.Brain.Memory
 
   describe "end-to-end tiered context delivery" do
     setup do

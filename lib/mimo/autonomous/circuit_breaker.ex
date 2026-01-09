@@ -265,10 +265,6 @@ defmodule Mimo.Autonomous.CircuitBreaker do
     }
   end
 
-  # =============================================================================
-  # Private Functions
-  # =============================================================================
-
   defp cooldown_elapsed?(%__MODULE__{last_failure_at: nil}), do: true
 
   defp cooldown_elapsed?(%__MODULE__{last_failure_at: last, config: config}) do

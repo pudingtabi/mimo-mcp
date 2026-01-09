@@ -25,8 +25,8 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationSession do
   Amplification state is stored in session metadata.
   """
 
-  alias Mimo.Cognitive.ReasoningSession
   alias Mimo.Cognitive.Amplifier.AmplificationLevel
+  alias Mimo.Cognitive.ReasoningSession
 
   @type challenge :: %{
           id: String.t(),
@@ -63,10 +63,6 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationSession do
           blocking_reason: String.t() | nil
         }
 
-  # ============================================================================
-  # Session Creation
-  # ============================================================================
-
   @doc """
   Create an amplification session.
 
@@ -78,6 +74,9 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationSession do
     strategy = Keyword.get(opts, :strategy, :cot)
     base_session = ReasoningSession.create(problem, strategy, opts)
 
+    # SPEC-092: Detect document references that should be verified
+    required_sources = detect_source_references(problem)
+
     # Initialize amplification state
     amp_state = %{
       level: level,
@@ -88,7 +87,10 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationSession do
       perspectives: [],
       coherence_issues: [],
       synthesis_ready: false,
-      blocking_reason: nil
+      blocking_reason: nil,
+      # SPEC-092: Source verification to prevent hallucination
+      required_sources: required_sources,
+      verified_sources: []
     }
 
     # Store in session metadata
@@ -125,10 +127,6 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationSession do
       ReasoningSession.update(session_id, %{amplification: new_amp})
     end
   end
-
-  # ============================================================================
-  # Decomposition
-  # ============================================================================
 
   @doc """
   Record forced decomposition sub-problems.
@@ -167,10 +165,6 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationSession do
         true
     end
   end
-
-  # ============================================================================
-  # Challenges
-  # ============================================================================
 
   @doc """
   Add a challenge to the session.
@@ -227,10 +221,6 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationSession do
     end
   end
 
-  # ============================================================================
-  # Perspectives
-  # ============================================================================
-
   @doc """
   Add a perspective to consider.
   """
@@ -257,14 +247,30 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationSession do
           {:ok, map()} | {:error, term()}
   def record_perspective_insights(session_id, perspective_name, insights) do
     with {:ok, state} <- get_state(session_id) do
+      # Check if perspective already exists
+      existing = Enum.find(state.perspectives, fn p -> p.name == perspective_name end)
+
       updated =
-        Enum.map(state.perspectives, fn p ->
-          if p.name == perspective_name do
-            %{p | considered: true, insights: insights}
-          else
-            p
-          end
-        end)
+        if existing do
+          # Update existing perspective
+          Enum.map(state.perspectives, fn p ->
+            if p.name == perspective_name do
+              %{p | considered: true, insights: insights}
+            else
+              p
+            end
+          end)
+        else
+          # Add new perspective as already considered
+          new_perspective = %{
+            name: perspective_name,
+            prompt: "Perspective: #{perspective_name}",
+            considered: true,
+            insights: insights
+          }
+
+          state.perspectives ++ [new_perspective]
+        end
 
       update_state(session_id, %{perspectives: updated})
     end
@@ -283,10 +289,6 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationSession do
         0
     end
   end
-
-  # ============================================================================
-  # Coherence
-  # ============================================================================
 
   @doc """
   Record a coherence issue.
@@ -307,6 +309,64 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationSession do
   end
 
   @doc """
+  Mark a coherence issue as resolved.
+  """
+  @spec resolve_coherence_issue(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def resolve_coherence_issue(session_id, issue_id) do
+    with {:ok, state} <- get_state(session_id) do
+      updated_issues =
+        Enum.map(state.coherence_issues, fn issue ->
+          if issue.id == issue_id do
+            %{issue | resolved: true}
+          else
+            issue
+          end
+        end)
+
+      # Check if all blocking issues are now resolved
+      still_blocking =
+        Enum.any?(updated_issues, fn i ->
+          i.type in [:contradiction, :circular] and not i.resolved
+        end)
+
+      new_state = %{coherence_issues: updated_issues}
+
+      new_state =
+        if not still_blocking and state.blocking_reason == "coherence_issue" do
+          Map.put(new_state, :blocking_reason, nil)
+        else
+          new_state
+        end
+
+      update_state(session_id, new_state)
+    end
+  end
+
+  @doc """
+  Mark all coherence issues as resolved.
+  """
+  @spec resolve_all_coherence_issues(String.t()) :: {:ok, map()} | {:error, term()}
+  def resolve_all_coherence_issues(session_id) do
+    with {:ok, state} <- get_state(session_id) do
+      updated_issues =
+        Enum.map(state.coherence_issues, fn issue ->
+          %{issue | resolved: true}
+        end)
+
+      new_state = %{coherence_issues: updated_issues}
+
+      new_state =
+        if state.blocking_reason == "coherence_issue" do
+          Map.put(new_state, :blocking_reason, nil)
+        else
+          new_state
+        end
+
+      update_state(session_id, new_state)
+    end
+  end
+
+  @doc """
   Check if there are unresolved major coherence issues.
   """
   @spec has_blocking_coherence_issues?(String.t()) :: boolean()
@@ -321,10 +381,6 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationSession do
         false
     end
   end
-
-  # ============================================================================
-  # Synthesis
-  # ============================================================================
 
   @doc """
   Prepare synthesis by gathering all threads.
@@ -364,10 +420,6 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationSession do
     end
   end
 
-  # ============================================================================
-  # Blocking
-  # ============================================================================
-
   @doc """
   Set a blocking reason that prevents progression.
   """
@@ -396,10 +448,6 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationSession do
     end
   end
 
-  # ============================================================================
-  # Private Helpers
-  # ============================================================================
-
   defp default_state do
     %{
       level: AmplificationLevel.get(:standard),
@@ -410,7 +458,10 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationSession do
       perspectives: [],
       coherence_issues: [],
       synthesis_ready: false,
-      blocking_reason: nil
+      blocking_reason: nil,
+      # SPEC-092: Source verification
+      required_sources: [],
+      verified_sources: []
     }
   end
 
@@ -474,5 +525,81 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationSession do
         acc + score * (weight / total_weight)
       end)
     end
+  end
+
+  # ============================================================================
+  # SPEC-092: Source Verification Functions
+  # ============================================================================
+
+  @doc """
+  Mark a source as verified during reasoning.
+
+  Call this when a file referenced in the problem has been read.
+  """
+  @spec mark_source_verified(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def mark_source_verified(session_id, source_path) do
+    with {:ok, state} <- get_state(session_id) do
+      verified = state.verified_sources || []
+
+      if source_path in verified do
+        {:ok, state}
+      else
+        update_state(session_id, %{verified_sources: [source_path | verified]})
+      end
+    end
+  end
+
+  @doc """
+  Check if all required sources have been verified.
+
+  Returns a report of verification status.
+  """
+  @spec check_source_verification(String.t()) :: {:ok, map()} | {:error, term()}
+  def check_source_verification(session_id) do
+    with {:ok, state} <- get_state(session_id) do
+      required = state.required_sources || []
+      verified = state.verified_sources || []
+
+      unverified = required -- verified
+
+      {:ok,
+       %{
+         required: required,
+         verified: verified,
+         unverified: unverified,
+         all_verified: unverified == [],
+         verification_rate: if(required == [], do: 1.0, else: length(verified) / length(required))
+       }}
+    end
+  end
+
+  @doc """
+  Detect document references in a problem statement.
+
+  Looks for patterns like:
+  - SPEC-XXX
+  - docs/path/to/file.md
+  - lib/path/to/module.ex
+  - Explicit file paths
+  """
+  @spec detect_source_references(String.t()) :: [String.t()]
+  def detect_source_references(text) do
+    # Pattern for SPEC references
+    spec_refs =
+      Regex.scan(~r/SPEC-\d+/i, text)
+      |> Enum.map(fn [match] -> "docs/#{String.upcase(match)}-*.md" end)
+
+    # Pattern for explicit file paths
+    file_refs =
+      Regex.scan(~r/(?:docs|lib|test)\/[\w\/\-\.]+\.\w+/, text)
+      |> Enum.map(fn [match] -> match end)
+
+    # Pattern for quoted file references
+    quoted_refs =
+      Regex.scan(~r/["'`]((?:docs|lib|test)\/[^"'`]+)["'`]/, text)
+      |> Enum.map(fn [_, match] -> match end)
+
+    (spec_refs ++ file_refs ++ quoted_refs)
+    |> Enum.uniq()
   end
 end

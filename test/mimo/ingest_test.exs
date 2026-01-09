@@ -5,8 +5,8 @@ defmodule Mimo.IngestTest do
   """
   use Mimo.DataCase, async: false
 
-  alias Mimo.Ingest
   alias Mimo.Brain.Engram
+  alias Mimo.Ingest
   alias Mimo.Repo
 
   @test_dir Path.join(System.tmp_dir!(), "mimo_ingest_test")

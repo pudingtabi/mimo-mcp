@@ -167,7 +167,7 @@ defmodule Mimo.Cognitive.Uncertainty do
   def has_gap?(%__MODULE__{confidence: :unknown}), do: true
   def has_gap?(%__MODULE__{confidence: :low}), do: true
   def has_gap?(%__MODULE__{evidence_count: count}) when count < 2, do: true
-  def has_gap?(%__MODULE__{gap_indicators: gaps}) when length(gaps) > 0, do: true
+  def has_gap?(%__MODULE__{gap_indicators: gaps}) when gaps != [], do: true
   def has_gap?(_), do: false
 
   @doc """

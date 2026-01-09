@@ -38,7 +38,7 @@ defmodule Mimo.Skills.MemoryContext do
       {:ok, %{
         memories: [...],
         summary: "3 related memories found...",
-        suggestion: "💡 Consider these..."
+        suggestion: "Consider these..."
       }}
   """
   def get_file_context(path, opts \\ []) do
@@ -79,7 +79,7 @@ defmodule Mimo.Skills.MemoryContext do
       {:ok, %{
         memories: [...],
         summary: "Found past test failures...",
-        suggestion: "💡 Store results..."
+        suggestion: "Store results..."
       }}
   """
   def get_command_context(command, opts \\ []) do
@@ -118,10 +118,6 @@ defmodule Mimo.Skills.MemoryContext do
   end
 
   def enrich_response(response_data, _context), do: response_data
-
-  # ===========================================================================
-  # Private Functions
-  # ===========================================================================
 
   defp context_enabled? do
     Application.get_env(:mimo_mcp, :memory_context_enabled, true)
@@ -215,10 +211,6 @@ defmodule Mimo.Skills.MemoryContext do
       true -> "#{div(diff_seconds, 2_592_000)} months ago"
     end
   end
-
-  # ===========================================================================
-  # Query Building
-  # ===========================================================================
 
   defp build_file_query_terms(path) do
     # Extract filename and directory components
@@ -356,10 +348,6 @@ defmodule Mimo.Skills.MemoryContext do
     |> Enum.take(3)
   end
 
-  # ===========================================================================
-  # Context Formatting
-  # ===========================================================================
-
   defp format_file_context(memories, path) do
     filename = Path.basename(path)
     count = length(memories)
@@ -376,7 +364,7 @@ defmodule Mimo.Skills.MemoryContext do
       count: count,
       summary: summary,
       suggestion:
-        "💡 Consider this context when working with #{filename}. Store new insights in memory."
+        "Consider this context when working with #{filename}. Store new insights in memory."
     }
   end
 
@@ -396,7 +384,7 @@ defmodule Mimo.Skills.MemoryContext do
       count: count,
       summary: summary,
       suggestion:
-        "💡 Consider this context before running `#{base_cmd}`. Store important results in memory (category: action)."
+        "Consider this context before running `#{base_cmd}`. Store important results in memory (category: action)."
     }
   end
 
@@ -412,7 +400,7 @@ defmodule Mimo.Skills.MemoryContext do
       grouped: %{},
       count: 0,
       summary: "No prior context found for #{target_name}.",
-      suggestion: "💡 This is new territory. Store valuable insights in memory as you learn."
+      suggestion: "This is new territory. Store valuable insights in memory as you learn."
     }
   end
 

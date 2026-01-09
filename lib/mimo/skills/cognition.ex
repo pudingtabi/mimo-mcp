@@ -12,10 +12,6 @@ defmodule Mimo.Skills.Cognition do
   require Logger
   use Agent
 
-  # ==========================================================================
-  # State Management for Sequential Thinking
-  # ==========================================================================
-
   defmodule ThinkingState do
     @moduledoc false
     defstruct sessions: %{}, current_session: nil
@@ -32,10 +28,7 @@ defmodule Mimo.Skills.Cognition do
     end
   end
 
-  # ==========================================================================
-  # Thinking Templates (Anthropic Think Tool best practice)
-  # Domain-specific guided thinking patterns for better reasoning
-  # ==========================================================================
+  # Thinking Templates - Domain-specific guided thinking patterns
 
   @thinking_templates %{
     debug: """
@@ -158,10 +151,6 @@ defmodule Mimo.Skills.Cognition do
     {:ok, Map.keys(@thinking_templates)}
   end
 
-  # ==========================================================================
-  # Basic Cognition (Original)
-  # ==========================================================================
-
   def think(thought) do
     Logger.info("[THINK] #{thought}")
     {:ok, %{status: "recorded", thought: thought, timestamp: DateTime.utc_now()}}
@@ -181,10 +170,6 @@ defmodule Mimo.Skills.Cognition do
   def plan(steps) when is_binary(steps) do
     plan([steps])
   end
-
-  # ==========================================================================
-  # Sequential Thinking (replaces sequential_thinking MCP server)
-  # ==========================================================================
 
   @doc """
   Record a sequential thought as part of a structured problem-solving process.
@@ -318,10 +303,6 @@ defmodule Mimo.Skills.Cognition do
 
     {:ok, %{sessions: sessions, current_session: current, total_sessions: length(sessions)}}
   end
-
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
 
   defp get_or_create_session do
     current = Agent.get(__MODULE__, fn state -> state.current_session end)

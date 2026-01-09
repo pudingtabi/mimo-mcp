@@ -38,9 +38,9 @@ defmodule Mimo.Workflow.Executor do
   """
   require Logger
 
-  alias Mimo.Workflow.{Pattern, BindingsResolver, PatternRegistry, Execution}
   alias Mimo.ProceduralStore.ExecutionFSM
   alias Mimo.Repo
+  alias Mimo.Workflow.{BindingsResolver, Execution, Pattern, PatternRegistry}
 
   import Ecto.Query
 
@@ -61,10 +61,6 @@ defmodule Mimo.Workflow.Executor do
           caller: pid() | nil,
           confirm: boolean()
         ]
-
-  # =============================================================================
-  # Public API
-  # =============================================================================
 
   @doc """
   Execute a workflow pattern with resolved bindings.
@@ -235,10 +231,6 @@ defmodule Mimo.Workflow.Executor do
     |> Enum.map(&execution_to_map/1)
   end
 
-  # =============================================================================
-  # Pattern to Procedure Conversion
-  # =============================================================================
-
   @doc """
   Convert a workflow pattern to a ProceduralStore-compatible procedure definition.
 
@@ -402,14 +394,10 @@ defmodule Mimo.Workflow.Executor do
 
   defp infer_json_type(_), do: "string"
 
-  # =============================================================================
-  # Execution Helpers
-  # =============================================================================
-
   defp execute_procedure(procedure_def, context, async, timeout, caller) do
-    # Create a temporary procedure entry
-    # In a production system, we'd register this with ProceduralStore
-    # For now, we execute directly via FSM
+    # Create a temporary procedure entry.
+    # Production systems would register with ProceduralStore.
+    # Executes directly via FSM.
 
     execution_id = generate_execution_id()
 
@@ -446,9 +434,8 @@ defmodule Mimo.Workflow.Executor do
   end
 
   defp start_fsm(procedure_def, context, opts) do
-    # We need to use a dynamic procedure loader
-    # For now, create an in-memory procedure struct
-    # (procedure struct is built for future FSM integration)
+    # Uses dynamic procedure loading with in-memory struct.
+    # (Procedure struct built for FSM integration.)
     _procedure = %{
       name: procedure_def["name"],
       version: procedure_def["version"],
@@ -457,8 +444,7 @@ defmodule Mimo.Workflow.Executor do
       max_retries: 3
     }
 
-    # Start FSM with our procedure (this requires extending ExecutionFSM)
-    # For now, we'll use a simplified execution path
+    # Start FSM with procedure (uses simplified execution path).
     execute_steps_directly(procedure_def, context, opts)
   end
 
@@ -583,10 +569,6 @@ defmodule Mimo.Workflow.Executor do
     end
   end
 
-  # =============================================================================
-  # Precondition Checking
-  # =============================================================================
-
   defp check_preconditions(%Pattern{preconditions: nil}, _context), do: :ok
   defp check_preconditions(%Pattern{preconditions: []}, _context), do: :ok
 
@@ -633,10 +615,6 @@ defmodule Mimo.Workflow.Executor do
     true
   end
 
-  # =============================================================================
-  # Binding Resolution
-  # =============================================================================
-
   defp resolve_all_bindings(%Pattern{steps: steps, bindings: bindings}, context) do
     resolved = resolve_pattern_bindings(bindings || [], context)
     resolve_step_bindings_all(steps, resolved, bindings)
@@ -676,10 +654,6 @@ defmodule Mimo.Workflow.Executor do
     end)
   end
 
-  # =============================================================================
-  # Confirmation Mode
-  # =============================================================================
-
   defp build_confirmation_result(pattern, context) do
     %{
       execution_id: nil,
@@ -718,10 +692,6 @@ defmodule Mimo.Workflow.Executor do
   end
 
   defp truncate_value(value, _), do: value
-
-  # =============================================================================
-  # Helpers
-  # =============================================================================
 
   defp generate_execution_id do
     "wfexec_" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)

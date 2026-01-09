@@ -3,7 +3,7 @@ defmodule Mimo.Synapse.TraversalTest do
   Tests for the Synapse Web Traversal algorithms.
   """
   use Mimo.DataCase, async: false
-  alias Mimo.Synapse.{Graph, Traversal, GraphNode, GraphEdge}
+  alias Mimo.Synapse.{Graph, GraphEdge, GraphNode, Traversal}
 
   setup do
     # Clean up test data before each test

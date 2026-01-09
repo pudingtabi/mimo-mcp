@@ -15,6 +15,7 @@ defmodule Mimo.Awakening.Achievements do
   """
   require Logger
 
+  alias PowerCalculator
   alias Mimo.Awakening.Stats
 
   @type achievement :: %{
@@ -252,10 +253,6 @@ defmodule Mimo.Awakening.Achievements do
     }
   ]
 
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
-
   @doc """
   Get all achievement definitions.
   """
@@ -393,10 +390,6 @@ defmodule Mimo.Awakening.Achievements do
 
   # Unknown
   defp do_get_progress(_, _), do: {0, 1, 0.0}
-
-  # ==========================================================================
-  # Private Functions
-  # ==========================================================================
 
   defp achievement_unlocked?(id, stats, _event), do: do_achievement_unlocked(id, stats)
 

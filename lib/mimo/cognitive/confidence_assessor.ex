@@ -30,9 +30,10 @@ defmodule Mimo.Cognitive.ConfidenceAssessor do
 
   require Logger
 
-  alias Mimo.Cognitive.Uncertainty
+  alias CacheManager
   alias Mimo.Brain.Memory
   alias Mimo.Code.SymbolIndex
+  alias Mimo.Cognitive.Uncertainty
   alias Mimo.Synapse.QueryEngine
   alias Mimo.TaskHelper
 
@@ -137,7 +138,7 @@ defmodule Mimo.Cognitive.ConfidenceAssessor do
 
     cond do
       length(memories) >= 3 -> :high
-      length(memories) >= 1 -> :medium
+      memories != [] -> :medium
       true -> :unknown
     end
   end
@@ -398,7 +399,7 @@ defmodule Mimo.Cognitive.ConfidenceAssessor do
         case evidence[key] do
           nil -> false
           [] -> false
-          list when is_list(list) -> length(list) > 0
+          list when is_list(list) -> list != []
           _ -> false
         end
       end)

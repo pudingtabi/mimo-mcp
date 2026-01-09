@@ -29,16 +29,12 @@ defmodule Mimo.Brain.Forgetting do
   require Logger
 
   import Ecto.Query
-  alias Mimo.{Repo, Brain.Engram, Brain.DecayScorer}
+  alias Mimo.{Brain.DecayScorer, Brain.Engram, Repo}
   alias Mimo.SafeCall
 
   @default_interval 3_600_000
   @default_threshold 0.1
   @default_batch_size 1000
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -55,7 +51,7 @@ defmodule Mimo.Brain.Forgetting do
 
   ## Returns
 
-    * `{:ok, count}` - Number of memories forgotten/would forget
+    * `{:ok, count}` - Number of memories archived/would forget
     * `{:error, :unavailable}` - Forgetting service not running
   """
   @spec run_now(keyword()) :: {:ok, non_neg_integer()} | {:error, atom()}
@@ -100,10 +96,6 @@ defmodule Mimo.Brain.Forgetting do
       fallback: {:error, :unavailable}
     )
   end
-
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
 
   @impl true
   def init(opts) do
@@ -161,10 +153,6 @@ defmodule Mimo.Brain.Forgetting do
     {:noreply, new_state}
   end
 
-  # ==========================================================================
-  # Private Implementation
-  # ==========================================================================
-
   defp run_forgetting_cycle(state, opts) do
     threshold = opts[:threshold] || get_config(:threshold, @default_threshold)
     batch_size = opts[:batch_size] || get_config(:batch_size, @default_batch_size)
@@ -197,7 +185,7 @@ defmodule Mimo.Brain.Forgetting do
     count =
       if dry_run do
         Logger.info(
-          "Forgetting dry run: would delete #{length(to_forget)} of #{length(candidates)} memories"
+          "Forgetting dry run: would archive #{length(to_forget)} of #{length(candidates)} memories"
         )
 
         # Log sample of what would be forgotten
@@ -213,7 +201,7 @@ defmodule Mimo.Brain.Forgetting do
 
         length(to_forget)
       else
-        delete_memories(to_forget)
+        archive_memories(to_forget)
       end
 
     :telemetry.execute(
@@ -223,7 +211,7 @@ defmodule Mimo.Brain.Forgetting do
     )
 
     if count > 0 do
-      Logger.info("Forgetting cycle complete: #{count} memories forgotten (dry_run: #{dry_run})")
+      Logger.info("Forgetting cycle complete: #{count} memories archived (dry_run: #{dry_run})")
     end
 
     new_state = %{
@@ -236,19 +224,21 @@ defmodule Mimo.Brain.Forgetting do
     {count, new_state}
   end
 
-  defp delete_memories([]), do: 0
+  # Archive memories instead of deleting - they can be recovered if needed
+  defp archive_memories([]), do: 0
 
-  defp delete_memories(memories) do
+  defp archive_memories(memories) do
     ids = Enum.map(memories, & &1.id)
+    now = NaiveDateTime.utc_now()
 
     {count, _} =
       from(e in Engram, where: e.id in ^ids)
-      |> Repo.delete_all()
+      |> Repo.update_all(set: [archived: true, archived_at: now])
 
     # Emit individual events for monitoring
     Enum.each(memories, fn m ->
       :telemetry.execute(
-        [:mimo, :memory, :decayed],
+        [:mimo, :memory, :archived],
         %{score: DecayScorer.calculate_score(m)},
         %{id: m.id, category: m.category}
       )

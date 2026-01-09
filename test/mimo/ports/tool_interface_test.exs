@@ -6,9 +6,9 @@ defmodule Mimo.ToolInterfaceTest do
   """
   use Mimo.DataCase, async: false
 
-  alias Mimo.ToolInterface
   alias Mimo.Brain.Engram
   alias Mimo.Repo
+  alias Mimo.ToolInterface
 
   @test_dir Path.join(System.tmp_dir!(), "mimo_tool_interface_test")
 
@@ -441,7 +441,7 @@ defmodule Mimo.ToolInterfaceTest do
       tools = ToolInterface.list_tools()
 
       assert is_list(tools)
-      assert length(tools) > 0
+      refute Enum.empty?(tools)
 
       # Verify tool structure
       first_tool = List.first(tools)

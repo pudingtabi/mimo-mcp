@@ -27,7 +27,7 @@ defmodule Mimo.SemanticStore.QueryTest do
 
       results = Query.transitive_closure("alice", "person", "reports_to")
 
-      assert length(results) >= 1
+      assert results != []
       ceo_result = Enum.find(results, &(&1.id == "ceo"))
       assert ceo_result != nil
       assert ceo_result.depth == 2

@@ -27,6 +27,7 @@ defmodule Mimo.Robustness.ComplexityAnalyzer do
       #   confidence: 0.75
       # }
   """
+  alias ConfidenceAssessor
 
   require Logger
 
@@ -239,7 +240,7 @@ defmodule Mimo.Robustness.ComplexityAnalyzer do
       """
 
       # Try to use cognitive assessment if available
-      case Code.ensure_loaded(Mimo.Cognitive.ConfidenceAssessor) do
+      case Code.ensure_loaded(ConfidenceAssessor) do
         {:module, _} ->
           case Mimo.Cognitive.ConfidenceAssessor.assess(topic) do
             {:ok, assessment} ->

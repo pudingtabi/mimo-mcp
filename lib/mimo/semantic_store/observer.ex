@@ -21,10 +21,6 @@ defmodule Mimo.SemanticStore.Observer do
   @freshness_seconds 300
   @max_suggestions 2
 
-  # ==========================================================================
-  # Client API
-  # ==========================================================================
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -52,10 +48,6 @@ defmodule Mimo.SemanticStore.Observer do
   def update_context(context) do
     GenServer.cast(__MODULE__, {:update_context, context})
   end
-
-  # ==========================================================================
-  # Server Callbacks
-  # ==========================================================================
 
   @impl true
   def init(_opts) do
@@ -96,10 +88,6 @@ defmodule Mimo.SemanticStore.Observer do
   def handle_cast({:update_context, context}, state) do
     {:noreply, %{state | context: Map.merge(state.context, context)}}
   end
-
-  # ==========================================================================
-  # Private Functions
-  # ==========================================================================
 
   defp find_relevant_relationships(entities) do
     Enum.flat_map(entities, fn entity_id ->

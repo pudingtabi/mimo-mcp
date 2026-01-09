@@ -4,14 +4,19 @@ defmodule Mimo.MixProject do
   def project do
     [
       app: :mimo_mcp,
-      version: "2.7.0",
+      version: "2.9.0",
       elixir: "~> 1.12",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
       compilers: Mix.compilers(),
       releases: releases(),
-      test_coverage: [tool: ExCoveralls]
+      test_coverage: [tool: ExCoveralls],
+      dialyzer: [
+        plt_add_apps: [:mix],
+        ignore_warnings: ".dialyzer_ignore.exs",
+        flags: [:error_handling, :underspecs]
+      ]
     ]
   end
 

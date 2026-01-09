@@ -175,10 +175,6 @@ defmodule Mimo.Library.AutoDiscovery do
 
   def extract_dependencies(_, _), do: []
 
-  # ==========================================================================
-  # Dependency Parsers
-  # ==========================================================================
-
   defp parse_mix_deps(content) do
     # Match patterns like {:phoenix, "~> 1.7"} or {:ecto, ">= 3.0.0"}
     # Also handles {:dep, "~> 1.0", only: :dev}
@@ -271,10 +267,6 @@ defmodule Mimo.Library.AutoDiscovery do
     (simple_deps ++ complex_deps)
     |> Enum.uniq_by(fn {name, _} -> name end)
   end
-
-  # ==========================================================================
-  # Helpers
-  # ==========================================================================
 
   defp cache_dependency(ecosystem, name, version) do
     opts = if version != "latest" && version != "", do: [version: version], else: []

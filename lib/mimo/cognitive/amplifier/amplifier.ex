@@ -63,14 +63,16 @@ defmodule Mimo.Cognitive.Amplifier do
   alias Mimo.Cognitive.Amplifier.{
     AmplificationLevel,
     AmplificationSession,
-    ThinkingForcer,
     ChallengeGenerator,
+    ClaimVerifier,
     CoherenceValidator,
+    ConfidenceGapAnalyzer,
     PerspectiveRotator,
-    SynthesisEnforcer
+    SynthesisEnforcer,
+    ThinkingForcer
   }
 
-  alias Mimo.Cognitive.{ProblemAnalyzer, ThoughtEvaluator}
+  alias Mimo.Cognitive.{ProblemAnalyzer, ReasoningSession, ThoughtEvaluator}
 
   @type level :: :minimal | :standard | :deep | :exhaustive | :adaptive
   @type stage :: :init | :decomposition | :thinking | :challenging | :perspectives | :synthesis
@@ -82,10 +84,6 @@ defmodule Mimo.Cognitive.Amplifier do
           next_action: map() | nil,
           blocking: boolean()
         }
-
-  # ============================================================================
-  # Public API
-  # ============================================================================
 
   @doc """
   Start an amplified reasoning session.
@@ -257,14 +255,21 @@ defmodule Mimo.Cognitive.Amplifier do
   """
   @spec think(String.t(), String.t(), keyword()) :: {:ok, amplified_result()} | {:error, term()}
   def think(session_id, thought, opts \\ []) do
-    with {:ok, session} <- Mimo.Cognitive.ReasoningSession.get(session_id),
+    with {:ok, session} <- ReasoningSession.get(session_id),
          {:ok, state} <- AmplificationSession.get_state(session_id) do
       level = state.level
 
-      # Check if blocked
+      # Check if blocked - return structured guidance for agents
       case AmplificationSession.blocked?(session_id) do
         {true, reason} ->
-          {:error, "Session blocked: #{reason}. Address blocking issue first."}
+          {:error,
+           %{
+             blocked: true,
+             reason: reason,
+             required_action: build_required_action(reason, session_id),
+             do_not: ["amplify_think", "amplify_challenge", "amplify_conclude"],
+             hint: "You must address the blocking issue first. Use the required_action command."
+           }}
 
         {false, _} ->
           process_thought(session_id, session, state, level, thought, opts)
@@ -280,7 +285,7 @@ defmodule Mimo.Cognitive.Amplifier do
   """
   @spec next_action(String.t()) :: {:ok, map()} | {:error, term()}
   def next_action(session_id) do
-    with {:ok, session} <- Mimo.Cognitive.ReasoningSession.get(session_id),
+    with {:ok, session} <- ReasoningSession.get(session_id),
          {:ok, state} <- AmplificationSession.get_state(session_id) do
       level = state.level
 
@@ -352,11 +357,23 @@ defmodule Mimo.Cognitive.Amplifier do
   @spec address_challenge(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def address_challenge(session_id, challenge_id, response) do
-    with {:ok, _state} <- AmplificationSession.get_state(session_id) do
-      # Validate response addresses the challenge
-      # (simplified - real implementation would check more carefully)
+    with {:ok, state} <- AmplificationSession.get_state(session_id) do
+      # Validate response has sufficient content (>30 chars = meaningful response)
       if String.length(response) > 30 do
         AmplificationSession.address_challenge(session_id, challenge_id, response)
+
+        # BUG FIX: Also resolve coherence issues when challenge is addressed
+        # The challenge may have been generated from a coherence issue
+        AmplificationSession.resolve_all_coherence_issues(session_id)
+
+        # Clear blocking if this was a coherence issue
+        if state.blocking_reason in ["coherence_issue", "must_address_challenges"] do
+          # Check if there are still pending must-address challenges
+          if AmplificationSession.pending_must_address(session_id) == [] do
+            AmplificationSession.clear_blocking(session_id)
+          end
+        end
+
         {:ok, %{addressed: true, challenge_id: challenge_id}}
       else
         {:error, "Response too brief. Please address the challenge more thoroughly."}
@@ -379,9 +396,12 @@ defmodule Mimo.Cognitive.Amplifier do
   """
   @spec conclude(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def conclude(session_id, opts \\ []) do
-    with {:ok, session} <- Mimo.Cognitive.ReasoningSession.get(session_id),
+    with {:ok, session} <- ReasoningSession.get(session_id),
          {:ok, state} <- AmplificationSession.get_state(session_id) do
       level = state.level
+
+      # SPEC-092: Check source verification
+      {:ok, verification} = AmplificationSession.check_source_verification(session_id)
 
       # Check prerequisites
       cond do
@@ -390,14 +410,36 @@ defmodule Mimo.Cognitive.Amplifier do
           {:error,
            "Insufficient thinking. Need at least #{level.min_thinking_steps} steps, have #{length(session.thoughts)}."}
 
-        # Check blocking issues
+        # Check blocking issues - return structured guidance
         match?({true, _}, AmplificationSession.blocked?(session_id)) ->
           {true, reason} = AmplificationSession.blocked?(session_id)
-          {:error, "Cannot conclude: #{reason}"}
+
+          {:error,
+           %{
+             blocked: true,
+             reason: reason,
+             required_action: build_required_action(reason, session_id),
+             do_not: ["amplify_conclude"],
+             hint: "Cannot conclude while session is blocked. Address the blocking issue first."
+           }}
 
         # Check pending challenges
         AmplificationSession.pending_must_address(session_id) != [] ->
           {:error, "Cannot conclude: unaddressed must-address challenges remain."}
+
+        # SPEC-092: Check if referenced sources were verified (warn, don't block)
+        verification.unverified != [] and not Keyword.get(opts, :skip_source_check, false) ->
+          {:error,
+           %{
+             blocked: false,
+             reason: "unverified_sources",
+             unverified_sources: verification.unverified,
+             hint:
+               "Warning: The problem references documents that weren't read during reasoning. " <>
+                 "This may lead to hallucination. Use skip_source_check: true to override.",
+             verification_rate: verification.verification_rate,
+             action: "Read the unverified sources or use skip_source_check: true to proceed"
+           }}
 
         true ->
           do_conclude(session_id, session, state, level, opts)
@@ -405,9 +447,22 @@ defmodule Mimo.Cognitive.Amplifier do
     end
   end
 
-  # ============================================================================
-  # Private Implementation
-  # ============================================================================
+  # Build the exact command the agent should use to address the blocking issue
+  defp build_required_action(reason, session_id) do
+    case reason do
+      "decomposition_required" ->
+        "reason operation=amplify_decomposition session_id=\"#{session_id}\" response=\"[Your decomposition response here - address the forcing prompts shown in the start response]\""
+
+      "must_address_challenges" ->
+        "reason operation=amplify_challenge session_id=\"#{session_id}\" challenge_id=\"[challenge_id from pending challenges]\" response=\"[Your response addressing the challenge]\""
+
+      "coherence_issue" ->
+        "reason operation=amplify_think session_id=\"#{session_id}\" thought=\"[Clarify or resolve the coherence issue]\""
+
+      _ ->
+        "reason operation=next_action session_id=\"#{session_id}\" # Check what action is required"
+    end
+  end
 
   defp resolve_level(:adaptive, problem) do
     complexity = ProblemAnalyzer.estimate_complexity(problem)
@@ -427,18 +482,55 @@ defmodule Mimo.Cognitive.Amplifier do
         strategy: session.strategy
       })
 
+    # Step 1.5: SPEC-092 Semantic Claim Verification
+    # Verify any verifiable claims in the thought against actual sources
+    claim_verification = ClaimVerifier.verify_thought(thought)
+
+    # Log verification results if any claims were found
+    if claim_verification.summary.total_claims > 0 do
+      Logger.debug(
+        "[Amplifier] Claim verification: #{claim_verification.summary.verified}/#{claim_verification.summary.total_claims} verified"
+      )
+    end
+
+    # Step 1.6: SPEC-092 Confidence-Verification Gap Analysis
+    # Detect when high confidence language doesn't match verification evidence
+    confidence_gap = ConfidenceGapAnalyzer.analyze(thought, claim_verification.summary)
+
+    if confidence_gap.gap_detected do
+      Logger.debug(
+        "[Amplifier] Confidence gap detected: #{confidence_gap.risk_level} - #{confidence_gap.reason}"
+      )
+    end
+
     # Step 2: Check coherence
     previous_contents = Enum.map(session.thoughts, & &1.content)
     coherence = CoherenceValidator.validate_thought(thought, previous_contents)
 
-    # Step 3: Generate challenges if enabled
+    # Step 3: Generate challenges if enabled (with session-level cap)
     challenges =
       if AmplificationLevel.enabled?(level, :challenges) do
-        context = %{problem: session.problem, step: length(session.thoughts) + 1}
+        # Check current must-address count to avoid overwhelming
+        current_must_address = length(AmplificationSession.pending_must_address(session_id))
+        max_allowed = level.max_must_address
 
-        ChallengeGenerator.generate(thought, context,
-          max_challenges: AmplificationLevel.required_count(level, :challenges)
-        )
+        if current_must_address >= max_allowed do
+          # Already at cap, skip generating more must-address challenges
+          Logger.debug(
+            "[Amplifier] Skipping challenge generation: at must-address cap (#{current_must_address}/#{max_allowed})"
+          )
+
+          []
+        else
+          context = %{problem: session.problem, step: length(session.thoughts) + 1}
+          # Reduce max_challenges based on remaining budget
+          remaining_budget = max_allowed - current_must_address
+
+          max_for_this_step =
+            min(AmplificationLevel.required_count(level, :challenges), remaining_budget)
+
+          ChallengeGenerator.generate(thought, context, max_challenges: max_for_this_step)
+        end
       else
         []
       end
@@ -457,7 +549,7 @@ defmodule Mimo.Cognitive.Amplifier do
       branch_id: session.current_branch_id
     }
 
-    Mimo.Cognitive.ReasoningSession.add_thought(session_id, thought_record)
+    ReasoningSession.add_thought(session_id, thought_record)
 
     # Step 5: Check for coherence issues
     case coherence do
@@ -497,6 +589,33 @@ defmodule Mimo.Cognitive.Amplifier do
              {:ok, _} -> :coherent
              {:issues, issues} -> %{issues: length(issues)}
            end,
+         # SPEC-092: Include semantic claim verification results
+         claim_verification:
+           if claim_verification.summary.total_claims > 0 do
+             %{
+               total_claims: claim_verification.summary.total_claims,
+               verified: claim_verification.summary.verified,
+               failed: claim_verification.summary.failed,
+               verification_rate: claim_verification.summary.verification_rate,
+               unverified_claims:
+                 claim_verification.results
+                 |> Enum.reject(& &1.verified)
+                 |> Enum.map(fn r -> %{claim: r.claim.raw_match, reason: r.evidence} end)
+             }
+           else
+             nil
+           end,
+         # SPEC-092: Include confidence-verification gap analysis
+         confidence_gap:
+           if confidence_gap.gap_detected do
+             %{
+               risk_level: confidence_gap.risk_level,
+               reason: confidence_gap.reason,
+               empty_trap: confidence_gap.empty_trap
+             }
+           else
+             nil
+           end,
          challenges_generated: length(challenges),
          must_address: length(must_address)
        },
@@ -535,12 +654,12 @@ defmodule Mimo.Cognitive.Amplifier do
   end
 
   defp perspective_coverage_met?(session_id, level) do
-    if not AmplificationLevel.enabled?(level, :perspectives) do
-      true
-    else
+    if AmplificationLevel.enabled?(level, :perspectives) do
       count = AmplificationSession.perspectives_considered_count(session_id)
       required = AmplificationLevel.required_count(level, :perspectives)
       count >= required
+    else
+      true
     end
   end
 
@@ -557,7 +676,7 @@ defmodule Mimo.Cognitive.Amplifier do
         {:ok, synthesis} ->
           if synthesis.ready or not AmplificationLevel.enabled?(level, :synthesis) do
             # Complete the session
-            Mimo.Cognitive.ReasoningSession.complete(session_id)
+            ReasoningSession.complete(session_id)
 
             {:ok,
              %{

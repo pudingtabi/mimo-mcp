@@ -31,12 +31,8 @@ defmodule Mimo.Synapse.DependencySync do
 
   require Logger
 
-  alias Mimo.Synapse.{Graph, Orchestrator}
   alias Mimo.Library
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
+  alias Mimo.Synapse.{Graph, Orchestrator}
 
   @doc """
   Scan project root for dependencies and create graph nodes.
@@ -246,10 +242,6 @@ defmodule Mimo.Synapse.DependencySync do
       []
   end
 
-  # ==========================================================================
-  # Private Functions - Detection and Parsing
-  # ==========================================================================
-
   defp detect_and_parse_dependencies(project_root, ecosystems) do
     parsers = [
       {:hex, "mix.exs", &parse_mix_exs/1},
@@ -276,10 +268,6 @@ defmodule Mimo.Synapse.DependencySync do
     end)
   end
 
-  # ==========================================================================
-  # Private Functions - Elixir/mix.exs Parsing
-  # ==========================================================================
-
   defp extract_mix_deps(content) do
     # Match deps function return value
     deps_pattern = ~r/defp?\s+deps\s*(?:\([^)]*\))?\s*do\s+([\s\S]*?)\s+end/
@@ -304,10 +292,6 @@ defmodule Mimo.Synapse.DependencySync do
     end
   end
 
-  # ==========================================================================
-  # Private Functions - npm/package.json Parsing
-  # ==========================================================================
-
   defp extract_npm_deps(content) do
     case Jason.decode(content) do
       {:ok, json} ->
@@ -330,10 +314,6 @@ defmodule Mimo.Synapse.DependencySync do
     end
   end
 
-  # ==========================================================================
-  # Private Functions - pip/requirements.txt Parsing
-  # ==========================================================================
-
   defp extract_pip_deps(content) do
     content
     |> String.split("\n")
@@ -354,10 +334,6 @@ defmodule Mimo.Synapse.DependencySync do
     end)
     |> Enum.reject(&is_nil/1)
   end
-
-  # ==========================================================================
-  # Private Functions - pyproject.toml Parsing
-  # ==========================================================================
 
   defp extract_pyproject_deps(content) do
     # Simple regex-based parsing for common patterns
@@ -381,17 +357,12 @@ defmodule Mimo.Synapse.DependencySync do
           _ ->
             nil
         end)
-        |> Enum.reject(&is_nil/1)
-        |> Enum.reject(fn dep -> dep.name == "python" end)
+        |> Enum.reject(fn dep -> is_nil(dep) or dep.name == "python" end)
 
       nil ->
         []
     end
   end
-
-  # ==========================================================================
-  # Private Functions - Cargo.toml Parsing
-  # ==========================================================================
 
   defp extract_cargo_deps(content) do
     # Match [dependencies] section
@@ -421,10 +392,6 @@ defmodule Mimo.Synapse.DependencySync do
     end
   end
 
-  # ==========================================================================
-  # Private Functions - go.mod Parsing
-  # ==========================================================================
-
   defp extract_go_deps(content) do
     # Match require block or single require statements
     require_block = ~r/require\s*\(\s*([\s\S]*?)\s*\)/
@@ -453,10 +420,6 @@ defmodule Mimo.Synapse.DependencySync do
 
     block_deps ++ single_deps
   end
-
-  # ==========================================================================
-  # Private Functions - Graph Operations
-  # ==========================================================================
 
   defp sync_single_dependency(project_node, dep, fetch_docs) do
     ecosystem = dep.ecosystem
@@ -518,10 +481,6 @@ defmodule Mimo.Synapse.DependencySync do
       end
     end)
   end
-
-  # ==========================================================================
-  # Private Functions - Helpers
-  # ==========================================================================
 
   defp clean_version(nil), do: "latest"
   defp clean_version(""), do: "latest"

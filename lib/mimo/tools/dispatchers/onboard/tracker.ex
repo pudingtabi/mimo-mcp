@@ -1,7 +1,10 @@
 defmodule Mimo.Tools.Dispatchers.Onboard.Tracker do
+  @moduledoc "Tracks onboarding progress and state."
   use GenServer
   require Logger
   alias Mimo.Brain.Memory
+  alias Mimo.Tools.Dispatchers.{Code, Knowledge, Library}
+  alias Mimo.Tools.Dispatchers.Onboard.Tracker
 
   # State structure
   defstruct [
@@ -14,12 +17,15 @@ defmodule Mimo.Tools.Dispatchers.Onboard.Tracker do
     progress: %{
       symbols: :pending,
       deps: :pending,
-      graph: :pending
+      graph: :pending,
+      # SPEC-096 Synergy P1
+      library_learn: :pending
     },
     results: %{
       symbols: nil,
       deps: nil,
-      graph: nil
+      graph: nil,
+      library_learn: nil
     },
     error: nil
   ]
@@ -59,8 +65,8 @@ defmodule Mimo.Tools.Dispatchers.Onboard.Tracker do
         path: path,
         fingerprint: fingerprint,
         start_time: System.monotonic_time(:millisecond),
-        progress: %{symbols: :running, deps: :running, graph: :running},
-        results: %{symbols: nil, deps: nil, graph: nil}
+        progress: %{symbols: :running, deps: :running, graph: :running, library_learn: :running},
+        results: %{symbols: nil, deps: nil, graph: nil, library_learn: nil}
       }
 
       # Start the background task
@@ -135,17 +141,23 @@ defmodule Mimo.Tools.Dispatchers.Onboard.Tracker do
 
   defp run_background_tasks(path) do
     # We run these in parallel tasks but report back individually
+    # SPEC-096: Added library_learn for synergy
 
     # Define the tasks
     tasks = [
-      {:symbols,
-       fn -> Mimo.Tools.Dispatchers.Code.dispatch(%{"operation" => "index", "path" => path}) end},
+      {:symbols, fn -> Code.dispatch(%{"operation" => "index", "path" => path}) end},
       {:deps,
        fn ->
-         Mimo.Tools.Dispatchers.Library.dispatch(%{"operation" => "discover", "path" => path})
+         Library.dispatch(%{"operation" => "discover", "path" => path})
        end},
-      {:graph,
-       fn -> Mimo.Tools.Dispatchers.Knowledge.dispatch(%{"operation" => "link", "path" => path}) end}
+      {:graph, fn -> Knowledge.dispatch(%{"operation" => "link", "path" => path}) end},
+      # SPEC-096 Synergy P1: Learn library docs after discovering deps
+      {:library_learn,
+       fn ->
+         # Small delay to let deps discovery run first
+         Process.sleep(500)
+         Mimo.Learning.LibraryLearner.learn_project_deps(path, max_deps: 10)
+       end}
     ]
 
     tasks
@@ -154,17 +166,17 @@ defmodule Mimo.Tools.Dispatchers.Onboard.Tracker do
         try do
           case func.() do
             {:ok, result} ->
-              Mimo.Tools.Dispatchers.Onboard.Tracker.update_progress(type, :done, result)
+              Tracker.update_progress(type, :done, result)
 
             {:error, reason} ->
               Logger.warning("[OnboardTracker] #{type} failed: #{inspect(reason)}")
-              Mimo.Tools.Dispatchers.Onboard.Tracker.update_progress(type, :error, %{error: reason})
+              Tracker.update_progress(type, :error, %{error: reason})
           end
         rescue
           e ->
             Logger.error("[OnboardTracker] #{type} crashed: #{Exception.message(e)}")
 
-            Mimo.Tools.Dispatchers.Onboard.Tracker.update_progress(type, :error, %{
+            Tracker.update_progress(type, :error, %{
               error: Exception.message(e)
             })
         end

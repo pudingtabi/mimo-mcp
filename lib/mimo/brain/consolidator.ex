@@ -38,16 +38,13 @@ defmodule Mimo.Brain.Consolidator do
   use GenServer
   require Logger
 
-  alias Mimo.Brain.{Memory, LLM}
+  alias SafeMemory
+  alias Mimo.Brain.{LLM, Memory}
   alias Mimo.SafeCall
 
   @default_interval 60_000
   @default_score_threshold 0.3
   @default_min_age_ms 30_000
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -110,10 +107,6 @@ defmodule Mimo.Brain.Consolidator do
     importance_score + access_score + novelty_score + age_score
   end
 
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
-
   @impl true
   def init(opts) do
     interval = Keyword.get(opts, :interval, get_config(:interval_ms, @default_interval))
@@ -157,10 +150,6 @@ defmodule Mimo.Brain.Consolidator do
     schedule_run(state.interval)
     {:noreply, new_state}
   end
-
-  # ==========================================================================
-  # Private Implementation
-  # ==========================================================================
 
   defp run_consolidation(state, opts) do
     force = Keyword.get(opts, :force, false)
@@ -281,7 +270,7 @@ defmodule Mimo.Brain.Consolidator do
     # Compare against existing memories to assess true novelty
     # Search for similar content in long-term memory
     case Memory.search_memories(content, limit: 5, min_similarity: 0.5) do
-      similar_memories when is_list(similar_memories) and length(similar_memories) > 0 ->
+      similar_memories when is_list(similar_memories) and similar_memories != [] ->
         # Calculate novelty based on max similarity to existing memories
         max_similarity =
           similar_memories

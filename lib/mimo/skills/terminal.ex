@@ -51,8 +51,8 @@ defmodule Mimo.Skills.Terminal do
     ~r/rm\s+(-[rf]+\s+)*\//,
     # rm with wildcard
     ~r/rm\s+-[rf]*\s+\*/,
-    # write to device
-    ~r/>\s*\/dev\//,
+    # write to device (but NOT stderr/stdout redirects like 2>/dev/null or >&/dev/null)
+    ~r/(?<![12&])>\s*\/dev\/(?!null)/,
     # format filesystem
     ~r/mkfs/,
     # dd write operations
@@ -68,10 +68,6 @@ defmodule Mimo.Skills.Terminal do
     screen tmux byobu
     ssh sshd telnet
   ])
-
-  # ==========================================================================
-  # Process Registry (for tracking running processes)
-  # ==========================================================================
 
   defmodule Registry do
     use Agent
@@ -96,10 +92,6 @@ defmodule Mimo.Skills.Terminal do
       Agent.get(__MODULE__, & &1)
     end
   end
-
-  # ==========================================================================
-  # Public API - Single Command Execution
-  # ==========================================================================
 
   @doc """
   Execute a command with optional cwd, env, and shell options.
@@ -143,10 +135,6 @@ defmodule Mimo.Skills.Terminal do
       end
     end
   end
-
-  # ==========================================================================
-  # Process Management (replaces desktop_commander process tools)
-  # ==========================================================================
 
   @doc """
   Start a background process with smart output detection.
@@ -332,10 +320,6 @@ defmodule Mimo.Skills.Terminal do
   end
 
   defp parse_ps_output(_), do: []
-
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
 
   # YOLO mode: minimal validation, only block interactive TUI commands
   defp validate_cmd(cmd_str, _restricted) do

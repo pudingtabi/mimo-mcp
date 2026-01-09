@@ -18,7 +18,7 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
   """
   use Mimo.DataCase, async: false
 
-  alias Mimo.Brain.{Memory, Engram, NoveltyDetector}
+  alias Mimo.Brain.{Engram, Memory, NoveltyDetector}
   alias Mimo.Repo
   import Ecto.Query
 
@@ -437,7 +437,7 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
 
       # Query without filter (should see at least one)
       all = Repo.all(from(e in Engram))
-      assert length(all) >= 1
+      refute Enum.empty?(all)
 
       # Query with superseded filter
       active_only = Repo.all(from(e in Engram, where: is_nil(e.superseded_at)))
@@ -576,7 +576,7 @@ defmodule Mimo.Brain.TemporalMemoryChainsE2ETest do
       # All should be stored - verify at least some are unique
       # (TMC may still detect some as similar depending on embedding model)
       unique_ids = Enum.uniq(ids)
-      assert length(unique_ids) >= 1, "At least one memory should be stored"
+      refute Enum.empty?(unique_ids), "At least one memory should be stored"
       # All engrams should exist
       Enum.each(ids, fn id ->
         assert get_engram(id) != nil, "Engram #{id} should exist"

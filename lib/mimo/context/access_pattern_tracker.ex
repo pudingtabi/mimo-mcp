@@ -48,10 +48,6 @@ defmodule Mimo.Context.AccessPatternTracker do
     file: 0.10
   }
 
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -133,10 +129,6 @@ defmodule Mimo.Context.AccessPatternTracker do
     GenServer.cast(__MODULE__, :cleanup)
   end
 
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
-
   @impl true
   def init(_opts) do
     schedule_flush()
@@ -178,12 +170,12 @@ defmodule Mimo.Context.AccessPatternTracker do
 
     # Update co-occurrences if we have recent history
     co_occurrences =
-      if length(history) > 0 do
+      if Enum.empty?(history) do
+        state.co_occurrences
+      else
         prev = hd(history)
         key = {min(prev.source_type, source_type), max(prev.source_type, source_type)}
         Map.update(state.co_occurrences, key, 1, &(&1 + 1))
-      else
-        state.co_occurrences
       end
 
     new_state = %{
@@ -249,10 +241,6 @@ defmodule Mimo.Context.AccessPatternTracker do
     schedule_flush()
     {:noreply, state}
   end
-
-  # ==========================================================================
-  # Private Implementation
-  # ==========================================================================
 
   defp generate_predictions(query, state) do
     task_type = detect_task_type(query)

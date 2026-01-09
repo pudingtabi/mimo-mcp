@@ -58,10 +58,6 @@ defmodule Mimo.Brain.EmbeddingGate do
   # Below this = novel enough to process
   @novelty_threshold 0.85
 
-  # =============================================================================
-  # Public API
-  # =============================================================================
-
   @doc """
   Initialize the EmbeddingGate cache.
   Call from Application startup.
@@ -171,10 +167,6 @@ defmodule Mimo.Brain.EmbeddingGate do
       novelty_threshold: @novelty_threshold
     }
   end
-
-  # =============================================================================
-  # Private Implementation
-  # =============================================================================
 
   defp check_gates(prompt, embedding, gate_type) do
     # Check for exact/near duplicates

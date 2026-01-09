@@ -22,10 +22,6 @@ defmodule Mimo.Brain.Emergence.Scheduler do
   # 1 minute delay on startup
   @startup_delay_ms 60 * 1000
 
-  # ============================================================================
-  # Client API
-  # ============================================================================
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -50,10 +46,6 @@ defmodule Mimo.Brain.Emergence.Scheduler do
   def set_enabled(enabled) when is_boolean(enabled) do
     GenServer.call(__MODULE__, {:set_enabled, enabled})
   end
-
-  # ============================================================================
-  # Server Callbacks
-  # ============================================================================
 
   @impl true
   def init(_opts) do
@@ -137,10 +129,6 @@ defmodule Mimo.Brain.Emergence.Scheduler do
 
     {:noreply, new_state}
   end
-
-  # ============================================================================
-  # Private Functions
-  # ============================================================================
 
   defp execute_cycle(state) do
     Logger.info("[Emergence.Scheduler] Running emergence cycle...")

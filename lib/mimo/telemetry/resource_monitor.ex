@@ -19,10 +19,6 @@ defmodule Mimo.Telemetry.ResourceMonitor do
   @port_threshold 100
   @check_interval_ms 30_000
 
-  # ==========================================================================
-  # Client API
-  # ==========================================================================
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -42,10 +38,6 @@ defmodule Mimo.Telemetry.ResourceMonitor do
   def check_now do
     GenServer.cast(__MODULE__, :check_now)
   end
-
-  # ==========================================================================
-  # Server Callbacks
-  # ==========================================================================
 
   @impl true
   def init(_opts) do
@@ -85,10 +77,6 @@ defmodule Mimo.Telemetry.ResourceMonitor do
     schedule_check()
     {:noreply, new_state}
   end
-
-  # ==========================================================================
-  # Private Functions
-  # ==========================================================================
 
   defp schedule_check do
     Process.send_after(self(), :check_resources, @check_interval_ms)

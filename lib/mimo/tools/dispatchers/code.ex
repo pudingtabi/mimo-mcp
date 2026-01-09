@@ -31,6 +31,13 @@ defmodule Mimo.Tools.Dispatchers.Code do
   Supports: Elixir, Python, JavaScript, TypeScript, TSX, Rust, Go
   """
 
+  alias Mimo.Code.SymbolIndex
+  alias Mimo.Code.TreeSitter
+  alias Mimo.Context.{Entity, WorkingMemory}
+  alias Mimo.Library.AutoDiscovery
+  alias Mimo.Library.CacheManager
+  alias Mimo.Library.Index
+  alias Mimo.Skills.Diagnostics
   alias Mimo.Tools.Helpers
   alias Mimo.Utils.InputValidation
 
@@ -41,10 +48,6 @@ defmodule Mimo.Tools.Dispatchers.Code do
     op = args["operation"] || "symbols"
     do_dispatch(op, args)
   end
-
-  # ==========================================================================
-  # Multi-Head Dispatch by Operation
-  # ==========================================================================
 
   # Code Symbols Operations
   defp do_dispatch("parse", args), do: dispatch_parse(args)
@@ -61,7 +64,7 @@ defmodule Mimo.Tools.Dispatchers.Code do
   defp do_dispatch("library_search", args), do: dispatch_library_search(args)
   defp do_dispatch("library_ensure", args), do: dispatch_library_ensure(args)
   defp do_dispatch("library_discover", args), do: dispatch_library_discover(args)
-  defp do_dispatch("library_stats", _args), do: {:ok, Mimo.Library.CacheManager.stats()}
+  defp do_dispatch("library_stats", _args), do: {:ok, CacheManager.stats()}
 
   # Diagnostics Operations
   defp do_dispatch("check", args), do: dispatch_diagnostics(args, :check)
@@ -79,25 +82,21 @@ defmodule Mimo.Tools.Dispatchers.Code do
        "check, lint, typecheck, diagnose, diagnostics_all"}
   end
 
-  # ==========================================================================
-  # CODE SYMBOLS OPERATIONS
-  # ==========================================================================
-
   defp dispatch_parse(args) do
     do_parse(args["path"], args["source"], args["language"])
   end
 
   defp do_parse(path, _source, _lang) when is_binary(path) and path != "" do
-    with {:ok, tree} <- Mimo.Code.TreeSitter.parse_file(path),
-         {:ok, sexp} <- Mimo.Code.TreeSitter.get_sexp(tree) do
+    with {:ok, tree} <- TreeSitter.parse_file(path),
+         {:ok, sexp} <- TreeSitter.get_sexp(tree) do
       {:ok, %{parsed: true, sexp: String.slice(sexp, 0, 2000)}}
     end
   end
 
   defp do_parse(_path, source, lang) when is_binary(source) and is_binary(lang) do
-    with {:ok, tree} <- Mimo.Code.TreeSitter.parse(source, lang),
-         {:ok, symbols} <- Mimo.Code.TreeSitter.get_symbols(tree),
-         {:ok, refs} <- Mimo.Code.TreeSitter.get_references(tree) do
+    with {:ok, tree} <- TreeSitter.parse(source, lang),
+         {:ok, symbols} <- TreeSitter.get_symbols(tree),
+         {:ok, refs} <- TreeSitter.get_references(tree) do
       {:ok, %{parsed: true, symbols: symbols, references: refs}}
     end
   end
@@ -110,9 +109,9 @@ defmodule Mimo.Tools.Dispatchers.Code do
     cond do
       args["path"] && File.dir?(args["path"]) ->
         # List symbols in directory
-        case Mimo.Code.SymbolIndex.index_directory(args["path"]) do
+        case SymbolIndex.index_directory(args["path"]) do
           {:ok, _} ->
-            stats = Mimo.Code.SymbolIndex.stats()
+            stats = SymbolIndex.stats()
             {:ok, stats}
 
           error ->
@@ -121,7 +120,7 @@ defmodule Mimo.Tools.Dispatchers.Code do
 
       args["path"] ->
         # List symbols in file
-        symbols = Mimo.Code.SymbolIndex.symbols_in_file(args["path"])
+        symbols = SymbolIndex.symbols_in_file(args["path"])
 
         {:ok,
          %{
@@ -132,7 +131,7 @@ defmodule Mimo.Tools.Dispatchers.Code do
 
       true ->
         # Return index stats
-        {:ok, Mimo.Code.SymbolIndex.stats()}
+        {:ok, SymbolIndex.stats()}
     end
   end
 
@@ -144,7 +143,7 @@ defmodule Mimo.Tools.Dispatchers.Code do
     else
       # Validate limit to prevent excessive results
       limit = InputValidation.validate_limit(args["limit"], default: 50, max: 500)
-      refs = Mimo.Code.SymbolIndex.find_references(name, limit: limit)
+      refs = SymbolIndex.find_references(name, limit: limit)
 
       {:ok,
        %{
@@ -167,7 +166,7 @@ defmodule Mimo.Tools.Dispatchers.Code do
       limit = InputValidation.validate_limit(args["limit"], default: 50, max: 500)
       opts = Keyword.put(opts, :limit, limit)
 
-      symbols = Mimo.Code.SymbolIndex.search(pattern, opts)
+      symbols = SymbolIndex.search(pattern, opts)
 
       {:ok,
        %{
@@ -184,13 +183,41 @@ defmodule Mimo.Tools.Dispatchers.Code do
     if name == "" do
       {:error, "Symbol name is required"}
     else
-      case Mimo.Code.SymbolIndex.find_definition(name) do
+      case SymbolIndex.find_definition(name) do
         nil ->
           {:ok, %{symbol: name, found: false}}
 
         symbol ->
+          # SPEC-097: Auto-track discovered symbols as entities
+          maybe_track_entity(name, symbol)
           {:ok, %{symbol: name, found: true, definition: Helpers.format_symbol(symbol)}}
       end
+    end
+  end
+
+  # SPEC-097: Auto-track symbols as entities for "that module" resolution
+  defp maybe_track_entity(name, symbol) do
+    spawn(fn ->
+      try do
+        project = WorkingMemory.current_project()
+        type = infer_entity_type(symbol)
+        context = "#{symbol.kind} defined in #{symbol.file}"
+
+        Entity.track(name, type, project, context)
+      rescue
+        _ -> :ok
+      end
+    end)
+  end
+
+  defp infer_entity_type(symbol) do
+    case symbol.kind do
+      kind when kind in [:function, :def, :defp] -> :function
+      kind when kind in [:module, :defmodule] -> :module
+      kind when kind in [:class] -> :module
+      kind when kind in [:variable, :const, :let] -> :variable
+      kind when kind in [:struct, :record, :type] -> :concept
+      _ -> :other
     end
   end
 
@@ -200,7 +227,7 @@ defmodule Mimo.Tools.Dispatchers.Code do
     if name == "" do
       {:error, "Symbol name is required"}
     else
-      graph = Mimo.Code.SymbolIndex.call_graph(name)
+      graph = SymbolIndex.call_graph(name)
       {:ok, %{symbol: name, callers: graph.callers, callees: graph.callees}}
     end
   end
@@ -209,7 +236,7 @@ defmodule Mimo.Tools.Dispatchers.Code do
     path = args["path"] || "."
 
     if File.dir?(path) do
-      case Mimo.Code.SymbolIndex.index_directory(path) do
+      case SymbolIndex.index_directory(path) do
         {:ok, results} ->
           stats =
             results
@@ -230,13 +257,9 @@ defmodule Mimo.Tools.Dispatchers.Code do
           error
       end
     else
-      Mimo.Code.SymbolIndex.index_file(path)
+      SymbolIndex.index_file(path)
     end
   end
-
-  # ==========================================================================
-  # LIBRARY OPERATIONS (from Library dispatcher)
-  # ==========================================================================
 
   defp dispatch_library_get(args) do
     name = args["name"]
@@ -247,7 +270,7 @@ defmodule Mimo.Tools.Dispatchers.Code do
     else
       opts = if args["version"], do: [version: args["version"]], else: []
 
-      case Mimo.Library.Index.get_package(name, ecosystem, opts) do
+      case Index.get_package(name, ecosystem, opts) do
         {:ok, package} ->
           {:ok, Helpers.format_package(package)}
 
@@ -270,7 +293,7 @@ defmodule Mimo.Tools.Dispatchers.Code do
       {:error, "Search query is required"}
     else
       # First search local cache
-      cached_results = Mimo.Library.Index.search(query, ecosystem: ecosystem, limit: limit)
+      cached_results = Index.search(query, ecosystem: ecosystem, limit: limit)
 
       # If no cached results, search external API and cache results
       if Enum.empty?(cached_results) do
@@ -334,7 +357,7 @@ defmodule Mimo.Tools.Dispatchers.Code do
       |> Enum.take(3)
       |> Enum.each(fn pkg ->
         name = pkg[:name] || pkg["name"]
-        if name, do: Mimo.Library.Index.ensure_cached(name, ecosystem, [])
+        if name, do: Index.ensure_cached(name, ecosystem, [])
       end)
     end)
   end
@@ -358,7 +381,7 @@ defmodule Mimo.Tools.Dispatchers.Code do
     else
       opts = if args["version"], do: [version: args["version"]], else: []
 
-      case Mimo.Library.Index.ensure_cached(name, ecosystem, opts) do
+      case Index.ensure_cached(name, ecosystem, opts) do
         :ok ->
           {:ok, %{name: name, ecosystem: ecosystem, cached: true}}
 
@@ -371,7 +394,7 @@ defmodule Mimo.Tools.Dispatchers.Code do
   defp dispatch_library_discover(args) do
     path = args["path"] || File.cwd!()
 
-    case Mimo.Library.AutoDiscovery.discover_and_cache(path) do
+    case AutoDiscovery.discover_and_cache(path) do
       {:ok, result} ->
         {:ok,
          %{
@@ -386,10 +409,6 @@ defmodule Mimo.Tools.Dispatchers.Code do
         {:error, "Discovery failed: #{reason}"}
     end
   end
-
-  # ==========================================================================
-  # DIAGNOSTICS OPERATIONS (from Diagnostics dispatcher)
-  # ==========================================================================
 
   defp dispatch_diagnostics(args, operation) do
     path = args["path"]
@@ -415,6 +434,6 @@ defmodule Mimo.Tools.Dispatchers.Code do
         opts
       end
 
-    Mimo.Skills.Diagnostics.check(path, opts)
+    Diagnostics.check(path, opts)
   end
 end

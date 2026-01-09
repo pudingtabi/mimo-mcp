@@ -195,10 +195,6 @@ defmodule Mimo.Brain.CognitiveLifecycle do
     end
   end
 
-  # ============================================================================
-  # Client API
-  # ============================================================================
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -288,10 +284,6 @@ defmodule Mimo.Brain.CognitiveLifecycle do
   """
   @spec target_ranges() :: map()
   def target_ranges, do: @target_ranges
-
-  # ============================================================================
-  # GenServer Callbacks
-  # ============================================================================
 
   @impl true
   def init(_opts) do
@@ -450,10 +442,6 @@ defmodule Mimo.Brain.CognitiveLifecycle do
     :ets.delete(:cognitive_lifecycle_threads, thread_id)
     {:noreply, state}
   end
-
-  # ============================================================================
-  # Private Functions
-  # ============================================================================
 
   defp find_phase(tool, operation) do
     Enum.find_value(@phase_classifications, :unknown, fn {phase, tools} ->

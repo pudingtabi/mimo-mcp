@@ -44,9 +44,10 @@ defmodule Mix.Tasks.Benchmark.Locomo do
     Mix.Task.run("app.start")
 
     dataset_path =
-      cond do
-        opts[:dataset] -> opts[:dataset]
-        true -> generate_synthetic(opts)
+      if opts[:dataset] do
+        opts[:dataset]
+      else
+        generate_synthetic(opts)
       end
 
     sample = opts[:sample]

@@ -21,9 +21,10 @@ defmodule Mimo.Code.SymbolIndex do
   """
 
   import Ecto.Query
-  alias Mimo.Repo
   alias Mimo.Code.{AstAnalyzer, Symbol, SymbolReference}
+  alias Mimo.Repo
   alias Mimo.TaskHelper
+  alias Mimo.Code.TreeSitter
 
   require Logger
 
@@ -103,8 +104,9 @@ defmodule Mimo.Code.SymbolIndex do
 
     files =
       Path.wildcard(Path.join(dir_path, "**/*"))
-      |> Enum.filter(&File.regular?/1)
-      |> Enum.filter(&Mimo.Code.TreeSitter.supported_file?/1)
+      |> Enum.filter(fn path ->
+        File.regular?(path) and TreeSitter.supported_file?(path)
+      end)
       |> Enum.reject(fn path ->
         Enum.any?(exclude_patterns, &Regex.match?(&1, path))
       end)

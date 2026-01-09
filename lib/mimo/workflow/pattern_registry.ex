@@ -29,8 +29,8 @@ defmodule Mimo.Workflow.PatternRegistry do
   alias Mimo.Workflow.Pattern
 
   alias Mimo.Workflow.Patterns.{
-    ContextGathering,
     CodeNavigation,
+    ContextGathering,
     DebugError,
     FileEdit,
     ProjectOnboarding
@@ -48,10 +48,6 @@ defmodule Mimo.Workflow.PatternRegistry do
 
   defstruct patterns: %{},
             loaded_at: nil
-
-  # ============================================================================
-  # Public API
-  # ============================================================================
 
   @doc """
   Starts the PatternRegistry GenServer.
@@ -129,10 +125,6 @@ defmodule Mimo.Workflow.PatternRegistry do
   def seed_patterns do
     GenServer.call(__MODULE__, :seed_patterns)
   end
-
-  # ============================================================================
-  # GenServer Callbacks
-  # ============================================================================
 
   @impl true
   def init(_opts) do
@@ -264,10 +256,6 @@ defmodule Mimo.Workflow.PatternRegistry do
 
     {:reply, {:ok, count}, new_state}
   end
-
-  # ============================================================================
-  # Private Functions
-  # ============================================================================
 
   defp load_patterns(state) do
     patterns =

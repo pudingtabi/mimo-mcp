@@ -162,10 +162,6 @@ defmodule Mimo.Skills.SecureExecutor do
     Map.get(@allowed_commands, Path.basename(cmd))
   end
 
-  # ==========================================================================
-  # Configuration Normalization
-  # ==========================================================================
-
   defp normalize_config(%{"command" => cmd} = config) when is_binary(cmd) do
     # Prevent path traversal by taking only basename
     normalized_cmd = Path.basename(cmd)
@@ -190,10 +186,6 @@ defmodule Mimo.Skills.SecureExecutor do
   end
 
   defp normalize_args(_), do: []
-
-  # ==========================================================================
-  # Configuration Validation
-  # ==========================================================================
 
   defp validate_config(%{command: cmd} = config) do
     case Map.get(@allowed_commands, cmd) do
@@ -226,11 +218,11 @@ defmodule Mimo.Skills.SecureExecutor do
         Enum.any?(patterns, fn pattern -> Regex.match?(pattern, arg) end)
       end)
 
-    if length(invalid_args) > 0 do
+    if Enum.empty?(invalid_args) do
+      :ok
+    else
       log_security_event(:invalid_args, %{args: invalid_args})
       {:error, {:invalid_args, invalid_args}}
-    else
-      :ok
     end
   end
 
@@ -247,11 +239,11 @@ defmodule Mimo.Skills.SecureExecutor do
           Enum.any?(args, fn arg -> String.contains?(arg, f) end)
       end)
 
-    if length(found) > 0 do
+    if Enum.empty?(found) do
+      :ok
+    else
       log_security_event(:forbidden_args, %{patterns: found})
       {:error, {:forbidden_args, found}}
-    else
-      :ok
     end
   end
 
@@ -263,17 +255,13 @@ defmodule Mimo.Skills.SecureExecutor do
         Regex.match?(@shell_metacharacters, arg)
       end)
 
-    if length(dangerous_args) > 0 do
+    if Enum.empty?(dangerous_args) do
+      :ok
+    else
       log_security_event(:shell_injection_attempt, %{args: dangerous_args})
       {:error, {:invalid_arg_characters, dangerous_args}}
-    else
-      :ok
     end
   end
-
-  # ==========================================================================
-  # Environment Variable Handling
-  # ==========================================================================
 
   defp validate_and_sanitize_env(env) when is_map(env) do
     sanitized =
@@ -310,10 +298,6 @@ defmodule Mimo.Skills.SecureExecutor do
       end
     end)
   end
-
-  # ==========================================================================
-  # Subprocess Spawning
-  # ==========================================================================
 
   defp build_secure_opts(config) do
     env_list =
@@ -428,10 +412,6 @@ defmodule Mimo.Skills.SecureExecutor do
   end
 
   def cancel_timeout(_), do: :ok
-
-  # ==========================================================================
-  # Security Logging
-  # ==========================================================================
 
   defp log_security_event(event_type, metadata) do
     :telemetry.execute(

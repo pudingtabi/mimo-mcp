@@ -55,10 +55,6 @@ defmodule Mimo.Cognitive.Amplifier.CoherenceValidator do
     {"yes", "no"}
   ]
 
-  # ============================================================================
-  # Public API
-  # ============================================================================
-
   @doc """
   Validate coherence across all thoughts in a session.
 
@@ -166,10 +162,6 @@ defmodule Mimo.Cognitive.Amplifier.CoherenceValidator do
     Enum.reverse(parts) |> Enum.join("\n\n")
   end
 
-  # ============================================================================
-  # Private: Contradiction Detection
-  # ============================================================================
-
   defp check_contradictions(issues, thoughts) do
     # Compare each pair of thoughts for contradictions
     indexed = Enum.with_index(thoughts)
@@ -199,6 +191,49 @@ defmodule Mimo.Cognitive.Amplifier.CoherenceValidator do
   end
 
   defp find_contradiction(thought_a, thought_b) do
+    # Skip false positives: sequential reasoning steps are not contradictions
+    cond do
+      sequential_reasoning?(thought_a) and sequential_reasoning?(thought_b) ->
+        nil
+
+      # STABILITY FIX: Skip when thoughts are about different subsystems/components
+      # e.g., "Memory Search WORKS" vs "Code Index is NOT working" are not contradictions
+      discusses_different_subsystems?(thought_a, thought_b) ->
+        nil
+
+      true ->
+        check_marker_contradictions(thought_a, thought_b)
+    end
+  end
+
+  # Check if two thoughts discuss different subsystems (not contradictions)
+  defp discusses_different_subsystems?(thought_a, thought_b) do
+    subsystem_patterns = [
+      ~r/round\s*\d+[:\s]+(\w+)/i,
+      ~r/(memory|code|file|terminal|web|reasoning|synapse|awakening|knowledge)\s*(search|index|system|store|tool)/i,
+      ~r/(testing|checking|verifying|analyzing)\s+(\w+)\s+(system|tool|component)/i,
+      # Bracketed subsystem names like [Memory System]
+      ~r/\[([\w\s]+)\]/
+    ]
+
+    extract_subsystem = fn text ->
+      Enum.find_value(subsystem_patterns, fn pattern ->
+        case Regex.run(pattern, text) do
+          [_, subsystem | _] -> String.downcase(subsystem)
+          [match] -> String.downcase(match)
+          _ -> nil
+        end
+      end)
+    end
+
+    subsystem_a = extract_subsystem.(thought_a)
+    subsystem_b = extract_subsystem.(thought_b)
+
+    # If both have identifiable subsystems and they're different, not a contradiction
+    subsystem_a != nil and subsystem_b != nil and subsystem_a != subsystem_b
+  end
+
+  defp check_marker_contradictions(thought_a, thought_b) do
     a_lower = String.downcase(thought_a)
     b_lower = String.downcase(thought_b)
 
@@ -223,6 +258,26 @@ defmodule Mimo.Cognitive.Amplifier.CoherenceValidator do
     end)
   end
 
+  # Check if thoughts are sequential reasoning steps that should not be flagged
+  defp sequential_reasoning?(thought) do
+    sequential_patterns = [
+      ~r/^step\s*\d/i,
+      ~r/^\d+\.\s/,
+      ~r/^first[,:]/i,
+      ~r/^second[,:]/i,
+      ~r/^third[,:]/i,
+      ~r/^next[,:]/i,
+      ~r/^then[,:]/i,
+      ~r/^finally[,:]/i,
+      ~r/^thought\s*\d/i,
+      ~r/^point\s*\d/i,
+      ~r/^\[\d+\]/,
+      ~r/^#\d+/
+    ]
+
+    Enum.any?(sequential_patterns, &Regex.match?(&1, thought))
+  end
+
   defp shares_subject?(text_a, text_b) do
     # Extract significant nouns and check overlap
     words_a =
@@ -239,13 +294,9 @@ defmodule Mimo.Cognitive.Amplifier.CoherenceValidator do
 
     overlap = MapSet.intersection(words_a, words_b) |> MapSet.size()
 
-    # Require at least 2 shared significant words
-    overlap >= 2
+    # Require at least 3 shared significant words (reduced false positives)
+    overlap >= 3
   end
-
-  # ============================================================================
-  # Private: Scope Creep Detection
-  # ============================================================================
 
   defp check_scope_creep(issues, thoughts, original_problem) do
     problem_terms = extract_key_terms(original_problem)
@@ -307,10 +358,6 @@ defmodule Mimo.Cognitive.Amplifier.CoherenceValidator do
                those what which who whom where when why how and or but if then
                else for with from into onto upon about above below between through)
   end
-
-  # ============================================================================
-  # Private: Unsupported Leap Detection
-  # ============================================================================
 
   defp check_unsupported_leaps(issues, thoughts) do
     # Check for conclusions that don't follow from previous reasoning
@@ -385,10 +432,6 @@ defmodule Mimo.Cognitive.Amplifier.CoherenceValidator do
     end
   end
 
-  # ============================================================================
-  # Private: Circular Reasoning Detection
-  # ============================================================================
-
   defp check_circular_reasoning(issues, thoughts) do
     # Simple check: does the last thought just restate the first?
     if length(thoughts) >= 3 do
@@ -425,10 +468,6 @@ defmodule Mimo.Cognitive.Amplifier.CoherenceValidator do
     end
   end
 
-  # ============================================================================
-  # Private: Confidence Impact
-  # ============================================================================
-
   defp calculate_confidence_impact(issues) do
     if issues == [] do
       0.0
@@ -439,10 +478,6 @@ defmodule Mimo.Cognitive.Amplifier.CoherenceValidator do
       -1 * min(0.5, major_penalty + minor_penalty)
     end
   end
-
-  # ============================================================================
-  # Private: Text Similarity (Jaccard-based)
-  # ============================================================================
 
   defp text_similarity(text_a, text_b) do
     words_a = extract_words(text_a)

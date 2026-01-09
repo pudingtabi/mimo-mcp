@@ -8,8 +8,8 @@ defmodule Mimo.Integration.SemanticStoreIntegrationTest do
 
   @moduletag :integration
 
-  alias Mimo.SemanticStore.{Repository, Query, InferenceEngine}
   alias Mimo.Repo
+  alias Mimo.SemanticStore.{InferenceEngine, Query, Repository}
 
   setup do
     :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)

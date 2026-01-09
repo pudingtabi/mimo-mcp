@@ -49,10 +49,6 @@ defmodule Mimo.Brain.Reflector.Optimizer do
   @optimization_interval :timer.hours(1)
   @min_samples_for_optimization 20
 
-  # ============================================
-  # Type Definitions
-  # ============================================
-
   @type outcome :: :success | :partial | :failure
   @type dimension ::
           :correctness | :completeness | :confidence | :clarity | :grounding | :error_risk
@@ -83,10 +79,6 @@ defmodule Mimo.Brain.Reflector.Optimizer do
           total_outcomes: non_neg_integer(),
           last_optimization: DateTime.t() | nil
         }
-
-  # ============================================
-  # Client API
-  # ============================================
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -195,10 +187,6 @@ defmodule Mimo.Brain.Reflector.Optimizer do
   def stats do
     GenServer.call(__MODULE__, :stats)
   end
-
-  # ============================================
-  # Server Implementation
-  # ============================================
 
   @impl true
   def init(_opts) do
@@ -380,10 +368,6 @@ defmodule Mimo.Brain.Reflector.Optimizer do
     schedule_optimization()
     {:noreply, state}
   end
-
-  # ============================================
-  # Optimization Logic
-  # ============================================
 
   defp run_optimization(state) do
     # Gather all prediction-outcome pairs
@@ -611,10 +595,6 @@ defmodule Mimo.Brain.Reflector.Optimizer do
     end
   end
 
-  # ============================================
-  # Recommendations
-  # ============================================
-
   defp generate_recommendations(state) do
     recommendations = []
 
@@ -673,10 +653,6 @@ defmodule Mimo.Brain.Reflector.Optimizer do
 
     Enum.reverse(recommendations)
   end
-
-  # ============================================
-  # Helper Functions
-  # ============================================
 
   defp generate_prediction_id do
     "pred_#{:erlang.unique_integer([:positive]) |> Integer.to_string(36)}"

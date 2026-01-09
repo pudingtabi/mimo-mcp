@@ -33,10 +33,6 @@ defmodule Mimo.Robustness.PatternEvolution do
   @default_max_fp_rate 0.30
   @default_min_real_bug_rate 0.25
 
-  # ============================================================================
-  # Public API
-  # ============================================================================
-
   @doc """
   Load all patterns from the versioned JSON file.
   Returns patterns organized by language and status.
@@ -78,9 +74,9 @@ defmodule Mimo.Robustness.PatternEvolution do
         experimental =
           if include_experimental do
             (data["experimental_patterns"] || [])
-            |> Enum.filter(&matches_language?(&1, language))
             |> Enum.filter(fn p ->
-              is_nil(ab_group) or p["ab_test_group"] == ab_group
+              matches_language?(p, language) and
+                (is_nil(ab_group) or p["ab_test_group"] == ab_group)
             end)
           else
             []
@@ -101,33 +97,32 @@ defmodule Mimo.Robustness.PatternEvolution do
   def record_detection(pattern_id, is_true_positive \\ true) do
     case load_patterns() do
       {:ok, data} ->
-        # Find and update the experimental pattern
         experimental = data["experimental_patterns"] || []
-
-        updated =
-          Enum.map(experimental, fn pattern ->
-            if pattern["id"] == pattern_id do
-              pattern
-              |> Map.update("sample_count", 1, &(&1 + 1))
-              |> Map.update("positive_detections", 1, &(&1 + 1))
-              |> then(fn p ->
-                if is_true_positive do
-                  p
-                else
-                  Map.update(p, "false_positives", 1, &(&1 + 1))
-                end
-              end)
-            else
-              pattern
-            end
-          end)
-
+        updated = Enum.map(experimental, &update_pattern_metrics(&1, pattern_id, is_true_positive))
         updated_data = Map.put(data, "experimental_patterns", updated)
         save_patterns(updated_data)
 
       error ->
         error
     end
+  end
+
+  # Extracted: Update metrics for a single pattern
+  defp update_pattern_metrics(pattern, pattern_id, is_true_positive) do
+    if pattern["id"] == pattern_id do
+      pattern
+      |> Map.update("sample_count", 1, &(&1 + 1))
+      |> Map.update("positive_detections", 1, &(&1 + 1))
+      |> maybe_increment_false_positives(is_true_positive)
+    else
+      pattern
+    end
+  end
+
+  defp maybe_increment_false_positives(pattern, true), do: pattern
+
+  defp maybe_increment_false_positives(pattern, false) do
+    Map.update(pattern, "false_positives", 1, &(&1 + 1))
   end
 
   @doc """
@@ -355,10 +350,6 @@ defmodule Mimo.Robustness.PatternEvolution do
         %{error: reason}
     end
   end
-
-  # ============================================================================
-  # Private Helpers
-  # ============================================================================
 
   defp save_patterns(data) do
     patterns_file = Path.join([File.cwd!(), @patterns_path])

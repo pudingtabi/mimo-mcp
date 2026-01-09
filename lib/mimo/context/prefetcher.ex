@@ -26,6 +26,7 @@ defmodule Mimo.Context.Prefetcher do
   use GenServer
   require Logger
 
+  alias Memory
   alias Mimo.Context.AccessPatternTracker
 
   @cache_table :mimo_prefetch_cache
@@ -35,10 +36,6 @@ defmodule Mimo.Context.Prefetcher do
   @prefetch_interval 10_000
   @max_cache_size 1000
   @batch_size 10
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -168,10 +165,6 @@ defmodule Mimo.Context.Prefetcher do
     :exit, _ -> []
   end
 
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
-
   @impl true
   def init(_opts) do
     # Create ETS table for caching
@@ -257,10 +250,6 @@ defmodule Mimo.Context.Prefetcher do
     schedule_prefetch_cycle()
     {:noreply, new_state}
   end
-
-  # ==========================================================================
-  # Private Functions
-  # ==========================================================================
 
   defp schedule_cleanup do
     # Every minute

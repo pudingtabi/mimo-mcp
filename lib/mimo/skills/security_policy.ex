@@ -31,10 +31,6 @@ defmodule Mimo.Skills.SecurityPolicy do
       #=> false
   """
 
-  # ===========================================================================
-  # Allowed Commands
-  # ===========================================================================
-
   @allowed_commands ~w(npx docker node python python3)
 
   @doc """
@@ -65,10 +61,6 @@ defmodule Mimo.Skills.SecurityPolicy do
   end
 
   def command_allowed?(_), do: false
-
-  # ===========================================================================
-  # Allowed Environment Variables
-  # ===========================================================================
 
   @allowed_env_vars ~w(
     EXA_API_KEY
@@ -110,10 +102,6 @@ defmodule Mimo.Skills.SecurityPolicy do
   end
 
   def env_var_allowed?(_), do: false
-
-  # ===========================================================================
-  # Dangerous Patterns
-  # ===========================================================================
 
   @dangerous_patterns [
     # Shell metacharacters - prevent injection
@@ -168,10 +156,6 @@ defmodule Mimo.Skills.SecurityPolicy do
 
   def pattern_safe?(_), do: false
 
-  # ===========================================================================
-  # Resource Limits
-  # ===========================================================================
-
   @max_args 30
   @max_env_properties 30
   @max_string_length 1024
@@ -187,10 +171,6 @@ defmodule Mimo.Skills.SecurityPolicy do
   @doc "Maximum length of any string value."
   @spec max_string_length() :: pos_integer()
   def max_string_length, do: @max_string_length
-
-  # ===========================================================================
-  # Environment Variable Name Validation
-  # ===========================================================================
 
   @env_var_name_pattern ~r/^[A-Z_][A-Z0-9_]*$/
 
@@ -226,10 +206,6 @@ defmodule Mimo.Skills.SecurityPolicy do
 
   def valid_env_var_name?(_), do: false
 
-  # ===========================================================================
-  # Shell Metacharacter Detection
-  # ===========================================================================
-
   @shell_metacharacters ~r/[\r\n;&|`$(){}!<>\\]/
 
   @doc """
@@ -255,10 +231,6 @@ defmodule Mimo.Skills.SecurityPolicy do
   end
 
   def has_shell_metacharacters?(_), do: false
-
-  # ===========================================================================
-  # Docker-Specific Restrictions
-  # ===========================================================================
 
   @docker_forbidden_args [
     "--privileged",
@@ -298,10 +270,6 @@ defmodule Mimo.Skills.SecurityPolicy do
   end
 
   def docker_args_safe?(_), do: false
-
-  # ===========================================================================
-  # Comprehensive Validation
-  # ===========================================================================
 
   @doc """
   Validates a complete skill configuration against all security policies.
@@ -348,12 +316,10 @@ defmodule Mimo.Skills.SecurityPolicy do
   defp validate_command(_), do: {:error, {:missing_field, "command"}}
 
   defp validate_args(%{"args" => args}) when is_list(args) do
-    cond do
-      length(args) > @max_args ->
-        {:error, {:too_many_args, length(args), @max_args}}
-
-      true ->
-        validate_each_arg(args)
+    if length(args) > @max_args do
+      {:error, {:too_many_args, length(args), @max_args}}
+    else
+      validate_each_arg(args)
     end
   end
 
@@ -375,12 +341,10 @@ defmodule Mimo.Skills.SecurityPolicy do
   end
 
   defp validate_env(%{"env" => env}) when is_map(env) do
-    cond do
-      map_size(env) > @max_env_properties ->
-        {:error, {:too_many_env_vars, map_size(env), @max_env_properties}}
-
-      true ->
-        validate_env_entries(env)
+    if map_size(env) > @max_env_properties do
+      {:error, {:too_many_env_vars, map_size(env), @max_env_properties}}
+    else
+      validate_env_entries(env)
     end
   end
 

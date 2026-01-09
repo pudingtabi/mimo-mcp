@@ -48,10 +48,6 @@ defmodule Mimo.Brain.AttentionLearner do
   use GenServer
   require Logger
 
-  # ==========================================================================
-  # Learning Hyperparameters
-  # ==========================================================================
-
   # Base learning rate
   @learning_rate 0.01
 
@@ -65,10 +61,6 @@ defmodule Mimo.Brain.AttentionLearner do
     recency: 0.2,
     access: 0.1
   }
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -124,10 +116,6 @@ defmodule Mimo.Brain.AttentionLearner do
   catch
     :exit, _ -> %{status: :unavailable}
   end
-
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
 
   @impl true
   def init(_opts) do
@@ -203,10 +191,6 @@ defmodule Mimo.Brain.AttentionLearner do
     Logger.debug("AttentionLearner updated weights: #{inspect(new_weights)}")
     {:noreply, new_state}
   end
-
-  # ==========================================================================
-  # Learning Algorithm
-  # ==========================================================================
 
   defp update_weights(current_weights, context, signal) do
     # Compute contribution of each factor

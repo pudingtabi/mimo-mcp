@@ -20,8 +20,9 @@ defmodule Mimo.SemanticStore.InferenceEngine do
       InferenceEngine.materialize_paths("reports_to")
   """
 
-  alias Mimo.SemanticStore.{Triple, Repository, Predicates}
+  alias RuleGenerator
   alias Mimo.Repo
+  alias Mimo.SemanticStore.{Predicates, Repository, Triple}
 
   import Ecto.Query
   require Logger
@@ -102,7 +103,7 @@ defmodule Mimo.SemanticStore.InferenceEngine do
     :digraph.delete(graph)
 
     # Optionally persist
-    if persist and length(inferred) > 0 do
+    if persist and inferred != [] do
       {:ok, count} = Repository.batch_create(inferred)
       Logger.info("Persisted #{count} inferred triples for '#{predicate}'")
     end
@@ -126,7 +127,7 @@ defmodule Mimo.SemanticStore.InferenceEngine do
 
     # STEP 3: If we have results from existing rules, return them
     # Otherwise, try LLM rule generation as fallback
-    if length(inferred_from_existing) > 0 do
+    if inferred_from_existing != [] do
       inferred_from_existing
     else
       # Try to discover LLM rules for this predicate (best-effort)
@@ -305,7 +306,7 @@ defmodule Mimo.SemanticStore.InferenceEngine do
   def materialize_paths(predicate, opts \\ []) do
     {:ok, inferred} = forward_chain(predicate, Keyword.put(opts, :persist, false))
 
-    if length(inferred) > 0 do
+    if inferred != [] do
       Repository.batch_create(inferred)
     else
       {:ok, 0}
@@ -345,7 +346,7 @@ defmodule Mimo.SemanticStore.InferenceEngine do
           end)
           |> filter_existing_triples()
 
-        if persist and length(inverse_triples) > 0 do
+        if persist and inverse_triples != [] do
           Repository.batch_create(inverse_triples)
         else
           {:ok, length(inverse_triples)}
@@ -435,7 +436,7 @@ defmodule Mimo.SemanticStore.InferenceEngine do
            proof_type: :transitive,
            confidence: Float.round(confidence, 3),
            path: path,
-           # Would need to fetch actual triples
+           # Supporting facts require triple fetch (not included for performance).
            supporting_facts: []
          }}
 

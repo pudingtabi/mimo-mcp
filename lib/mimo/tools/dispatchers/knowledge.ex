@@ -21,6 +21,21 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
   require Logger
   import Ecto.Query, only: [from: 2]
 
+  alias Mimo.Brain.Engram
+  alias Mimo.Brain.MemoryLinker
+  alias Mimo.Repo
+  alias Mimo.SemanticStore.Ingestor
+  alias Mimo.SemanticStore.Query, as: SemanticQuery
+  alias Mimo.SemanticStore.Resolver
+  alias Mimo.SemanticStore.Triple
+  alias Mimo.Synapse.DependencySync
+  alias Mimo.Synapse.Graph
+  alias Mimo.Synapse.GraphNode
+  alias Mimo.Synapse.Linker
+  alias Mimo.Synapse.LinkerOptimized
+  alias Mimo.Synapse.PathFinder
+  alias Mimo.Synapse.QueryEngine
+  alias Mimo.Synapse.Traversal
   alias Mimo.Tools.Helpers
   alias Mimo.Utils.InputValidation
 
@@ -32,9 +47,6 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
     do_dispatch(op, args)
   end
 
-  # ==========================================================================
-  # Multi-Head Dispatch by Operation
-  # ==========================================================================
   defp do_dispatch("query", args), do: dispatch_query(args)
   defp do_dispatch("teach", args), do: dispatch_teach(args)
   defp do_dispatch("traverse", args), do: dispatch_traverse(args)
@@ -63,10 +75,6 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
     dispatch(args)
   end
 
-  # ==========================================================================
-  # QUERY OPERATIONS
-  # ==========================================================================
-
   defp dispatch_query(args) do
     query = args["query"]
     entity = args["entity"]
@@ -77,10 +85,8 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
     cond do
       entity && predicate ->
         # Structured query - use SemanticStore transitive closure
-        case Mimo.SemanticStore.Query.transitive_closure(entity, "entity", predicate,
-               max_depth: depth
-             ) do
-          results when is_list(results) and length(results) > 0 ->
+        case SemanticQuery.transitive_closure(entity, "entity", predicate, max_depth: depth) do
+          results when is_list(results) and results != [] ->
             formatted =
               Enum.map(results, &%{id: &1.id, type: &1.type, depth: &1.depth, path: &1.path})
 
@@ -110,9 +116,9 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
   end
 
   defp try_semantic_query(query) do
-    case Mimo.SemanticStore.Resolver.resolve_entity(query, :auto) do
+    case Resolver.resolve_entity(query, :auto) do
       {:ok, entity_id} ->
-        rels = Mimo.SemanticStore.Query.get_relationships(entity_id, "entity")
+        rels = SemanticQuery.get_relationships(entity_id, "entity")
         %{found: true, entity: entity_id, relationships: rels}
 
       {:error, :ambiguous, candidates} ->
@@ -128,10 +134,10 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
     limit = InputValidation.validate_limit(args["limit"], default: 50, max: 500)
     opts = Keyword.put(opts, :max_nodes, limit)
 
-    case Mimo.Synapse.QueryEngine.query(query, opts) do
+    case QueryEngine.query(query, opts) do
       {:ok, result} ->
         %{
-          found: length(result.nodes) > 0,
+          found: result.nodes != [],
           nodes: Helpers.format_graph_nodes(result.nodes),
           count: length(result.nodes)
         }
@@ -141,9 +147,9 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
   end
 
   defp fallback_to_synapse_query(entity, depth) do
-    case Mimo.Synapse.Graph.search_nodes(entity, limit: 1) do
+    case Graph.search_nodes(entity, limit: 1) do
       [node | _] ->
-        results = Mimo.Synapse.Traversal.bfs(node.id, max_depth: depth)
+        results = Traversal.bfs(node.id, max_depth: depth)
 
         {:ok,
          %{
@@ -163,10 +169,6 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
   defp count_results(%{found: true}), do: 1
   defp count_results(_), do: 0
 
-  # ==========================================================================
-  # TEACH OPERATIONS
-  # ==========================================================================
-
   defp dispatch_teach(args) do
     text = args["text"]
     subject = args["subject"]
@@ -180,7 +182,7 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
   # Teaching a triple (subject, predicate, object)
   defp do_dispatch_teach(subject, predicate, object, _text, source)
        when not is_nil(subject) and not is_nil(predicate) and not is_nil(object) do
-    case Mimo.SemanticStore.Ingestor.ingest_triple(
+    case Ingestor.ingest_triple(
            %{subject: subject, predicate: predicate, object: object},
            source
          ) do
@@ -198,7 +200,7 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
   # Teaching from text
   defp do_dispatch_teach(_subject, _predicate, _object, text, source)
        when not is_nil(text) and text != "" do
-    case Mimo.SemanticStore.Ingestor.ingest_text(text, source) do
+    case Ingestor.ingest_text(text, source) do
       {:ok, count} ->
         {:ok, %{status: "learned", triples_created: count, store: "semantic"}}
 
@@ -214,10 +216,6 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
   defp do_dispatch_teach(_subject, _predicate, _object, _text, _source) do
     {:error, "Text or subject+predicate+object required for teaching"}
   end
-
-  # ==========================================================================
-  # GRAPH TRAVERSAL OPERATIONS
-  # ==========================================================================
 
   defp dispatch_traverse(args) do
     node_id = args["node_id"] || args["node_name"]
@@ -235,7 +233,7 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
 
       actual_node_id ->
         opts = build_traverse_opts(args)
-        results = Mimo.Synapse.Traversal.bfs(actual_node_id, opts)
+        results = Traversal.bfs(actual_node_id, opts)
         format_traverse_results(actual_node_id, results)
     end
   end
@@ -287,7 +285,7 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
       # Validate limit to prevent excessive results
       limit = InputValidation.validate_limit(args["limit"], default: 50, max: 500)
       opts = [limit: limit]
-      Mimo.Synapse.QueryEngine.explore(query, opts)
+      QueryEngine.explore(query, opts)
     end
   end
 
@@ -302,7 +300,7 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
       if actual_node_id do
         hops = args["max_depth"] || 2
 
-        case Mimo.Synapse.QueryEngine.node_context(actual_node_id, hops: hops) do
+        case QueryEngine.node_context(actual_node_id, hops: hops) do
           {:ok, result} ->
             {:ok,
              %{
@@ -330,7 +328,7 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
     else
       opts = if args["max_depth"], do: [max_depth: args["max_depth"]], else: []
 
-      case Mimo.Synapse.Traversal.shortest_path(from_node, to_node, opts) do
+      case Traversal.shortest_path(from_node, to_node, opts) do
         {:ok, path} ->
           {:ok,
            %{
@@ -352,16 +350,12 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
     end
   end
 
-  # ==========================================================================
-  # STATS, LINK, SYNC OPERATIONS
-  # ==========================================================================
-
   defp dispatch_stats do
-    synapse_stats = Mimo.Synapse.Graph.stats()
+    synapse_stats = Graph.stats()
 
     semantic_count =
       try do
-        Mimo.Repo.one(from(t in Mimo.SemanticStore.Triple, select: count(t.id))) || 0
+        Repo.one(from(t in Triple, select: count(t.id))) || 0
       rescue
         _ -> 0
       end
@@ -383,9 +377,9 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
       result =
         if File.dir?(path) do
           # Use optimized linker for directories (50x faster)
-          Mimo.Synapse.LinkerOptimized.link_directory(path)
+          LinkerOptimized.link_directory(path)
         else
-          Mimo.Synapse.Linker.link_code_file(path)
+          Linker.link_code_file(path)
         end
 
       # Format GraphNode struct for JSON serialization
@@ -406,12 +400,12 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
     if is_nil(memory_id) or memory_id == "" do
       {:error, "memory_id is required for link_memory operation"}
     else
-      case Mimo.Repo.get(Mimo.Brain.Engram, memory_id) do
+      case Repo.get(Engram, memory_id) do
         nil ->
           {:error, "Memory not found: #{memory_id}"}
 
         memory ->
-          result = Mimo.Brain.MemoryLinker.link_memory(memory_id, memory.content)
+          result = MemoryLinker.link_memory(memory_id, memory.content)
 
           {:ok,
            %{
@@ -428,7 +422,7 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
   defp dispatch_sync_dependencies(args) do
     path = args["path"] || File.cwd!()
 
-    case Mimo.Synapse.DependencySync.sync_dependencies(path) do
+    case DependencySync.sync_dependencies(path) do
       {:ok, result} ->
         {:ok,
          %{
@@ -453,12 +447,12 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
   end
 
   defp find_neighborhood_node(node_id, _node_name, _node_type) when not is_nil(node_id) do
-    Mimo.Repo.get(Mimo.Synapse.GraphNode, node_id)
+    Repo.get(GraphNode, node_id)
   end
 
   defp find_neighborhood_node(_node_id, node_name, node_type) when not is_nil(node_name) do
     type = Helpers.parse_node_type(node_type)
-    Mimo.Synapse.Graph.get_node(type, node_name)
+    Graph.get_node(type, node_name)
   end
 
   defp find_neighborhood_node(_node_id, _node_name, _node_type), do: nil
@@ -468,7 +462,7 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
   end
 
   defp do_dispatch_neighborhood(node, depth, limit) do
-    case Mimo.Synapse.PathFinder.neighborhood(node.id, depth: depth, limit: limit) do
+    case PathFinder.neighborhood(node.id, depth: depth, limit: limit) do
       {:ok, result} ->
         {:ok, format_neighborhood_result(node, depth, result)}
 
@@ -488,17 +482,13 @@ defmodule Mimo.Tools.Dispatchers.Knowledge do
     }
   end
 
-  # ==========================================================================
-  # HELPERS
-  # ==========================================================================
-
   defp resolve_node_id(args) do
     if args["node_name"] do
       node_type = Helpers.parse_node_type(args["node_type"])
 
-      case Mimo.Synapse.Graph.get_node(node_type, args["node_name"]) do
+      case Graph.get_node(node_type, args["node_name"]) do
         nil ->
-          case Mimo.Synapse.Graph.search_nodes(args["node_name"], limit: 1) do
+          case Graph.search_nodes(args["node_name"], limit: 1) do
             [node | _] -> node.id
             [] -> nil
           end

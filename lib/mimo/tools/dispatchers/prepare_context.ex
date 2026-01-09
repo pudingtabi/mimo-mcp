@@ -25,12 +25,13 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
 
   require Logger
 
-  alias Mimo.Brain.Memory
-  alias Mimo.Brain.HybridScorer
-  alias Mimo.Context.BudgetAllocator
-  alias Mimo.Tools.Dispatchers.{Code, Knowledge, Library}
+  alias WisdomInjector
+  alias Pattern
+  alias Mimo.Brain.{HybridScorer, Memory}
   alias Mimo.Cognitive.KnowledgeTransfer
+  alias Mimo.Context.BudgetAllocator
   alias Mimo.TaskHelper
+  alias Mimo.Tools.Dispatchers.{Code, Knowledge, Library}
 
   @doc """
   Dispatch prepare_context operation.
@@ -57,10 +58,6 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
       run_context_gathering(query, args)
     end
   end
-
-  # ==========================================================================
-  # CONTEXT GATHERING PIPELINE
-  # ==========================================================================
 
   defp run_context_gathering(query, args) do
     Logger.info("[PrepareContext] Gathering context for: #{String.slice(query, 0, 50)}...")
@@ -132,14 +129,10 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
     standard_sources
   end
 
-  # ==========================================================================
-  # DEMAND 3: PATTERN LIBRARY MATCHING
-  # ==========================================================================
-
   defp gather_patterns(query) do
     # Search for relevant emergence patterns that match this query
     case Mimo.Brain.Emergence.Pattern.search_by_description(query, limit: 5) do
-      patterns when is_list(patterns) and length(patterns) > 0 ->
+      patterns when is_list(patterns) and patterns != [] ->
         formatted_patterns =
           Enum.map(patterns, fn p ->
             %{
@@ -186,10 +179,6 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
     end
   end
 
-  # ==========================================================================
-  # DEMAND 5: WISDOM INJECTION
-  # ==========================================================================
-
   defp gather_wisdom(query) do
     # Use WisdomInjector to gather failures, warnings, and lessons
     case Mimo.Brain.WisdomInjector.gather_wisdom(query, 0.5) do
@@ -210,14 +199,10 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
       %{failures: [], warnings: [], formatted: "", count: 0, error: Exception.message(e)}
   end
 
-  # ==========================================================================
-  # PHASE 3: CROSS-DOMAIN KNOWLEDGE TRANSFER
-  # ==========================================================================
-
   defp gather_cross_domain(query) do
     # Find cross-domain insights that might help with the current task
     case KnowledgeTransfer.find_transfers(query, limit: 3) do
-      {:ok, transfers} when is_list(transfers) and length(transfers) > 0 ->
+      {:ok, transfers} when is_list(transfers) and transfers != [] ->
         formatted_transfers =
           Enum.map(transfers, fn t ->
             %{
@@ -233,7 +218,7 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
         %{
           count: length(formatted_transfers),
           items: formatted_transfers,
-          target_domain: if(length(transfers) > 0, do: hd(transfers).target_domain, else: :unknown)
+          target_domain: if(transfers != [], do: hd(transfers).target_domain, else: :unknown)
         }
 
       _ ->
@@ -244,10 +229,6 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
       Logger.debug("[PrepareContext] Cross-domain transfer failed: #{Exception.message(e)}")
       %{count: 0, items: [], error: Exception.message(e)}
   end
-
-  # ==========================================================================
-  # SOURCE GATHERERS
-  # ==========================================================================
 
   defp gather_memories(query, entities) do
     # Search for relevant memories using the query and entities
@@ -417,10 +398,6 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
     }
   end
 
-  # ==========================================================================
-  # RESPONSE BUILDING
-  # ==========================================================================
-
   defp build_response(query, entities, results, duration, max_tokens, args) do
     memory = results[:memory] || %{items: [], count: 0}
     knowledge = results[:knowledge] || %{relationships: [], nodes: [], count: 0}
@@ -514,7 +491,7 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
            if(include_tier3,
              do: tier3_formatted,
              else: %{
-               available: length(classified.tier3) > 0,
+               available: classified.tier3 != [],
                estimated_tokens:
                  Enum.reduce(classified.tier3, 0, &(BudgetAllocator.estimate_item_tokens(&1) + &2)),
                items_count: length(classified.tier3)
@@ -589,15 +566,11 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
        small_model_boost: %{
          patterns_matched: (patterns[:count] || 0) > 0,
          wisdom_injected: (wisdom[:count] || 0) > 0,
-         has_failures_to_avoid: length(wisdom[:failures] || []) > 0,
-         has_warnings: length(wisdom[:warnings] || []) > 0
+         has_failures_to_avoid: (wisdom[:failures] || []) != [],
+         has_warnings: (wisdom[:warnings] || []) != []
        }
      }}
   end
-
-  # ==========================================================================
-  # SPEC-051: Tiered Context Helpers
-  # ==========================================================================
 
   defp collect_all_items(results) do
     memory_items =
@@ -731,10 +704,10 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
 
     cond do
       total == 0 ->
-        "💡 No context found. Consider running `onboard` to index the codebase first."
+        "No context found. Consider running `onboard` to index the codebase first."
 
       tier1_count == 0 and tier2_count == 0 ->
-        "💡 Only background context available. Results may be less precise."
+        "Only background context available. Results may be less precise."
 
       tier1_count > 0 and tier3_count > 10 ->
         "✨ #{tier1_count} essential + #{tier2_count} supporting items. #{tier3_count} more available in Tier 3 if needed."
@@ -791,10 +764,10 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
           "#{w.message}"
         end)
 
-    if length(items) > 0 do
-      %{name: "🚨 Wisdom Injection (avoid these mistakes)", items: items}
-    else
+    if Enum.empty?(items) do
       nil
+    else
+      %{name: "🚨 Wisdom Injection (avoid these mistakes)", items: items}
     end
   end
 
@@ -893,7 +866,7 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
   defp build_suggestion(total_items, memory, knowledge, code, patterns, wisdom) do
     cond do
       total_items == 0 ->
-        "💡 No context found. Consider running `onboard` to index the codebase first."
+        "No context found. Consider running `onboard` to index the codebase first."
 
       has_wisdom?(wisdom) ->
         build_wisdom_suggestion(wisdom)
@@ -902,13 +875,13 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
         "📚 #{patterns[:count]} matching patterns found from past sessions. Review for guidance."
 
       missing_memory?(memory, total_items) ->
-        "💡 No memory context found. Store insights in memory as you learn."
+        "No memory context found. Store insights in memory as you learn."
 
       missing_code?(code, total_items) ->
-        "💡 No code context found. Index code/relationships first (onboard or knowledge link)."
+        "No code context found. Index code/relationships first (onboard or knowledge link)."
 
       missing_knowledge?(knowledge, total_items) ->
-        "💡 Knowledge graph is sparse. Teach key relationships so future queries improve."
+        "Knowledge graph is sparse. Teach key relationships so future queries improve."
 
       true ->
         "✨ Rich context loaded! #{total_items} relevant items found."
@@ -927,10 +900,6 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
 
     "🧠 WISDOM INJECTED: #{failure_count} past failures to avoid, #{warning_count} warnings. Read carefully!"
   end
-
-  # ==========================================================================
-  # ENTITY EXTRACTION
-  # ==========================================================================
 
   defp extract_entities(query) do
     # Extract potential entities from the query
@@ -973,7 +942,7 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
     |> Enum.take(10)
   end
 
-  # ==========================================================================
+  # Helpers
   # HELPERS
   defp extract_relationships(semantic_store) when is_map(semantic_store) do
     relationships_map = get_map_value(semantic_store, [:relationships, "relationships"], %{})

@@ -4,7 +4,7 @@ defmodule Mimo.MetaCognitiveRouter do
 
   Routes natural language inputs to the appropriate store:
   - Episodic Store (vector): Narrative, experiential queries
-  - Semantic Store (graph): Logic, relationship queries  
+  - Semantic Store (graph): Logic, relationship queries
   - Procedural Store (rules): Code, procedure queries
 
   SPEC-053: Also provides workflow prediction and suggestion.
@@ -15,8 +15,11 @@ defmodule Mimo.MetaCognitiveRouter do
   """
   require Logger
 
-  alias Mimo.Workflow.{Predictor, Pattern}
+  alias Mimo.Brain.LLM
+  alias Mimo.Cache.Embedding, as: EmbeddingCache
   alias Mimo.Cognitive.FeedbackLoop
+  alias Mimo.Vector.Math, as: VectorMath
+  alias Mimo.Workflow.{Pattern, Predictor}
 
   @type store :: :episodic | :semantic | :procedural
   @type decision :: %{
@@ -40,10 +43,6 @@ defmodule Mimo.MetaCognitiveRouter do
   @procedural_keywords ~w(code bug fix function method class implement compile error syntax)
   @semantic_keywords ~w(relationship between depends structure architecture graph linked)
   @episodic_keywords ~w(remember when before earlier previously history past experience)
-
-  # =============================================================================
-  # SPEC-070: Prototype Queries for Embedding-Based Classification
-  # =============================================================================
   # These represent canonical examples of each query category.
   # Embeddings are computed lazily and cached for fast similarity lookup.
 
@@ -75,6 +74,14 @@ defmodule Mimo.MetaCognitiveRouter do
   @embedding_weight 0.6
   @keyword_weight 0.4
 
+  # SPEC-070: Feedback-based learning weight (Phase 3 Learning Loop)
+  # This weight controls how much historical success rates influence routing
+  # Start conservative at 0.2 to avoid runaway effects
+  @feedback_boost_weight 0.2
+
+  # Minimum sample size before applying feedback boost
+  @min_feedback_samples 10
+
   # ETS table for cached prototype embeddings
   @prototype_cache :mimo_router_prototypes
 
@@ -99,18 +106,26 @@ defmodule Mimo.MetaCognitiveRouter do
     query_lower = String.downcase(query)
     tokens = tokenize(query_lower)
 
-    # Score each store
+    # Score each store (raw keyword/pattern matching)
     procedural_score = score_procedural(tokens, query_lower)
     semantic_score = score_semantic(tokens, query_lower)
     episodic_score = score_episodic(tokens, query_lower)
 
+    # Phase 3 Learning Loop: Apply feedback-based boosts
+    # This adjusts scores based on historical success rates
+    boosts = get_feedback_boosts()
+
+    boosted_procedural = procedural_score * Map.get(boosts, :procedural, 1.0)
+    boosted_semantic = semantic_score * Map.get(boosts, :semantic, 1.0)
+    boosted_episodic = episodic_score * Map.get(boosts, :episodic, 1.0)
+
     # avoid div/0
-    total = procedural_score + semantic_score + episodic_score + 0.01
+    total = boosted_procedural + boosted_semantic + boosted_episodic + 0.01
 
     scores = %{
-      procedural: procedural_score / total,
-      semantic: semantic_score / total,
-      episodic: episodic_score / total
+      procedural: boosted_procedural / total,
+      semantic: boosted_semantic / total,
+      episodic: boosted_episodic / total
     }
 
     {primary_store, confidence} =
@@ -124,17 +139,23 @@ defmodule Mimo.MetaCognitiveRouter do
 
     reasoning = generate_reasoning(primary_store, tokens)
 
-    # Emit telemetry
+    # L5: Apply confidence calibration based on historical accuracy
+    calibrated_confidence = FeedbackLoop.calibrated_confidence(:classification, confidence)
+
+    # Emit telemetry with feedback info
     duration_us = System.monotonic_time(:microsecond) - start_time
-    emit_telemetry(duration_us, primary_store, confidence)
+    feedback_applied = boosts != %{procedural: 1.0, semantic: 1.0, episodic: 1.0}
+    emit_telemetry(duration_us, primary_store, calibrated_confidence, feedback_applied)
 
     %{
       primary_store: primary_store,
       secondary_stores: secondary_stores,
-      confidence: Float.round(confidence, 2),
+      confidence: Float.round(calibrated_confidence, 2),
+      raw_confidence: Float.round(confidence, 2),
       reasoning: reasoning,
-      requires_synthesis: confidence < 0.7 or length(secondary_stores) > 0,
-      tracking_id: generate_tracking_id()
+      requires_synthesis: calibrated_confidence < 0.7 or secondary_stores != [],
+      tracking_id: generate_tracking_id(),
+      feedback_boosts: boosts
     }
   end
 
@@ -147,7 +168,7 @@ defmodule Mimo.MetaCognitiveRouter do
   ## Parameters
     - `tracking_id` - The tracking_id from the classify result
     - `outcome` - Map with :success (boolean) and optional details
-    
+
   ## Example
       decision = MetaCognitiveRouter.classify("Fix the bug")
       # ... process query ...
@@ -159,9 +180,15 @@ defmodule Mimo.MetaCognitiveRouter do
   """
   @spec record_outcome(String.t(), map()) :: :ok
   def record_outcome(tracking_id, outcome) when is_binary(tracking_id) and is_map(outcome) do
+    # L5: Pass predicted confidence for calibration tracking
+    predicted_confidence = Map.get(outcome, :predicted_confidence, nil)
+
     FeedbackLoop.record_outcome(
       :classification,
-      %{tracking_id: tracking_id},
+      %{
+        tracking_id: tracking_id,
+        predicted_confidence: predicted_confidence
+      },
       outcome
     )
   end
@@ -265,11 +292,76 @@ defmodule Mimo.MetaCognitiveRouter do
     end
   end
 
-  defp emit_telemetry(duration_us, primary_store, confidence) do
+  @doc """
+  Get feedback-based boost values for each store.
+
+  Returns a map of boost multipliers based on historical success rates.
+  Stores with higher success rates get a boost (max 1.0 + @feedback_boost_weight).
+  Falls back to neutral (1.0) if insufficient data.
+
+  Used internally by classify/1 to apply learning-based adjustments.
+  """
+  @spec get_feedback_boosts() :: map()
+  def get_feedback_boosts do
+    try do
+      accuracy_by_store = FeedbackLoop.classification_accuracy()
+
+      # Check if we have enough samples
+      total_samples =
+        try do
+          FeedbackLoop.stats()
+          |> get_in([:by_category, :classification, :total]) || 0
+        rescue
+          _ -> 0
+        end
+
+      if total_samples < @min_feedback_samples do
+        # Not enough data, return neutral boosts
+        %{procedural: 1.0, semantic: 1.0, episodic: 1.0}
+      else
+        # Map router stores to FeedbackLoop classification stores
+        # Router uses: :procedural, :semantic, :episodic
+        # FeedbackLoop may use: :retrieval, :execution, :synthesis, :reasoning
+        # We need to create a reasonable mapping
+        store_mapping = %{
+          # actions -> execution
+          procedural: [:execution],
+          # facts -> retrieval/synthesis
+          semantic: [:retrieval, :synthesis],
+          # memories -> retrieval
+          episodic: [:retrieval]
+        }
+
+        # Calculate average accuracy for each router store based on mapped feedback stores
+        Enum.map([:procedural, :semantic, :episodic], fn router_store ->
+          mapped_stores = Map.get(store_mapping, router_store, [])
+
+          rates =
+            Enum.map(mapped_stores, fn fb_store ->
+              Map.get(accuracy_by_store, fb_store, nil)
+            end)
+            |> Enum.reject(&is_nil/1)
+
+          avg_rate = if rates == [], do: 0.5, else: Enum.sum(rates) / length(rates)
+
+          # Calculate boost: 1.0 + (success_rate - 0.5) * @feedback_boost_weight * 2
+          boost = 1.0 + (avg_rate - 0.5) * @feedback_boost_weight * 2
+          # Clamp between 0.8 and 1.2
+          boost = max(0.8, min(1.2, boost))
+          {router_store, Float.round(boost, 3)}
+        end)
+        |> Map.new()
+      end
+    rescue
+      _ -> %{procedural: 1.0, semantic: 1.0, episodic: 1.0}
+    end
+  end
+
+  defp emit_telemetry(duration_us, primary_store, confidence, feedback_applied) do
     # Telemetry event for monitoring
     :telemetry.execute(
       [:mimo, :router, :classify],
-      %{duration_us: duration_us, confidence: confidence},
+      %{duration_us: duration_us, confidence: confidence, feedback_applied: feedback_applied},
       %{primary_store: primary_store}
     )
 
@@ -279,10 +371,6 @@ defmodule Mimo.MetaCognitiveRouter do
       Logger.warning("Router classification slow: #{Float.round(duration_ms, 2)}ms")
     end
   end
-
-  # =============================================================================
-  # SPEC-070: Embedding-Based Semantic Classification
-  # =============================================================================
 
   @doc """
   Classify query using semantic embeddings (SPEC-070).
@@ -311,7 +399,7 @@ defmodule Mimo.MetaCognitiveRouter do
         Enum.map(prototype_embeddings, fn {category, embeddings} ->
           similarities =
             Enum.map(embeddings, fn proto_emb ->
-              Mimo.Vector.Math.cosine_similarity(query_embedding, proto_emb)
+              VectorMath.cosine_similarity(query_embedding, proto_emb)
             end)
 
           # Use max similarity as the category score
@@ -377,7 +465,10 @@ defmodule Mimo.MetaCognitiveRouter do
         total = Enum.sum(Map.values(blended_scores)) + 0.01
         normalized = Map.new(blended_scores, fn {k, v} -> {k, v / total} end)
 
-        {primary_store, confidence} = Enum.max_by(normalized, fn {_k, v} -> v end)
+        {primary_store, raw_confidence} = Enum.max_by(normalized, fn {_k, v} -> v end)
+
+        # L5: Apply confidence calibration
+        calibrated_confidence = FeedbackLoop.calibrated_confidence(:classification, raw_confidence)
 
         secondary_stores =
           normalized
@@ -387,10 +478,11 @@ defmodule Mimo.MetaCognitiveRouter do
         %{
           primary_store: primary_store,
           secondary_stores: secondary_stores,
-          confidence: Float.round(confidence, 2),
+          confidence: Float.round(calibrated_confidence, 2),
+          raw_confidence: Float.round(raw_confidence, 2),
           reasoning:
             "Hybrid classification (#{round(@embedding_weight * 100)}% semantic + #{round(@keyword_weight * 100)}% keyword)",
-          requires_synthesis: confidence < 0.7 or length(secondary_stores) > 0
+          requires_synthesis: calibrated_confidence < 0.7 or secondary_stores != []
         }
       else
         # Fallback to keyword-only
@@ -425,17 +517,17 @@ defmodule Mimo.MetaCognitiveRouter do
     skip_cache = Keyword.get(opts, :skip_cache, false)
 
     if skip_cache do
-      Mimo.Brain.LLM.get_embedding(query)
+      LLM.get_embedding(query)
     else
       # Try cache first
-      case Mimo.Cache.Embedding.get(query) do
+      case EmbeddingCache.get(query) do
         {:ok, embedding} ->
           {:ok, embedding}
 
         :miss ->
-          case Mimo.Brain.LLM.get_embedding(query) do
+          case LLM.get_embedding(query) do
             {:ok, embedding} ->
-              Mimo.Cache.Embedding.put(query, embedding)
+              EmbeddingCache.put(query, embedding)
               {:ok, embedding}
 
             error ->
@@ -462,7 +554,7 @@ defmodule Mimo.MetaCognitiveRouter do
           Enum.map(@prototype_queries, fn {category, queries} ->
             embeddings =
               Enum.map(queries, fn q ->
-                case Mimo.Brain.LLM.get_embedding(q) do
+                case LLM.get_embedding(q) do
                   {:ok, emb} -> emb
                   {:error, _} -> nil
                 end
@@ -474,7 +566,7 @@ defmodule Mimo.MetaCognitiveRouter do
           |> Map.new()
 
         # Verify we got embeddings for all categories
-        if Enum.all?(results, fn {_cat, embs} -> length(embs) > 0 end) do
+        if Enum.all?(results, fn {_cat, embs} -> embs != [] end) do
           cache_prototypes(results)
           {:ok, results}
         else
@@ -491,7 +583,7 @@ defmodule Mimo.MetaCognitiveRouter do
       case :ets.lookup(@prototype_cache, :prototypes) do
         [{:prototypes, data, timestamp}] ->
           # Check TTL (24 hours)
-          if System.monotonic_time(:second) - timestamp < 86400 do
+          if System.monotonic_time(:second) - timestamp < 86_400 do
             {:ok, data}
           else
             :miss
@@ -528,10 +620,6 @@ defmodule Mimo.MetaCognitiveRouter do
       _ -> :ok
     end
   end
-
-  # =============================================================================
-  # SPEC-053: Workflow Prediction & Suggestion
-  # =============================================================================
 
   @doc """
   Suggest a workflow pattern for a task description.

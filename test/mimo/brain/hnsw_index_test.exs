@@ -211,7 +211,7 @@ defmodule Mimo.Brain.HnswIndexTest do
 
       case HnswIndex.search(query_vec, 5) do
         {:ok, results} ->
-          assert length(results) > 0
+          assert results != []
 
         {:error, :index_not_available} ->
           :ok

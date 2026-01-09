@@ -21,6 +21,7 @@ defmodule Mimo.Tools.Dispatchers.Onboard do
 
   alias Mimo.Brain.Memory
   alias Mimo.Tools.Dispatchers.Onboard.Tracker
+  alias Mimo.Context.{Project, WorkingMemory}
 
   @doc """
   Dispatch onboard operation.
@@ -71,6 +72,10 @@ defmodule Mimo.Tools.Dispatchers.Onboard do
 
   defp start_onboarding(abs_path) do
     fingerprint = compute_fingerprint(abs_path)
+
+    # SPEC-097: Register project and update working memory
+    Project.register(abs_path, fingerprint: fingerprint)
+    WorkingMemory.set_project(abs_path)
 
     case Tracker.start_onboarding(abs_path, fingerprint) do
       :ok ->
@@ -129,10 +134,6 @@ defmodule Mimo.Tools.Dispatchers.Onboard do
     }
   end
 
-  # ==========================================================================
-  # FINGERPRINT MANAGEMENT
-  # ==========================================================================
-
   defp compute_fingerprint(path) do
     # Create fingerprint from directory structure
     files =
@@ -188,17 +189,21 @@ defmodule Mimo.Tools.Dispatchers.Onboard do
     results =
       Memory.search_memories("project fingerprint #{fingerprint}", limit: 1, min_similarity: 0.9)
 
-    length(results) > 0
+    results != []
   end
 
   defp return_cached_profile(path, fingerprint) do
+    # SPEC-097: Touch project and update working memory for cached returns too
+    Project.register(path, fingerprint: fingerprint)
+    WorkingMemory.set_project(path)
+
     {:ok,
      %{
        status: "cached",
        path: path,
        fingerprint: fingerprint,
        message: "✅ Project already indexed. Use force=true to re-index.",
-       suggestion: "💡 Project context is ready. Use code_symbols, knowledge, and library tools."
+       suggestion: "Project context is ready. Use code_symbols, knowledge, and library tools."
      }}
   end
 

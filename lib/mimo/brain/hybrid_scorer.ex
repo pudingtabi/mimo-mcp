@@ -46,17 +46,20 @@ defmodule Mimo.Brain.HybridScorer do
       # => :tier1, :tier2, or :tier3
   """
 
-  alias Mimo.Brain.{DecayScorer, AttentionLearner, UsageFeedback}
+  alias Mimo.Brain.{AttentionLearner, DecayScorer, UsageFeedback}
   alias Mimo.NeuroSymbolic.CrossModalityLinker
 
   # Default weights - read from config at runtime
   # NOTE: These are intuition-based, not learned. See ANTI-SLOP.md.
+  # SPEC-089: Added keyword weight for VocabularyIndex BM25 lexical matching
+  # Keyword weight increased to 0.15 to prioritize exact term matches
   @default_weights %{
-    vector: 0.35,
-    recency: 0.25,
+    vector: 0.25,
+    recency: 0.15,
     access: 0.15,
     importance: 0.15,
-    graph: 0.10
+    graph: 0.15,
+    keyword: 0.15
   }
 
   # SPEC-051: Unified Relevance Score weights
@@ -81,10 +84,6 @@ defmodule Mimo.Brain.HybridScorer do
     medium: %{tier1: 0.0, tier2: 0.0},
     large: %{tier1: -0.02, tier2: -0.02}
   }
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
 
   @doc """
   Calculate hybrid score for a single memory.
@@ -115,6 +114,8 @@ defmodule Mimo.Brain.HybridScorer do
     access_score = calculate_access_score(memory)
     importance_score = calculate_importance_score(memory)
     graph_score = opts[:graph_score] || 0.0
+    # SPEC-089: Keyword score from VocabularyIndex BM25 (lexical matching)
+    keyword_score = opts[:keyword_score] || Map.get(memory, :similarity, 0.0)
 
     # Weighted combination
     base_score =
@@ -122,7 +123,8 @@ defmodule Mimo.Brain.HybridScorer do
         recency_score * weights.recency +
         access_score * weights.access +
         importance_score * weights.importance +
-        graph_score * weights.graph
+        graph_score * weights.graph +
+        keyword_score * weights.keyword
 
     # SPEC-087: Apply helpfulness adjustment from UsageFeedback learning
     # This closes the feedback loop - memories that led to successful outcomes
@@ -182,6 +184,11 @@ defmodule Mimo.Brain.HybridScorer do
       graph: %{
         raw: opts[:graph_score] || 0.0,
         weight: weights.graph
+      },
+      # SPEC-089: Keyword component for debugging
+      keyword: %{
+        raw: opts[:keyword_score] || Map.get(memory, :similarity, 0.0),
+        weight: weights.keyword
       }
     }
 
@@ -199,10 +206,6 @@ defmodule Mimo.Brain.HybridScorer do
       weights: weights
     }
   end
-
-  # ==========================================================================
-  # SPEC-051: Tiered Context Classification
-  # ==========================================================================
 
   @doc """
   Classify an item into a tier based on Unified Relevance Score.
@@ -388,10 +391,6 @@ defmodule Mimo.Brain.HybridScorer do
     }
   end
 
-  # ==========================================================================
-  # Score Components
-  # ==========================================================================
-
   defp calculate_vector_score(memory, query_embedding, opts) when is_list(opts) do
     # Use pre-computed similarity if provided (takes precedence over embedding calculation)
     case opts[:vector_similarity] do
@@ -434,10 +433,6 @@ defmodule Mimo.Brain.HybridScorer do
     Map.get(memory, :importance, 0.5)
   end
 
-  # ==========================================================================
-  # Helpers
-  # ==========================================================================
-
   defp merge_weights(nil), do: config_weights()
 
   defp merge_weights(custom) when is_map(custom) do
@@ -456,7 +451,8 @@ defmodule Mimo.Brain.HybridScorer do
       recency: Keyword.get(config, :recency_weight, @default_weights.recency),
       access: Keyword.get(config, :access_weight, @default_weights.access),
       importance: Keyword.get(config, :importance_weight, @default_weights.importance),
-      graph: Keyword.get(config, :graph_weight, @default_weights.graph)
+      graph: Keyword.get(config, :graph_weight, @default_weights.graph),
+      keyword: Keyword.get(config, :keyword_weight, @default_weights.keyword)
     }
 
     if use_learned do
@@ -478,10 +474,25 @@ defmodule Mimo.Brain.HybridScorer do
         # Importance stays static (not learned by AttentionLearner)
         importance: base_weights.importance,
         # Graph weight influenced by learned edge_weight
-        graph: blend(base_weights.graph, learned[:edge_weight] || 0.4, blend_factor)
+        graph: blend(base_weights.graph, learned[:edge_weight] || 0.4, blend_factor),
+        # SPEC-089: Keyword stays static (not learned yet)
+        keyword: base_weights.keyword
       }
     else
       base_weights
+    end
+    |> normalize_weights()
+  end
+
+  # SPEC-089: Normalize weights to sum to 1.0
+  # This ensures that adding keyword weight doesn't break scoring
+  defp normalize_weights(weights) do
+    sum = Enum.reduce(weights, 0.0, fn {_k, v}, acc -> acc + v end)
+
+    if sum > 0 do
+      Enum.map(weights, fn {k, v} -> {k, v / sum} end) |> Map.new()
+    else
+      weights
     end
   end
 
@@ -580,10 +591,6 @@ defmodule Mimo.Brain.HybridScorer do
   end
 
   defp cosine_similarity(_, _), do: 0.0
-
-  # ==========================================================================
-  # SPEC-087: UsageFeedback Learning Integration
-  # ==========================================================================
 
   # Apply helpfulness adjustment from UsageFeedback
   # Memories that led to successful outcomes get boosted (factor > 1.0)

@@ -18,6 +18,7 @@ defmodule Mimo.ProceduralStore do
   - `Validator` - Procedure validation
   """
 
+  alias ExecutionFSM
   alias Mimo.ProceduralStore.{Loader, Procedure}
 
   @doc """

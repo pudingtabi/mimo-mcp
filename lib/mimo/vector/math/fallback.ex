@@ -12,7 +12,7 @@ defmodule Mimo.Vector.Math.Fallback do
   """
   @spec cosine_similarity([number()], [number()]) :: float()
   def cosine_similarity(a, b) when is_list(a) and is_list(b) do
-    if length(a) == length(b) and length(a) > 0 do
+    if length(a) == length(b) and a != [] do
       {dot, na2, nb2} =
         Enum.zip(a, b)
         |> Enum.reduce({0.0, 0.0, 0.0}, fn {x, y}, {d, sa, sb} ->

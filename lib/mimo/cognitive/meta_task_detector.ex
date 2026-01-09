@@ -1,4 +1,6 @@
 defmodule Mimo.Cognitive.MetaTaskDetector do
+  alias Mimo.Brain.LLM
+
   @moduledoc """
   SPEC-062: Meta-Task Detection for AI reasoning.
 
@@ -96,10 +98,6 @@ defmodule Mimo.Cognitive.MetaTaskDetector do
 
   @type detection_result :: {:meta_task, guidance()} | {:standard, map()}
 
-  # ============================================================================
-  # PUBLIC API
-  # ============================================================================
-
   @doc """
   Detect if a problem is a meta-task requiring self-generated content.
 
@@ -175,10 +173,6 @@ defmodule Mimo.Cognitive.MetaTaskDetector do
         problem
     end
   end
-
-  # ============================================================================
-  # GUIDANCE BUILDERS
-  # ============================================================================
 
   defp build_guidance(:generate_questions, problem) do
     # Try to extract the number from the problem
@@ -266,10 +260,6 @@ defmodule Mimo.Cognitive.MetaTaskDetector do
     }
   end
 
-  # ============================================================================
-  # PATTERN MATCHING
-  # ============================================================================
-
   defp find_pattern(problem) do
     Enum.find(@patterns, fn {pattern, _type} ->
       Regex.match?(pattern, problem)
@@ -283,10 +273,6 @@ defmodule Mimo.Cognitive.MetaTaskDetector do
     end
   end
 
-  # ============================================================================
-  # LLM FALLBACK (for novel patterns)
-  # ============================================================================
-
   defp llm_detect(problem) do
     # Only attempt LLM detection for longer, complex problems
     if String.length(problem) < 20 do
@@ -296,7 +282,7 @@ defmodule Mimo.Cognitive.MetaTaskDetector do
 
       task =
         Task.async(fn ->
-          Mimo.Brain.LLM.complete(prompt, json: true, max_tokens: 200)
+          LLM.complete(prompt, json: true, max_tokens: 200)
         end)
 
       case Task.yield(task, @llm_timeout) || Task.shutdown(task) do
@@ -354,10 +340,6 @@ defmodule Mimo.Cognitive.MetaTaskDetector do
   defp parse_llm_response(_response, _problem) do
     {:standard, %{method: :llm_invalid_response}}
   end
-
-  # ============================================================================
-  # TELEMETRY
-  # ============================================================================
 
   defp emit_detection(detected?, type, method) do
     :telemetry.execute(

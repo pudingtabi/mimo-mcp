@@ -1,6 +1,6 @@
 defmodule Mimo.Cognitive.UncertaintyTrackerTest do
   use ExUnit.Case, async: false
-  alias Mimo.Cognitive.{UncertaintyTracker, Uncertainty}
+  alias Mimo.Cognitive.{Uncertainty, UncertaintyTracker}
 
   setup do
     # Start the tracker if not started

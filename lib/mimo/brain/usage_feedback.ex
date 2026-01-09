@@ -44,16 +44,12 @@ defmodule Mimo.Brain.UsageFeedback do
   use GenServer
   require Logger
 
+  alias Mimo.Brain.{AttentionLearner, Engram}
   alias Mimo.Repo
-  alias Mimo.Brain.{Engram, AttentionLearner}
 
   @default_helpfulness 0.5
   @boost_amount 0.05
   @decay_amount 0.03
-
-  # =============================================================================
-  # Public API
-  # =============================================================================
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -127,10 +123,6 @@ defmodule Mimo.Brain.UsageFeedback do
   def flush do
     GenServer.call(__MODULE__, :force_flush)
   end
-
-  # =============================================================================
-  # GenServer Callbacks
-  # =============================================================================
 
   @impl true
   def init(_opts) do
@@ -213,10 +205,10 @@ defmodule Mimo.Brain.UsageFeedback do
   @impl true
   def handle_call(:force_flush, _from, state) do
     new_state =
-      if length(state.pending_signals) > 0 do
-        process_signals(state.pending_signals, state)
-      else
+      if Enum.empty?(state.pending_signals) do
         flush_retrieval_counts(state)
+      else
+        process_signals(state.pending_signals, state)
       end
 
     {:reply, :ok, new_state}
@@ -225,19 +217,15 @@ defmodule Mimo.Brain.UsageFeedback do
   @impl true
   def handle_info(:flush, state) do
     new_state =
-      if length(state.pending_signals) > 0 do
-        process_signals(state.pending_signals, state)
-      else
+      if Enum.empty?(state.pending_signals) do
         flush_retrieval_counts(state)
+      else
+        process_signals(state.pending_signals, state)
       end
 
     schedule_flush()
     {:noreply, new_state}
   end
-
-  # =============================================================================
-  # Private Implementation
-  # =============================================================================
 
   defp process_signals(signals, state) do
     # Group by memory_id

@@ -39,6 +39,7 @@ defmodule Mimo.Brain.DecayScorer do
       # Predict when memory will be forgotten
       days = DecayScorer.predict_forgetting(engram)
   """
+  alias ActivityTracker
 
   @default_decay_rate 0.1
   @default_threshold 0.1
@@ -174,10 +175,6 @@ defmodule Mimo.Brain.DecayScorer do
     }
   end
 
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
-
   # Get active days since a datetime, with fallback to calendar days
   # if ActivityTracker is not available
   defp get_active_days_since(nil), do: 0.0
@@ -185,7 +182,7 @@ defmodule Mimo.Brain.DecayScorer do
   defp get_active_days_since(datetime) do
     try do
       # Try to use ActivityTracker for active-days-based decay
-      if Process.whereis(Mimo.Brain.ActivityTracker) do
+      if Process.whereis(ActivityTracker) do
         Mimo.Brain.ActivityTracker.active_days_since(datetime)
       else
         # Fallback to calendar days if tracker not running

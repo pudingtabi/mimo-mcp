@@ -24,8 +24,8 @@ defmodule Mix.Tasks.Mimo.VectorizeBinary do
   import Ecto.Query
   require Logger
 
-  alias Mimo.Repo
   alias Mimo.Brain.Engram
+  alias Mimo.Repo
   alias Mimo.Vector.Math
 
   @shortdoc "Convert int8 embeddings to binary format for fast Hamming pre-filtering"

@@ -4,9 +4,15 @@ defmodule Mimo.Tools.Dispatchers.SuggestNextTool do
 
   Analyzes the current task and recent tool usage to recommend the optimal
   next tool according to the Mimo workflow: Context → Intelligence → Action → Learning.
+
+  Phase 3 L4: Enhanced with learning-based tool selection that considers
+  historical success rates and emergent workflow patterns when making recommendations.
   """
 
   require Logger
+
+  alias Mimo.Brain.Emergence.Pattern
+  alias Mimo.Cognitive.FeedbackLoop
 
   # Tool categories for workflow phases
   @context_tools ~w(memory ask_mimo knowledge prepare_context)
@@ -63,15 +69,137 @@ defmodule Mimo.Tools.Dispatchers.SuggestNextTool do
     {suggested_tool, reason, alternatives} =
       suggest_for_task(task_lower, recent_tools, phase)
 
+    # Phase 3 L4: Check emergence patterns for better suggestions
+    pattern_suggestion = get_pattern_based_suggestion(recent_tools)
+
+    # Phase 3 L4: Enhance suggestion with learning-based stats
+    experience_insight = get_tool_experience_insight(suggested_tool, alternatives)
+
+    # Potentially override suggestion if pattern-based is stronger
+    {final_tool, final_reason, pattern_insight} =
+      maybe_use_pattern_suggestion(suggested_tool, reason, pattern_suggestion)
+
     %{
-      suggested_tool: suggested_tool,
-      reason: reason,
+      suggested_tool: final_tool,
+      reason: final_reason,
       workflow_phase: phase,
       alternatives: alternatives,
       warnings: warnings,
       recent_tools_recognized: recent_tools,
-      workflow_guidance: get_phase_guidance(phase)
+      workflow_guidance: get_phase_guidance(phase),
+      experience_insight: experience_insight,
+      pattern_insight: pattern_insight
     }
+  end
+
+  # Phase 3 L4: Get suggestion from emergence patterns
+  defp get_pattern_based_suggestion(recent_tools) when length(recent_tools) >= 1 do
+    try do
+      Pattern.suggest_next_tool_from_patterns(recent_tools, min_success_rate: 0.7)
+    rescue
+      _ -> []
+    catch
+      _, _ -> []
+    end
+  end
+
+  defp get_pattern_based_suggestion(_), do: []
+
+  # Phase 3 L4: Maybe override with pattern-based suggestion
+  defp maybe_use_pattern_suggestion(suggested_tool, reason, []) do
+    {suggested_tool, reason, nil}
+  end
+
+  defp maybe_use_pattern_suggestion(suggested_tool, reason, [best_pattern | _]) do
+    # Use pattern if it has high success rate and enough history
+    if best_pattern.success_rate >= 0.8 and best_pattern.occurrences >= 5 do
+      pattern_insight = %{
+        from_pattern: true,
+        pattern_description: best_pattern.pattern_description,
+        success_rate: best_pattern.success_rate,
+        occurrences: best_pattern.occurrences,
+        full_sequence: best_pattern.full_sequence
+      }
+
+      pattern_reason =
+        "#{reason}. Also: pattern '#{best_pattern.pattern_description}' suggests this tool (#{round(best_pattern.success_rate * 100)}% success, #{best_pattern.occurrences} uses)"
+
+      {best_pattern.suggested_tool, pattern_reason, pattern_insight}
+    else
+      pattern_insight = %{
+        from_pattern: false,
+        pattern_considered: best_pattern.pattern_description,
+        pattern_success_rate: best_pattern.success_rate,
+        note: "Pattern not strong enough to override (need ≥80% success and ≥5 occurrences)"
+      }
+
+      {suggested_tool, reason, pattern_insight}
+    end
+  end
+
+  # Phase 3 L4: Get experience-based insight for suggested tool
+  defp get_tool_experience_insight(suggested_tool, alternatives) do
+    try do
+      # Get stats for suggested tool
+      suggested_stats = FeedbackLoop.tool_execution_stats(suggested_tool)
+
+      # Get stats for alternatives
+      alt_stats =
+        alternatives
+        |> Enum.take(3)
+        |> Enum.map(fn alt ->
+          alt_name = alt |> to_string() |> String.replace(" ", "_")
+          {alt_name, FeedbackLoop.tool_execution_stats(alt_name)}
+        end)
+        |> Enum.filter(fn {_name, stats} -> stats.total >= 5 end)
+        |> Enum.into(%{})
+
+      # Find if any alternative has better success rate
+      better_alternative =
+        alt_stats
+        |> Enum.find(fn {_name, stats} ->
+          stats.success_rate > suggested_stats.success_rate + 0.1 and stats.total >= 10
+        end)
+
+      cond do
+        suggested_stats.total < 5 ->
+          %{note: "Not enough history to evaluate #{suggested_tool}"}
+
+        suggested_stats.success_rate >= 0.9 ->
+          %{
+            confidence: :high,
+            note:
+              "#{suggested_tool} has excellent history (#{round(suggested_stats.success_rate * 100)}% success, #{suggested_stats.total} uses)"
+          }
+
+        better_alternative != nil ->
+          {alt_name, alt_stats_val} = better_alternative
+
+          %{
+            confidence: :medium,
+            note:
+              "#{suggested_tool} works (#{round(suggested_stats.success_rate * 100)}% success), but #{alt_name} has been more reliable (#{round(alt_stats_val.success_rate * 100)}%)",
+            alternative_recommendation: alt_name
+          }
+
+        suggested_stats.recent_trend == :declining ->
+          %{
+            confidence: :low,
+            note: "⚠️ #{suggested_tool} success rate is declining recently"
+          }
+
+        true ->
+          %{
+            confidence: :medium,
+            note:
+              "#{suggested_tool} has #{round(suggested_stats.success_rate * 100)}% success rate (#{suggested_stats.total} uses)"
+          }
+      end
+    rescue
+      _ -> %{}
+    catch
+      _, _ -> %{}
+    end
   end
 
   # Determine which workflow phase the user is in

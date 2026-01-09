@@ -60,10 +60,6 @@ defmodule Mimo.Awakening.SessionTracker do
 
   @type t :: %__MODULE__{}
 
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -170,10 +166,6 @@ defmodule Mimo.Awakening.SessionTracker do
       awakened_sessions: Enum.count(sessions, & &1.awakening_sent)
     }
   end
-
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
 
   @impl true
   def init(_opts) do
@@ -356,10 +348,6 @@ defmodule Mimo.Awakening.SessionTracker do
     {:noreply, state}
   end
 
-  # ==========================================================================
-  # Private Functions
-  # ==========================================================================
-
   defp generate_session_id do
     UUID.uuid4()
   end
@@ -385,14 +373,10 @@ defmodule Mimo.Awakening.SessionTracker do
       Logger.debug("Awakening: Cleaned up stale session #{session_id}")
     end)
 
-    if length(stale_sessions) > 0 do
+    unless Enum.empty?(stale_sessions) do
       Logger.info("Awakening: Cleaned up #{length(stale_sessions)} stale sessions")
     end
   end
-
-  # ==========================================================================
-  # Tool Classification for Behavioral Tracking (SPEC-040 v1.2)
-  # ==========================================================================
 
   @context_tools ~w(memory ask_mimo knowledge prepare_context code_symbols library diagnostics cognitive reason graph onboard analyze_file debug_error awakening_status)
   @action_tools ~w(file terminal)
@@ -418,7 +402,7 @@ defmodule Mimo.Awakening.SessionTracker do
               "⚠️ #{session.consecutive_action_without_context} consecutive action tools without context! Use `memory search` or `ask_mimo` first."
 
             ratio < 0.2 and total >= 5 ->
-              "💡 Low context usage (#{Float.round(ratio * 100, 1)}%). Try `memory search` before file reads."
+              "Low context usage (#{Float.round(ratio * 100, 1)}%). Try `memory search` before file reads."
 
             ratio >= 0.3 ->
               "✅ Good tool balance (#{Float.round(ratio * 100, 1)}% context-first)."

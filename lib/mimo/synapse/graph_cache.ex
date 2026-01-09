@@ -33,8 +33,8 @@ defmodule Mimo.Synapse.GraphCache do
   use GenServer
   require Logger
 
-  alias Mimo.Synapse.Graph
   alias Mimo.SafeCall
+  alias Mimo.Synapse.Graph
 
   # Configuration
   @batch_size 500
@@ -45,10 +45,6 @@ defmodule Mimo.Synapse.GraphCache do
   @node_pending :graph_node_pending
   @edge_pending :graph_edge_pending
   @node_id_map :graph_node_id_map
-
-  # ==========================================================================
-  # Client API
-  # ==========================================================================
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -158,10 +154,6 @@ defmodule Mimo.Synapse.GraphCache do
       _pid -> true
     end
   end
-
-  # ==========================================================================
-  # Server Callbacks
-  # ==========================================================================
 
   @impl true
   def init(_opts) do
@@ -372,10 +364,6 @@ defmodule Mimo.Synapse.GraphCache do
     schedule_flush()
     {:noreply, new_state}
   end
-
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
 
   defp schedule_flush do
     Process.send_after(self(), :scheduled_flush, @flush_interval_ms)

@@ -81,10 +81,6 @@ defmodule Mimo.Synapse.ConnectionManager do
     end)
   end
 
-  # ============================================================================
-  # GenServer Callbacks
-  # ============================================================================
-
   @impl true
   def init(_opts) do
     # Create ETS table for connection tracking

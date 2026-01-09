@@ -6,14 +6,44 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Mimo is a memory system for AI agents, implemented as an MCP (Model Context Protocol) server in Elixir. It provides persistent memory, knowledge graphs, and tools for file/terminal/web operations. The system runs as an MCP server over stdio for integration with Claude Desktop, VS Code, or other MCP clients.
 
+## Core Tools (12 Consolidated)
+
+After Phase 0-3 consolidation, Mimo exposes 12 core tools:
+
+| Tool | Purpose | Key Operations |
+|------|---------|----------------|
+| `memory` | Persistent semantic memory | store, search, stats, synthesize, graph, ingest |
+| `reason` | Structured reasoning | assess, gaps, thought, plan, guided, amplify_* |
+| `code` | Code intelligence | symbols, definition, references, library_get, diagnose |
+| `file` | File operations | read, write, edit, glob, search, diff |
+| `terminal` | Shell execution | execute, start_process, list_sessions |
+| `web` | Web operations | fetch, search, browser, screenshot, vision |
+| `meta` | Composite operations | analyze_file, debug_error, prepare_context, suggest_next_tool |
+| `onboard` | Project initialization | Auto-index symbols, dependencies, knowledge |
+| `autonomous` | Background task execution | queue, status, pause, resume |
+| `orchestrate` | Multi-tool orchestration | execute, execute_plan, classify, run_procedure |
+| `tool_usage` | Analytics | stats, detail |
+| `awakening_status` | Agent progression | status, achievements |
+
+### Consolidated Tool Routing
+
+Legacy tools route to consolidated tools automatically:
+- `knowledge` → `memory operation=graph`
+- `ask_mimo` → `memory operation=synthesize`
+- `cognitive` → `reason`
+- `think` → `reason`
+- `code_symbols` → `code`
+- `library` → `code operation=library_*`
+- `diagnostics` → `code operation=diagnose`
+
 ## Mimo Workflow Patterns
 
-**The Core Principle: Context → Intelligence → Action → Learning**
+**The Core Principle: REASON → CONTEXT → INTELLIGENCE → ACTION → LEARN**
 
 ### Session Start
 Always begin with context gathering:
 ```
-ask_mimo query="What context do you have about this project?"
+memory operation=synthesize query="What context do you have about this project?"
 onboard path="."  # For new/unknown projects
 ```
 
@@ -33,33 +63,33 @@ memory operation=search query="[topic]"
 | Find all usages | `grep` | `code operation=references name="Class"` |
 | Package documentation | `web search` | `code operation=library_get name="pkg"` |
 | Check for errors | `terminal compile` | `code operation=diagnose path="."` |
-| Understand relationships | `file search` | `knowledge operation=query query="..."` |
-| Before reading a file | immediately read | `memory search` first |
+| Understand relationships | `file search` | `memory operation=graph query="..."` |
+| Before reading a file | immediately read | `memory operation=search` first |
 | Complex decisions | just answer | `reason operation=guided` first |
 | Need deep thinking | quick response | `reason operation=amplify_start` |
+| Multi-step automation | manual steps | `orchestrate operation=execute` |
 
 ### After Every Discovery
 Store findings for future sessions:
 ```
 memory operation=store content="[insight]" category=fact importance=0.7
-knowledge operation=teach text="A depends on B"
 ```
 
 ### Debugging Workflow
-1. `memory search query="similar error [error text]"` - Check past fixes
+1. `memory operation=search query="similar error [error text]"` - Check past fixes
 2. `code operation=diagnose path="."` - Get structured errors
 3. `code operation=definition name="[failing function]"` - Find source
 4. Fix the issue
-5. `memory store content="Fixed: [solution]" category=action importance=0.8`
+5. `memory operation=store content="Fixed: [solution]" category=action importance=0.8`
 
 ### Target Tool Distribution
 
 | Phase | Tools | Target % |
 |-------|-------|----------|
-| Context | memory, ask_mimo, knowledge | 15-20% |
-| Intelligence | code, diagnostics, library | 15-20% |
+| Context | memory (search/synthesize/graph) | 15-20% |
+| Intelligence | code (symbols/library/diagnose) | 15-20% |
 | Action | file, terminal | 45-55% |
-| Learning | memory store, knowledge teach | 10-15% |
+| Learning | memory (store) | 10-15% |
 | Reasoning | reason (guided/amplify) | 5-10% |
 
 ## Common Commands
@@ -102,20 +132,9 @@ mix setup                      # deps.get + ecto.create + ecto.migrate
 ### Tool System
 
 - **`Mimo.Tools`** (`lib/mimo/tools.ex`) - Facade module that dispatches tool calls to specialized dispatchers.
-- **`Mimo.Tools.Dispatchers.*`** - Per-tool dispatcher modules (File, Terminal, Web, Code, Knowledge, Cognitive, etc.).
+- **`Mimo.Tools.Dispatchers.*`** - Per-tool dispatcher modules (File, Terminal, Web, Code, etc.).
 - **`Mimo.Tools.Definitions`** - MCP tool JSON schemas.
-
-There are 17 primary tools with legacy aliases for backward compatibility:
-- `file` - Read, write, edit, glob, search, symbols
-- `terminal` - Shell command execution
-- `web` - Fetch, search, browser, vision, screenshots
-- `code` - Symbols, library docs, diagnostics
-- `memory` - Store and search memories
-- `knowledge` - Knowledge graph queries
-- `reason` - Structured reasoning (CoT, ToT, ReAct)
-- `cognitive` - Meta-cognition, verification
-- `onboard` - Project initialization
-- `meta` - Composite operations
+- **`Mimo.ToolRegistry`** - Tool classification and routing.
 
 ### Memory System (Brain)
 
@@ -138,41 +157,28 @@ Memory categories: `fact`, `observation`, `action`, `plan`, `episode`, `procedur
 ### Cognitive Systems
 
 - **`Mimo.Cognitive.ReasoningSession`** - Multi-step reasoning with strategy selection (CoT, ToT, ReAct, Reflexion).
-- **`Mimo.Cognitive.Amplifier`** - Cognitive amplification ("nano-chip") that forces deeper thinking.
+- **`Mimo.Cognitive.Amplifier`** - Cognitive amplification that forces deeper thinking.
 - **`Mimo.Brain.Reflector.*`** - Self-reflection and confidence calibration.
 - **`Mimo.Brain.Emergence.*`** - Pattern detection and promotion.
 - **`Mimo.ActiveInference`** - Proactive context pushing.
 
 ### Cognitive Amplifier
 
-The Cognitive Amplifier (`lib/mimo/cognitive/amplifier/`) forces deeper, more rigorous thinking from any LLM:
-
-**Modules:**
-- `amplifier.ex` - Main orchestrator coordinating the amplification pipeline
-- `amplification_session.ex` - ETS-backed extended session state
-- `amplification_level.ex` - Level configurations (minimal, standard, deep, exhaustive, adaptive)
-- `thinking_forcer.ex` - Forces problem decomposition before direct answers
-- `challenge_generator.ex` - Generates counter-arguments (devil's advocate)
-- `coherence_validator.ex` - Validates logical consistency, catches contradictions
-- `perspective_rotator.ex` - Forces multi-angle consideration (domain-adaptive)
-- `synthesis_enforcer.ex` - Ensures integration of all threads before conclusion
+The Cognitive Amplifier (`lib/mimo/cognitive/amplifier/`) forces deeper, more rigorous thinking:
 
 **Usage via reason tool:**
 ```
-reason operation=amplify_start problem="..." level="deep"
-reason operation=amplify_decomposition session_id=... response="..."
+reason operation=amplify_start problem="..." level="standard"
 reason operation=amplify_think session_id=... thought="..."
 reason operation=amplify_challenge session_id=... challenge_id=... response="..."
-reason operation=amplify_perspective session_id=... perspective="security" insights=[...]
 reason operation=amplify_conclude session_id=...
-reason operation=amplify_status session_id=...
 ```
 
 **Amplification Levels:**
 - `:minimal` - Pass-through, no forcing
-- `:standard` - Decomposition + 2 challenges, 2 perspectives, 3 min steps
-- `:deep` - Full pipeline with 4 challenges, 3 perspectives, coherence validation, 5 min steps
-- `:exhaustive` - Maximum amplification, all checks enforced, 7 min steps
+- `:standard` - Decomposition + 2 challenges, 2 perspectives (recommended for most cases)
+- `:deep` - Full pipeline with 4 challenges, 3 perspectives, coherence validation
+- `:exhaustive` - Maximum amplification (use sparingly)
 - `:adaptive` - Auto-select based on problem complexity
 
 ### Automatic Deeper Thinking
@@ -182,7 +188,7 @@ reason operation=amplify_status session_id=...
 When facing these types of questions, invoke the reason tool FIRST:
 - Architectural decisions or design questions
 - Debugging complex issues
-- Analysis or evaluation requests (like "defend this" or "critique this")
+- Analysis or evaluation requests
 - Multi-step planning
 - Questions where you feel uncertain
 
@@ -193,15 +199,6 @@ reason operation=guided problem="[the user's question]" strategy=auto
 
 Then follow the reasoning steps before formulating your response.
 
-**For critical analysis or when explicitly asked to "think harder":**
-```
-reason operation=amplify_start problem="[the question]" level="deep"
-```
-
-This forces decomposition, challenges, and coherence checking before you conclude.
-
-**Why this matters:** Without explicit invocation, you may give shallow "lawyer's defense" style answers. The reasoning tools force genuine consideration of counter-arguments and verification of claims.
-
 ### Feature Flags
 
 Feature flags in `config/config.exs` control optional modules:
@@ -210,8 +207,6 @@ Feature flags in `config/config.exs` control optional modules:
 - `semantic_store` - Triple-based knowledge graph
 - `procedural_store` - State machine execution
 - `websocket_synapse` - Real-time signaling
-
-Check with environment variables: `RUST_NIFS_ENABLED=true`, `HNSW_INDEX_ENABLED=true`, etc.
 
 ### Configuration
 

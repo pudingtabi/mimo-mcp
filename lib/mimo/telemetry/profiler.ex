@@ -31,10 +31,6 @@ defmodule Mimo.Telemetry.Profiler do
   @slow_threshold_ms 100
   @max_slow_ops 1000
 
-  # ==========================================================================
-  # Macros
-  # ==========================================================================
-
   @doc """
   Profile a code block and emit telemetry.
 
@@ -61,10 +57,6 @@ defmodule Mimo.Telemetry.Profiler do
       result
     end
   end
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -224,10 +216,6 @@ defmodule Mimo.Telemetry.Profiler do
     :ok
   end
 
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
-
   @impl GenServer
   def init(_opts) do
     # Create ETS tables
@@ -270,10 +258,6 @@ defmodule Mimo.Telemetry.Profiler do
   def handle_info(_msg, state) do
     {:noreply, state}
   end
-
-  # ==========================================================================
-  # Telemetry Handler
-  # ==========================================================================
 
   @doc false
   def handle_event(event, measurements, metadata, _config) do

@@ -27,8 +27,8 @@ defmodule Mimo.Brain.WisdomInjector do
 
   require Logger
 
-  alias Mimo.Brain.Memory
   alias Mimo.Brain.Emergence.Pattern
+  alias Mimo.Brain.Memory
 
   @confidence_threshold 0.5
   @low_confidence_threshold 0.3
@@ -112,10 +112,6 @@ defmodule Mimo.Brain.WisdomInjector do
       %{urgency: :low, failures: [], patterns: [], memories: [], warnings: [], formatted: ""}
   end
 
-  # ==========================================================================
-  # WISDOM SOURCES
-  # ==========================================================================
-
   defp gather_past_failures(query) do
     # Search for memories tagged as failures or errors related to query
     failure_terms = ["failed", "error", "mistake", "wrong", "C+ grade", "cascade"]
@@ -139,23 +135,36 @@ defmodule Mimo.Brain.WisdomInjector do
   end
 
   defp gather_relevant_patterns(query) do
-    # Search for emergence patterns that match the query
-    case Pattern.search_by_description(query, limit: 5) do
-      patterns when is_list(patterns) ->
-        Enum.map(patterns, fn pattern ->
-          %{
-            id: pattern.id,
-            type: pattern.type,
-            description: pattern.description,
-            success_rate: pattern.success_rate,
-            occurrences: pattern.occurrences,
-            recommendation: generate_pattern_recommendation(pattern)
-          }
-        end)
+    # WIRE 2: Prioritize promoted patterns - they represent proven solutions
+    # Search both active and promoted patterns, weighting promoted higher
+    promoted_patterns =
+      case Pattern.search_by_description(query, limit: 3, status: :promoted) do
+        patterns when is_list(patterns) -> patterns
+        _ -> []
+      end
 
-      _ ->
-        []
-    end
+    active_patterns =
+      case Pattern.search_by_description(query, limit: 3, status: :active) do
+        patterns when is_list(patterns) -> patterns
+        _ -> []
+      end
+
+    # Combine: promoted first (they've proven their value), then active
+    all_patterns = promoted_patterns ++ active_patterns
+
+    all_patterns
+    |> Enum.take(5)
+    |> Enum.map(fn pattern ->
+      %{
+        id: pattern.id,
+        type: pattern.type,
+        description: pattern.description,
+        success_rate: pattern.success_rate,
+        occurrences: pattern.occurrences,
+        promoted: pattern.status == :promoted,
+        recommendation: generate_pattern_recommendation(pattern)
+      }
+    end)
   rescue
     _ -> []
   end
@@ -207,10 +216,6 @@ defmodule Mimo.Brain.WisdomInjector do
     warnings
   end
 
-  # ==========================================================================
-  # RISK PATTERN DETECTION
-  # ==========================================================================
-
   defp detect_risk_patterns(query) do
     query_lower = String.downcase(query)
 
@@ -237,7 +242,7 @@ defmodule Mimo.Brain.WisdomInjector do
           %{
             type: :ecto_pattern,
             message:
-              "💡 Ecto detected. Use defensive Map.get instead of dot notation for struct access."
+              "Ecto detected. Use defensive Map.get instead of dot notation for struct access."
           }
           | warnings
         ]
@@ -261,10 +266,6 @@ defmodule Mimo.Brain.WisdomInjector do
 
     warnings
   end
-
-  # ==========================================================================
-  # HELPERS
-  # ==========================================================================
 
   defp failure_memory?(mem) do
     content = (Map.get(mem, :content) || Map.get(mem, "content") || "") |> String.downcase()
@@ -322,37 +323,37 @@ defmodule Mimo.Brain.WisdomInjector do
 
     # Format failures
     sections =
-      if length(results[:failures] || []) > 0 do
+      if Enum.empty?(results[:failures] || []) do
+        sections
+      else
         failure_lines =
           Enum.map(results[:failures], fn f ->
             "• #{f.lesson}: #{String.slice(f.content, 0, 100)}..."
           end)
 
         ["## ⚠️ Past Failures to Avoid\n" <> Enum.join(failure_lines, "\n") | sections]
-      else
-        sections
       end
 
     # Format patterns
     sections =
-      if length(results[:patterns] || []) > 0 do
+      if Enum.empty?(results[:patterns] || []) do
+        sections
+      else
         pattern_lines =
           Enum.map(results[:patterns], fn p ->
             "• [#{p.type}] #{p.description} (#{Float.round((p.success_rate || 0) * 100, 1)}% success)"
           end)
 
         ["## 📚 Relevant Patterns\n" <> Enum.join(pattern_lines, "\n") | sections]
-      else
-        sections
       end
 
     # Format warnings
     sections =
-      if length(results[:warnings] || []) > 0 do
+      if Enum.empty?(results[:warnings] || []) do
+        sections
+      else
         warning_lines = Enum.map(results[:warnings], fn w -> "• #{w.message}" end)
         ["## 🚨 Warnings (#{urgency} urgency)\n" <> Enum.join(warning_lines, "\n") | sections]
-      else
-        sections
       end
 
     Enum.reverse(sections) |> Enum.join("\n\n")

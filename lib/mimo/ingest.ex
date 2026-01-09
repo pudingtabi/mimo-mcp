@@ -151,10 +151,6 @@ defmodule Mimo.Ingest do
     end
   end
 
-  # ============================================================================
-  # Sandbox & File Reading
-  # ============================================================================
-
   # Warn (and optionally block) ingestion of files that are already attached to prompts
   # These cause memory pollution - chunks appear in search but add no value
   defp check_attached_doc_warning(path) do
@@ -223,10 +219,6 @@ defmodule Mimo.Ingest do
     end
   end
 
-  # ============================================================================
-  # Strategy Resolution
-  # ============================================================================
-
   defp resolve_strategy(:auto, path) do
     strategy = detect_strategy(path)
     {:ok, strategy}
@@ -246,10 +238,6 @@ defmodule Mimo.Ingest do
       true -> :paragraphs
     end
   end
-
-  # ============================================================================
-  # Chunking Strategies
-  # ============================================================================
 
   defp chunk_content(content, strategy, opts) do
     chunks = do_chunk(content, strategy, opts)
@@ -304,10 +292,6 @@ defmodule Mimo.Ingest do
     # Fallback to paragraphs
     do_chunk(content, :paragraphs, opts)
   end
-
-  # ============================================================================
-  # Storage
-  # ============================================================================
 
   defp store_chunks(chunks, category, importance, tags, source, metadata) do
     total_chunks = length(chunks)
@@ -413,8 +397,8 @@ defmodule Mimo.Ingest do
 
   # Delete a memory by ID - used for rollback
   defp delete_memory(id) do
-    alias Mimo.Repo
     alias Mimo.Brain.Engram
+    alias Mimo.Repo
 
     case Repo.get(Engram, id) do
       nil ->
@@ -431,10 +415,6 @@ defmodule Mimo.Ingest do
     e ->
       {:error, Exception.message(e)}
   end
-
-  # ==========================================================================
-  # File-Level Deduplication Cache
-  # ==========================================================================
 
   @doc false
   def ensure_cache_table do

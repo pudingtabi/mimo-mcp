@@ -25,9 +25,9 @@ defmodule Mimo.Brain.Emergence.Pattern do
   use Ecto.Schema
   import Ecto.Changeset
   import Ecto.Query
+  require Logger
+  alias Mimo.Brain.{EctoJsonList, EctoJsonMap}
   alias Mimo.Repo
-  alias Mimo.Brain.EctoJsonMap
-  alias Mimo.Brain.EctoJsonList
 
   @derive {Jason.Encoder,
            only: [
@@ -401,6 +401,35 @@ defmodule Mimo.Brain.Emergence.Pattern do
   end
 
   @doc """
+  Gets comprehensive pattern statistics for meta-learning.
+
+  Returns aggregated statistics about pattern detection and promotion.
+  Used by MetaLearner for L6 meta-learning analysis.
+  """
+  @spec stats() :: map()
+  def stats do
+    %{
+      total: count_all(),
+      promoted: count_promoted(),
+      by_status: count_by_status(),
+      avg_success_rate: avg_success_rate(),
+      by_type: count_by_type(),
+      recent_7d: count_recent(days: 7),
+      recent_promotions_7d: promotions_recent(days: 7)
+    }
+  end
+
+  # Helper for stats/0
+  defp count_by_type do
+    from(p in __MODULE__,
+      group_by: p.type,
+      select: {p.type, count(p.id)}
+    )
+    |> Repo.all()
+    |> Map.new()
+  end
+
+  @doc """
   Gets count of promoted patterns.
   """
   @spec count_promoted() :: integer()
@@ -538,6 +567,130 @@ defmodule Mimo.Brain.Emergence.Pattern do
   """
   @spec type_descriptor(atom()) :: String.t()
   def type_descriptor(type), do: @type_descriptors[type] || "Unknown pattern type"
+
+  @doc """
+  Phase 3 L4: Get successful tool sequences from workflow patterns.
+
+  Returns tool sequences that have high success rates, useful for
+  informing tool suggestions in suggest_next_tool.
+
+  ## Options
+    - `:min_success_rate` - Minimum success rate to include (default: 0.7)
+    - `:min_occurrences` - Minimum occurrences (default: 3)
+    - `:limit` - Maximum patterns to return (default: 5)
+  """
+  @spec get_successful_tool_sequences(keyword()) :: [map()]
+  def get_successful_tool_sequences(opts \\ []) do
+    min_success = Keyword.get(opts, :min_success_rate, 0.7)
+    min_occurrences = Keyword.get(opts, :min_occurrences, 3)
+    limit = Keyword.get(opts, :limit, 5)
+
+    from(p in __MODULE__,
+      where:
+        p.type == :workflow and
+          p.status == :active and
+          p.success_rate >= ^min_success and
+          p.occurrences >= ^min_occurrences,
+      order_by: [desc: p.success_rate, desc: p.occurrences],
+      limit: ^limit
+    )
+    |> Repo.all()
+    |> Enum.map(fn pattern ->
+      # Extract tool sequence from components
+      tools =
+        (pattern.components || [])
+        |> Enum.filter(fn c -> Map.has_key?(c, "tool") or Map.has_key?(c, :tool) end)
+        |> Enum.map(fn c -> c["tool"] || c[:tool] end)
+
+      %{
+        id: pattern.id,
+        description: pattern.description,
+        tools: tools,
+        success_rate: pattern.success_rate,
+        occurrences: pattern.occurrences,
+        strength: pattern.strength
+      }
+    end)
+    |> Enum.filter(fn seq -> length(seq.tools) >= 2 end)
+  rescue
+    e ->
+      Logger.warning("[Pattern] get_successful_tool_sequences failed: #{Exception.message(e)}")
+      []
+  end
+
+  @doc """
+  Phase 3 L4: Find patterns that suggest a next tool given recent tools.
+
+  Looks for workflow patterns that start with the recent_tools sequence
+  and returns the likely next tool(s).
+  """
+  @spec suggest_next_tool_from_patterns([String.t()], keyword()) :: [map()]
+  def suggest_next_tool_from_patterns(recent_tools, opts \\ []) when is_list(recent_tools) do
+    min_success = Keyword.get(opts, :min_success_rate, 0.6)
+    limit = Keyword.get(opts, :limit, 3)
+
+    if recent_tools == [] do
+      []
+    else
+      # Get all workflow patterns with good success
+      from(p in __MODULE__,
+        where:
+          p.type == :workflow and
+            p.status == :active and
+            p.success_rate >= ^min_success,
+        order_by: [desc: p.success_rate, desc: p.occurrences]
+      )
+      |> Repo.all()
+      |> Enum.map(fn pattern ->
+        # Extract tool sequence
+        tools =
+          (pattern.components || [])
+          |> Enum.filter(fn c -> Map.has_key?(c, "tool") or Map.has_key?(c, :tool) end)
+          |> Enum.map(fn c ->
+            tool = c["tool"] || c[:tool]
+            String.downcase(to_string(tool))
+          end)
+
+        {pattern, tools}
+      end)
+      |> Enum.filter(fn {_pattern, tools} ->
+        # Check if recent_tools is a prefix of this pattern's tools
+        normalized_recent = Enum.map(recent_tools, &String.downcase(to_string(&1)))
+        is_prefix?(normalized_recent, tools)
+      end)
+      |> Enum.map(fn {pattern, tools} ->
+        # Get the next tool in the sequence
+        normalized_recent = Enum.map(recent_tools, &String.downcase(to_string(&1)))
+        next_index = length(normalized_recent)
+
+        if next_index < length(tools) do
+          next_tool = Enum.at(tools, next_index)
+
+          %{
+            suggested_tool: next_tool,
+            pattern_description: pattern.description,
+            success_rate: pattern.success_rate,
+            occurrences: pattern.occurrences,
+            full_sequence: tools
+          }
+        else
+          nil
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.take(limit)
+    end
+  rescue
+    e ->
+      Logger.warning("[Pattern] suggest_next_tool_from_patterns failed: #{Exception.message(e)}")
+      []
+  end
+
+  # Check if list A is a prefix of list B
+  defp is_prefix?([], _), do: true
+  defp is_prefix?(_, []), do: false
+  defp is_prefix?([h | t1], [h | t2]), do: is_prefix?(t1, t2)
+  defp is_prefix?(_, _), do: false
 
   # ─────────────────────────────────────────────────────────────────
   # Private Helpers

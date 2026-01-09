@@ -44,10 +44,6 @@ defmodule Mimo.Brain.EmbeddingManager do
   @default_dim Application.compile_env(:mimo_mcp, :embedding_dim, 256)
   @max_dim 1024
 
-  # =============================================================================
-  # Public API
-  # =============================================================================
-
   @doc """
   Generate embedding with automatic fallback.
 
@@ -63,10 +59,37 @@ defmodule Mimo.Brain.EmbeddingManager do
   def generate(text, opts \\ []) do
     provider = Keyword.get(opts, :provider, :auto)
     fallback_enabled = Keyword.get(opts, :fallback, true)
+    use_cache = Keyword.get(opts, :cache, true)
     dimensions = Keyword.get(opts, :dimensions, @default_dim) |> min(@max_dim)
 
     opts = Keyword.put(opts, :dimensions, dimensions)
 
+    # Check cache first (SPEC-061 optimization)
+    if use_cache do
+      case Mimo.Cache.Embedding.get(text) do
+        {:ok, cached_embedding} ->
+          {:ok, cached_embedding, :cache}
+
+        :miss ->
+          result = do_generate(text, provider, fallback_enabled, opts)
+
+          # Cache successful result
+          case result do
+            {:ok, embedding, _provider} ->
+              Mimo.Cache.Embedding.put(text, embedding)
+              result
+
+            error ->
+              error
+          end
+      end
+    else
+      do_generate(text, provider, fallback_enabled, opts)
+    end
+  end
+
+  # Internal generation without cache
+  defp do_generate(text, provider, fallback_enabled, opts) do
     case provider do
       :ollama ->
         try_ollama(text, opts)
@@ -138,10 +161,6 @@ defmodule Mimo.Brain.EmbeddingManager do
       default_dimensions: @default_dim
     }
   end
-
-  # =============================================================================
-  # Provider Implementations
-  # =============================================================================
 
   defp try_with_fallback(text, opts, fallback_enabled) do
     # Try Ollama first
@@ -224,10 +243,6 @@ defmodule Mimo.Brain.EmbeddingManager do
     end
   end
 
-  # =============================================================================
-  # Ollama Implementation
-  # =============================================================================
-
   defp do_ollama_embedding(text, opts) do
     model = get_ollama_model()
     dimensions = Keyword.get(opts, :dimensions, @default_dim)
@@ -283,10 +298,6 @@ defmodule Mimo.Brain.EmbeddingManager do
     end
   end
 
-  # =============================================================================
-  # OpenRouter Implementation
-  # =============================================================================
-
   defp do_openrouter_embedding(text, api_key, opts) do
     dimensions = Keyword.get(opts, :dimensions, @default_dim)
 
@@ -321,15 +332,8 @@ defmodule Mimo.Brain.EmbeddingManager do
     end
   end
 
-  # =============================================================================
-  # NOTE: Random fallback REMOVED - it was dishonest (no semantic meaning)
-  # =============================================================================
   # The system now fails clearly with {:error, :all_providers_failed} instead
   # of silently degrading to meaningless placeholder vectors.
-
-  # =============================================================================
-  # Utilities
-  # =============================================================================
 
   defp sanitize_text(text) when is_binary(text) do
     text

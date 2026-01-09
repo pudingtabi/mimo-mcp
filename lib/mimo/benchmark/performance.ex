@@ -254,10 +254,6 @@ defmodule Mimo.Benchmark.Performance do
     |> Map.new()
   end
 
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
-
   defp run_worker(worker_id, start_time, duration_ms, results_table) do
     end_time = start_time + duration_ms
     run_worker_loop(worker_id, end_time, results_table, 0)

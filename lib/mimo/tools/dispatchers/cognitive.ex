@@ -26,14 +26,35 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   - conclude: Conclude reasoning and generate final answer
   """
 
-  alias Mimo.Tools.Helpers
   alias Mimo.Cognitive.Reasoner
+  alias Mimo.Brain.CognitiveLifecycle
+  alias Mimo.Brain.MemoryAuditor
+  alias Mimo.Brain.Reflector
+  alias Mimo.Brain.ThreadManager
+  alias Mimo.Brain.VerificationTracker
+  alias Mimo.Cognitive.Amplifier
+  alias Mimo.Cognitive.Calibration
+  alias Mimo.Cognitive.ConfidenceAssessor
+  alias Mimo.Cognitive.EpistemicBrain
+  alias Mimo.Cognitive.GapDetector
+  alias Mimo.Cognitive.HealthWatcher
+  alias Mimo.Cognitive.InterleavedThinking
+  alias Mimo.Cognitive.LearningExecutor
+  alias Mimo.Cognitive.LearningObjectives
+  alias Mimo.Cognitive.LearningProgress
+  alias Mimo.Cognitive.MetaTaskDetector
+  alias Mimo.Cognitive.SafeHealer
+  alias Mimo.Cognitive.UncertaintyTracker
+  alias Mimo.Knowledge.PreToolInjector
+  alias Mimo.Skills.Cognition
+  alias Mimo.Skills.FileReadCache
+  alias Mimo.Skills.FileReadInterceptor
+  alias Mimo.Tools.Dispatchers.Emergence, as: EmergenceDispatcher
+  alias Mimo.Tools.Dispatchers.Reflector, as: ReflectorDispatcher
+  alias Mimo.Tools.Dispatchers.Verify, as: VerifyDispatcher
+  alias Mimo.Tools.Helpers
 
   require Logger
-
-  # =============================================================================
-  # Operation Group Definitions (for pattern matching guards)
-  # =============================================================================
 
   @epistemic_ops ~w[assess gaps query can_answer suggest stats]
   @verification_ops ~w[verification_stats verification_overconfidence verification_success_by_type verification_brier_score]
@@ -49,6 +70,15 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   @docs_ops ~w[docs_validate docs_validate_file]
   @misc_ops ~w[adoption_metrics system_health memory_audit workflow_health file_interception_stats]
 
+  # Phase 5: Self-Monitoring and Self-Healing (v2.9.0)
+  @health_ops ~w[health_status health_history health_alerts health_check_now]
+  @healing_ops ~w[heal_catalog heal_diagnose heal_execute heal_auto]
+
+  # Phase 6: Self-Directed Learning (v2.9.0)
+  @learning_objectives_ops ~w[learning_objectives_list learning_objectives_generate]
+  @learning_executor_ops ~w[learning_execute_now learning_pause learning_resume learning_history]
+  @learning_progress_ops ~w[learning_progress_summary learning_progress_metrics learning_progress_stuck learning_progress_velocity learning_progress_recommendations]
+
   @all_ops @epistemic_ops ++
              @verification_ops ++
              @verify_ops ++
@@ -61,11 +91,12 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
              @injection_ops ++
              @procedure_ops ++
              @docs_ops ++
-             @misc_ops
-
-  # =============================================================================
-  # Main Dispatch Function - Multi-head with Guards
-  # =============================================================================
+             @misc_ops ++
+             @health_ops ++
+             @healing_ops ++
+             @learning_objectives_ops ++
+             @learning_executor_ops ++
+             @learning_progress_ops
 
   @doc """
   Dispatch cognitive operation based on args.
@@ -99,19 +130,19 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   defp do_dispatch(op, args) when op in @verify_ops do
     # Extract the actual operation (e.g., "verify_count" -> "count")
     actual_op = String.replace_prefix(op, "verify_", "")
-    Mimo.Tools.Dispatchers.Verify.dispatch(Map.put(args, "operation", actual_op))
+    VerifyDispatcher.dispatch(Map.put(args, "operation", actual_op))
   end
 
   # --- Emergence Tool Operations (SPEC-044) ---
   defp do_dispatch(op, args) when op in @emergence_ops do
     actual_op = String.replace_prefix(op, "emergence_", "")
-    Mimo.Tools.Dispatchers.Emergence.dispatch(Map.put(args, "operation", actual_op))
+    EmergenceDispatcher.dispatch(Map.put(args, "operation", actual_op))
   end
 
   # --- Reflector Tool Operations (SPEC-043) ---
   defp do_dispatch(op, args) when op in @reflector_ops do
     actual_op = String.replace_prefix(op, "reflector_", "")
-    Mimo.Tools.Dispatchers.Reflector.dispatch(Map.put(args, "operation", actual_op))
+    ReflectorDispatcher.dispatch(Map.put(args, "operation", actual_op))
   end
 
   # --- Lifecycle Tool Operations (SPEC-042) ---
@@ -160,6 +191,39 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   # --- Workflow Health (Q1 2026 Phase 4) ---
   defp do_dispatch("workflow_health", args), do: dispatch_workflow_health(args)
 
+  # --- Phase 5: Self-Monitoring (HealthWatcher) ---
+  defp do_dispatch("health_status", _args), do: dispatch_health_status()
+  defp do_dispatch("health_history", _args), do: dispatch_health_history()
+  defp do_dispatch("health_alerts", _args), do: dispatch_health_alerts()
+  defp do_dispatch("health_check_now", _args), do: dispatch_health_check_now()
+
+  # --- Phase 5: Self-Healing (SafeHealer) ---
+  defp do_dispatch("heal_catalog", _args), do: dispatch_heal_catalog()
+  defp do_dispatch("heal_diagnose", _args), do: dispatch_heal_diagnose()
+  defp do_dispatch("heal_execute", args), do: dispatch_heal_execute(args)
+  defp do_dispatch("heal_auto", _args), do: dispatch_heal_auto()
+
+  # --- Phase 6: Learning Objectives ---
+  defp do_dispatch("learning_objectives_list", _args), do: dispatch_learning_objectives_list()
+
+  defp do_dispatch("learning_objectives_generate", _args),
+    do: dispatch_learning_objectives_generate()
+
+  # --- Phase 6: Learning Executor ---
+  defp do_dispatch("learning_execute_now", _args), do: dispatch_learning_execute_now()
+  defp do_dispatch("learning_pause", _args), do: dispatch_learning_pause()
+  defp do_dispatch("learning_resume", _args), do: dispatch_learning_resume()
+  defp do_dispatch("learning_history", _args), do: dispatch_learning_history()
+
+  # --- Phase 6: Learning Progress ---
+  defp do_dispatch("learning_progress_summary", _args), do: dispatch_learning_progress_summary()
+  defp do_dispatch("learning_progress_metrics", _args), do: dispatch_learning_progress_metrics()
+  defp do_dispatch("learning_progress_stuck", _args), do: dispatch_learning_progress_stuck()
+  defp do_dispatch("learning_progress_velocity", _args), do: dispatch_learning_progress_velocity()
+
+  defp do_dispatch("learning_progress_recommendations", _args),
+    do: dispatch_learning_progress_recommendations()
+
   # --- Fallback for Unknown Operations ---
   defp do_dispatch(op, _args) do
     {:error, "Unknown cognitive operation: #{op}. Available: #{Enum.join(@all_ops, ", ")}"}
@@ -198,15 +262,15 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   end
 
   defp do_dispatch_think("thought", args) do
-    Mimo.Skills.Cognition.think(args["thought"] || "")
+    Cognition.think(args["thought"] || "")
   end
 
   defp do_dispatch_think("plan", args) do
-    Mimo.Skills.Cognition.plan(args["steps"] || [])
+    Cognition.plan(args["steps"] || [])
   end
 
   defp do_dispatch_think("sequential", args) do
-    Mimo.Skills.Cognition.sequential_thinking(%{
+    Cognition.sequential_thinking(%{
       "thought" => args["thought"] || "",
       "thoughtNumber" => args["thoughtNumber"] || 1,
       "totalThoughts" => args["totalThoughts"] || 1,
@@ -216,11 +280,11 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
 
   defp do_dispatch_think("template", args) do
     scenario = String.to_atom(args["scenario"] || "debug")
-    Mimo.Skills.Cognition.think_with_template(args["thought"] || "", scenario)
+    Cognition.think_with_template(args["thought"] || "", scenario)
   end
 
   defp do_dispatch_think("templates", _args) do
-    Mimo.Skills.Cognition.list_templates()
+    Cognition.list_templates()
   end
 
   defp do_dispatch_think(op, _args) do
@@ -228,20 +292,16 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
      "Unknown think operation: #{op}. Available: thought, plan, sequential, template, templates"}
   end
 
-  # ==========================================================================
-  # PRIVATE HELPERS
-  # ==========================================================================
-
   defp dispatch_assess(args) do
     topic = args["topic"] || ""
 
     if topic == "" do
       {:error, "Topic is required for assess operation"}
     else
-      uncertainty = Mimo.Cognitive.ConfidenceAssessor.assess(topic)
+      uncertainty = ConfidenceAssessor.assess(topic)
 
       # Track the assessment for stats (fixes missing instrumentation)
-      Mimo.Cognitive.UncertaintyTracker.record(topic, uncertainty)
+      UncertaintyTracker.record(topic, uncertainty)
 
       {:ok, Helpers.format_uncertainty(uncertainty)}
     end
@@ -253,7 +313,7 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
     if topic == "" do
       {:error, "Topic is required for gaps operation"}
     else
-      gap = Mimo.Cognitive.GapDetector.analyze(topic)
+      gap = GapDetector.analyze(topic)
 
       {:ok,
        %{
@@ -273,7 +333,7 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
     if topic == "" do
       {:error, "Topic is required for query operation"}
     else
-      {:ok, result} = Mimo.Cognitive.EpistemicBrain.query(topic)
+      {:ok, result} = EpistemicBrain.query(topic)
 
       {:ok,
        %{
@@ -303,8 +363,8 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
           true -> :unknown
         end
 
-      can_answer = Mimo.Cognitive.EpistemicBrain.can_answer?(topic, min_level)
-      uncertainty = Mimo.Cognitive.ConfidenceAssessor.assess(topic)
+      can_answer = EpistemicBrain.can_answer?(topic, min_level)
+      uncertainty = ConfidenceAssessor.assess(topic)
 
       {:ok,
        %{
@@ -319,7 +379,7 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
 
   defp dispatch_suggest(args) do
     limit = args["limit"] || 5
-    targets = Mimo.Cognitive.UncertaintyTracker.suggest_learning_targets(limit: limit)
+    targets = UncertaintyTracker.suggest_learning_targets(limit: limit)
 
     {:ok,
      %{
@@ -337,7 +397,7 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   end
 
   defp dispatch_stats do
-    stats = Mimo.Cognitive.UncertaintyTracker.stats()
+    stats = UncertaintyTracker.stats()
     avg_conf = Map.get(stats, :avg_confidence) || Map.get(stats, :average_confidence) || 0.0
 
     {:ok,
@@ -349,10 +409,6 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
        average_confidence: Float.round(avg_conf * 1.0, 3)
      }}
   end
-
-  # ==========================================================================
-  # REASON TOOL DISPATCHER (SPEC-035)
-  # ==========================================================================
 
   @doc """
   Dispatch reason tool operations for unified reasoning engine.
@@ -374,6 +430,13 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   defp do_dispatch_reason("enrich", args), do: dispatch_reason_enrich(args)
   defp do_dispatch_reason("steps", args), do: dispatch_reason_steps(args)
 
+  # Phase 1 Consolidation: Quick thinking (from cognitive/think tools)
+  defp do_dispatch_reason("assess", args), do: dispatch_assess(args)
+  defp do_dispatch_reason("gaps", args), do: dispatch_gaps(args)
+  defp do_dispatch_reason("thought", args), do: do_dispatch_think("thought", args)
+  defp do_dispatch_reason("plan", args), do: do_dispatch_think("plan", args)
+  defp do_dispatch_reason("sequential", args), do: do_dispatch_think("sequential", args)
+
   # SPEC-082: Interleaved Thinking Operations
   defp do_dispatch_reason("interleaved_start", args), do: dispatch_interleaved_start(args)
   defp do_dispatch_reason("interleaved_think", args), do: dispatch_interleaved_think(args)
@@ -392,9 +455,15 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   defp do_dispatch_reason("amplify_conclude", args), do: dispatch_amplify_conclude(args)
   defp do_dispatch_reason("amplify_status", args), do: dispatch_amplify_status(args)
 
+  defp do_dispatch_reason("amplify_resolve_coherence", args),
+    do: dispatch_amplify_resolve_coherence(args)
+
+  # SPEC-074-ENHANCED: Reasoning Stats API
+  defp do_dispatch_reason("stats", _args), do: dispatch_reason_stats()
+
   defp do_dispatch_reason(op, _args) do
     {:error,
-     "Unknown reason operation: #{op}. Available: guided, adaptive, decompose, step, enrich, steps, verify, reflect, branch, backtrack, conclude, interleaved_start, interleaved_think, interleaved_conclude, verify_claim, amplify_start, amplify_decomposition, amplify_think, amplify_challenge, amplify_perspective, amplify_conclude, amplify_status"}
+     "Unknown reason operation: #{op}. Available: assess, gaps, thought, plan, sequential (quick thinking); guided, decompose, step, verify, reflect, branch, backtrack, conclude, stats (guided reasoning); amplify_start, amplify_think, amplify_challenge, amplify_conclude (deep thinking)"}
   end
 
   # Guided now redirects to adaptive mode (SPEC-082-A consolidation)
@@ -541,9 +610,17 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
     end
   end
 
-  # ==========================================================================
-  # SPEC-082: Interleaved Thinking Operations
-  # ==========================================================================
+  # SPEC-074-ENHANCED: Reasoning Stats API
+  defp dispatch_reason_stats do
+    stats = Reasoner.stats()
+
+    {:ok,
+     %{
+       data: stats,
+       status: "success",
+       description: "Aggregated reasoning statistics from FeedbackLoop and ReasoningSession"
+     }}
+  end
 
   # SPEC-082-A: Start adaptive reasoning (interleaved + dynamic strategy switching)
   defp dispatch_adaptive_start(args) do
@@ -639,10 +716,6 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
       InterleavedThinking.verify_claim(claim, context: context)
     end
   end
-
-  # ==========================================================================
-  # COGNITIVE AMPLIFIER OPERATIONS (Nano-chip for deeper thinking)
-  # ==========================================================================
 
   # Start an amplified reasoning session with forced deeper thinking.
   #
@@ -765,6 +838,10 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
                  end
              }}
 
+          {:error, reason} when is_map(reason) ->
+            # Structured error with guidance - pass through to agent
+            {:error, reason}
+
           {:error, reason} ->
             {:error, "Failed to add thought: #{reason}"}
         end
@@ -879,6 +956,10 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
                "Amplified reasoning concluded. Synthesis prompt provided for final integration."
            }}
 
+        {:error, reason} when is_map(reason) ->
+          # Structured error with guidance - pass through to agent
+          {:error, reason}
+
         {:error, reason} ->
           {:error, "Cannot conclude: #{reason}"}
       end
@@ -920,6 +1001,53 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   defp parse_amplify_level(level) when is_atom(level), do: level
   defp parse_amplify_level(_), do: :adaptive
 
+  # Resolve coherence issues in an amplified session.
+  defp dispatch_amplify_resolve_coherence(args) do
+    alias Mimo.Cognitive.Amplifier.AmplificationSession
+
+    session_id = args["session_id"] || ""
+    issue_id = args["issue_id"] || ""
+    resolve_all = args["resolve_all"] || false
+
+    cond do
+      session_id == "" ->
+        {:error, "session_id is required for amplify_resolve_coherence operation"}
+
+      resolve_all == true or resolve_all == "true" ->
+        case AmplificationSession.resolve_all_coherence_issues(session_id) do
+          {:ok, _state} ->
+            {:ok,
+             %{
+               type: "amplify_coherence_resolved",
+               session_id: session_id,
+               resolved_all: true,
+               hint: "All coherence issues resolved. Session unblocked."
+             }}
+
+          {:error, reason} ->
+            {:error, "Failed to resolve coherence issues: #{inspect(reason)}"}
+        end
+
+      issue_id != "" ->
+        case AmplificationSession.resolve_coherence_issue(session_id, issue_id) do
+          {:ok, _state} ->
+            {:ok,
+             %{
+               type: "amplify_coherence_resolved",
+               session_id: session_id,
+               issue_id: issue_id,
+               hint: "Coherence issue resolved. Use amplify_status to check if unblocked."
+             }}
+
+          {:error, reason} ->
+            {:error, "Failed to resolve coherence issue: #{inspect(reason)}"}
+        end
+
+      true ->
+        {:error, "Either issue_id or resolve_all=true is required"}
+    end
+  end
+
   defp format_action_hint(action) do
     case action[:type] do
       :blocked ->
@@ -948,12 +1076,8 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
     end
   end
 
-  # ==========================================================================
-  # SPEC-AI-TEST: Verification Tracker Operations
-  # ==========================================================================
-
   defp dispatch_verification_stats do
-    case Mimo.Brain.VerificationTracker.stats() do
+    case VerificationTracker.stats() do
       stats when is_map(stats) ->
         {:ok, stats}
 
@@ -965,7 +1089,7 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   defp dispatch_verification_overconfidence(args) do
     threshold = args["brier_threshold"] || 0.3
 
-    case Mimo.Brain.VerificationTracker.detect_overconfidence(brier_threshold: threshold) do
+    case VerificationTracker.detect_overconfidence(brier_threshold: threshold) do
       patterns when is_list(patterns) ->
         {:ok,
          %{
@@ -980,7 +1104,7 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   end
 
   defp dispatch_verification_success_by_type do
-    case Mimo.Brain.VerificationTracker.success_by_type() do
+    case VerificationTracker.success_by_type() do
       success_map when is_map(success_map) ->
         {:ok, success_map}
 
@@ -990,7 +1114,7 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   end
 
   defp dispatch_verification_brier_score do
-    case Mimo.Brain.VerificationTracker.brier_score() do
+    case VerificationTracker.brier_score() do
       result when is_map(result) ->
         {:ok, result}
 
@@ -998,10 +1122,6 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
         {:error, "Failed to calculate Brier score: #{inspect(error)}"}
     end
   end
-
-  # ==========================================================================
-  # SPEC-042: Cognitive Lifecycle Operations
-  # ==========================================================================
 
   defp dispatch_lifecycle_stats do
     alias Mimo.Brain.CognitiveLifecycle
@@ -1138,12 +1258,8 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
     end)
   end
 
-  # ==========================================================================
-  # Evaluator-Optimizer Pattern: Self-improving evaluation feedback loop
-  # ==========================================================================
-
   defp dispatch_optimizer_stats do
-    alias Mimo.Brain.Reflector.Optimizer
+    alias Reflector.Optimizer
 
     try do
       stats = Optimizer.stats()
@@ -1170,7 +1286,7 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   end
 
   defp dispatch_optimizer_metrics do
-    alias Mimo.Brain.Reflector.Optimizer
+    alias Reflector.Optimizer
 
     try do
       # Optimizer.get_metrics() always returns {:ok, metrics}
@@ -1205,7 +1321,7 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   end
 
   defp dispatch_optimizer_recommendations do
-    alias Mimo.Brain.Reflector.Optimizer
+    alias Reflector.Optimizer
 
     try do
       # Optimizer.get_recommendations() always returns {:ok, list}
@@ -1234,7 +1350,7 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   end
 
   defp dispatch_optimizer_record_outcome(args) do
-    alias Mimo.Brain.Reflector.Optimizer
+    alias Reflector.Optimizer
 
     context_hash = args["context_hash"]
     outcome = args["outcome"]
@@ -1283,7 +1399,7 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   defp parse_outcome(_), do: :partial
 
   defp dispatch_optimizer_optimize(args) do
-    alias Mimo.Brain.Reflector.Optimizer
+    alias Reflector.Optimizer
 
     force = args["force"] == true || args["force"] == "true"
     apply_changes = args["apply"] == true || args["apply"] == "true"
@@ -1316,10 +1432,6 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
         {:error, "Optimizer GenServer not running"}
     end
   end
-
-  # ==========================================================================
-  # SPEC-062: CALIBRATION OPERATIONS
-  # ==========================================================================
 
   defp dispatch_calibration_log_claim(args) do
     alias Mimo.Cognitive.Calibration
@@ -1469,10 +1581,6 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
      }}
   end
 
-  # ==========================================================================
-  # SPEC-062: META-TASK DETECTION OPERATIONS
-  # ==========================================================================
-
   defp dispatch_meta_task_detect(args) do
     alias Mimo.Cognitive.MetaTaskDetector
 
@@ -1537,13 +1645,9 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
     end
   end
 
-  # ==========================================================================
-  # SPEC-064: FILE INTERCEPTION STATS
-  # ==========================================================================
-
   defp dispatch_file_interception_stats do
-    alias Mimo.Skills.FileReadInterceptor
     alias Mimo.Skills.FileReadCache
+    alias Mimo.Skills.FileReadInterceptor
 
     interceptor_stats = FileReadInterceptor.stats()
     cache_stats = FileReadCache.stats()
@@ -1575,10 +1679,6 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
     e ->
       {:error, "Failed to get file interception stats: #{inspect(e)}"}
   end
-
-  # ==========================================================================
-  # SPEC-065: INJECTION FEEDBACK OPERATIONS
-  # ==========================================================================
 
   # Record feedback on injected memories - tracks when injections are helpful.
   #
@@ -1696,31 +1796,16 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   # Returns visibility into memory corpus size, query latency, ETS usage.
   # Provides early warning before performance degradation.
   defp dispatch_system_health do
-    metrics = Mimo.SystemHealth.get_metrics()
+    health = Mimo.SystemHealth.get_metrics()
 
     {:ok,
      %{
        type: "system_health",
-       timestamp: metrics.timestamp,
-       metrics: metrics.metrics,
-       alerts:
-         Enum.map(metrics.alerts || [], fn {key, value, threshold} ->
-           %{metric: key, current: value, threshold: threshold}
-         end),
-       healthy: (metrics.alerts || []) == [],
-       thresholds: %{
-         memory_count: 50_000,
-         relationship_count: 100_000,
-         ets_table_mb: 500,
-         query_latency_ms: 1000,
-         description: "70% of estimated capacity before performance degradation"
-       },
-       interpretation: %{
-         memory_count: "Total memories in episodic store",
-         relationship_count: "Total relationships in semantic store",
-         ets_total_mb: "Total ETS table memory across all Mimo tables",
-         query_latency_ms: "Latency of semantic search benchmark query"
-       }
+       timestamp: health.timestamp,
+       status: health.status,
+       checks: health.checks,
+       healthy: health.status == :healthy,
+       summary: Mimo.SystemHealth.summary()
      }}
   end
 
@@ -1734,8 +1819,8 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
     limit = args["limit"] || 20
     days_old = args["days_old"] || 90
 
-    audit_results = Mimo.Brain.MemoryAuditor.audit(limit: limit, days_old: days_old)
-    recommendations = Mimo.Brain.MemoryAuditor.generate_recommendations(audit_results)
+    audit_results = MemoryAuditor.audit(limit: limit, days_old: days_old)
+    recommendations = MemoryAuditor.generate_recommendations(audit_results)
 
     {:ok,
      %{
@@ -1755,10 +1840,6 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
        }
      }}
   end
-
-  # ============================================================================
-  # AUTO PROCEDURE GENERATION (Q1 2026 Phase 2)
-  # ============================================================================
 
   # Generate a procedure from a completed reasoning session.
   #
@@ -1877,10 +1958,6 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
     end
   end
 
-  # ============================================================================
-  # DOCUMENTATION VALIDATION (Q1 2026 Phase 4)
-  # ============================================================================
-
   # Validate all documentation files for accuracy.
   defp dispatch_docs_validate(_args) do
     alias Mimo.Docs.Validator
@@ -1954,10 +2031,6 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
 
   defp format_docs_issues(_), do: []
 
-  # ============================================================================
-  # WORKFLOW HEALTH (Q1 2026 Phase 4)
-  # ============================================================================
-
   # Get workflow health metrics from AdoptionMetrics.
   defp dispatch_workflow_health(_args) do
     alias Mimo.AdoptionMetrics
@@ -2015,7 +2088,7 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
     • Assess First Rate: #{Float.round(stats.assess_first_rate * 100, 1)}% (target: >80%)
     • Total Sessions: #{stats.total_sessions}
 
-    💡 Recommendations:
+    Recommendations:
     #{Enum.map_join(health.recommendations, "\n", fn r -> "• #{r}" end)}
     """
   end
@@ -2023,4 +2096,304 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   defp average([]), do: 0.0
 
   defp average(list), do: Enum.sum(list) / length(list)
+
+  # ============================================================================
+  # Phase 5: Self-Monitoring Operations (HealthWatcher)
+  # ============================================================================
+
+  defp dispatch_health_status do
+    case HealthWatcher.status() do
+      status when is_map(status) ->
+        {:ok,
+         %{
+           type: "health_status",
+           monitoring: status.monitoring,
+           last_check: status.last_check,
+           checks_in_history: status.checks_in_history,
+           active_alerts: status.active_alerts,
+           interventions_triggered: status.interventions_triggered,
+           uptime_seconds: status.uptime,
+           next_check_in_ms: status.next_check_in_ms,
+           hint: "Use health_check_now to force an immediate health check"
+         }}
+
+      error ->
+        {:error, "Failed to get health status: #{inspect(error)}"}
+    end
+  end
+
+  defp dispatch_health_history do
+    case HealthWatcher.history() do
+      history when is_list(history) ->
+        {:ok,
+         %{
+           type: "health_history",
+           entries: Enum.take(history, 20),
+           count: length(history),
+           hint: "History shows last 12 health checks (1 hour window)"
+         }}
+
+      error ->
+        {:error, "Failed to get health history: #{inspect(error)}"}
+    end
+  end
+
+  defp dispatch_health_alerts do
+    case HealthWatcher.alerts() do
+      alerts when is_list(alerts) ->
+        {:ok,
+         %{
+           type: "health_alerts",
+           alerts: alerts,
+           count: length(alerts),
+           hint: "Alerts indicate degradation or critical health conditions"
+         }}
+
+      error ->
+        {:error, "Failed to get health alerts: #{inspect(error)}"}
+    end
+  end
+
+  defp dispatch_health_check_now do
+    case HealthWatcher.check_now() do
+      result when is_map(result) ->
+        {:ok,
+         %{
+           type: "health_check_result",
+           timestamp: result.timestamp,
+           overall_score: result.overall_score,
+           components: result.components,
+           system_status: result.system_status,
+           level: result.level,
+           hint: "Forced immediate health check completed"
+         }}
+
+      error ->
+        {:error, "Failed to run health check: #{inspect(error)}"}
+    end
+  end
+
+  # ============================================================================
+  # Phase 5: Self-Healing Operations (SafeHealer)
+  # ============================================================================
+
+  defp dispatch_heal_catalog do
+    catalog = SafeHealer.catalog()
+
+    {:ok,
+     %{
+       type: "heal_catalog",
+       actions: catalog,
+       count: length(catalog),
+       hint: "Use heal_execute action=<name> to run a specific healing action"
+     }}
+  end
+
+  defp dispatch_heal_diagnose do
+    diagnosis = SafeHealer.diagnose()
+
+    {:ok,
+     %{
+       type: "heal_diagnosis",
+       health_score: diagnosis.health_score,
+       issues: diagnosis.issues,
+       recommendations: diagnosis.recommendations,
+       active_alerts: diagnosis.active_alerts,
+       hint: "Use heal_auto to automatically apply low-risk recommendations"
+     }}
+  end
+
+  defp dispatch_heal_execute(args) do
+    action = args["action"] || args[:action]
+
+    if action do
+      action_atom =
+        if is_atom(action), do: action, else: String.to_existing_atom(action)
+
+      case SafeHealer.heal(action_atom) do
+        {:ok, result} ->
+          {:ok,
+           %{
+             type: "heal_result",
+             action: action,
+             result: result,
+             success: true
+           }}
+
+        {:error, reason} ->
+          {:error, "Healing action failed: #{inspect(reason)}"}
+      end
+    else
+      {:error, "Missing required 'action' parameter. Use heal_catalog to see available actions."}
+    end
+  rescue
+    ArgumentError ->
+      {:error,
+       "Unknown healing action: #{args["action"]}. Use heal_catalog to see available actions."}
+  end
+
+  defp dispatch_heal_auto do
+    result = SafeHealer.auto_heal()
+
+    {:ok,
+     %{
+       type: "heal_auto_result",
+       executed: result.executed,
+       skipped_medium_risk: result.skipped_medium_risk,
+       skipped_cooldown: result.skipped_cooldown,
+       errors: result.errors,
+       actions_taken: length(result.executed),
+       hint: "Auto-heal runs only low-risk interventions"
+     }}
+  end
+
+  # ============================================================================
+  # Phase 6: Learning Objectives Operations
+  # ============================================================================
+
+  defp dispatch_learning_objectives_list do
+    case LearningObjectives.prioritized() do
+      objectives when is_list(objectives) ->
+        {:ok,
+         %{
+           type: "learning_objectives",
+           objectives: objectives,
+           count: length(objectives),
+           hint: "Use learning_objectives_generate to refresh objectives"
+         }}
+
+      error ->
+        {:error, "Failed to get objectives: #{inspect(error)}"}
+    end
+  end
+
+  defp dispatch_learning_objectives_generate do
+    case LearningObjectives.generate() do
+      objectives when is_list(objectives) ->
+        {:ok,
+         %{
+           type: "learning_objectives_generated",
+           objectives: objectives,
+           count: length(objectives),
+           hint: "Objectives are sorted by priority (urgency × impact)"
+         }}
+
+      error ->
+        {:error, "Failed to generate objectives: #{inspect(error)}"}
+    end
+  end
+
+  # ============================================================================
+  # Phase 6: Learning Executor Operations
+  # ============================================================================
+
+  defp dispatch_learning_execute_now do
+    case LearningExecutor.execute_now() do
+      {:ok, result} ->
+        {:ok,
+         %{
+           type: "learning_execution",
+           result: result,
+           hint: "Manual execution triggered"
+         }}
+
+      {:error, reason} ->
+        {:error, "Learning execution failed: #{inspect(reason)}"}
+    end
+  end
+
+  defp dispatch_learning_pause do
+    LearningExecutor.pause()
+
+    {:ok,
+     %{
+       type: "learning_paused",
+       status: "paused",
+       hint: "Use learning_resume to restart autonomous learning"
+     }}
+  end
+
+  defp dispatch_learning_resume do
+    LearningExecutor.resume()
+
+    {:ok,
+     %{
+       type: "learning_resumed",
+       status: "active",
+       hint: "Autonomous learning is now active"
+     }}
+  end
+
+  defp dispatch_learning_history do
+    history = LearningExecutor.history()
+
+    {:ok,
+     %{
+       type: "learning_history",
+       executions: Enum.take(history, 20),
+       count: length(history),
+       hint: "Shows recent learning action executions"
+     }}
+  end
+
+  # ============================================================================
+  # Phase 6: Learning Progress Operations
+  # ============================================================================
+
+  defp dispatch_learning_progress_summary do
+    summary = LearningProgress.summary()
+
+    {:ok,
+     %{
+       type: "learning_progress_summary",
+       summary: summary,
+       hint: "Use learning_progress_metrics for detailed breakdown"
+     }}
+  end
+
+  defp dispatch_learning_progress_metrics do
+    metrics = LearningProgress.detailed_metrics()
+
+    {:ok,
+     %{
+       type: "learning_progress_metrics",
+       metrics: metrics,
+       hint: "Shows execution stats, type distribution, and trends"
+     }}
+  end
+
+  defp dispatch_learning_progress_stuck do
+    stuck = LearningProgress.stuck_objectives()
+
+    {:ok,
+     %{
+       type: "learning_stuck_objectives",
+       stuck: stuck,
+       count: length(stuck),
+       hint: "Objectives active for more than 1 hour without progress"
+     }}
+  end
+
+  defp dispatch_learning_progress_velocity do
+    velocity = LearningProgress.learning_velocity()
+
+    {:ok,
+     %{
+       type: "learning_velocity",
+       velocity: velocity,
+       hint: "Shows learning actions per hour and trend"
+     }}
+  end
+
+  defp dispatch_learning_progress_recommendations do
+    recommendations = LearningProgress.strategy_recommendations()
+
+    {:ok,
+     %{
+       type: "learning_recommendations",
+       recommendations: recommendations,
+       count: length(recommendations),
+       hint: "Actionable suggestions to improve learning effectiveness"
+     }}
+  end
 end

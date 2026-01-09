@@ -25,7 +25,7 @@ defmodule Mimo.Robustness.PatternDetectorTest do
 
       {:ok, patterns} = PatternDetector.detect(code, :elixir)
 
-      assert length(patterns) >= 1
+      refute Enum.empty?(patterns)
       # Accept either pattern - both indicate the same GenServer.call risk
       assert Enum.any?(
                patterns,
@@ -109,7 +109,7 @@ defmodule Mimo.Robustness.PatternDetectorTest do
 
       {:ok, patterns} = PatternDetector.detect(code, :javascript)
 
-      assert length(patterns) >= 1
+      refute Enum.empty?(patterns)
       assert Enum.any?(patterns, &(&1.id == :exec_sync_bash))
     end
 
@@ -220,7 +220,7 @@ defmodule Mimo.Robustness.PatternDetectorTest do
       patterns = PatternDetector.list_patterns()
 
       assert is_list(patterns)
-      assert length(patterns) > 0
+      assert patterns != []
 
       # Check some known patterns exist
       pattern_ids = Enum.map(patterns, fn {id, _desc} -> id end)
@@ -248,7 +248,12 @@ defmodule Mimo.Robustness.PatternDetectorTest do
       js_patterns = PatternDetector.get_patterns_for_language(:javascript)
       ts_patterns = PatternDetector.get_patterns_for_language(:typescript)
 
-      assert js_patterns == ts_patterns
+      # Compare by pattern IDs since regex structs don't have structural equality
+      js_ids = Enum.map(js_patterns, & &1.id) |> Enum.sort()
+      ts_ids = Enum.map(ts_patterns, & &1.id) |> Enum.sort()
+
+      assert js_ids == ts_ids
+      assert length(js_patterns) == length(ts_patterns)
     end
 
     test "unknown language returns empty list" do

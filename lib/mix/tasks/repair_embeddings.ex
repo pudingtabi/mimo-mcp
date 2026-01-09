@@ -35,8 +35,8 @@ defmodule Mix.Tasks.Mimo.RepairEmbeddings do
   use Mix.Task
   require Logger
 
-  alias Mimo.Repo
   alias Mimo.Brain.{Engram, LLM}
+  alias Mimo.Repo
   alias Mimo.Vector.Math
   import Ecto.Query
 

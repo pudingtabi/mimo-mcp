@@ -32,10 +32,6 @@ defmodule Mimo.Cache.Classifier do
   @default_max_entries 1000
   @default_cleanup_interval 60_000
 
-  # ==========================================================================
-  # Client API
-  # ==========================================================================
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -98,10 +94,6 @@ defmodule Mimo.Cache.Classifier do
   def stats do
     GenServer.call(__MODULE__, :stats)
   end
-
-  # ==========================================================================
-  # GenServer Implementation
-  # ==========================================================================
 
   @impl true
   def init(opts) do
@@ -208,10 +200,6 @@ defmodule Mimo.Cache.Classifier do
     schedule_cleanup(state.cleanup_interval)
     {:noreply, state}
   end
-
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
 
   defp get_or_compute(key, compute_fn) do
     # Use shorter timeout in test mode since we're using fallback embeddings

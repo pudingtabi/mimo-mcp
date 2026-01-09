@@ -16,7 +16,7 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
   ## Usage
 
       {:ok, pid} = ExecutionFSM.start_procedure("deploy_db", "1.0", %{"env" => "prod"})
-      
+
       # Monitor completion
       ref = Process.monitor(pid)
       receive do
@@ -70,10 +70,6 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
 
   defp safe_state_atom(_procedure, state_name) when is_atom(state_name), do: state_name
   defp safe_state_atom(_procedure, _), do: nil
-
-  # ============================================================================
-  # Public API
-  # ============================================================================
 
   @doc """
   Starts a new procedure execution.
@@ -131,10 +127,6 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
     :gen_statem.cast(pid, {:interrupt, reason})
   end
 
-  # ============================================================================
-  # gen_statem Callbacks
-  # ============================================================================
-
   @impl true
   def callback_mode, do: [:handle_event_function, :state_enter]
 
@@ -172,10 +164,6 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
         {:stop, {:procedure_not_found, reason}}
     end
   end
-
-  # ============================================================================
-  # State Functions
-  # ============================================================================
 
   # Generic state handler - matches any state
   @impl true
@@ -277,10 +265,6 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
     {:keep_state, data}
   end
 
-  # ============================================================================
-  # Action Execution
-  # ============================================================================
-
   # Action execution timeout (per-action, separate from overall procedure timeout)
   @action_timeout 60_000
 
@@ -289,7 +273,7 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
 
     # RELIABILITY FIX: Use Task.Supervisor with monitoring to prevent FSM hang
     # if the Task crashes before sending its result.
-    # 
+    #
     # Previous issue: Task.start would fire-and-forget, and if the task crashed
     # before sending {:action_result, result}, the FSM would hang forever waiting.
     #
@@ -416,10 +400,6 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
     transition_on_event(data, state, event)
   end
 
-  # ============================================================================
-  # State Transitions
-  # ============================================================================
-
   defp transition_on_event(data, current_state, event) do
     event_str = to_string(event)
 
@@ -472,10 +452,6 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
     # Terminal if no transitions defined
     Map.get(state_def, "transitions", []) == []
   end
-
-  # ============================================================================
-  # Helpers
-  # ============================================================================
 
   defp get_initial_state(procedure) do
     procedure.definition["initial_state"]

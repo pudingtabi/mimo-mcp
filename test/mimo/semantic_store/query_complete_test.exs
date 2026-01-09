@@ -269,7 +269,7 @@ defmodule Mimo.SemanticStore.QueryCompleteTest do
       })
 
       results = Query.pattern_match([{:any, "has", "property"}])
-      assert length(results) >= 1
+      assert results != []
     end
   end
 

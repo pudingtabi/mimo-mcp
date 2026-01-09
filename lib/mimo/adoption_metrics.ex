@@ -269,13 +269,13 @@ defmodule Mimo.AdoptionMetrics do
       end)
 
     context_first_rate =
-      if length(sessions) > 0, do: context_first_count / length(sessions), else: 0.0
+      if sessions != [], do: context_first_count / length(sessions), else: 0.0
 
     sessions_with_learning =
       :ets.match(@table_name, {{:session_has_learning, :"$1"}, true}) |> length()
 
     learning_completion_rate =
-      if length(sessions) > 0, do: sessions_with_learning / length(sessions), else: 0.0
+      if sessions != [], do: sessions_with_learning / length(sessions), else: 0.0
 
     recommendations =
       generate_recommendations(phase_distribution, context_first_rate, learning_completion_rate)

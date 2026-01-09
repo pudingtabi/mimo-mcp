@@ -13,7 +13,7 @@ defmodule Mimo.Brain.TemporalMemoryChainsBenchmarkTest do
 
   @moduletag :benchmark
 
-  alias Mimo.Brain.{Memory, Engram}
+  alias Mimo.Brain.{Engram, Memory}
   alias Mimo.Repo
   import Ecto.Query
 
@@ -218,10 +218,10 @@ defmodule Mimo.Brain.TemporalMemoryChainsBenchmarkTest do
     trim = max(1, div(length(sorted), 10))
     trimmed = sorted |> Enum.drop(trim) |> Enum.take(length(sorted) - 2 * trim)
 
-    if length(trimmed) > 0 do
-      Enum.sum(trimmed) / length(trimmed)
-    else
+    if Enum.empty?(trimmed) do
       Enum.sum(times) / length(times)
+    else
+      Enum.sum(trimmed) / length(trimmed)
     end
   end
 

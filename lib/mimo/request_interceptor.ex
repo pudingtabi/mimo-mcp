@@ -184,7 +184,7 @@ defmodule Mimo.RequestInterceptor do
     if String.length(path) > 0 do
       # Search for memories related to this file
       case search_memories(path) do
-        {:ok, memories} when is_list(memories) and length(memories) > 0 ->
+        {:ok, memories} when is_list(memories) and memories != [] ->
           {:ok, %{memories: Enum.take(memories, 3), source: "memory"}}
 
         _ ->
@@ -201,10 +201,10 @@ defmodule Mimo.RequestInterceptor do
     # Provide context from recent errors for terminal commands
     errors = Process.get(@session_errors_key, [])
 
-    if length(errors) > 0 do
-      {:ok, %{recent_errors: Enum.take(errors, 3)}}
-    else
+    if Enum.empty?(errors) do
       {:ok, %{}}
+    else
+      {:ok, %{recent_errors: Enum.take(errors, 3)}}
     end
   rescue
     _ -> {:ok, %{}}
@@ -218,10 +218,10 @@ defmodule Mimo.RequestInterceptor do
     context = %{}
 
     context =
-      if length(errors) > 0 do
-        Map.put(context, :recent_errors, length(errors))
-      else
+      if Enum.empty?(errors) do
         context
+      else
+        Map.put(context, :recent_errors, length(errors))
       end
 
     context =
@@ -234,7 +234,7 @@ defmodule Mimo.RequestInterceptor do
     # Add suggestion if we detect patterns
     context =
       if should_suggest_cognitive_tool?(tool_name, errors, tools) do
-        Map.put(context, :suggestion, "💡 Consider using cognitive tools for this task")
+        Map.put(context, :suggestion, "Consider using cognitive tools for this task")
       else
         context
       end
@@ -276,6 +276,7 @@ defmodule Mimo.RequestInterceptor do
   defp search_memories(query) do
     # Try to search memories if the Brain module is available
     if Code.ensure_loaded?(Mimo.Brain) and function_exported?(Mimo.Brain, :search, 2) do
+      # Use apply/3 to avoid compile-time dependency on Mimo.Brain
       case apply(Mimo.Brain, :search, [query, [limit: 3]]) do
         {:ok, results} -> {:ok, results}
         _ -> {:ok, []}

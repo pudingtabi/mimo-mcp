@@ -7,8 +7,8 @@ defmodule Mimo.Vector.NifValidationTest do
   """
   use ExUnit.Case, async: true
 
-  alias Mimo.Vector.Math
   alias Mimo.Vector.Fallback
+  alias Mimo.Vector.Math
 
   # ===========================================================================
   # NIF Loading Tests

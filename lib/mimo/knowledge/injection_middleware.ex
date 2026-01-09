@@ -12,17 +12,13 @@ defmodule Mimo.Knowledge.InjectionMiddleware do
   Integration point for SPEC-065 into the Mimo tool dispatch pipeline.
   """
 
-  alias Mimo.Knowledge.{PreToolInjector, ContradictionDetector}
+  alias Mimo.Knowledge.{ContradictionDetector, PreToolInjector}
 
   require Logger
 
   @type dispatch_fn :: (-> {:ok, any()} | {:error, any()})
   @type injection :: map() | nil
   @type enriched_result :: {any(), injection()}
-
-  # ============================================================================
-  # PUBLIC API
-  # ============================================================================
 
   @doc """
   Wrap a tool dispatch with knowledge injection.
@@ -85,10 +81,6 @@ defmodule Mimo.Knowledge.InjectionMiddleware do
   def has_injection?({_result, injection}) when is_map(injection), do: true
   def has_injection?(_), do: false
 
-  # ============================================================================
-  # CONTRADICTION CHECKING
-  # ============================================================================
-
   defp check_result_contradictions({:ok, data}, injection) when is_map(data) do
     # Check if result content contradicts stored knowledge
     case extract_checkable_content(data) do
@@ -122,10 +114,6 @@ defmodule Mimo.Knowledge.InjectionMiddleware do
   defp extract_checkable_content(%{"content" => content}) when is_binary(content), do: content
   defp extract_checkable_content(%{data: %{content: content}}) when is_binary(content), do: content
   defp extract_checkable_content(_), do: nil
-
-  # ============================================================================
-  # INJECTION FORMATTING
-  # ============================================================================
 
   @doc """
   Format injection data for inclusion in MCP response.
@@ -173,8 +161,8 @@ defmodule Mimo.Knowledge.InjectionMiddleware do
 
     # Suggest meta:debug_error when file/terminal returns errors
     suggestions =
-      if is_error_result?(result) and tool_name in ["file", "terminal"] do
-        ["💡 For error debugging: meta operation=debug_error message=\"...\"" | suggestions]
+      if error_result?(result) and tool_name in ["file", "terminal"] do
+        ["For error debugging: meta operation=debug_error message=\"...\"" | suggestions]
       else
         suggestions
       end
@@ -183,7 +171,7 @@ defmodule Mimo.Knowledge.InjectionMiddleware do
     suggestions =
       if tool_name == "file" and args["operation"] == "search" do
         [
-          "💡 For function/symbol lookup: code operation=definition name=\"symbolName\""
+          "For symbol lookup: code operation=definition name=\"...\""
           | suggestions
         ]
       else
@@ -193,7 +181,7 @@ defmodule Mimo.Knowledge.InjectionMiddleware do
     # Suggest ingest for large file reads
     suggestions =
       if tool_name == "file" and args["operation"] == "read" and large_result?(result) do
-        ["💡 For large files: ingest path=\"...\" to chunk into memory" | suggestions]
+        ["Large file: use ingest path=\"...\" to chunk" | suggestions]
       else
         suggestions
       end
@@ -202,7 +190,7 @@ defmodule Mimo.Knowledge.InjectionMiddleware do
     suggestions =
       if tool_name == "memory" and args["operation"] == "search" do
         [
-          "💡 For comprehensive context: meta operation=prepare_context query=\"...\""
+          "For context: meta operation=prepare_context query=\"...\""
           | suggestions
         ]
       else
@@ -213,7 +201,7 @@ defmodule Mimo.Knowledge.InjectionMiddleware do
     suggestions =
       if tool_name == "terminal" do
         [
-          "💡 Queue repetitive commands: autonomous operation=queue command=\"...\" description=\"...\""
+          ~s(Queue commands: autonomous operation=queue command="..." description="...")
           | suggestions
         ]
       else
@@ -223,9 +211,9 @@ defmodule Mimo.Knowledge.InjectionMiddleware do
     suggestions
   end
 
-  defp is_error_result?({:error, _}), do: true
-  defp is_error_result?(%{error: _}), do: true
-  defp is_error_result?(_), do: false
+  defp error_result?({:error, _}), do: true
+  defp error_result?(%{error: _}), do: true
+  defp error_result?(_), do: false
 
   defp large_result?({:ok, %{content: content}}) when is_binary(content),
     do: byte_size(content) > 10_000
@@ -239,10 +227,6 @@ defmodule Mimo.Knowledge.InjectionMiddleware do
   defp format_result({:ok, data}), do: %{result: data}
   defp format_result({:error, reason}), do: %{error: reason}
   defp format_result(other), do: %{result: other}
-
-  # ============================================================================
-  # STATISTICS
-  # ============================================================================
 
   @doc """
   Get injection statistics (placeholder for future metrics).

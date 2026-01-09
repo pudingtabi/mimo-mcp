@@ -86,10 +86,6 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ToolProficiency do
     %{tool: "reason", operation: "guided", difficulty: :hard}
   ]
 
-  # =============================================================================
-  # Public API
-  # =============================================================================
-
   @doc """
   Run a comprehensive tool proficiency benchmark.
 
@@ -182,10 +178,6 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ToolProficiency do
     end
   end
 
-  # =============================================================================
-  # Benchmark Implementation
-  # =============================================================================
-
   defp filter_test_cases(cases, nil), do: cases
 
   defp filter_test_cases(cases, tools) when is_list(tools) do
@@ -258,10 +250,6 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.ToolProficiency do
       Float.round(Enum.sum(scores) / length(scores), 3)
     end
   end
-
-  # =============================================================================
-  # Model Family Estimation
-  # =============================================================================
 
   defp estimate_from_model_id(model_id) do
     model_lower = String.downcase(model_id)

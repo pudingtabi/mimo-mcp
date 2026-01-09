@@ -150,10 +150,6 @@ defmodule Mimo.Brain.Classifier do
     end
   end
 
-  # ==========================================================================
-  # Private Functions
-  # ==========================================================================
-
   defp pattern_score(query, patterns) do
     Enum.count(patterns, fn pattern ->
       Regex.match?(pattern, query)

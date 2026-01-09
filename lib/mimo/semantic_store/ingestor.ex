@@ -10,8 +10,8 @@ defmodule Mimo.SemanticStore.Ingestor do
   """
 
   require Logger
-  alias Mimo.SemanticStore.{Resolver, Repository, Dreamer}
   alias Mimo.Brain.LLM
+  alias Mimo.SemanticStore.{Dreamer, Repository, Resolver}
 
   @extraction_prompt """
   Extract all factual relationships from the following text.
@@ -174,10 +174,6 @@ defmodule Mimo.SemanticStore.Ingestor do
     success_count = Enum.count(results, &match?({:ok, _}, &1))
     {:ok, success_count}
   end
-
-  # ==========================================================================
-  # Private Functions
-  # ==========================================================================
 
   defp extract_relationships(text) do
     # First, try regex-based extraction (fast, no API needed)

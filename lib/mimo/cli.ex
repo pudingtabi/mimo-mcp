@@ -3,6 +3,7 @@ defmodule Mimo.CLI do
   Entry point for the Burrito-wrapped binary.
   Parses command line arguments and starts the appropriate supervision tree.
   """
+  alias Stdio
 
   def main(args) do
     # Parse arguments manually since we don't want a heavy CLI framework dependency

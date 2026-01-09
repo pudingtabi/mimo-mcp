@@ -42,10 +42,6 @@ defmodule Mimo.Cognitive.VerificationTelemetry do
   @meta_task_prefix [:mimo, :meta_task]
   @calibration_prefix [:mimo, :calibration]
 
-  # ============================================================================
-  # TELEMETRY EMISSION
-  # ============================================================================
-
   @doc """
   Emit a verification operation telemetry event.
 
@@ -138,10 +134,6 @@ defmodule Mimo.Cognitive.VerificationTelemetry do
     :ok
   end
 
-  # ============================================================================
-  # HANDLER ATTACHMENT
-  # ============================================================================
-
   @doc """
   Attach default telemetry handlers for logging and metrics collection.
 
@@ -196,10 +188,6 @@ defmodule Mimo.Cognitive.VerificationTelemetry do
     _ -> :ok
   end
 
-  # ============================================================================
-  # HANDLER IMPLEMENTATIONS
-  # ============================================================================
-
   defp handle_verification(event, measurements, metadata, _config) do
     operation = List.last(event)
     duration = Map.get(measurements, :duration, 0)
@@ -230,10 +218,6 @@ defmodule Mimo.Cognitive.VerificationTelemetry do
       Logger.debug("[Calibration] Confidence=#{confidence}% → #{if correct, do: "✓", else: "✗"}")
     end
   end
-
-  # ============================================================================
-  # STATS AGGREGATION
-  # ============================================================================
 
   @stats_table :verification_telemetry_stats
 
@@ -292,10 +276,6 @@ defmodule Mimo.Cognitive.VerificationTelemetry do
 
     :ets.insert(@stats_table, {:stats, Map.put(current, operation, updated_op_stats)})
   end
-
-  # ============================================================================
-  # HELPER FUNCTIONS
-  # ============================================================================
 
   defp get_success({:ok, %{verified: true}}), do: true
   defp get_success({:ok, %{match: true}}), do: true

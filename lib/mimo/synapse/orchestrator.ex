@@ -33,8 +33,9 @@ defmodule Mimo.Synapse.Orchestrator do
   use GenServer
   require Logger
 
-  alias Mimo.Synapse.{Graph, Linker}
+  alias MemoryLinker
   alias Mimo.Code.SymbolIndex
+  alias Mimo.Synapse.{Graph, Linker}
 
   @name __MODULE__
 
@@ -54,10 +55,6 @@ defmodule Mimo.Synapse.Orchestrator do
               nodes_created: 0,
               edges_created: 0
             }
-
-  # ==========================================================================
-  # Client API
-  # ==========================================================================
 
   @doc """
   Start the orchestrator process.
@@ -140,10 +137,6 @@ defmodule Mimo.Synapse.Orchestrator do
     GenServer.call(@name, :flush)
   end
 
-  # ==========================================================================
-  # Server Callbacks
-  # ==========================================================================
-
   @impl true
   def init(_opts) do
     Logger.info("[Orchestrator] Starting Synapse Orchestrator (SPEC-025)")
@@ -224,10 +217,6 @@ defmodule Mimo.Synapse.Orchestrator do
     {:noreply, state}
   end
 
-  # ==========================================================================
-  # Private Functions - Batch Processing
-  # ==========================================================================
-
   defp maybe_schedule_batch(%{batch_timer: nil} = state) do
     timer = Process.send_after(self(), :process_batch, @batch_delay_ms)
     %{state | batch_timer: timer}
@@ -286,10 +275,6 @@ defmodule Mimo.Synapse.Orchestrator do
       end
     end
   end
-
-  # ==========================================================================
-  # Private Functions - File Processing
-  # ==========================================================================
 
   defp process_pending_files([]), do: %{count: 0, nodes: 0, edges: 0}
 
@@ -367,10 +352,6 @@ defmodule Mimo.Synapse.Orchestrator do
       %{nodes: 0, edges: 0}
   end
 
-  # ==========================================================================
-  # Private Functions - Memory Processing
-  # ==========================================================================
-
   defp process_pending_memories([]), do: %{count: 0, nodes: 0, edges: 0}
 
   defp process_pending_memories(memories) do
@@ -419,10 +400,6 @@ defmodule Mimo.Synapse.Orchestrator do
   defp get_engram_content(%{content: content}), do: content
   defp get_engram_content(%{"content" => content}), do: content
   defp get_engram_content(_), do: nil
-
-  # ==========================================================================
-  # Private Functions - Library Processing
-  # ==========================================================================
 
   defp process_pending_libraries([]), do: %{count: 0, nodes: 0, edges: 0}
 
@@ -514,10 +491,6 @@ defmodule Mimo.Synapse.Orchestrator do
     end
   end
 
-  # ==========================================================================
-  # Private Functions - Directory Sync
-  # ==========================================================================
-
   defp do_sync_directory(dir_path, _state) do
     Logger.info("[Orchestrator] Syncing directory: #{dir_path}")
 
@@ -554,10 +527,6 @@ defmodule Mimo.Synapse.Orchestrator do
       Logger.error("[Orchestrator] Directory sync failed: #{Exception.message(e)}")
       {:error, e}
   end
-
-  # ==========================================================================
-  # Private Functions - Helpers
-  # ==========================================================================
 
   defp symbol_kind_to_node_type(%{kind: kind}), do: kind_to_type(kind)
   defp symbol_kind_to_node_type(%{"kind" => kind}), do: kind_to_type(kind)

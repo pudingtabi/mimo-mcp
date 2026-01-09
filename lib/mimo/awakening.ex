@@ -54,19 +54,19 @@ defmodule Mimo.Awakening do
   """
   require Logger
 
+  alias Memory
+
   alias Mimo.Awakening.{
-    Stats,
-    PowerCalculator,
-    SessionTracker,
-    ContextInjector,
-    PromptResource,
     Achievements,
-    Intelligence
+    ContextInjector,
+    Intelligence,
+    PowerCalculator,
+    PromptResource,
+    SessionTracker,
+    Stats
   }
 
-  # ==========================================================================
-  # Session Management
-  # ==========================================================================
+  alias Mimo.Upgrade.Skill, as: UpgradeSkill
 
   @doc """
   Start a new awakening session.
@@ -149,10 +149,6 @@ defmodule Mimo.Awakening do
     SessionTracker.get_session(session_id)
   end
 
-  # ==========================================================================
-  # Awakening Injection
-  # ==========================================================================
-
   @doc """
   Maybe inject awakening context into a tool response.
 
@@ -210,7 +206,7 @@ defmodule Mimo.Awakening do
         """
 
         Logger.info(
-          "🔥 Awakening injected for session #{session_id} (Power Level #{stats.current_level})"
+          "Awakening injected for session #{session_id} (Power Level #{stats.current_level})"
         )
 
         {:inject, String.trim(awakening_content)}
@@ -251,10 +247,6 @@ defmodule Mimo.Awakening do
         error
     end
   end
-
-  # ==========================================================================
-  # XP & Stats
-  # ==========================================================================
 
   @doc """
   Award XP for an event.
@@ -303,7 +295,8 @@ defmodule Mimo.Awakening do
           power_level: ContextInjector.build_power_level_info(stats),
           stats: ContextInjector.build_wisdom_stats(stats),
           unlocked_capabilities: PowerCalculator.unlocked_capabilities(stats.current_level),
-          behavioral_guidance: ContextInjector.build_behavioral_hints(stats.current_level)
+          behavioral_guidance: ContextInjector.build_behavioral_hints(stats.current_level),
+          upgrade_insights: get_upgrade_insights()
         }
 
         status =
@@ -337,10 +330,6 @@ defmodule Mimo.Awakening do
     end
   end
 
-  # ==========================================================================
-  # MCP Prompts
-  # ==========================================================================
-
   @doc """
   List available MCP prompts.
   """
@@ -356,10 +345,6 @@ defmodule Mimo.Awakening do
   def get_prompt(name, args \\ %{}) do
     PromptResource.get_prompt(name, args)
   end
-
-  # ==========================================================================
-  # Tool Call Tracking (for Hooks integration)
-  # ==========================================================================
 
   @doc """
   Record a tool call for the current session.
@@ -512,10 +497,6 @@ defmodule Mimo.Awakening do
     :ok
   end
 
-  # ==========================================================================
-  # Session Statistics
-  # ==========================================================================
-
   @doc """
   Get session statistics.
   """
@@ -531,10 +512,6 @@ defmodule Mimo.Awakening do
   def list_sessions do
     SessionTracker.list_sessions()
   end
-
-  # ==========================================================================
-  # Achievements
-  # ==========================================================================
 
   @doc """
   Get all achievement definitions.
@@ -571,10 +548,6 @@ defmodule Mimo.Awakening do
     end
   end
 
-  # ==========================================================================
-  # Intelligence (LLM-powered features)
-  # ==========================================================================
-
   @doc """
   Generate a personalized awakening message using LLM.
   Falls back to template if LLM fails.
@@ -592,10 +565,6 @@ defmodule Mimo.Awakening do
   def generate_behavioral_guidance(stats, tool_usage_patterns \\ %{}) do
     Intelligence.generate_behavioral_guidance(stats, tool_usage_patterns)
   end
-
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
 
   defp fetch_recent_memories(limit) do
     try do
@@ -622,5 +591,38 @@ defmodule Mimo.Awakening do
     hints
     |> Enum.with_index(1)
     |> Enum.map_join("\n", fn {hint, i} -> "#{i}. #{hint}" end)
+  end
+
+  # Get upgrade insights from the Upgrade Skill module
+  defp get_upgrade_insights do
+    case UpgradeSkill.get_cached_recommendations() do
+      [] ->
+        # No cached recommendations, try to generate fresh ones
+        case UpgradeSkill.analyze_and_recommend(days: 14, limit: 3) do
+          {:ok, recommendations} ->
+            format_upgrade_insights(recommendations)
+
+          {:error, _} ->
+            []
+        end
+
+      cached ->
+        format_upgrade_insights(cached)
+    end
+  rescue
+    _ -> []
+  end
+
+  defp format_upgrade_insights(recommendations) do
+    recommendations
+    |> Enum.take(3)
+    |> Enum.map(fn rec ->
+      %{
+        type: rec.type,
+        priority: rec.priority,
+        title: rec.title,
+        action: Map.get(rec, :action, "")
+      }
+    end)
   end
 end

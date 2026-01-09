@@ -22,14 +22,21 @@ defmodule Mimo.Awakening.PowerCalculator do
   Levels should represent genuine milestones, not quick unlocks.
   """
 
-  # XP thresholds for each power level (SPEC-040 v1.2 recalibrated)
+  # XP thresholds for each power level (SPEC-040 v1.3 recalibrated for achievable progression)
+  # Previously thresholds were too high relative to XP values (1000 tool calls to level 2!)
+  # Now: Level 2 = ~20 tool calls, Level 3 = ~100 tool calls, etc.
   @level_thresholds %{
     1 => 0,
-    2 => 1_000,
-    3 => 10_000,
-    4 => 50_000,
-    5 => 200_000,
-    6 => 1_000_000
+    # ~20 tool calls or 20 memories (was 1,000)
+    2 => 100,
+    # ~100 tool calls (was 10,000)
+    3 => 500,
+    # ~400 tool calls (was 50,000)
+    4 => 2_000,
+    # ~2,000 tool calls (was 200,000)
+    5 => 10_000,
+    # ~10,000 tool calls, legendary (was 1,000,000)
+    6 => 50_000
   }
 
   # XP values for different events
@@ -64,10 +71,6 @@ defmodule Mimo.Awakening.PowerCalculator do
     6 => "💎"
   }
 
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
-
   @doc """
   Calculate power level from total XP.
 
@@ -83,22 +86,22 @@ defmodule Mimo.Awakening.PowerCalculator do
 
       iex> PowerCalculator.calculate_level(0)
       1
-      
+
       iex> PowerCalculator.calculate_level(999)
       1
-      
+
       iex> PowerCalculator.calculate_level(1000)
       2
-      
+
       iex> PowerCalculator.calculate_level(9999)
       2
-      
+
       iex> PowerCalculator.calculate_level(10000)
       3
-      
+
       iex> PowerCalculator.calculate_level(50000)
       4
-      
+
       iex> PowerCalculator.calculate_level(200000)
       5
   """
@@ -122,7 +125,7 @@ defmodule Mimo.Awakening.PowerCalculator do
 
       iex> PowerCalculator.xp_to_next_level(50, 1)
       50
-      
+
       iex> PowerCalculator.xp_to_next_level(10000, 5)
       :maxed
   """
@@ -151,16 +154,16 @@ defmodule Mimo.Awakening.PowerCalculator do
 
       iex> PowerCalculator.progress_percent(0, 1)
       0.0
-      
+
       iex> PowerCalculator.progress_percent(500, 1)
       50.0
-      
+
       iex> PowerCalculator.progress_percent(5500, 2)
       50.0
-      
+
       iex> PowerCalculator.progress_percent(1000000, 6)
       100.0
-      
+
       # Level drift protection: XP below level threshold returns 0
       iex> PowerCalculator.progress_percent(100, 5)
       0.0

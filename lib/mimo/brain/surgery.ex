@@ -29,11 +29,7 @@ defmodule Mimo.Brain.Surgery do
   require Logger
   import Ecto.Query
 
-  alias Mimo.{Repo, Brain.Engram, Brain.LLM, Vector.Math}
-
-  # ==========================================================================
-  # Protection Surgery
-  # ==========================================================================
+  alias Mimo.{Brain.Engram, Brain.LLM, Repo, Vector.Math}
 
   @doc """
   Protect critical memories from decay and forgetting.
@@ -119,10 +115,6 @@ defmodule Mimo.Brain.Surgery do
     {:ok, newly_protected}
   end
 
-  # ==========================================================================
-  # Deduplication Surgery
-  # ==========================================================================
-
   @doc """
   Remove duplicate memories, keeping the oldest (first created).
 
@@ -202,10 +194,6 @@ defmodule Mimo.Brain.Surgery do
     end
   end
 
-  # ==========================================================================
-  # Embedding Migration Surgery
-  # ==========================================================================
-
   @doc """
   Migrate remaining float32 embeddings to int8 format.
 
@@ -273,7 +261,7 @@ defmodule Mimo.Brain.Surgery do
 
   defp migrate_engram_to_int8(engram) do
     case Engram.get_embedding(engram) do
-      {:ok, embedding} when is_list(embedding) and length(embedding) > 0 ->
+      {:ok, embedding} when is_list(embedding) and embedding != [] ->
         case Math.quantize_int8(embedding) do
           {:ok, {binary, scale, offset}} ->
             changeset =
@@ -305,10 +293,6 @@ defmodule Mimo.Brain.Surgery do
         {:error, :no_embedding}
     end
   end
-
-  # ==========================================================================
-  # Orphan Repair Surgery
-  # ==========================================================================
 
   @doc """
   Repair orphaned memories by regenerating embeddings.
@@ -374,7 +358,7 @@ defmodule Mimo.Brain.Surgery do
 
   defp repair_orphan(engram) do
     case LLM.generate_embedding(engram.content) do
-      {:ok, embedding} when is_list(embedding) and length(embedding) > 0 ->
+      {:ok, embedding} when is_list(embedding) and embedding != [] ->
         case Math.quantize_int8(embedding) do
           {:ok, {binary, scale, offset}} ->
             changeset =
@@ -414,10 +398,6 @@ defmodule Mimo.Brain.Surgery do
       )
     ) || 0
   end
-
-  # ==========================================================================
-  # Full Surgery
-  # ==========================================================================
 
   @doc """
   Run complete brain surgery: protect, deduplicate, migrate, repair.

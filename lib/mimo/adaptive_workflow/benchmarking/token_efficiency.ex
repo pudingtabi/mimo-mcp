@@ -68,10 +68,6 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.TokenEfficiency do
     %{type: :documentation, complexity: :medium, expected_tokens: 450}
   ]
 
-  # =============================================================================
-  # Public API
-  # =============================================================================
-
   @doc """
   Run a comprehensive token efficiency benchmark.
 
@@ -194,10 +190,6 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.TokenEfficiency do
   # Penalize verbosity slightly for code
   defp adjust_for_task_type(quality, _), do: quality * 0.95
 
-  # =============================================================================
-  # Benchmark Implementation
-  # =============================================================================
-
   defp filter_test_cases(cases, nil), do: cases
 
   defp filter_test_cases(cases, types) when is_list(types) do
@@ -269,10 +261,6 @@ defmodule Mimo.AdaptiveWorkflow.Benchmarking.TokenEfficiency do
     base_tokens = 500
     round(base_tokens / avg_efficiency)
   end
-
-  # =============================================================================
-  # Model Family Estimation
-  # =============================================================================
 
   # Model efficiency profiles: {efficiency, peak_eff, quality_at_budget, overhead, avg_tokens}
   # Ordered by specificity (most specific patterns first)

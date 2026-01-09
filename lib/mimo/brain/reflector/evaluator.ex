@@ -139,10 +139,6 @@ defmodule Mimo.Brain.Reflector.Evaluator do
     }
   end
 
-  # ============================================
-  # Dimension Checkers
-  # ============================================
-
   @doc """
   Check correctness - does output contain accurate information?
   """
@@ -316,10 +312,6 @@ defmodule Mimo.Brain.Reflector.Evaluator do
     min(1.0, total_risk)
   end
 
-  # ============================================
-  # Score Aggregation
-  # ============================================
-
   defp calculate_aggregate(scores, weights) do
     # Positive contributions
     positive =
@@ -345,10 +337,6 @@ defmodule Mimo.Brain.Reflector.Evaluator do
       true -> :poor
     end
   end
-
-  # ============================================
-  # Issue Detection
-  # ============================================
 
   defp generate_issues(scores, output, context) do
     issues = []
@@ -450,10 +438,6 @@ defmodule Mimo.Brain.Reflector.Evaluator do
     Enum.reverse(issues)
   end
 
-  # ============================================
-  # Suggestion Generation
-  # ============================================
-
   defp generate_suggestions(scores, issues, _output, _context) do
     suggestions = []
 
@@ -531,10 +515,6 @@ defmodule Mimo.Brain.Reflector.Evaluator do
     Enum.reverse(suggestions)
   end
 
-  # ============================================
-  # Helper Functions
-  # ============================================
-
   defp extract_claims(output) do
     # Simple claim extraction: sentences that look like factual statements
     output
@@ -611,8 +591,7 @@ defmodule Mimo.Brain.Reflector.Evaluator do
     query
     |> String.downcase()
     |> String.split(~r/[\s,]+/)
-    |> Enum.reject(&(String.length(&1) < 3))
-    |> Enum.reject(&common_word?/1)
+    |> Enum.reject(fn x -> String.length(x) < 3 or common_word?(x) end)
     |> Enum.take(10)
   end
 
@@ -632,8 +611,7 @@ defmodule Mimo.Brain.Reflector.Evaluator do
     |> String.downcase()
     |> String.replace(~r/[^\w\s]/, "")
     |> String.split()
-    |> Enum.reject(&(String.length(&1) < 3))
-    |> Enum.reject(&common_word?/1)
+    |> Enum.reject(fn x -> String.length(x) < 3 or common_word?(x) end)
   end
 
   defp common_word?(word) do

@@ -39,10 +39,6 @@ defmodule Mimo.Cognitive.Amplifier.SynthesisEnforcer do
   # Minimum completeness to allow synthesis
   @completeness_threshold 0.8
 
-  # ============================================================================
-  # Public API
-  # ============================================================================
-
   @doc """
   Check if synthesis can proceed and generate synthesis prompt.
   """
@@ -93,9 +89,7 @@ defmodule Mimo.Cognitive.Amplifier.SynthesisEnforcer do
     parts =
       if missing != [] do
         missing_str =
-          missing
-          |> Enum.map(&"- #{&1.type}: #{String.slice(&1.content, 0..80)}")
-          |> Enum.join("\n")
+          Enum.map_join(missing, "\n", &"- #{&1.type}: #{String.slice(&1.content, 0..80)}")
 
         ["### Missing:\n#{missing_str}\n" | parts]
       else
@@ -149,10 +143,10 @@ defmodule Mimo.Cognitive.Amplifier.SynthesisEnforcer do
       )
 
     issues =
-      if not has_conclusion do
-        ["Please include a clear conclusion or recommendation" | issues]
-      else
+      if has_conclusion do
         issues
+      else
+        ["Please include a clear conclusion or recommendation" | issues]
       end
 
     if issues == [] do
@@ -177,10 +171,6 @@ defmodule Mimo.Cognitive.Amplifier.SynthesisEnforcer do
     Provide a revised synthesis that integrates all your reasoning into a coherent conclusion.
     """
   end
-
-  # ============================================================================
-  # Private Implementation
-  # ============================================================================
 
   defp collect_all_threads(raw_threads) do
     threads = []

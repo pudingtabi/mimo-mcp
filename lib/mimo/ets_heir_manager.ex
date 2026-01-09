@@ -51,10 +51,6 @@ defmodule Mimo.EtsHeirManager do
   # Cleanup check interval (5 minutes)
   @cleanup_interval_ms 5 * 60 * 1000
 
-  # ============================================================================
-  # Public API
-  # ============================================================================
-
   @doc """
   Start the ETS Heir Manager.
   """
@@ -133,10 +129,6 @@ defmodule Mimo.EtsHeirManager do
   def stats do
     GenServer.call(__MODULE__, :stats)
   end
-
-  # ============================================================================
-  # GenServer Callbacks
-  # ============================================================================
 
   @impl true
   def init(_opts) do
@@ -296,17 +288,13 @@ defmodule Mimo.EtsHeirManager do
       :ets.delete(@table_name, name)
     end)
 
-    if length(orphaned) > 0 do
+    unless Enum.empty?(orphaned) do
       Logger.info("[EtsHeirManager] Cleaned up #{length(orphaned)} orphaned tables")
     end
 
     schedule_cleanup()
     {:noreply, state}
   end
-
-  # ============================================================================
-  # Private Helpers
-  # ============================================================================
 
   defp find_by_monitor_ref(ref) do
     case :ets.tab2list(@table_name)

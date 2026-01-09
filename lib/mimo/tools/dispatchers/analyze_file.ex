@@ -14,9 +14,9 @@ defmodule Mimo.Tools.Dispatchers.AnalyzeFile do
 
   require Logger
 
+  alias Mimo.TaskHelper
   alias Mimo.Tools.Dispatchers.{Code, Diagnostics, Knowledge}
   alias Mimo.Tools.Dispatchers.File, as: FileDispatcher
-  alias Mimo.TaskHelper
 
   @doc """
   Dispatch analyze_file operation.
@@ -41,10 +41,6 @@ defmodule Mimo.Tools.Dispatchers.AnalyzeFile do
       end
     end
   end
-
-  # ==========================================================================
-  # ANALYSIS PIPELINE
-  # ==========================================================================
 
   defp run_analysis(path, args) do
     Logger.info("[AnalyzeFile] Starting unified analysis for: #{path}")
@@ -180,10 +176,6 @@ defmodule Mimo.Tools.Dispatchers.AnalyzeFile do
     end
   end
 
-  # ==========================================================================
-  # RESPONSE BUILDING
-  # ==========================================================================
-
   defp build_response(path, results, duration) do
     file_info = results[:file_info] || %{}
     symbols = results[:symbols] || %{}
@@ -227,7 +219,7 @@ defmodule Mimo.Tools.Dispatchers.AnalyzeFile do
     # Suggest based on symbols
     suggestions =
       if (symbols[:count] || 0) == 0 do
-        suggestions ++ ["💡 No symbols indexed. Run `onboard` to index codebase."]
+        suggestions ++ ["No symbols indexed. Run `onboard` to index codebase."]
       else
         suggestions
       end
@@ -254,10 +246,6 @@ defmodule Mimo.Tools.Dispatchers.AnalyzeFile do
       _ -> Enum.join(suggestions, "\n")
     end
   end
-
-  # ==========================================================================
-  # HELPERS
-  # ==========================================================================
 
   defp detect_file_type(path) do
     path |> Path.extname() |> String.downcase() |> ext_to_type()

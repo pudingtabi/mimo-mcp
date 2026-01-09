@@ -152,10 +152,6 @@ defmodule Mimo.Cognitive.Amplifier.PerspectiveRotator do
     }
   }
 
-  # ============================================================================
-  # Public API
-  # ============================================================================
-
   @doc """
   Get perspectives for a problem based on domain detection.
   """
@@ -254,10 +250,6 @@ defmodule Mimo.Cognitive.Amplifier.PerspectiveRotator do
   def perspectives_for_domain(domain) do
     Map.get(@perspective_sets, domain, @perspective_sets.general)
   end
-
-  # ============================================================================
-  # Private Implementation
-  # ============================================================================
 
   defp detect_domain(problem) do
     problem_lower = String.downcase(problem)

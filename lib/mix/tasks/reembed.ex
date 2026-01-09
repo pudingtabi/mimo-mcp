@@ -39,8 +39,8 @@ defmodule Mix.Tasks.Mimo.Reembed do
   use Mix.Task
   require Logger
 
-  alias Mimo.Repo
   alias Mimo.Brain.{Engram, LLM}
+  alias Mimo.Repo
   import Ecto.Query
 
   @shortdoc "Re-embed all memories with consistent embeddings"

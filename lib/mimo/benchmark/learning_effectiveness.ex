@@ -31,7 +31,7 @@ defmodule Mimo.Benchmark.LearningEffectiveness do
 
   require Logger
 
-  alias Mimo.Brain.{Memory, Engram, UsageFeedback}
+  alias Mimo.Brain.{Engram, Memory, UsageFeedback}
   alias Mimo.Repo
   import Ecto.Query
 
@@ -145,10 +145,6 @@ defmodule Mimo.Benchmark.LearningEffectiveness do
 
     result
   end
-
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
 
   defp create_test_memories do
     base_content = "Learning benchmark test memory about Elixir programming"

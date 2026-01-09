@@ -42,10 +42,6 @@ defmodule Mimo.Cognitive.PromptOptimizer do
   @optimization_interval :timer.hours(2)
   @min_samples 10
 
-  # ============================================================================
-  # Type Definitions
-  # ============================================================================
-
   @type prompt_record :: %{
           prompt_id: String.t(),
           prompt_text: String.t(),
@@ -63,10 +59,6 @@ defmodule Mimo.Cognitive.PromptOptimizer do
           success_rate: float(),
           avg_engagement: float()
         }
-
-  # ============================================================================
-  # Client API
-  # ============================================================================
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -158,10 +150,6 @@ defmodule Mimo.Cognitive.PromptOptimizer do
   catch
     :exit, _ -> {:ok, %{status: :unavailable}}
   end
-
-  # ============================================================================
-  # GenServer Implementation
-  # ============================================================================
 
   @impl true
   def init(_opts) do
@@ -333,10 +321,6 @@ defmodule Mimo.Cognitive.PromptOptimizer do
       {:noreply, state}
     end
   end
-
-  # ============================================================================
-  # Private Functions
-  # ============================================================================
 
   defp default_templates do
     %{
@@ -533,24 +517,24 @@ defmodule Mimo.Cognitive.PromptOptimizer do
 
     # Recommend removing underperforming prompts
     recommendations =
-      if length(underperforming) > 0 do
+      if Enum.empty?(underperforming) do
+        recommendations
+      else
         [
           %{type: :remove, prompts: Enum.take(underperforming, 3), reason: "Low success rate"}
           | recommendations
         ]
-      else
-        recommendations
       end
 
     # Recommend promoting high-performing prompts
     recommendations =
-      if length(high_performing) > 0 do
+      if Enum.empty?(high_performing) do
+        recommendations
+      else
         [
           %{type: :promote, prompts: Enum.take(high_performing, 3), reason: "High success rate"}
           | recommendations
         ]
-      else
-        recommendations
       end
 
     # Recommend more data collection if needed

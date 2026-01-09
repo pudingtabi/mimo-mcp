@@ -12,6 +12,8 @@ defmodule Mimo.Telemetry do
   - `priv/prometheus/mimo_alerts.rules`
   - `priv/grafana/mimo-dashboard.json`
   """
+  alias Profiler
+  alias LatencyGuard
   use Supervisor
   require Logger
 
@@ -59,9 +61,6 @@ defmodule Mimo.Telemetry do
     import Telemetry.Metrics
 
     [
-      # =======================================================================
-      # System Metrics (for ResourceMonitor alerting)
-      # =======================================================================
       last_value("mimo.resource_monitor.memory_mb",
         event_name: [:mimo, :system, :memory],
         measurement: :total_mb,
@@ -77,10 +76,6 @@ defmodule Mimo.Telemetry do
         measurement: :count,
         description: "Number of open ports"
       ),
-
-      # =======================================================================
-      # HTTP Request Metrics
-      # =======================================================================
       counter("mimo.http.request.total",
         event_name: [:mimo, :http, :request],
         tags: [:method, :path, :status],
@@ -94,10 +89,6 @@ defmodule Mimo.Telemetry do
         description: "HTTP request latency distribution",
         reporter_options: [buckets: [10, 25, 50, 100, 250, 500, 1000, 2500]]
       ),
-
-      # =======================================================================
-      # Semantic Store Metrics
-      # =======================================================================
       distribution("mimo.semantic_store.query.duration",
         event_name: [:mimo, :semantic_store, :query],
         measurement: :duration_ms,
@@ -111,10 +102,6 @@ defmodule Mimo.Telemetry do
         tags: [:source],
         description: "Total triples ingested"
       ),
-
-      # =======================================================================
-      # Brain/Classifier Metrics
-      # =======================================================================
       distribution("mimo.brain.classify.duration",
         event_name: [:mimo, :brain, :classify],
         measurement: :duration_ms,
@@ -129,10 +116,6 @@ defmodule Mimo.Telemetry do
         tags: [:intent],
         description: "Classification confidence scores"
       ),
-
-      # =======================================================================
-      # Router Metrics
-      # =======================================================================
       distribution("mimo.router.classify.duration",
         event_name: [:mimo, :router, :classify],
         measurement: :duration_us,
@@ -147,19 +130,11 @@ defmodule Mimo.Telemetry do
         tags: [:primary_store],
         description: "Router confidence scores"
       ),
-
-      # =======================================================================
-      # Error Metrics
-      # =======================================================================
       counter("mimo.request.errors.total",
         event_name: [:mimo, :error],
         tags: [:component, :error_type],
         description: "Total errors by component"
       ),
-
-      # =======================================================================
-      # Classifier Cache Metrics
-      # =======================================================================
       counter("mimo.cache.classifier.hit.count",
         event_name: [:mimo, :cache, :classifier, :hit],
         measurement: :count,
@@ -172,10 +147,6 @@ defmodule Mimo.Telemetry do
         tags: [:key_type],
         description: "Classifier cache misses"
       ),
-
-      # =======================================================================
-      # Health Check Metric
-      # =======================================================================
       last_value("mimo.health_check.status",
         event_name: [:mimo, :health, :check],
         measurement: :status,

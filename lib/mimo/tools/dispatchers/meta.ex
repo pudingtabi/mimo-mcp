@@ -7,6 +7,7 @@ defmodule Mimo.Tools.Dispatchers.Meta do
   - debug_error: Error debugging assistant (memory + symbols + diagnostics)
   - prepare_context: Smart context aggregation (memory + knowledge + code + library)
   - suggest_next_tool: Workflow guidance based on task
+  - reload_skills: Hot-reload Mimo skills (consolidated from mimo_reload_skills)
 
   ## Usage
 
@@ -15,7 +16,8 @@ defmodule Mimo.Tools.Dispatchers.Meta do
       meta operation=debug_error message="undefined function"
       meta operation=prepare_context query="implement auth"
       meta operation=suggest_next_tool task="fix this bug"
-      
+      meta operation=reload_skills
+
       # Legacy standalone tools still work (with deprecation warning)
       analyze_file path="src/app.ts"
   """
@@ -29,11 +31,14 @@ defmodule Mimo.Tools.Dispatchers.Meta do
     SuggestNextTool
   }
 
+  alias Mimo.ToolRegistry
+
   @operations [
     "analyze_file",
     "debug_error",
     "prepare_context",
-    "suggest_next_tool"
+    "suggest_next_tool",
+    "reload_skills"
   ]
 
   @doc """
@@ -59,14 +64,13 @@ defmodule Mimo.Tools.Dispatchers.Meta do
       "suggest_next_tool" ->
         dispatch_suggest_next_tool(args)
 
+      "reload_skills" ->
+        dispatch_reload_skills()
+
       unknown ->
         {:error, "Unknown meta operation: #{unknown}. Valid operations: #{inspect(@operations)}"}
     end
   end
-
-  # ==========================================================================
-  # OPERATION DISPATCHERS
-  # ==========================================================================
 
   @doc """
   Dispatch analyze_file operation.
@@ -106,5 +110,27 @@ defmodule Mimo.Tools.Dispatchers.Meta do
   def dispatch_suggest_next_tool(args) do
     Logger.debug("[Meta] Dispatching suggest_next_tool")
     SuggestNextTool.dispatch(args)
+  end
+
+  @doc """
+  Dispatch reload_skills operation.
+
+  Hot-reloads all Mimo skills from skills.json without restart.
+  Consolidated from standalone mimo_reload_skills tool.
+  """
+  def dispatch_reload_skills do
+    Logger.info("[Meta] Hot-reloading skills...")
+
+    case ToolRegistry.reload_skills() do
+      {:ok, :reloaded} ->
+        {:ok,
+         %{
+           status: "success",
+           message: "Skills hot-reloaded successfully"
+         }}
+
+      {:error, reason} ->
+        {:error, "Failed to reload skills: #{inspect(reason)}"}
+    end
   end
 end

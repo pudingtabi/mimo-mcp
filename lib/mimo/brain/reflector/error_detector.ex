@@ -104,10 +104,6 @@ defmodule Mimo.Brain.Reflector.ErrorDetector do
     }
   end
 
-  # ============================================
-  # Pattern Checkers
-  # ============================================
-
   defp check_pattern(:factual_contradiction, output, context) do
     memories = context[:memories] || []
 
@@ -273,10 +269,6 @@ defmodule Mimo.Brain.Reflector.ErrorDetector do
     end
   end
 
-  # ============================================
-  # Helper Functions
-  # ============================================
-
   defp severity_rank(:high), do: 1
   defp severity_rank(:medium), do: 2
   defp severity_rank(:low), do: 3
@@ -440,8 +432,7 @@ defmodule Mimo.Brain.Reflector.ErrorDetector do
     |> String.downcase()
     |> String.replace(~r/[^\w\s]/, "")
     |> String.split()
-    |> Enum.reject(&(String.length(&1) < 4))
-    |> Enum.reject(&common_word?/1)
+    |> Enum.reject(fn x -> String.length(x) < 4 or common_word?(x) end)
     |> Enum.take(5)
   end
 
@@ -523,8 +514,7 @@ defmodule Mimo.Brain.Reflector.ErrorDetector do
     |> String.downcase()
     |> String.replace(~r/[^\w\s]/, "")
     |> String.split()
-    |> Enum.reject(&(String.length(&1) < 3))
-    |> Enum.reject(&common_word?/1)
+    |> Enum.reject(fn x -> String.length(x) < 3 or common_word?(x) end)
     |> Enum.uniq()
   end
 

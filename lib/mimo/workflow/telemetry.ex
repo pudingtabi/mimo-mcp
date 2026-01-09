@@ -105,10 +105,6 @@ defmodule Mimo.Workflow.Telemetry do
     )
   end
 
-  # =============================================================================
-  # Event Handlers
-  # =============================================================================
-
   def handle_event([:mimo, :workflow, :predict], measurements, metadata, _config) do
     duration_ms = Map.get(measurements, :duration_us, 0) / 1000
     pattern = Map.get(metadata, :pattern_name, "unknown")

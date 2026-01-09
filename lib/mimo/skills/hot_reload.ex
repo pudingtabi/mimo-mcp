@@ -21,6 +21,7 @@ defmodule Mimo.Skills.HotReload do
       # Force reload even if one is in progress (admin only)
       {:ok, :reloaded} = Mimo.Skills.HotReload.force_reload()
   """
+  alias Catalog
 
   use GenServer
   require Logger
@@ -28,10 +29,6 @@ defmodule Mimo.Skills.HotReload do
   @lock_key {:mimo_skill_reload_lock, node()}
   @drain_timeout_ms 30_000
   @reload_timeout_ms 60_000
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -70,10 +67,6 @@ defmodule Mimo.Skills.HotReload do
   def status do
     GenServer.call(__MODULE__, :status)
   end
-
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
 
   @impl true
   def init(_opts) do
@@ -159,10 +152,6 @@ defmodule Mimo.Skills.HotReload do
 
     {:reply, status, state}
   end
-
-  # ==========================================================================
-  # Private Functions - Reload Logic
-  # ==========================================================================
 
   defp timed_reload do
     start_time = System.monotonic_time(:millisecond)
@@ -267,17 +256,13 @@ defmodule Mimo.Skills.HotReload do
   defp reload_catalog do
     Logger.info("Reloading skill catalog...")
 
-    if Code.ensure_loaded?(Mimo.Skills.Catalog) and
-         function_exported?(Mimo.Skills.Catalog, :reload, 0) do
+    if Code.ensure_loaded?(Catalog) and
+         function_exported?(Catalog, :reload, 0) do
       Mimo.Skills.Catalog.reload()
     else
       Logger.warning("Catalog module not available")
     end
   end
-
-  # ==========================================================================
-  # Private Functions - Distributed Locking
-  # ==========================================================================
 
   defp acquire_lock do
     # Use :global for distributed lock
@@ -296,10 +281,6 @@ defmodule Mimo.Skills.HotReload do
   defp release_lock(lock_id) do
     :global.del_lock(lock_id)
   end
-
-  # ==========================================================================
-  # Private Functions - Telemetry
-  # ==========================================================================
 
   defp emit_reload_telemetry(result, duration_ms) do
     status =

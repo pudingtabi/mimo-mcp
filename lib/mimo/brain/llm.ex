@@ -26,18 +26,19 @@ defmodule Mimo.Brain.LLM do
   """
   require Logger
 
+  alias Stats
   alias Mimo.ErrorHandling.CircuitBreaker
   alias Mimo.Retry
 
-  # =============================================================================
-  # Provider Configuration
-  # =============================================================================
-
   # Cerebras - PRIMARY provider for text completion (3000+ tok/s!)
+  # Available Dec 2025: llama-3.3-70b, llama-4-scout-17b, llama-4-maverick,
+  #   deepseek-r1-70b, qwen-3-32b, qwen-3-235b-instruct (preview), gpt-oss-120b
+  # Free tier: 1M tokens/day, 14,400 req/day
   @cerebras_url "https://api.cerebras.ai/v1/chat/completions"
-  # Best overall: 461 tok/s measured, 100% quality in benchmarks
+  # GPT-OSS-120B: Best overall - 3000+ tok/s, rivals o4-mini, on par with Gemini 2.5 Flash
+  # MoE architecture: 120B total params, only 5.1B active = fast + smart
   @cerebras_model System.get_env("CEREBRAS_MODEL", "gpt-oss-120b")
-  # Reliable fallback: 294 tok/s, 98% quality, lowest latency (329ms)
+  # Fallback: Llama 3.3 70B - solid alternative
   @cerebras_fallback System.get_env("CEREBRAS_FALLBACK_MODEL", "llama-3.3-70b")
 
   # OpenRouter - FALLBACK provider (for vision and when Cerebras is down)
@@ -57,9 +58,11 @@ defmodule Mimo.Brain.LLM do
   @vision_fast_model System.get_env("OPENROUTER_VISION_FAST", "google/gemma-3-4b-it:free")
 
   # Groq - THIRD FALLBACK (fastest inference in industry - 10x faster than GPUs)
+  # Available Dec 2025: llama-3.3-70b-versatile (131k ctx), llama-4-scout, llama-4-maverick
   # Free tier: 30 req/min, 14,400 req/day, 40,000 tokens/min
+  # Note: gemma2-9b-it deprecated Oct 2025, llama-3.1-8b-instant deprecated
   @groq_url "https://api.groq.com/openai/v1/chat/completions"
-  @groq_model System.get_env("GROQ_MODEL", "llama-3.1-8b-instant")
+  @groq_model System.get_env("GROQ_MODEL", "llama-3.3-70b-versatile")
 
   # Embedding model - local Ollama qwen3-embedding (1024 dims native, truncatable via MRL)
   @default_embedding_model System.get_env("OLLAMA_EMBEDDING_MODEL", "qwen3-embedding:0.6b")
@@ -82,10 +85,6 @@ defmodule Mimo.Brain.LLM do
   """
 
   # Note: For context-aware steering (with level info), use Mimo.Brain.Steering module
-
-  # =============================================================================
-  # Public API
-  # =============================================================================
 
   @doc """
   Simple completion API for prompts.
@@ -468,10 +467,6 @@ defmodule Mimo.Brain.LLM do
     end
   end
 
-  # =============================================================================
-  # Cerebras Provider
-  # =============================================================================
-
   defp call_cerebras_with_fallback(system_prompt, user_prompt, max_tokens, temperature) do
     case cerebras_api_key() do
       nil ->
@@ -562,10 +557,6 @@ defmodule Mimo.Brain.LLM do
         {:error, {:request_failed, reason}}
     end
   end
-
-  # =============================================================================
-  # OpenRouter Provider (fallback + vision)
-  # =============================================================================
 
   defp call_openrouter_with_fallback(system_prompt, user_prompt, max_tokens, temperature) do
     case openrouter_api_key() do
@@ -669,10 +660,6 @@ defmodule Mimo.Brain.LLM do
     end
   end
 
-  # =============================================================================
-  # Groq Provider (third fallback - blazing fast inference)
-  # =============================================================================
-
   # Call Groq API with OpenAI-compatible endpoint
   # Groq uses custom LPU hardware for 10x faster inference than GPUs
   defp call_groq(system_prompt, prompt, key, max_tokens, temperature) do
@@ -731,10 +718,6 @@ defmodule Mimo.Brain.LLM do
         {:error, {:groq_unavailable, reason}}
     end
   end
-
-  # =============================================================================
-  # Embeddings (Local Ollama)
-  # =============================================================================
 
   @doc """
   Generate embeddings using local Ollama instance.
@@ -947,11 +930,6 @@ defmodule Mimo.Brain.LLM do
     end
   end
 
-  # =============================================================================
-  # =============================================================================
-  # Utility Functions
-  # =============================================================================
-
   @doc """
   Check if LLM services are available.
   Returns true if at least one cloud LLM provider (Cerebras/OpenRouter/Groq) is configured.
@@ -1043,10 +1021,6 @@ defmodule Mimo.Brain.LLM do
   defp cerebras_api_key, do: System.get_env("CEREBRAS_API_KEY")
   defp openrouter_api_key, do: Application.get_env(:mimo_mcp, :openrouter_api_key)
   defp groq_api_key, do: System.get_env("GROQ_API_KEY")
-
-  # =============================================================================
-  # Legacy API Compatibility
-  # =============================================================================
   # These functions maintain backward compatibility with existing code
 
   @doc """

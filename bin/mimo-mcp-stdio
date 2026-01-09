@@ -4,13 +4,47 @@
 
 set -e
 
-MIMO_DIR="/workspace/mrc-server/mimo-mcp"
+# Determine Mimo directory:
+# 1. Use MIMO_ROOT if set by VS Code's mcp.json
+# 2. Otherwise, determine from script location
+if [ -n "$MIMO_ROOT" ]; then
+  MIMO_DIR="$MIMO_ROOT"
+else
+  # Get the directory where this script lives, then go up one level
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  MIMO_DIR="$(dirname "$SCRIPT_DIR")"
+fi
+
 cd "$MIMO_DIR"
 
 # Load environment if present
 if [ -f .env ]; then
   export $(grep -v '^#' .env | xargs 2>/dev/null) || true
 fi
+
+# ============================================================================
+# Elixir/Erlang PATH Setup
+# VS Code environment may not have asdf or proper PATH, so we set it explicitly
+# ============================================================================
+if [ -f "$MIMO_DIR/.tool-versions" ]; then
+  ELIXIR_VERSION=$(grep elixir "$MIMO_DIR/.tool-versions" | awk '{print $2}')
+  ERLANG_VERSION=$(grep erlang "$MIMO_DIR/.tool-versions" | awk '{print $2}')
+  
+  if [ -n "$ELIXIR_VERSION" ] && [ -n "$ERLANG_VERSION" ]; then
+    ELIXIR_INSTALL_DIR="${HOME}/.elixir-install/installs"
+    ELIXIR_BIN="${ELIXIR_INSTALL_DIR}/elixir/${ELIXIR_VERSION}/bin"
+    ERLANG_BIN="${ELIXIR_INSTALL_DIR}/otp/${ERLANG_VERSION}/bin"
+    ERTS_BIN="${ELIXIR_INSTALL_DIR}/otp/${ERLANG_VERSION}/erts-*/bin"
+    
+    # Add to PATH if directories exist
+    [ -d "$ELIXIR_BIN" ] && export PATH="$ELIXIR_BIN:$PATH"
+    [ -d "$ERLANG_BIN" ] && export PATH="$ERLANG_BIN:$PATH"
+    for erts in $ERTS_BIN; do
+      [ -d "$erts" ] && export PATH="$erts:$PATH"
+    done
+  fi
+fi
+
 
 # ============================================================================
 # Ollama Dependency Check

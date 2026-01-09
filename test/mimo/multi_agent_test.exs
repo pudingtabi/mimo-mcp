@@ -113,7 +113,7 @@ defmodule Mimo.MultiAgentTest do
       {:ok, search_a} = Memory.search("Session A specific fact")
       {:ok, search_b} = Memory.search("Session B specific fact")
 
-      assert length(search_a) >= 1 or length(search_b) >= 1
+      refute Enum.empty?(search_a) or Enum.empty?(search_b)
     end
   end
 

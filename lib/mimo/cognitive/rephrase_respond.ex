@@ -32,10 +32,6 @@ defmodule Mimo.Cognitive.RephraseRespond do
   alias Mimo.Brain.LLM
   alias Mimo.Cognitive.ReasoningTelemetry
 
-  # ============================================================================
-  # PUBLIC API
-  # ============================================================================
-
   @doc """
   Rephrase a question to make implicit requirements explicit.
 
@@ -232,10 +228,6 @@ defmodule Mimo.Cognitive.RephraseRespond do
 
   def needs_rephrasing?(_), do: false
 
-  # ============================================================================
-  # PRIVATE HELPERS
-  # ============================================================================
-
   defp build_respond_prompt(original, rephrase_result, include_reasoning) do
     meta_task_note =
       if rephrase_result.is_meta_task do
@@ -249,7 +241,9 @@ defmodule Mimo.Cognitive.RephraseRespond do
       end
 
     implicit_note =
-      if length(rephrase_result.implicit_requirements) > 0 do
+      if Enum.empty?(rephrase_result.implicit_requirements) do
+        ""
+      else
         requirements = Enum.map_join(rephrase_result.implicit_requirements, "\n- ", & &1)
 
         """
@@ -257,8 +251,6 @@ defmodule Mimo.Cognitive.RephraseRespond do
         IMPLICIT REQUIREMENTS IDENTIFIED:
         - #{requirements}
         """
-      else
-        ""
       end
 
     reasoning_instruction =

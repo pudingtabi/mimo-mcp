@@ -31,6 +31,7 @@ defmodule Mimo.Skills.FileReadInterceptor do
   - `bypass` - Interception explicitly skipped
   """
 
+  alias FileReadCache
   alias Mimo.Brain.Memory
   alias Mimo.Code.SymbolIndex
 
@@ -43,10 +44,6 @@ defmodule Mimo.Skills.FileReadInterceptor do
 
   # ETS table for stats tracking
   @stats_table :file_interception_stats
-
-  # ============================================================================
-  # PUBLIC API
-  # ============================================================================
 
   @doc """
   Initialize the interception system.
@@ -145,10 +142,6 @@ defmodule Mimo.Skills.FileReadInterceptor do
     :ok
   end
 
-  # ============================================================================
-  # PRIVATE: INTERCEPTION LOGIC
-  # ============================================================================
-
   defp do_intercept(path, opts) do
     max_age = Keyword.get(opts, :max_age, 300)
 
@@ -186,7 +179,7 @@ defmodule Mimo.Skills.FileReadInterceptor do
     query = "file content #{filename} #{path}"
 
     case Memory.search(query, limit: 3, threshold: @memory_similarity_threshold) do
-      {:ok, %{results: results}} when is_list(results) and length(results) > 0 ->
+      {:ok, %{results: results}} when is_list(results) and results != [] ->
         # Find most relevant result with recency check
         results
         |> Enum.filter(&content_is_recent?/1)
@@ -220,7 +213,7 @@ defmodule Mimo.Skills.FileReadInterceptor do
   # Check if we have symbol structure cached
   defp check_symbol_cache(path) do
     case SymbolIndex.symbols_in_file(path) do
-      {:ok, symbols} when is_list(symbols) and length(symbols) > 0 ->
+      {:ok, symbols} when is_list(symbols) and symbols != [] ->
         {:hit, symbols}
 
       _ ->
@@ -309,10 +302,6 @@ defmodule Mimo.Skills.FileReadInterceptor do
         {:miss, :proceed}
     end
   end
-
-  # ============================================================================
-  # PRIVATE: STATS TRACKING
-  # ============================================================================
 
   defp ensure_stats_table do
     if :ets.whereis(@stats_table) == :undefined do

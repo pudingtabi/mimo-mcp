@@ -46,15 +46,11 @@ defmodule Mimo.Knowledge.IntelligentMiddleware do
   """
 
   require Logger
-  alias Mimo.Brain.Memory
+  alias Mimo.Brain.{Interaction, Memory}
   alias Mimo.TaskHelper
 
   # Timeout for pre-dispatch checks (fail-open if exceeded)
   @pre_dispatch_timeout_ms 100
-
-  # =============================================================================
-  # Tool Classification
-  # =============================================================================
 
   # Tier 1: Read-only, no pre-check needed (implicit - anything not in tier2/tier3)
   # Includes: file read/ls/glob, memory search, knowledge query, code symbols, web fetch, etc.
@@ -88,10 +84,6 @@ defmodule Mimo.Knowledge.IntelligentMiddleware do
           check_duration_ms: non_neg_integer(),
           skipped: boolean()
         }
-
-  # =============================================================================
-  # Public API
-  # =============================================================================
 
   @doc """
   Pre-dispatch intelligence check.
@@ -177,21 +169,17 @@ defmodule Mimo.Knowledge.IntelligentMiddleware do
     classify_operation(tool_name, arguments) != :fast
   end
 
-  # =============================================================================
-  # Private: Classification
-  # =============================================================================
-
   defp classify_operation(tool_name, arguments) do
     operation = arguments["operation"] || "default"
 
     cond do
-      is_critical?(tool_name, operation, arguments) -> :critical
-      is_smart?(tool_name, operation) -> :smart
+      critical?(tool_name, operation, arguments) -> :critical
+      smart?(tool_name, operation) -> :smart
       true -> :fast
     end
   end
 
-  defp is_critical?(tool_name, operation, arguments) do
+  defp critical?(tool_name, operation, arguments) do
     # Check explicit critical operations
     critical_ops = Map.get(@tier3_critical_path, tool_name, [])
     explicit_critical = operation in critical_ops
@@ -199,17 +187,17 @@ defmodule Mimo.Knowledge.IntelligentMiddleware do
     # Check for destructive terminal commands
     terminal_critical =
       tool_name == "terminal" and
-        is_destructive_command?(arguments["command"] || "")
+        destructive_command?(arguments["command"] || "")
 
     explicit_critical or terminal_critical
   end
 
-  defp is_smart?(tool_name, operation) do
+  defp smart?(tool_name, operation) do
     smart_ops = Map.get(@tier2_smart_path, tool_name, [])
     operation in smart_ops
   end
 
-  defp is_destructive_command?(command) do
+  defp destructive_command?(command) do
     destructive_patterns = [
       ~r/\brm\s+-rf?\b/i,
       ~r/\bdrop\s+/i,
@@ -222,10 +210,6 @@ defmodule Mimo.Knowledge.IntelligentMiddleware do
 
     Enum.any?(destructive_patterns, &Regex.match?(&1, command))
   end
-
-  # =============================================================================
-  # Private: Smart Path Check
-  # =============================================================================
 
   defp run_smart_check(tool_name, arguments, start_time) do
     operation = arguments["operation"] || "default"
@@ -298,10 +282,6 @@ defmodule Mimo.Knowledge.IntelligentMiddleware do
     end
   end
 
-  # =============================================================================
-  # Private: Memory Search
-  # =============================================================================
-
   defp search_for_context(tool_name, operation, arguments) do
     # Build search query from tool context
     query = build_search_query(tool_name, operation, arguments)
@@ -309,7 +289,7 @@ defmodule Mimo.Knowledge.IntelligentMiddleware do
     # Search for past failures and patterns
     memories = Memory.search_memories(query, limit: 5, min_similarity: 0.5)
 
-    if is_list(memories) and length(memories) > 0 do
+    if is_list(memories) and memories != [] do
       categorize_memories(memories)
     else
       %{warnings: [], past_failures: [], relevant_patterns: []}
@@ -366,10 +346,6 @@ defmodule Mimo.Knowledge.IntelligentMiddleware do
     }
   end
 
-  # =============================================================================
-  # Private: Outcome Tracking
-  # =============================================================================
-
   defp track_outcome(tool_name, arguments, result) do
     operation = arguments["operation"] || "default"
 
@@ -383,17 +359,34 @@ defmodule Mimo.Knowledge.IntelligentMiddleware do
           tags: ["tool_failure", tool_name, operation]
         )
 
+        # WIRE 1: Record to Interaction table for Emergence.Detector pattern detection
+        # This connects failures to the emergence system, enabling automatic pattern recognition
+        spawn(fn ->
+          Interaction.record(tool_name,
+            arguments: arguments,
+            result_summary: "FAILURE: #{inspect(reason) |> String.slice(0, 200)}",
+            duration_ms: 0
+          )
+        end)
+
+      {:ok, _} ->
+        # Success - record for pattern detection (sampling to avoid noise)
+        if :rand.uniform(10) == 1 do
+          spawn(fn ->
+            Interaction.record(tool_name,
+              arguments: arguments,
+              result_summary: "SUCCESS",
+              duration_ms: 0
+            )
+          end)
+        end
+
       _ ->
-        # Success - only track occasionally to avoid noise
         :ok
     end
   rescue
     _ -> :ok
   end
-
-  # =============================================================================
-  # Private: Result Enrichment
-  # =============================================================================
 
   defp build_enrichment(pre_context) do
     %{

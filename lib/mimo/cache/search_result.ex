@@ -42,10 +42,6 @@ defmodule Mimo.Cache.SearchResult do
   @table :mimo_search_cache
   @stats_table :mimo_search_cache_stats
 
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -135,10 +131,6 @@ defmodule Mimo.Cache.SearchResult do
     :ok
   end
 
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
-
   @impl GenServer
   def init(_opts) do
     # Create ETS tables
@@ -192,10 +184,6 @@ defmodule Mimo.Cache.SearchResult do
   def handle_info(_msg, state) do
     {:noreply, state}
   end
-
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
 
   defp cache_key(query, opts) do
     # Include relevant opts in cache key
@@ -265,7 +253,7 @@ defmodule Mimo.Cache.SearchResult do
         :ets.delete(@table, hash)
       end)
 
-      if length(expired) > 0 do
+      unless Enum.empty?(expired) do
         increment_stat(:expired)
         Logger.debug("[SearchCache] Cleaned up #{length(expired)} expired entries")
       end

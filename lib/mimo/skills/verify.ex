@@ -1,9 +1,12 @@
 defmodule Mimo.Skills.Verify do
+  alias Mimo.Brain.VerificationTracker
+  alias Mimo.Cognitive.Reasoner
+
   @moduledoc """
   Executable verification for AI claims.
 
   Actually runs checks rather than claiming verification. Addresses the
-  gap between "ceremonial verification" (claiming to verify) and 
+  gap between "ceremonial verification" (claiming to verify) and
   "executable verification" (actually running checks).
 
   Based on AI Intelligence Test findings (RECOMMENDATIONS.md):
@@ -28,10 +31,6 @@ defmodule Mimo.Skills.Verify do
 
   @operations [:count, :math, :logic, :compare, :self_check]
 
-  # ==========================================================================
-  # PUBLIC API
-  # ==========================================================================
-
   @doc """
   Execute verification based on operation type.
   """
@@ -55,10 +54,6 @@ defmodule Mimo.Skills.Verify do
     {:error, "Unknown operation: #{op}. Supported: #{inspect(@operations)}"}
   end
 
-  # ==========================================================================
-  # TRACKING
-  # ==========================================================================
-
   defp record_verification(operation, params, result) do
     Task.start(fn ->
       try do
@@ -68,7 +63,7 @@ defmodule Mimo.Skills.Verify do
         actual = extract_actual_value(result)
 
         # Record in tracker
-        Mimo.Brain.VerificationTracker.record_verification(operation, %{
+        VerificationTracker.record_verification(operation, %{
           claimed: claimed,
           actual: actual,
           verified: verified,
@@ -96,10 +91,6 @@ defmodule Mimo.Skills.Verify do
   defp extract_actual_value({:ok, %{actual_result: val}}), do: val
   defp extract_actual_value({:ok, %{count: val}}), do: val
   defp extract_actual_value(_), do: nil
-
-  # ==========================================================================
-  # COUNT VERIFICATION
-  # ==========================================================================
 
   defp verify_count(%{text: text, target: target, type: "letter"}) do
     # Character-by-character enumeration (NOT String.contains?)
@@ -163,10 +154,6 @@ defmodule Mimo.Skills.Verify do
      "Invalid count parameters. Required: text, type (letter/word/character). Got: #{inspect(params)}"}
   end
 
-  # ==========================================================================
-  # MATH VERIFICATION
-  # ==========================================================================
-
   defp verify_math(%{expression: expr, claimed_result: claimed}) do
     # Safely evaluate mathematical expression
     case safe_eval_math(expr) do
@@ -221,10 +208,6 @@ defmodule Mimo.Skills.Verify do
     end
   end
 
-  # ==========================================================================
-  # LOGIC VERIFICATION
-  # ==========================================================================
-
   defp verify_logic(%{statements: statements, claim: claim}) do
     # Basic logical consistency checking
     # Check for contradictions in statements
@@ -239,12 +222,12 @@ defmodule Mimo.Skills.Verify do
        statements: statements,
        claim: claim,
        contradictions: contradictions,
-       has_contradictions: length(contradictions) > 0,
+       has_contradictions: contradictions != [],
        claim_entailed: entailment,
        verified: true,
        method: "basic_consistency_check",
        warning:
-         if(length(contradictions) > 0,
+         if(contradictions != [],
            do: "Contradictions detected in premises",
            else: nil
          )
@@ -286,7 +269,7 @@ defmodule Mimo.Skills.Verify do
       String.contains?(a_lower, "false") and String.contains?(b_lower, "true") ->
         true
 
-      # "All X" vs "No X"  
+      # "All X" vs "No X"
       String.contains?(a_lower, "all") and String.contains?(b_lower, "no") ->
         true
 
@@ -326,10 +309,6 @@ defmodule Mimo.Skills.Verify do
     # At least 50% word overlap
     MapSet.size(intersection) >= min(MapSet.size(words_a), MapSet.size(words_b)) * 0.5
   end
-
-  # ==========================================================================
-  # COMPARE VERIFICATION
-  # ==========================================================================
 
   defp verify_compare(%{value_a: a, value_b: b, relation: relation})
        when relation in ["greater", "less", "equal", "greater_equal", "less_equal"] do
@@ -371,10 +350,6 @@ defmodule Mimo.Skills.Verify do
   @self_check_window_seconds 60
   @self_check_timeout_ms 30_000
 
-  # ==========================================================================
-  # SELF-CHECK VERIFICATION (SPEC-062 Enhanced)
-  # ==========================================================================
-
   defp verify_self_check(%{problem: problem, claimed_answer: claimed}) do
     # Check rate limit
     case check_rate_limit(:self_check) do
@@ -397,11 +372,11 @@ defmodule Mimo.Skills.Verify do
     # Start independent reasoning session
     task =
       Task.async(fn ->
-        with {:ok, session} <- Mimo.Cognitive.Reasoner.guided(problem, strategy: :cot),
+        with {:ok, session} <- Reasoner.guided(problem, strategy: :cot),
              # Add a single thought step to trigger reasoning
              {:ok, _step} <-
-               Mimo.Cognitive.Reasoner.step(session.session_id, "Analyzing: #{problem}"),
-             {:ok, conclusion} <- Mimo.Cognitive.Reasoner.conclude(session.session_id) do
+               Reasoner.step(session.session_id, "Analyzing: #{problem}"),
+             {:ok, conclusion} <- Reasoner.conclude(session.session_id) do
           {:ok, conclusion}
         else
           error -> error

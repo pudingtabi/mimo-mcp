@@ -6,11 +6,12 @@ defmodule Mimo.SemanticStore.Repository do
   with validation and convenience functions.
   """
 
-  alias Mimo.SemanticStore.Triple
-  alias Mimo.Repo
+  alias SQL
   alias Mimo.Awakening.Hooks, as: AwakeningHooks
-  alias Mimo.TaskHelper
   alias Mimo.NeuroSymbolic.Inference, as: NeuroSymbolicInference
+  alias Mimo.Repo
+  alias Mimo.SemanticStore.Triple
+  alias Mimo.TaskHelper
 
   import Ecto.Query
   require Logger

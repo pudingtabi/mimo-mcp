@@ -39,7 +39,7 @@ defmodule Mimo.Robustness do
   - Dec 6 2025 Incident Analysis: Root cause patterns
   """
 
-  alias Mimo.Robustness.{PatternDetector, ComplexityAnalyzer, IncidentParser}
+  alias Mimo.Robustness.{ComplexityAnalyzer, IncidentParser, PatternDetector}
 
   @doc """
   Analyze a file for robustness issues.
@@ -199,9 +199,10 @@ defmodule Mimo.Robustness do
 
     # Filter out test files and deps
     (elixir_files ++ js_files)
-    |> Enum.reject(&String.contains?(&1, "deps/"))
-    |> Enum.reject(&String.contains?(&1, "_build/"))
-    |> Enum.reject(&String.contains?(&1, "node_modules/"))
+    |> Enum.reject(fn x ->
+      String.contains?(x, "deps/") or String.contains?(x, "_build/") or
+        String.contains?(x, "node_modules/")
+    end)
   end
 
   defp build_audit_report(results, path) do

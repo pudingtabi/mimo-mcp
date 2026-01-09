@@ -23,6 +23,7 @@ defmodule Mimo.Skills.Network do
   - `auto_browser: true` - Auto-escalate to Browser if Blink fails
   """
 
+  alias Web
   alias Mimo.Skills.Blink
   alias Mimo.Skills.Browser
 
@@ -40,10 +41,6 @@ defmodule Mimo.Skills.Network do
   ]
 
   defp random_user_agent, do: Enum.random(@user_agents)
-
-  # ==========================================================================
-  # Core Fetch
-  # ==========================================================================
 
   @doc """
   Fetch a URL with options.
@@ -224,10 +221,6 @@ defmodule Mimo.Skills.Network do
   defp challenge_result?({tag, _}) when tag in [:challenge, :blocked], do: true
   defp challenge_result?(_), do: false
 
-  # ==========================================================================
-  # Fetch Formats
-  # ==========================================================================
-
   @doc "Fetch URL and return as plain text."
   def fetch_txt(url) when is_binary(url) do
     case fetch(url) do
@@ -278,10 +271,6 @@ defmodule Mimo.Skills.Network do
       error -> error
     end
   end
-
-  # ==========================================================================
-  # Native Web Search (no API key required)
-  # ==========================================================================
 
   @doc """
   Search the web using multi-backend scraping (DuckDuckGo, Bing, Brave).
@@ -426,10 +415,6 @@ defmodule Mimo.Skills.Network do
 
   defp extract_ddg_url(_), do: ""
 
-  # ==========================================================================
-  # Bing Search Backend
-  # ==========================================================================
-
   defp scrape_bing_html(query, num_results) do
     encoded_query = URI.encode(query)
     url = "https://www.bing.com/search?q=#{encoded_query}&count=#{num_results}"
@@ -496,10 +481,6 @@ defmodule Mimo.Skills.Network do
         nil
     end
   end
-
-  # ==========================================================================
-  # Brave Search Backend
-  # ==========================================================================
 
   defp scrape_brave_html(query, num_results) do
     encoded_query = URI.encode(query)
@@ -594,10 +575,6 @@ defmodule Mimo.Skills.Network do
         nil
     end
   end
-
-  # ==========================================================================
-  # Content Extraction
-  # ==========================================================================
 
   @doc """
   Extract clean content from HTML using Readability-style algorithms.
@@ -803,10 +780,6 @@ defmodule Mimo.Skills.Network do
   # Legacy aliases for compatibility
   def exa_web_search(query, opts \\ []), do: web_search(query, opts)
   def exa_code_context(query, opts \\ []), do: code_search(query, opts)
-
-  # ==========================================================================
-  # Private Helpers
-  # ==========================================================================
 
   # Execute request with circuit breaker protection (Phase 1 Stability - Task 1.4)
   defp execute_request(method, url, opts) do

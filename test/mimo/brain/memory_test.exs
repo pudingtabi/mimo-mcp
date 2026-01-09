@@ -6,6 +6,8 @@ defmodule Mimo.Brain.MemoryTest do
   setup do
     # Checkout a connection from the pool so we can write to DB in tests
     :ok = Ecto.Adapters.SQL.Sandbox.checkout(Mimo.Repo)
+    # Allow WriteSerializer to use our sandbox connection (it runs in a separate process)
+    Ecto.Adapters.SQL.Sandbox.allow(Mimo.Repo, self(), Mimo.Brain.WriteSerializer)
     :ok
   end
 

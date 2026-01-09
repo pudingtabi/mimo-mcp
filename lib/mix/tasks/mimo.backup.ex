@@ -25,6 +25,7 @@ defmodule Mix.Tasks.Mimo.Backup do
   """
 
   use Mix.Task
+  alias Mimo.Brain.BackupVerifier
   require Logger
 
   @shortdoc "Backup Mimo database"
@@ -98,6 +99,16 @@ defmodule Mix.Tasks.Mimo.Backup do
 
     metadata_path = backup_path <> ".meta.json"
     File.write!(metadata_path, Jason.encode!(metadata, pretty: true))
+
+    # Verify the backup integrity
+    case BackupVerifier.verify(backup_path) do
+      {:ok, _stats} ->
+        Mix.shell().info("✓ Backup verified successfully")
+
+      {:error, reason} ->
+        Mix.shell().error("⚠ Backup verification failed: #{inspect(reason)}")
+        Mix.shell().error("  The backup may be corrupt - consider re-creating it")
+    end
 
     backup_path
   end

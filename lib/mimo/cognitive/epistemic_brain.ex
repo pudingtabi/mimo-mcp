@@ -31,15 +31,16 @@ defmodule Mimo.Cognitive.EpistemicBrain do
 
   require Logger
 
+  alias Mimo.Brain.{Memory, SafeMemory}
+  alias Mimo.Skills.{FileOps, Network}
+
   alias Mimo.Cognitive.{
-    Uncertainty,
+    CalibratedResponse,
     ConfidenceAssessor,
     GapDetector,
-    CalibratedResponse,
+    Uncertainty,
     UncertaintyTracker
   }
-
-  alias Mimo.Brain.Memory
 
   @type query_result :: %{
           response: String.t(),
@@ -265,7 +266,7 @@ defmodule Mimo.Cognitive.EpistemicBrain do
 
   defp execute_research_action(:search_external, question) do
     # Use web search to find external information
-    case Mimo.Skills.Network.web_search(question, num_results: 3) do
+    case Network.web_search(question, num_results: 3) do
       {:ok, results} when is_list(results) and results != [] ->
         %{type: :web_search, content: format_search_results(results)}
 
@@ -307,7 +308,7 @@ defmodule Mimo.Cognitive.EpistemicBrain do
     # Use file search to find relevant code
     root = System.get_env("MIMO_ROOT") || File.cwd!()
 
-    case Mimo.Skills.FileOps.search(root, extract_search_pattern(question)) do
+    case FileOps.search(root, extract_search_pattern(question)) do
       {:ok, results} when results != [] ->
         %{type: :code_search, content: format_code_results(results)}
 
@@ -396,7 +397,7 @@ defmodule Mimo.Cognitive.EpistemicBrain do
     if String.length(content) > 50 do
       summary = "Research on '#{String.slice(question, 0..50)}': #{String.slice(content, 0..300)}"
 
-      Mimo.Brain.SafeMemory.store(summary,
+      SafeMemory.store(summary,
         category: "fact",
         importance: 0.6,
         source: "gap_research",

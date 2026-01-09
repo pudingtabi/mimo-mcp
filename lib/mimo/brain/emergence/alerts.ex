@@ -31,7 +31,7 @@ defmodule Mimo.Brain.Emergence.Alerts do
 
   require Logger
 
-  alias Mimo.Brain.Emergence.{Pattern, Metrics, Catalog}
+  alias Mimo.Brain.Emergence.{Catalog, Metrics, Pattern}
 
   @alert_types [
     :novel_pattern,
@@ -141,7 +141,7 @@ defmodule Mimo.Brain.Emergence.Alerts do
     # Check for patterns ready for promotion
     candidates = Pattern.promotion_candidates()
 
-    if length(candidates) > 0 do
+    unless Enum.empty?(candidates) do
       candidate_summaries =
         candidates
         |> Enum.take(5)

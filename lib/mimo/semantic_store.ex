@@ -19,11 +19,7 @@ defmodule Mimo.SemanticStore do
   - `Observer` - Proactive context observer
   """
 
-  alias Mimo.SemanticStore.{Repository, Query}
-
-  # ==========================================================================
-  # Query Operations (used by HybridRetriever)
-  # ==========================================================================
+  alias Mimo.SemanticStore.{Query, Repository}
 
   @doc """
   Query for entities related to a search term.
@@ -60,10 +56,6 @@ defmodule Mimo.SemanticStore do
   rescue
     e -> {:error, e}
   end
-
-  # ==========================================================================
-  # Delegated Operations
-  # ==========================================================================
 
   @doc """
   Store a semantic triple.

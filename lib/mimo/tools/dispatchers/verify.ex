@@ -44,10 +44,6 @@ defmodule Mimo.Tools.Dispatchers.Verify do
     end
   end
 
-  # ==========================================================================
-  # OPERATION DISPATCHERS
-  # ==========================================================================
-
   defp dispatch_count(args) do
     text = args["text"]
     type = args["type"]

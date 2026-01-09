@@ -17,10 +17,10 @@ defmodule Mimo.Brain.KnowledgeSyncer do
   use GenServer
   require Logger
 
-  alias Mimo.Repo
   alias Mimo.Brain.Engram
-  alias Mimo.SemanticStore.Ingestor
+  alias Mimo.Repo
   alias Mimo.SafeCall
+  alias Mimo.SemanticStore.Ingestor
   import Ecto.Query
 
   # Sync every 5 minutes
@@ -31,10 +31,6 @@ defmodule Mimo.Brain.KnowledgeSyncer do
 
   # Minimum importance to consider for knowledge extraction
   @min_importance 0.5
-
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -78,10 +74,6 @@ defmodule Mimo.Brain.KnowledgeSyncer do
     do_process_memory(memory)
   end
 
-  # ==========================================================================
-  # GenServer Callbacks
-  # ==========================================================================
-
   @impl true
   def init(_opts) do
     # Schedule first sync after a short delay
@@ -114,10 +106,6 @@ defmodule Mimo.Brain.KnowledgeSyncer do
     schedule_sync(@sync_interval)
     {:noreply, new_state}
   end
-
-  # ==========================================================================
-  # Private Functions
-  # ==========================================================================
 
   defp schedule_sync(delay) do
     Process.send_after(self(), :sync, delay)

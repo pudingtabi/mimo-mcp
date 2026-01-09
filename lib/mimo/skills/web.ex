@@ -6,22 +6,20 @@ defmodule Mimo.Skills.Web do
   @unwanted_tags ~w(script style nav footer svg header aside iframe noscript)
 
   def parse(html) when is_binary(html) and byte_size(html) > 0 do
-    try do
-      case Floki.parse_document(html) do
-        {:ok, tree} ->
-          tree
-          |> remove_unwanted_tags()
-          |> to_markdown()
-          |> String.trim()
-          |> normalize_whitespace()
+    case Floki.parse_document(html) do
+      {:ok, tree} ->
+        tree
+        |> remove_unwanted_tags()
+        |> to_markdown()
+        |> String.trim()
+        |> normalize_whitespace()
 
-        {:error, _} ->
-          # Fallback: strip HTML tags
-          strip_tags(html)
-      end
-    rescue
-      _ -> strip_tags(html)
+      {:error, _} ->
+        # Fallback: strip HTML tags
+        strip_tags(html)
     end
+  rescue
+    _ -> strip_tags(html)
   end
 
   def parse(_), do: ""

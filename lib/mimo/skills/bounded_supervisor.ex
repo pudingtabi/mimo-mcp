@@ -35,10 +35,6 @@ defmodule Mimo.Skills.Supervisor do
   @default_restart_intensity 3
   @default_restart_period 5
 
-  # ==========================================================================
-  # Public API
-  # ==========================================================================
-
   def start_link(init_arg) do
     DynamicSupervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
   end
@@ -160,10 +156,6 @@ defmodule Mimo.Skills.Supervisor do
     count_skills() < get_max_skills()
   end
 
-  # ==========================================================================
-  # DynamicSupervisor Callbacks
-  # ==========================================================================
-
   @impl true
   def init(_init_arg) do
     Logger.info("Skills Supervisor started (max: #{get_max_skills()})")
@@ -174,10 +166,6 @@ defmodule Mimo.Skills.Supervisor do
       max_seconds: get_restart_period()
     )
   end
-
-  # ==========================================================================
-  # Private Functions
-  # ==========================================================================
 
   defp do_start_skill(skill_name, config) do
     child_spec = %{

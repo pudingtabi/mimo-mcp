@@ -8,7 +8,7 @@
 //! Elixir and Rust, maintaining state across NIF calls.
 
 use rayon::prelude::*;
-use rustler::{Binary, Encoder, Env, NifResult, Resource, ResourceArc, Term};
+use rustler::{Binary, Encoder, Env, NifResult, ResourceArc, Term};
 use std::sync::RwLock;
 use usearch::{Index, IndexOptions, MetricKind, ScalarKind};
 
@@ -39,9 +39,6 @@ pub struct HnswIndex {
     is_built: RwLock<bool>,
 }
 
-/// Make HnswIndex a NIF resource type
-impl Resource for HnswIndex {}
-
 /// Create a new HNSW index.
 ///
 /// Parameters:
@@ -52,7 +49,7 @@ impl Resource for HnswIndex {}
 ///
 /// Returns {:ok, resource} or {:error, reason}
 #[rustler::nif]
-fn hnsw_new<'a>(
+pub fn hnsw_new<'a>(
     env: Env<'a>,
     dimensions: usize,
     connectivity: Option<usize>,
@@ -92,7 +89,7 @@ fn hnsw_new<'a>(
 /// Should be called before adding vectors to pre-allocate memory.
 /// Returns {:ok, :ok} or {:error, reason}
 #[rustler::nif]
-fn hnsw_reserve<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>, capacity: usize) -> NifResult<Term<'a>> {
+pub fn hnsw_reserve<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>, capacity: usize) -> NifResult<Term<'a>> {
     let idx = index.index.write().map_err(|_| rustler::Error::Term(Box::new("lock poisoned")))?;
     
     match idx.reserve(capacity) {
@@ -110,7 +107,7 @@ fn hnsw_reserve<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>, capacity: usize
 ///
 /// Returns {:ok, :ok} or {:error, reason}
 #[rustler::nif(schedule = "DirtyCpu")]
-fn hnsw_add<'a>(
+pub fn hnsw_add<'a>(
     env: Env<'a>,
     index: ResourceArc<HnswIndex>,
     key: u64,
@@ -141,7 +138,7 @@ fn hnsw_add<'a>(
 ///
 /// Returns {:ok, count_added} or {:error, reason}
 #[rustler::nif(schedule = "DirtyCpu")]
-fn hnsw_add_batch<'a>(
+pub fn hnsw_add_batch<'a>(
     env: Env<'a>,
     index: ResourceArc<HnswIndex>,
     entries: Vec<(u64, Binary<'a>)>,
@@ -189,7 +186,7 @@ fn hnsw_add_batch<'a>(
 /// Returns {:ok, [{key, distance}, ...]} or {:error, reason}
 /// Results are sorted by distance ascending (closest first).
 #[rustler::nif(schedule = "DirtyCpu")]
-fn hnsw_search<'a>(
+pub fn hnsw_search<'a>(
     env: Env<'a>,
     index: ResourceArc<HnswIndex>,
     query: Binary<'a>,
@@ -224,27 +221,27 @@ fn hnsw_search<'a>(
 
 /// Get the number of vectors in the index.
 #[rustler::nif]
-fn hnsw_size<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>) -> NifResult<Term<'a>> {
+pub fn hnsw_size<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>) -> NifResult<Term<'a>> {
     let idx = index.index.read().map_err(|_| rustler::Error::Term(Box::new("lock poisoned")))?;
     Ok((atoms::ok(), idx.size()).encode(env))
 }
 
 /// Get the capacity of the index.
 #[rustler::nif]
-fn hnsw_capacity<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>) -> NifResult<Term<'a>> {
+pub fn hnsw_capacity<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>) -> NifResult<Term<'a>> {
     let idx = index.index.read().map_err(|_| rustler::Error::Term(Box::new("lock poisoned")))?;
     Ok((atoms::ok(), idx.capacity()).encode(env))
 }
 
 /// Get index dimensions.
 #[rustler::nif]
-fn hnsw_dimensions<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>) -> NifResult<Term<'a>> {
+pub fn hnsw_dimensions<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>) -> NifResult<Term<'a>> {
     Ok((atoms::ok(), index.dimensions).encode(env))
 }
 
 /// Check if a key exists in the index.
 #[rustler::nif]
-fn hnsw_contains<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>, key: u64) -> NifResult<Term<'a>> {
+pub fn hnsw_contains<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>, key: u64) -> NifResult<Term<'a>> {
     let idx = index.index.read().map_err(|_| rustler::Error::Term(Box::new("lock poisoned")))?;
     Ok((atoms::ok(), idx.contains(key)).encode(env))
 }
@@ -254,7 +251,7 @@ fn hnsw_contains<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>, key: u64) -> N
 /// Note: HNSW doesn't truly delete, it marks as removed. The space is
 /// reclaimed on save/load or compaction.
 #[rustler::nif]
-fn hnsw_remove<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>, key: u64) -> NifResult<Term<'a>> {
+pub fn hnsw_remove<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>, key: u64) -> NifResult<Term<'a>> {
     let idx = index.index.write().map_err(|_| rustler::Error::Term(Box::new("lock poisoned")))?;
 
     match idx.remove(key) {
@@ -267,7 +264,7 @@ fn hnsw_remove<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>, key: u64) -> Nif
 ///
 /// Returns {:ok, :ok} or {:error, reason}
 #[rustler::nif(schedule = "DirtyCpu")]
-fn hnsw_save<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>, path: String) -> NifResult<Term<'a>> {
+pub fn hnsw_save<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>, path: String) -> NifResult<Term<'a>> {
     let idx = index.index.read().map_err(|_| rustler::Error::Term(Box::new("lock poisoned")))?;
 
     match idx.save(&path) {
@@ -280,24 +277,30 @@ fn hnsw_save<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>, path: String) -> N
 ///
 /// Returns {:ok, resource} or {:error, reason}
 #[rustler::nif(schedule = "DirtyCpu")]
-fn hnsw_load<'a>(env: Env<'a>, path: String) -> NifResult<Term<'a>> {
-    // First, we need to create an index with the right options
-    // and then load into it. USearch requires this pattern.
+pub fn hnsw_load<'a>(env: Env<'a>, path: String) -> NifResult<Term<'a>> {
+    // First, we need to create an index with default options
+    // and then load into it. USearch 2.21 requires this pattern.
+    let options = IndexOptions::default();
     
-    // Try to load to determine dimensions
-    match Index::restore(&path, IndexOptions::default()) {
+    match Index::new(&options) {
         Ok(index) => {
-            let dimensions = index.dimensions();
-            
-            let resource = ResourceArc::new(HnswIndex {
-                index: RwLock::new(index),
-                dimensions,
-                is_built: RwLock::new(true),
-            });
-            
-            Ok((atoms::ok(), resource).encode(env))
+            // Load the index from file
+            match index.load(&path) {
+                Ok(_) => {
+                    let dimensions = index.dimensions();
+                    
+                    let resource = ResourceArc::new(HnswIndex {
+                        index: RwLock::new(index),
+                        dimensions,
+                        is_built: RwLock::new(true),
+                    });
+                    
+                    Ok((atoms::ok(), resource).encode(env))
+                }
+                Err(e) => Ok((atoms::error(), format!("Load failed: {}", e)).encode(env)),
+            }
         }
-        Err(e) => Ok((atoms::error(), format!("Load failed: {}", e)).encode(env)),
+        Err(e) => Ok((atoms::error(), format!("Failed to create index: {}", e)).encode(env)),
     }
 }
 
@@ -308,20 +311,29 @@ fn hnsw_load<'a>(env: Env<'a>, path: String) -> NifResult<Term<'a>> {
 ///
 /// Returns {:ok, resource} or {:error, reason}
 #[rustler::nif(schedule = "DirtyCpu")]
-fn hnsw_view<'a>(env: Env<'a>, path: String) -> NifResult<Term<'a>> {
-    match Index::restore(&path, IndexOptions::default()) {
+pub fn hnsw_view<'a>(env: Env<'a>, path: String) -> NifResult<Term<'a>> {
+    // Create an index with default options, then view the file
+    let options = IndexOptions::default();
+    
+    match Index::new(&options) {
         Ok(index) => {
-            let dimensions = index.dimensions();
-            
-            let resource = ResourceArc::new(HnswIndex {
-                index: RwLock::new(index),
-                dimensions,
-                is_built: RwLock::new(true),
-            });
-            
-            Ok((atoms::ok(), resource).encode(env))
+            // View the index from file (memory-mapped)
+            match index.view(&path) {
+                Ok(_) => {
+                    let dimensions = index.dimensions();
+                    
+                    let resource = ResourceArc::new(HnswIndex {
+                        index: RwLock::new(index),
+                        dimensions,
+                        is_built: RwLock::new(true),
+                    });
+                    
+                    Ok((atoms::ok(), resource).encode(env))
+                }
+                Err(e) => Ok((atoms::error(), format!("View failed: {}", e)).encode(env)),
+            }
         }
-        Err(e) => Ok((atoms::error(), format!("View failed: {}", e)).encode(env)),
+        Err(e) => Ok((atoms::error(), format!("Failed to create index: {}", e)).encode(env)),
     }
 }
 
@@ -329,7 +341,7 @@ fn hnsw_view<'a>(env: Env<'a>, path: String) -> NifResult<Term<'a>> {
 ///
 /// Returns {:ok, %{size: n, capacity: n, dimensions: n, memory_usage: n}}
 #[rustler::nif]
-fn hnsw_stats<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>) -> NifResult<Term<'a>> {
+pub fn hnsw_stats<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>) -> NifResult<Term<'a>> {
     let idx = index.index.read().map_err(|_| rustler::Error::Term(Box::new("lock poisoned")))?;
     
     let stats: Vec<(&str, usize)> = vec![
@@ -340,26 +352,6 @@ fn hnsw_stats<'a>(env: Env<'a>, index: ResourceArc<HnswIndex>) -> NifResult<Term
     ];
     
     Ok((atoms::ok(), stats).encode(env))
-}
-
-/// List of NIF functions to export
-pub fn nif_funcs() -> Vec<rustler::Nif> {
-    vec![
-        hnsw_new,
-        hnsw_reserve,
-        hnsw_add,
-        hnsw_add_batch,
-        hnsw_search,
-        hnsw_size,
-        hnsw_capacity,
-        hnsw_dimensions,
-        hnsw_contains,
-        hnsw_remove,
-        hnsw_save,
-        hnsw_load,
-        hnsw_view,
-        hnsw_stats,
-    ]
 }
 
 #[cfg(test)]

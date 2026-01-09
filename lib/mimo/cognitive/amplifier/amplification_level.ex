@@ -27,7 +27,9 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationLevel do
           coherence: coherence_mode(),
           synthesis: synthesis_mode(),
           min_thinking_steps: non_neg_integer(),
-          force_verification: boolean()
+          force_verification: boolean(),
+          # Session-level caps to prevent challenge accumulation
+          max_must_address: non_neg_integer()
         }
 
   defstruct [
@@ -38,7 +40,8 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationLevel do
     coherence: :none,
     synthesis: :none,
     min_thinking_steps: 0,
-    force_verification: false
+    force_verification: false,
+    max_must_address: 10
   ]
 
   @doc """
@@ -54,7 +57,8 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationLevel do
       coherence: :none,
       synthesis: :none,
       min_thinking_steps: 0,
-      force_verification: false
+      force_verification: false,
+      max_must_address: 0
     }
   end
 
@@ -67,7 +71,8 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationLevel do
       coherence: :basic,
       synthesis: :none,
       min_thinking_steps: 3,
-      force_verification: false
+      force_verification: false,
+      max_must_address: 4
     }
   end
 
@@ -75,12 +80,13 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationLevel do
     %__MODULE__{
       name: :deep,
       decomposition: true,
-      challenges: 4,
+      challenges: 3,
       perspectives: 3,
       coherence: :full,
       synthesis: :required,
       min_thinking_steps: 5,
-      force_verification: true
+      force_verification: true,
+      max_must_address: 8
     }
   end
 
@@ -88,12 +94,13 @@ defmodule Mimo.Cognitive.Amplifier.AmplificationLevel do
     %__MODULE__{
       name: :exhaustive,
       decomposition: true,
-      challenges: :all,
+      challenges: 5,
       perspectives: :all,
       coherence: :full,
       synthesis: :strict,
       min_thinking_steps: 7,
-      force_verification: true
+      force_verification: true,
+      max_must_address: 15
     }
   end
 

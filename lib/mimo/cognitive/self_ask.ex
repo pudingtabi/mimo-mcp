@@ -33,10 +33,6 @@ defmodule Mimo.Cognitive.SelfAsk do
   # 30 seconds total for all sub-questions
   @total_timeout 30_000
 
-  # ============================================================================
-  # PUBLIC API
-  # ============================================================================
-
   @doc """
   Decompose a question into sub-questions, answer each, then synthesize.
 
@@ -208,10 +204,6 @@ defmodule Mimo.Cognitive.SelfAsk do
   end
 
   def benefits_from_decomposition?(_), do: false
-
-  # ============================================================================
-  # PRIVATE HELPERS
-  # ============================================================================
 
   defp simple_question?(question) do
     # Simple questions are short and don't have complexity markers

@@ -1,4 +1,6 @@
 defmodule MimoWeb.OpenAIController do
+  alias Mimo.Brain.{LLM, Memory}
+
   @moduledoc """
   OpenAI-compatible endpoint for the Universal Aperture.
 
@@ -169,7 +171,7 @@ defmodule MimoWeb.OpenAIController do
 
     # Use LLM to synthesize if configured
     synthesis =
-      case Mimo.Brain.LLM.consult_chief_of_staff(original_query, memories) do
+      case LLM.consult_chief_of_staff(original_query, memories) do
         {:ok, response} -> response
         {:error, _} -> format_memories_as_text(memories)
       end
@@ -201,10 +203,10 @@ defmodule MimoWeb.OpenAIController do
 
   defp handle_direct_response(conn, query, router_decision) do
     # Direct response without tool calling (compatibility mode)
-    memories = Mimo.Brain.Memory.search_memories(query, limit: 5)
+    memories = Memory.search_memories(query, limit: 5)
 
     synthesis =
-      case Mimo.Brain.LLM.consult_chief_of_staff(query, memories) do
+      case LLM.consult_chief_of_staff(query, memories) do
         {:ok, response} ->
           response
 
