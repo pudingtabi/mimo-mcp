@@ -1449,11 +1449,31 @@ defmodule Mimo.ToolInterface do
   defp execute_memory_list(args) do
     limit = InputValidation.validate_limit(Map.get(args, "limit"), default: 20, max: 200)
     offset = InputValidation.validate_offset(Map.get(args, "offset"))
+    cursor = Map.get(args, "cursor")
     category = Map.get(args, "category")
     sort = Map.get(args, "sort", "recent")
 
-    query = from(e in Engram, limit: ^limit, offset: ^offset)
+    # SPEC-096: Cursor-based pagination for scalability
+    # Cursor takes precedence over offset when both are provided
+    # Fetch limit + 1 to detect if there are more results
+    fetch_limit = limit + 1
 
+    # Build base query with limit
+    query =
+      if cursor do
+        # Cursor-based: decode cursor and use WHERE clause for O(log n) lookup
+        cursor_id = decode_cursor(cursor)
+
+        from(e in Engram,
+          where: e.id > ^cursor_id,
+          limit: ^fetch_limit
+        )
+      else
+        # Legacy offset-based for backward compatibility
+        from(e in Engram, limit: ^fetch_limit, offset: ^offset)
+      end
+
+    # Apply category filter
     query =
       if category do
         from(e in query, where: e.category == ^category)
@@ -1461,15 +1481,31 @@ defmodule Mimo.ToolInterface do
         query
       end
 
+    # Apply sort order
+    # Note: For cursor pagination to work correctly with non-ID sorts,
+    # we need compound cursors. Currently cursor only works with ID sort.
     query =
       case sort do
-        "importance" -> from(e in query, order_by: [desc: e.importance])
-        # Approximate
-        "decay_score" -> from(e in query, order_by: [asc: e.importance])
-        _ -> from(e in query, order_by: [desc: e.inserted_at])
+        "importance" -> from(e in query, order_by: [desc: e.importance, asc: e.id])
+        "decay_score" -> from(e in query, order_by: [asc: e.importance, asc: e.id])
+        # Default: recent (by ID since ID correlates with insert time)
+        _ -> from(e in query, order_by: [asc: e.id])
       end
 
-    memories = Repo.all(query)
+    results = Repo.all(query)
+
+    # Determine if there are more results
+    has_more = length(results) > limit
+    memories = Enum.take(results, limit)
+
+    # Generate next cursor from the last returned ID
+    next_cursor =
+      if has_more and memories != [] do
+        encode_cursor(List.last(memories).id)
+      else
+        nil
+      end
+
     total = Repo.one(from(e in Engram, select: count(e.id)))
 
     formatted =
@@ -1492,11 +1528,33 @@ defmodule Mimo.ToolInterface do
        data: %{
          memories: formatted,
          total: total,
+         # Pagination info (legacy offset included for backward compatibility)
          offset: offset,
-         limit: limit
+         limit: limit,
+         # SPEC-096: New cursor-based pagination fields
+         next_cursor: next_cursor,
+         has_more: has_more
        }
      }}
   end
+
+  # SPEC-096: Cursor encoding/decoding helpers
+  # Simple implementation: cursor is just the ID as a string
+  # Can be extended to compound cursors (ID + sort field) if needed
+  defp decode_cursor(nil), do: 0
+
+  defp decode_cursor(cursor) when is_binary(cursor) do
+    case Integer.parse(cursor) do
+      {id, ""} -> id
+      _ -> 0
+    end
+  end
+
+  defp decode_cursor(cursor) when is_integer(cursor), do: cursor
+  defp decode_cursor(_), do: 0
+
+  defp encode_cursor(id) when is_integer(id), do: Integer.to_string(id)
+  defp encode_cursor(_), do: nil
 
   defp execute_memory_delete(id) do
     case Repo.get(Engram, id) do

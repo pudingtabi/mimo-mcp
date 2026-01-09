@@ -715,7 +715,12 @@ defmodule Mimo.ToolRegistry do
             "offset" => %{
               "type" => "integer",
               "default" => 0,
-              "description" => "For list: pagination offset"
+              "description" => "For list: pagination offset (legacy, prefer cursor)"
+            },
+            "cursor" => %{
+              "type" => "string",
+              "description" =>
+                "For list: cursor for efficient pagination (SPEC-096). Use next_cursor from previous response. Preferred over offset for large datasets."
             },
             "sort" => %{
               "type" => "string",

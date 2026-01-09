@@ -236,6 +236,124 @@ defmodule Mimo.ToolInterfaceTest do
       assert response.data.offset == 0
     end
 
+    # SPEC-096: Cursor-based pagination tests
+    @tag :cursor_pagination
+    test "memory list returns cursor pagination fields" do
+      result =
+        ToolInterface.execute("memory", %{
+          "operation" => "list",
+          "limit" => 3
+        })
+
+      assert {:ok, response} = result
+      assert Map.has_key?(response.data, :has_more)
+      assert Map.has_key?(response.data, :next_cursor)
+      assert is_boolean(response.data.has_more)
+    end
+
+    @tag :cursor_pagination
+    test "memory list cursor pagination iterates correctly" do
+      # Create test memories with sequential IDs
+      for i <- 1..5 do
+        Repo.insert!(%Engram{
+          content: "Cursor test memory #{i}",
+          category: :fact,
+          importance: 0.5,
+          superseded_at: nil
+        })
+      end
+
+      # First page - no cursor
+      {:ok, page1} =
+        ToolInterface.execute("memory", %{
+          "operation" => "list",
+          "limit" => 2
+        })
+
+      assert length(page1.data.memories) == 2
+      assert page1.data.has_more == true
+      assert page1.data.next_cursor != nil
+
+      # Second page - use cursor
+      {:ok, page2} =
+        ToolInterface.execute("memory", %{
+          "operation" => "list",
+          "limit" => 2,
+          "cursor" => page1.data.next_cursor
+        })
+
+      assert length(page2.data.memories) == 2
+      assert page2.data.has_more == true
+
+      # Verify no overlap between pages
+      page1_ids = Enum.map(page1.data.memories, & &1.id)
+      page2_ids = Enum.map(page2.data.memories, & &1.id)
+      assert Enum.all?(page1_ids, fn id -> id not in page2_ids end)
+
+      # Third page
+      {:ok, page3} =
+        ToolInterface.execute("memory", %{
+          "operation" => "list",
+          "limit" => 2,
+          "cursor" => page2.data.next_cursor
+        })
+
+      # Should get remaining memories
+      assert length(page3.data.memories) >= 1
+    end
+
+    @tag :cursor_pagination
+    test "memory list cursor takes precedence over offset" do
+      # Create test memories
+      for i <- 1..10 do
+        Repo.insert!(%Engram{
+          content: "Precedence test #{i}",
+          category: :observation,
+          importance: 0.5,
+          superseded_at: nil
+        })
+      end
+
+      # Get first cursor
+      {:ok, page1} =
+        ToolInterface.execute("memory", %{
+          "operation" => "list",
+          "limit" => 3,
+          "category" => "observation"
+        })
+
+      cursor = page1.data.next_cursor
+
+      # Use cursor with conflicting offset - cursor should win
+      {:ok, page_cursor} =
+        ToolInterface.execute("memory", %{
+          "operation" => "list",
+          "limit" => 3,
+          "cursor" => cursor,
+          "offset" => 0,
+          "category" => "observation"
+        })
+
+      # IDs should be different from page1 (cursor worked)
+      page1_ids = Enum.map(page1.data.memories, & &1.id)
+      cursor_ids = Enum.map(page_cursor.data.memories, & &1.id)
+      assert Enum.all?(cursor_ids, fn id -> id not in page1_ids end)
+    end
+
+    @tag :cursor_pagination
+    test "memory list with invalid cursor returns from beginning" do
+      result =
+        ToolInterface.execute("memory", %{
+          "operation" => "list",
+          "limit" => 3,
+          "cursor" => "invalid_cursor_value"
+        })
+
+      # Should return results (defaults to ID 0)
+      assert {:ok, response} = result
+      assert is_list(response.data.memories)
+    end
+
     test "memory delete operation requires id" do
       result =
         ToolInterface.execute("memory", %{
