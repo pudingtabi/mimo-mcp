@@ -45,9 +45,9 @@ defmodule Mimo.Brain.HnswIndex do
 
   require Logger
 
-  alias Mimo.Vector.Math
   alias Mimo.Brain.Engram
   alias Mimo.Repo
+  alias Mimo.Vector.Math
 
   import Ecto.Query
 
@@ -56,7 +56,9 @@ defmodule Mimo.Brain.HnswIndex do
   @default_connectivity 16
   @default_expansion_add 128
   @default_expansion_search 64
-  @default_auto_save_interval :timer.minutes(5)
+  # Reduced from 5 minutes to 1 minute to minimize data loss on crash
+  # See: docs/specs/MEMORY_SCALABILITY_MASTER_PLAN.md
+  @default_auto_save_interval :timer.minutes(1)
   @default_index_path "priv/hnsw_index.usearch"
 
   # Minimum vectors before using HNSW (below this, two-stage search is faster)
@@ -83,10 +85,6 @@ defmodule Mimo.Brain.HnswIndex do
           vector_count: non_neg_integer(),
           initialized: boolean()
         }
-
-  # ===========================================================================
-  # Client API
-  # ===========================================================================
 
   @doc """
   Starts the HnswIndex GenServer.
@@ -325,9 +323,91 @@ defmodule Mimo.Brain.HnswIndex do
   @spec threshold() :: non_neg_integer()
   def threshold, do: @hnsw_threshold
 
-  # ===========================================================================
-  # GenServer Callbacks
-  # ===========================================================================
+  @doc """
+  Performs a health check comparing database engram count vs HNSW index count.
+
+  This detects desync issues where the index gets out of sync with the database,
+  which can cause search failures and duplicate memory creation.
+
+  ## Returns
+
+    - `{:healthy, db_count, index_count}` - Index is in sync
+    - `{:desync, db_count, index_count}` - Significant mismatch detected (>5%)
+    - `{:empty_index, db_count, 0}` - Index empty but DB has engrams
+    - `{:not_running, 0, 0}` - HnswIndex GenServer not running
+    - `{:not_initialized, 0, 0}` - Index not yet initialized
+  """
+  @spec health_check() ::
+          {:healthy | :desync | :empty_index | :not_running | :not_initialized, non_neg_integer(),
+           non_neg_integer()}
+  def health_check do
+    if Process.whereis(__MODULE__) do
+      try do
+        GenServer.call(__MODULE__, :health_check, :timer.seconds(30))
+      catch
+        :exit, _ -> {:not_running, 0, 0}
+      end
+    else
+      {:not_running, 0, 0}
+    end
+  end
+
+  @doc """
+  Checks index health and rebuilds if desync is detected.
+
+  This is safe to call periodically (e.g., from SleepCycle) as it only
+  triggers a rebuild when necessary.
+
+  ## Returns
+
+    - `:ok` - Index is healthy, no action needed
+    - `{:rebuilt, count}` - Index was rebuilt with `count` vectors
+    - `{:error, reason}` - Rebuild failed
+  """
+  @spec rebuild_if_needed() :: :ok | {:rebuilt, non_neg_integer()} | {:error, atom() | String.t()}
+  def rebuild_if_needed do
+    case health_check() do
+      {:healthy, db, idx} ->
+        Logger.debug("HNSW index healthy: #{db} DB engrams, #{idx} indexed")
+        :ok
+
+      {:desync, db, idx} ->
+        Logger.warning(
+          "HNSW index desync detected: #{db} DB engrams vs #{idx} indexed. Rebuilding..."
+        )
+
+        case rebuild() do
+          {:ok, count} ->
+            Logger.info("HNSW index rebuilt successfully with #{count} vectors")
+            {:rebuilt, count}
+
+          {:error, reason} = error ->
+            Logger.error("HNSW index rebuild failed: #{inspect(reason)}")
+            error
+        end
+
+      {:empty_index, db, _} ->
+        Logger.warning("HNSW index empty but DB has #{db} engrams. Building...")
+
+        case rebuild() do
+          {:ok, count} ->
+            Logger.info("HNSW index built successfully with #{count} vectors")
+            {:rebuilt, count}
+
+          {:error, reason} = error ->
+            Logger.error("HNSW index build failed: #{inspect(reason)}")
+            error
+        end
+
+      {:not_running, _, _} ->
+        Logger.debug("HNSW index not running (feature may be disabled)")
+        :ok
+
+      {:not_initialized, _, _} ->
+        Logger.debug("HNSW index not yet initialized")
+        :ok
+    end
+  end
 
   @impl true
   def init(opts) do
@@ -541,6 +621,37 @@ defmodule Mimo.Brain.HnswIndex do
     {:reply, state.initialized and state.vector_count >= @hnsw_threshold, state}
   end
 
+  def handle_call(:health_check, _from, %{initialized: false} = state) do
+    {:reply, {:not_initialized, 0, 0}, state}
+  end
+
+  def handle_call(:health_check, _from, state) do
+    # Count engrams with embeddings in database
+    db_count =
+      Repo.one(from(e in Engram, where: not is_nil(e.embedding_int8), select: count())) || 0
+
+    index_count = state.vector_count
+
+    # Allow 5% tolerance for timing differences (minimum 10)
+    tolerance = max(10, div(db_count, 20))
+
+    status =
+      cond do
+        index_count == 0 and db_count > 0 -> :empty_index
+        abs(db_count - index_count) > tolerance -> :desync
+        true -> :healthy
+      end
+
+    # Emit telemetry for monitoring
+    :telemetry.execute(
+      [:mimo, :hnsw, :health_check],
+      %{db_count: db_count, index_count: index_count},
+      %{status: status}
+    )
+
+    {:reply, {status, db_count, index_count}, state}
+  end
+
   @impl true
   def handle_info(:auto_save, state) do
     new_state =
@@ -575,10 +686,6 @@ defmodule Mimo.Brain.HnswIndex do
 
     :ok
   end
-
-  # ===========================================================================
-  # Private Functions
-  # ===========================================================================
 
   defp create_new_index(state, connectivity, expansion_add, expansion_search) do
     case Math.hnsw_new(state.dimensions, connectivity, expansion_add, expansion_search) do
@@ -657,28 +764,42 @@ defmodule Mimo.Brain.HnswIndex do
   end
 
   defp stream_rebuild(index, batch_size, total) do
-    from(e in Engram,
-      where: not is_nil(e.embedding_int8),
-      select: {e.id, e.embedding_int8},
-      order_by: [asc: e.id]
+    # Wrap in transaction - Ecto requires streams to run inside transactions
+    Repo.transaction(
+      fn ->
+        from(e in Engram,
+          where: not is_nil(e.embedding_int8),
+          select: {e.id, e.embedding_int8},
+          order_by: [asc: e.id]
+        )
+        |> Repo.stream(max_rows: batch_size)
+        |> Stream.chunk_every(batch_size)
+        |> Enum.reduce(0, fn batch, acc ->
+          case Math.hnsw_add_batch(index, batch) do
+            {:ok, count} ->
+              progress = (acc + count) * 100 / total
+
+              Logger.info(
+                "HNSW rebuild progress: #{Float.round(progress, 1)}% (#{acc + count}/#{total})"
+              )
+
+              acc + count
+
+            {:error, reason} ->
+              Logger.warning("HNSW batch add failed: #{inspect(reason)}")
+              acc
+          end
+        end)
+      end,
+      timeout: :infinity
     )
-    |> Repo.stream(max_rows: batch_size)
-    |> Stream.chunk_every(batch_size)
-    |> Enum.reduce(0, fn batch, acc ->
-      case Math.hnsw_add_batch(index, batch) do
-        {:ok, count} ->
-          progress = (acc + count) * 100 / total
+    |> case do
+      {:ok, count} ->
+        count
 
-          Logger.info(
-            "HNSW rebuild progress: #{Float.round(progress, 1)}% (#{acc + count}/#{total})"
-          )
-
-          acc + count
-
-        {:error, reason} ->
-          Logger.warning("HNSW batch add failed: #{inspect(reason)}")
-          acc
-      end
-    end)
+      {:error, reason} ->
+        Logger.error("HNSW rebuild transaction failed: #{inspect(reason)}")
+        0
+    end
   end
 end

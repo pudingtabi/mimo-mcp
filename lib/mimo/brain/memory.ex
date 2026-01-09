@@ -54,15 +54,21 @@ defmodule Mimo.Brain.Memory do
   """
   import Ecto.Query
   require Logger
-  alias Mimo.Repo
+  alias Mimo.Awakening.Hooks, as: AwakeningHooks
   alias Mimo.Brain.Engram
   alias Mimo.Brain.HnswIndex
-  alias Mimo.ErrorHandling.RetryStrategies
-  alias Mimo.Vector.Math
-  alias Mimo.Brain.NoveltyDetector
   alias Mimo.Brain.MemoryIntegrator
+  alias Mimo.Brain.NoveltyDetector
   alias Mimo.Brain.ReasoningBridge
-  alias Mimo.Awakening.Hooks, as: AwakeningHooks
+  alias Mimo.ErrorHandling.RetryStrategies
+  alias Mimo.Repo
+  alias Mimo.Brain.AccessTracker
+  alias Mimo.Brain.Forgetting
+  alias Mimo.Brain.LLM
+  alias Mimo.Cache.Classifier
+  alias Mimo.Synapse.Linker, as: SynapseLinker
+  alias Mimo.Synapse.Orchestrator, as: SynapseOrchestrator
+  alias Mimo.Vector.Math
 
   # Configuration constants
   @max_memory_batch_size 1000
@@ -110,55 +116,56 @@ defmodule Mimo.Brain.Memory do
     strategy = Keyword.get(opts, :strategy, :auto)
     recency_boost = Keyword.get(opts, :recency_boost, 0.0)
 
-    with {:ok, query_embedding} <- generate_embedding(query) do
-      # Quantize query embedding for search
-      results =
-        case Math.quantize_int8(query_embedding) do
-          {:ok, {query_int8, _scale, _offset}} ->
-            # Determine search strategy
-            actual_strategy = select_strategy(strategy, opts)
+    case generate_embedding(query) do
+      {:ok, query_embedding} ->
+        # Quantize query embedding for search
+        results =
+          case Math.quantize_int8(query_embedding) do
+            {:ok, {query_int8, _scale, _offset}} ->
+              # Determine search strategy
+              actual_strategy = select_strategy(strategy, opts)
 
-            case actual_strategy do
-              :hnsw ->
-                hnsw_search(query_int8, limit, min_similarity, recency_boost, opts)
+              case actual_strategy do
+                :hnsw ->
+                  hnsw_search(query_int8, limit, min_similarity, recency_boost, opts)
 
-              :binary_rescore ->
-                two_stage_search(
-                  query_embedding,
-                  query_int8,
-                  limit,
-                  min_similarity,
-                  recency_boost,
-                  opts
-                )
+                :binary_rescore ->
+                  two_stage_search(
+                    query_embedding,
+                    query_int8,
+                    limit,
+                    min_similarity,
+                    recency_boost,
+                    opts
+                  )
 
-              :exact ->
-                exact_search(query_int8, limit, min_similarity, recency_boost, opts)
-            end
+                :exact ->
+                  exact_search(query_int8, limit, min_similarity, recency_boost, opts)
+              end
 
-          {:error, _reason} ->
-            # Fallback to streaming search with float32
-            stream_search(
-              query_embedding,
-              limit,
-              min_similarity,
-              @max_memory_batch_size,
-              recency_boost
-            )
+            {:error, _reason} ->
+              # Fallback to streaming search with float32
+              stream_search(
+                query_embedding,
+                limit,
+                min_similarity,
+                @max_memory_batch_size,
+                recency_boost
+              )
+          end
+
+        # SPEC-012: Track memory access for adaptive decay reinforcement
+        if results != [] do
+          ids = Enum.map(results, & &1[:id]) |> Enum.reject(&is_nil/1)
+
+          if ids != [] do
+            Logger.debug("AccessTracker: tracking #{length(ids)} memory accesses")
+            AccessTracker.track_many(ids)
+          end
         end
 
-      # SPEC-012: Track memory access for adaptive decay reinforcement
-      if results != [] do
-        ids = Enum.map(results, & &1[:id]) |> Enum.reject(&is_nil/1)
+        results
 
-        if ids != [] do
-          Logger.debug("AccessTracker: tracking #{length(ids)} memory accesses")
-          Mimo.Brain.AccessTracker.track_many(ids)
-        end
-      end
-
-      results
-    else
       {:error, reason} ->
         Logger.error("Embedding generation failed: #{inspect(reason)}")
         []
@@ -224,7 +231,7 @@ defmodule Mimo.Brain.Memory do
     # SPEC-012: Track memory access for adaptive decay reinforcement
     if results != [] do
       ids = Enum.map(results, & &1[:id]) |> Enum.reject(&is_nil/1)
-      if ids != [], do: Mimo.Brain.AccessTracker.track_many(ids)
+      if ids != [], do: AccessTracker.track_many(ids)
     end
 
     {:ok, results}
@@ -329,43 +336,88 @@ defmodule Mimo.Brain.Memory do
   end
 
   def persist_memory(content, category, importance, opts) when is_list(opts) do
-    RetryStrategies.with_sqlite_retry(
-      fn -> do_persist_memory_with_tmc(content, category, importance, opts) end,
-      max_retries: 5,
-      base_delay: 500,
-      on_retry: fn attempt, reason ->
-        Logger.warning("Memory persist retry #{attempt}: #{inspect(reason)}")
-      end
-    )
-  end
-
-  # SPEC-034: TMC-aware persistence
-  # SPEC-058: Enhanced with optional reasoning-memory integration
-  # Routes through NoveltyDetector to handle contradictions and updates
-  defp do_persist_memory_with_tmc(content, category, importance, opts) do
+    # SPEC-STABILITY: Generate embedding OUTSIDE the WriteSerializer transaction
+    # Embedding generation calls Ollama (network I/O) and can take 5-10 seconds.
+    # If we hold the WriteSerializer lock during this time, other writes will fail
+    # with "Database busy" errors.
     category_str = to_string(category)
 
-    # Classify the content using NoveltyDetector
-    case NoveltyDetector.classify(content, category_str) do
+    with :ok <- validate_content_size(content),
+         :ok <- validate_content_quality(content),
+         {:ok, embedding} <- generate_embedding(content),
+         :ok <- validate_embedding_dimension(embedding) do
+      # Now that we have the embedding, enter the fast path inside WriteSerializer
+      do_persist_with_embedding(content, category_str, importance, embedding, opts)
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Fast path: embedding already generated, just do the DB insert
+  defp do_persist_with_embedding(content, category_str, importance, embedding, opts) do
+    try do
+      Mimo.Brain.WriteSerializer.transaction(fn ->
+        RetryStrategies.with_sqlite_retry(
+          fn ->
+            do_persist_memory_with_tmc_and_embedding(
+              content,
+              category_str,
+              importance,
+              embedding,
+              opts
+            )
+          end,
+          max_retries: 3,
+          base_delay: 200,
+          on_retry: fn attempt, reason ->
+            Logger.warning("Memory persist retry #{attempt}: #{inspect(reason)}")
+          end
+        )
+      end)
+      |> case do
+        {:ok, result} -> result
+        {:error, reason} -> {:error, reason}
+      end
+    rescue
+      _ ->
+        # Fallback to direct call if WriteSerializer unavailable
+        RetryStrategies.with_sqlite_retry(
+          fn ->
+            do_persist_memory_with_tmc_and_embedding(
+              content,
+              category_str,
+              importance,
+              embedding,
+              opts
+            )
+          end,
+          max_retries: 5,
+          base_delay: 500,
+          on_retry: fn attempt, reason ->
+            Logger.warning("Memory persist retry (fallback) #{attempt}: #{inspect(reason)}")
+          end
+        )
+    end
+  end
+
+  # SPEC-034: TMC-aware persistence with pre-generated embedding
+  # SPEC-STABILITY: This version takes embedding as parameter to avoid slow network I/O
+  # inside the WriteSerializer transaction lock.
+  defp do_persist_memory_with_tmc_and_embedding(content, category_str, importance, embedding, opts) do
+    # Classify the content using NoveltyDetector (uses the pre-generated embedding)
+    case NoveltyDetector.classify_with_embedding(content, category_str, embedding) do
       {:new, []} ->
         # No similar memories (or TMC disabled) - proceed with normal persistence
-        # SPEC-058: Optionally enhance with reasoning
-        do_persist_memory_with_reasoning(content, category, importance, [], opts)
-
-      {:new, similar} ->
-        # Treat loosely related memories as context for reasoning, but store as new
-        do_persist_memory_with_reasoning(content, category, importance, similar, opts)
+        do_persist_memory_fast(content, category_str, importance, embedding, opts)
 
       {:redundant, existing} ->
         # Near-duplicate found - reinforce existing memory
         Logger.debug("TMC: Redundant memory detected, reinforcing existing ##{existing.id}")
-        # execute(:redundant, ...) always returns {:ok, :skipped} - just reinforce existing
         _result = MemoryIntegrator.execute(:redundant, content, existing, importance: importance)
         {:ok, existing.id}
 
       {:ambiguous, similar_memories} ->
         # Similar memories found - ask LLM to decide
-        # Take the best match (first in list, sorted by similarity)
         [best_match | _] = similar_memories
         target = best_match.engram
 
@@ -373,10 +425,6 @@ defmodule Mimo.Brain.Memory do
           "TMC: Ambiguous case with #{length(similar_memories)} similar memories, deciding for ##{target.id}"
         )
 
-        # SPEC-058: Pass similar memories for relationship detection
-        similar_engrams = Enum.map(similar_memories, & &1.engram)
-
-        # decide/3 always returns {:ok, %{decision: ...}} (fallback on errors)
         {:ok, %{decision: decision}} =
           MemoryIntegrator.decide(content, target, category: category_str, importance: importance)
 
@@ -392,206 +440,72 @@ defmodule Mimo.Brain.Memory do
           {:ok, %Engram{id: id}} ->
             {:ok, id}
 
-          # For :new decisions, use reasoning-enhanced persistence
           {:ok, :new} ->
-            do_persist_memory_with_reasoning(content, category, importance, similar_engrams, opts)
+            do_persist_memory_fast(content, category_str, importance, embedding, opts)
 
           {:error, _} = error ->
             error
         end
     end
+  rescue
+    # If NoveltyDetector.classify_with_embedding doesn't exist, fall back to simple insert
+    UndefinedFunctionError ->
+      do_persist_memory_fast(content, category_str, importance, embedding, opts)
   end
 
-  # SPEC-058: Reasoning-enhanced persistence
-  # Optionally enhances memory with reasoning context when enabled
-  defp do_persist_memory_with_reasoning(content, category, importance, similar_memories, opts) do
-    if reasoning_memory_enabled?() do
-      category_str = to_string(category)
+  # SPEC-STABILITY: Fast insert path with pre-computed embedding
+  # No embedding generation, no duplicate check (already validated by caller)
+  defp do_persist_memory_fast(content, category_str, importance, embedding, opts) do
+    project_id = LLM.detect_project(content)
+    tags = auto_generate_tags(content)
+    valid_from = Keyword.get(opts, :valid_from)
+    valid_until = Keyword.get(opts, :valid_until)
+    validity_source = Keyword.get(opts, :validity_source)
 
-      # Get reasoning-enhanced metadata
-      reasoning_result =
-        case ReasoningBridge.analyze_for_storage(content,
-               category: category_str,
-               similar_memories: similar_memories
-             ) do
-          {:ok, ctx} -> ctx
-          {:skip, :disabled} -> nil
-        end
+    # SPEC-031: Quantize to int8 for efficient storage
+    {embedding_to_store, quantized_attrs} = quantize_embedding_for_storage(embedding)
 
-      # Score importance using reasoning (may adjust the provided importance)
-      final_importance =
-        if reasoning_result do
-          ReasoningBridge.score_importance(content, category_str, base_importance: importance)
-        else
-          importance
-        end
-
-      # Generate reasoning-enhanced tags
-      reasoning_tags =
-        if reasoning_result do
-          ReasoningBridge.generate_tags(content, category_str)
-        else
-          []
-        end
-
-      # Persist with enhanced metadata
-      do_persist_memory_enhanced(
-        content,
-        category,
-        final_importance,
-        reasoning_result,
-        reasoning_tags,
-        opts
+    changeset =
+      Engram.changeset(
+        %Engram{},
+        Map.merge(
+          %{
+            content: content,
+            category: category_str,
+            importance: importance,
+            embedding: embedding_to_store,
+            project_id: project_id,
+            tags: tags,
+            valid_from: valid_from,
+            valid_until: valid_until,
+            validity_source: validity_source
+          },
+          quantized_attrs
+        )
       )
-    else
-      do_persist_memory(content, category, importance, opts)
+
+    case Repo.insert(changeset) do
+      {:ok, engram} ->
+        log_memory_event(:stored, engram.id, category_str, project_id, tags)
+        # SPEC-STABILITY: Spawn post-insert hooks as async tasks to avoid
+        # holding DB connections during the WriteSerializer transaction.
+        # These hooks may do their own DB writes which would cause "Database busy"
+        spawn(fn ->
+          notify_memory_stored(engram)
+          AwakeningHooks.memory_stored(engram)
+          maybe_auto_protect(engram, importance)
+        end)
+
+        {:ok, engram.id}
+
+      {:error, changeset} ->
+        {:error, changeset.errors}
     end
   end
 
+  # SPEC-034: TMC-aware persistence
   defp reasoning_memory_enabled? do
     Application.get_env(:mimo, :reasoning_memory_enabled, false)
-  end
-
-  # SPEC-058: Enhanced persistence with reasoning context in metadata
-  defp do_persist_memory_enhanced(
-         content,
-         category,
-         importance,
-         reasoning_context,
-         reasoning_tags,
-         opts
-       ) do
-    Repo.transaction(fn ->
-      with :ok <- validate_content_size(content),
-           :ok <- validate_content_quality(content),
-           :unique <- check_duplicate(content),
-           {:ok, embedding} <- generate_embedding(content),
-           :ok <- validate_embedding_dimension(embedding) do
-        # Auto-detect project and generate tags
-        project_id = Mimo.Brain.LLM.detect_project(content)
-        auto_tags = auto_generate_tags(content)
-
-        # Merge auto-generated tags with reasoning-enhanced tags
-        all_tags = Enum.uniq(auto_tags ++ reasoning_tags)
-
-        valid_from = Keyword.get(opts, :valid_from)
-        valid_until = Keyword.get(opts, :valid_until)
-        validity_source = Keyword.get(opts, :validity_source)
-
-        # Build metadata with reasoning context
-        metadata = build_reasoning_metadata(reasoning_context)
-
-        # SPEC-031: Quantize to int8 for efficient storage
-        # SPEC-033: Also generate binary embedding for fast pre-filtering
-        {embedding_to_store, quantized_attrs} = quantize_embedding_for_storage(embedding)
-
-        changeset =
-          Engram.changeset(
-            %Engram{},
-            Map.merge(
-              %{
-                content: content,
-                category: category,
-                importance: importance,
-                embedding: embedding_to_store,
-                project_id: project_id,
-                tags: all_tags,
-                metadata: metadata,
-                valid_from: valid_from,
-                valid_until: valid_until,
-                validity_source: validity_source
-              },
-              quantized_attrs
-            )
-          )
-
-        case Repo.insert(changeset) do
-          {:ok, engram} ->
-            handle_successful_insert(
-              engram,
-              category,
-              project_id,
-              all_tags,
-              importance,
-              reasoning_context
-            )
-
-          {:error, changeset} ->
-            Repo.rollback(changeset.errors)
-        end
-      else
-        {:duplicate, id} ->
-          # Return duplicate info instead of rolling back
-          {:duplicate, id}
-
-        {:error, reason} ->
-          Repo.rollback(reason)
-      end
-    end)
-    |> unwrap_transaction_result()
-  end
-
-  defp do_persist_memory(content, category, importance, opts) do
-    Repo.transaction(fn ->
-      with :ok <- validate_content_size(content),
-           :ok <- validate_content_quality(content),
-           :unique <- check_duplicate(content),
-           {:ok, embedding} <- generate_embedding(content),
-           :ok <- validate_embedding_dimension(embedding) do
-        # Auto-detect project and generate tags
-        project_id = Mimo.Brain.LLM.detect_project(content)
-        tags = auto_generate_tags(content)
-        valid_from = Keyword.get(opts, :valid_from)
-        valid_until = Keyword.get(opts, :valid_until)
-        validity_source = Keyword.get(opts, :validity_source)
-
-        # SPEC-031: Quantize to int8 for efficient storage
-        # SPEC-033: Also generate binary embedding for fast pre-filtering
-        {embedding_to_store, quantized_attrs} = quantize_embedding_for_storage(embedding)
-
-        changeset =
-          Engram.changeset(
-            %Engram{},
-            Map.merge(
-              %{
-                content: content,
-                category: category,
-                importance: importance,
-                embedding: embedding_to_store,
-                project_id: project_id,
-                tags: tags,
-                valid_from: valid_from,
-                valid_until: valid_until,
-                validity_source: validity_source
-              },
-              quantized_attrs
-            )
-          )
-
-        case Repo.insert(changeset) do
-          {:ok, engram} ->
-            log_memory_event(:stored, engram.id, category, project_id, tags)
-            # SPEC-025: Notify Orchestrator for Synapse graph linking
-            notify_memory_stored(engram)
-            # SPEC-040: Award XP for memory storage
-            AwakeningHooks.memory_stored(engram)
-            # SPEC-032: Auto-protect high-importance memories
-            maybe_auto_protect(engram, importance)
-            {:ok, engram.id}
-
-          {:error, changeset} ->
-            Repo.rollback(changeset.errors)
-        end
-      else
-        {:duplicate, id} ->
-          # Return duplicate info instead of rolling back
-          {:duplicate, id}
-
-        {:error, reason} ->
-          Repo.rollback(reason)
-      end
-    end)
-    |> unwrap_transaction_result()
   end
 
   @doc """
@@ -599,41 +513,47 @@ defmodule Mimo.Brain.Memory do
   All memories are stored or none are (transaction).
   """
   def persist_memories(memories) when is_list(memories) do
-    Repo.transaction(fn ->
-      Enum.map(memories, fn memory ->
-        content = Map.get(memory, :content) || Map.get(memory, "content")
-        category = Map.get(memory, :category) || Map.get(memory, "category", "fact")
-        importance = Map.get(memory, :importance) || Map.get(memory, "importance", 0.5)
-
-        with :ok <- validate_content_size(content),
-             {:ok, embedding} <- generate_embedding(content),
-             :ok <- validate_embedding_dimension(embedding) do
-          # SPEC-031 + SPEC-033: Quantize to int8 and binary
-          {embedding_to_store, quantized_attrs} = quantize_embedding_for_storage(embedding)
-
-          changeset =
-            Engram.changeset(
-              %Engram{},
-              Map.merge(
-                %{
-                  content: content,
-                  category: category,
-                  importance: importance,
-                  embedding: embedding_to_store
-                },
-                quantized_attrs
-              )
-            )
-
-          case Repo.insert(changeset) do
-            {:ok, engram} -> engram.id
-            {:error, changeset} -> Repo.rollback({:insert_failed, changeset.errors})
-          end
-        else
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
+    # SPEC-STABILITY: Wrap in WriteSerializer to serialize SQLite writes
+    Mimo.Brain.WriteSerializer.transaction(fn ->
+      do_persist_memories(memories, [])
     end)
+  end
+
+  # Process memories recursively, collecting IDs
+  defp do_persist_memories([], acc), do: {:ok, Enum.reverse(acc)}
+
+  defp do_persist_memories([memory | rest], acc) do
+    content = Map.get(memory, :content) || Map.get(memory, "content")
+    category = Map.get(memory, :category) || Map.get(memory, "category", "fact")
+    importance = Map.get(memory, :importance) || Map.get(memory, "importance", 0.5)
+
+    with :ok <- validate_content_size(content),
+         {:ok, embedding} <- generate_embedding(content),
+         :ok <- validate_embedding_dimension(embedding) do
+      # SPEC-031 + SPEC-033: Quantize to int8 and binary
+      {embedding_to_store, quantized_attrs} = quantize_embedding_for_storage(embedding)
+
+      changeset =
+        Engram.changeset(
+          %Engram{},
+          Map.merge(
+            %{
+              content: content,
+              category: category,
+              importance: importance,
+              embedding: embedding_to_store
+            },
+            quantized_attrs
+          )
+        )
+
+      case Repo.insert(changeset) do
+        {:ok, engram} -> do_persist_memories(rest, [engram.id | acc])
+        {:error, changeset} -> {:error, {:insert_failed, changeset.errors}}
+      end
+    else
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @doc """
@@ -675,7 +595,11 @@ defmodule Mimo.Brain.Memory do
     # This enables multi-agent session isolation and filtering
     enhanced_metadata = inject_session_context(metadata)
 
-    persist_memory_with_metadata(content, type, ref, enhanced_metadata, importance)
+    # SPEC-STABILITY: Wrap in WriteSerializer to serialize SQLite writes
+    # This prevents "Database busy" errors under concurrent load
+    Mimo.Brain.WriteSerializer.transaction(fn ->
+      persist_memory_with_metadata(content, type, ref, enhanced_metadata, importance)
+    end)
   end
 
   # Inject session context into memory metadata.
@@ -719,65 +643,69 @@ defmodule Mimo.Brain.Memory do
 
   defp inject_session_context(metadata), do: metadata
 
+  # SPEC-STABILITY: This function is called inside WriteSerializer.transaction
+  # which already wraps with Repo.transaction. DO NOT add another Repo.transaction.
   defp persist_memory_with_metadata(content, type, ref, metadata, importance) do
-    Repo.transaction(fn ->
-      with :ok <- validate_content_size(content),
-           :ok <- validate_content_quality(content),
-           {:ok, embedding} <- generate_embedding(content),
-           :ok <- validate_embedding_dimension(embedding) do
-        # SPEC-031 + SPEC-033: Quantize to int8 and binary
-        {embedding_to_store, quantized_attrs} =
-          case Math.quantize_int8(embedding) do
-            {:ok, {int8_binary, scale, offset}} ->
-              binary_attrs =
-                case Math.int8_to_binary(int8_binary) do
-                  {:ok, binary} -> %{embedding_binary: binary}
-                  {:error, _} -> %{}
-                end
+    with :ok <- validate_content_size(content),
+         :ok <- validate_content_quality(content),
+         {:ok, embedding} <- generate_embedding(content),
+         :ok <- validate_embedding_dimension(embedding) do
+      # SPEC-031 + SPEC-033: Quantize to int8 and binary
+      {embedding_to_store, quantized_attrs} =
+        case Math.quantize_int8(embedding) do
+          {:ok, {int8_binary, scale, offset}} ->
+            binary_attrs =
+              case Math.int8_to_binary(int8_binary) do
+                {:ok, binary} -> %{embedding_binary: binary}
+                {:error, _} -> %{}
+              end
 
-              {[],
-               Map.merge(
-                 %{
-                   embedding_int8: int8_binary,
-                   embedding_scale: scale,
-                   embedding_offset: offset
-                 },
-                 binary_attrs
-               )}
+            {[],
+             Map.merge(
+               %{
+                 embedding_int8: int8_binary,
+                 embedding_scale: scale,
+                 embedding_offset: offset
+               },
+               binary_attrs
+             )}
 
-            {:error, _reason} ->
-              {embedding, %{}}
-          end
-
-        changeset =
-          Engram.changeset(
-            %Engram{},
-            Map.merge(
-              %{
-                content: content,
-                category: type,
-                importance: importance,
-                embedding: embedding_to_store,
-                metadata: Map.merge(metadata, %{"ref" => ref, "type" => type})
-              },
-              quantized_attrs
-            )
-          )
-
-        case Repo.insert(changeset) do
-          {:ok, engram} ->
-            # Auto-link memory to knowledge graph (async, fire-and-forget)
-            spawn(fn -> maybe_auto_link_memory(engram.id, content) end)
-            {:ok, engram.id}
-
-          {:error, changeset} ->
-            Repo.rollback(changeset.errors)
+          {:error, _reason} ->
+            {embedding, %{}}
         end
-      else
-        {:error, reason} -> Repo.rollback(reason)
+
+      # Auto-protect high-importance and entity_anchor memories
+      # This ensures valuable memories are never deleted by Forgetting
+      auto_protected = importance >= 0.8 or type == "entity_anchor"
+
+      changeset =
+        Engram.changeset(
+          %Engram{},
+          Map.merge(
+            %{
+              content: content,
+              category: type,
+              importance: importance,
+              embedding: embedding_to_store,
+              protected: auto_protected,
+              metadata: Map.merge(metadata, %{"ref" => ref, "type" => type})
+            },
+            quantized_attrs
+          )
+        )
+
+      case Repo.insert(changeset) do
+        {:ok, engram} ->
+          # Auto-link memory to knowledge graph (async, fire-and-forget)
+          spawn(fn -> maybe_auto_link_memory(engram.id, content) end)
+          {:ok, engram.id}
+
+        {:error, changeset} ->
+          {:error, changeset.errors}
       end
-    end)
-    |> unwrap_transaction_result()
+    else
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   def search(query, opts \\ []) do
@@ -966,62 +894,76 @@ defmodule Mimo.Brain.Memory do
     * `metadata` - Additional metadata map
   """
   def persist_memory(content, category, importance, embedding, metadata \\ %{}) do
-    RetryStrategies.with_retry(
-      fn -> do_persist_memory_full(content, category, importance, embedding, metadata) end,
-      max_retries: 3,
-      base_delay: 100,
-      on_retry: fn attempt, reason ->
-        Logger.warning("Memory persist retry #{attempt}: #{inspect(reason)}")
-      end
-    )
+    # SPEC-STABILITY: Wrap in WriteSerializer to serialize SQLite writes
+    # Note: WriteSerializer.transaction uses Repo.transaction internally,
+    # which wraps results as {:ok, inner_result} or {:error, reason}.
+    # We need to unwrap this to maintain the original API contract.
+    case Mimo.Brain.WriteSerializer.transaction(fn ->
+           RetryStrategies.with_retry(
+             fn -> do_persist_memory_full(content, category, importance, embedding, metadata) end,
+             max_retries: 3,
+             base_delay: 100,
+             on_retry: fn attempt, reason ->
+               Logger.warning("Memory persist retry #{attempt}: #{inspect(reason)}")
+             end
+           )
+         end) do
+      # Unwrap the Repo.transaction wrapping
+      {:ok, {:ok, engram}} -> {:ok, engram}
+      {:ok, {:error, reason}} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+      other -> other
+    end
   end
 
+  # SPEC-STABILITY: This function is called inside WriteSerializer.transaction
+  # which already wraps with Repo.transaction. DO NOT add another Repo.transaction.
   defp do_persist_memory_full(content, category, importance, embedding, metadata) do
-    Repo.transaction(fn ->
-      with :ok <- validate_content_size(content),
-           {:ok, final_embedding} <- resolve_embedding(content, embedding) do
-        # SPEC-031 + SPEC-033: Quantize to int8 and binary
-        {embedding_to_store, quantized_attrs} = quantize_embedding_for_storage(final_embedding)
+    # Ensure category is a string for Ecto
+    category_str = to_string(category)
 
-        changeset =
-          Engram.changeset(
-            %Engram{},
-            Map.merge(
-              %{
-                content: content,
-                category: category,
-                importance: importance,
-                embedding: embedding_to_store,
-                metadata: metadata,
-                last_accessed_at: NaiveDateTime.utc_now()
-              },
-              quantized_attrs
-            )
+    with :ok <- validate_content_size(content),
+         {:ok, final_embedding} <- resolve_embedding(content, embedding) do
+      # SPEC-031 + SPEC-033: Quantize to int8 and binary
+      {embedding_to_store, quantized_attrs} = quantize_embedding_for_storage(final_embedding)
+
+      changeset =
+        Engram.changeset(
+          %Engram{},
+          Map.merge(
+            %{
+              content: content,
+              category: category_str,
+              importance: importance,
+              embedding: embedding_to_store,
+              metadata: metadata,
+              last_accessed_at: NaiveDateTime.utc_now()
+            },
+            quantized_attrs
           )
+        )
 
-        case Repo.insert(changeset) do
-          {:ok, engram} ->
-            log_memory_event(:stored, engram.id, category)
-            notify_memory_stored(engram)
-            AwakeningHooks.memory_stored(engram)
-            {:ok, engram}
+      case Repo.insert(changeset) do
+        {:ok, engram} ->
+          log_memory_event(:stored, engram.id, category_str)
+          notify_memory_stored(engram)
+          AwakeningHooks.memory_stored(engram)
+          {:ok, engram}
 
-          {:error, changeset} ->
-            Repo.rollback(changeset.errors)
-        end
-      else
-        {:error, reason} -> Repo.rollback(reason)
+        {:error, changeset} ->
+          {:error, changeset.errors}
       end
-    end)
-    |> unwrap_transaction_result()
+    else
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   # Resolve embedding - use provided or generate new
-  defp resolve_embedding(_content, emb) when is_list(emb) and length(emb) > 0, do: {:ok, emb}
+  defp resolve_embedding(_content, emb) when is_list(emb) and emb != [], do: {:ok, emb}
 
   defp resolve_embedding(content, _) do
     case generate_embedding(content) do
-      {:ok, emb} when is_list(emb) and length(emb) > 0 ->
+      {:ok, emb} when is_list(emb) and emb != [] ->
         {:ok, emb}
 
       {:ok, []} ->
@@ -1034,41 +976,36 @@ defmodule Mimo.Brain.Memory do
     end
   end
 
-  # ==========================================================================
-  # SPEC-033: Search Strategy Selection and Implementations
-  # ==========================================================================
-
   # Determine which search strategy to use (internal)
   defp select_strategy(:auto, opts) do
-    # Check if HNSW index is available and has enough vectors
-    if HnswIndex.should_use_hnsw?() do
-      :hnsw
-    else
-      # Check if we have enough memories with binary embeddings
-      category = Keyword.get(opts, :category)
+    category = Keyword.get(opts, :category)
 
-      count =
-        if category do
-          Repo.one(
-            from(e in Engram,
-              where: e.category == ^category and not is_nil(e.embedding_binary),
-              select: count(e.id)
-            )
-          ) || 0
-        else
+    # OPTIMIZATION: For category-specific searches, use exact search with SQL pre-filtering.
+    # This guarantees correct results (no post-filter false negatives).
+    # All categories are currently < 10K (verified: largest is fact=3,424).
+    # exact_search with category filter takes ~30ms (verified via SQLite timing).
+    # See: docs/specs/MEMORY_SCALABILITY_MASTER_PLAN.md
+    if category != nil do
+      :exact
+    else
+      # No category filter - use HNSW for full corpus search if available
+      if HnswIndex.should_use_hnsw?() do
+        :hnsw
+      else
+        # HNSW not available, check binary embedding counts
+        count =
           Repo.one(
             from(e in Engram,
               where: not is_nil(e.embedding_binary),
               select: count(e.id)
             )
           ) || 0
-        end
 
-      cond do
-        # Will try HNSW but wasn't available
-        count >= @hnsw_search_threshold -> :binary_rescore
-        count >= @binary_search_threshold -> :binary_rescore
-        true -> :exact
+        cond do
+          count >= @hnsw_search_threshold -> :binary_rescore
+          count >= @binary_search_threshold -> :binary_rescore
+          true -> :exact
+        end
       end
     end
   rescue
@@ -1184,6 +1121,7 @@ defmodule Mimo.Brain.Memory do
     candidates =
       base_query
       |> maybe_filter_superseded(include_superseded)
+      |> maybe_filter_archived(false)
       |> Repo.all()
 
     # Score each candidate with int8 cosine similarity (for accurate similarity value)
@@ -1296,6 +1234,7 @@ defmodule Mimo.Brain.Memory do
       |> maybe_filter_category(category)
       |> maybe_filter_project(project_id)
       |> maybe_filter_superseded(include_superseded)
+      |> maybe_filter_archived(false)
 
     # Get total count using a separate count query
     count_query =
@@ -1305,6 +1244,7 @@ defmodule Mimo.Brain.Memory do
       |> maybe_filter_category(category)
       |> maybe_filter_project(project_id)
       |> maybe_filter_superseded(include_superseded)
+      |> maybe_filter_archived(false)
       |> select([e], count(e.id))
 
     total_count = Repo.one(count_query) || 0
@@ -1493,6 +1433,7 @@ defmodule Mimo.Brain.Memory do
       |> maybe_filter_category(category)
       |> maybe_filter_project(project_id)
       |> maybe_filter_superseded(include_superseded)
+      |> maybe_filter_archived(false)
 
     # Fetch all and compute similarity
     Repo.all(query)
@@ -1551,9 +1492,13 @@ defmodule Mimo.Brain.Memory do
     from(e in query, where: is_nil(e.superseded_at))
   end
 
-  # ==========================================================================
-  # Private Functions - Legacy Streaming Search (fallback)
-  # ==========================================================================
+  # Filter out archived memories by default (archive-not-delete strategy)
+  # include_archived: true => don't filter (for recovery/diagnostics)
+  defp maybe_filter_archived(query, include_archived) when include_archived == true, do: query
+
+  defp maybe_filter_archived(query, _) do
+    from(e in query, where: e.archived == false or is_nil(e.archived))
+  end
 
   # O(1) memory streaming implementation with optional recency boost
   # Used as fallback when int8/binary embeddings are not available
@@ -1665,10 +1610,6 @@ defmodule Mimo.Brain.Memory do
 
   defp calculate_similarity(_, _), do: 0.0
 
-  # ==========================================================================
-  # Private Functions - Validation
-  # ==========================================================================
-
   # SPEC-065 FIX: Content quality filter to prevent test data pollution
   @test_patterns ~w(test Test TEST unique123 placeholder dummy sample example lorem ipsum)
   @min_content_length 10
@@ -1741,10 +1682,6 @@ defmodule Mimo.Brain.Memory do
 
   defp validate_embedding_dimension(_), do: {:error, :invalid_embedding_type}
 
-  # ==========================================================================
-  # Private Functions - Embedding Quantization
-  # ==========================================================================
-
   # SPEC-031 + SPEC-033: Quantize embedding to int8 and binary for storage.
   # Returns {embedding_to_store, quantized_attrs} tuple.
   # This helper eliminates repeated nested case patterns throughout the module.
@@ -1779,13 +1716,9 @@ defmodule Mimo.Brain.Memory do
     end
   end
 
-  # ==========================================================================
-  # Private Functions - Embedding Generation
-  # ==========================================================================
-
   defp generate_embedding(text) do
-    Mimo.Cache.Classifier.get_or_compute_embedding(text, fn ->
-      case Mimo.Brain.LLM.generate_embedding(text) do
+    Classifier.get_or_compute_embedding(text, fn ->
+      case LLM.generate_embedding(text) do
         {:ok, embedding} ->
           {:ok, embedding}
 
@@ -1804,51 +1737,6 @@ defmodule Mimo.Brain.Memory do
   # Fallback embedding removed - it created garbage that corrupted semantic search
   # If you need embedding-less storage, create a separate "pending_embedding" table
 
-  # ==========================================================================
-  # Private Functions - Helpers
-  # ==========================================================================
-
-  defp unwrap_transaction_result({:ok, {:ok, result}}), do: {:ok, result}
-  defp unwrap_transaction_result({:ok, {:error, reason}}), do: {:error, reason}
-  defp unwrap_transaction_result({:ok, {:duplicate, id}}), do: {:duplicate, id}
-  defp unwrap_transaction_result({:error, reason}), do: {:error, reason}
-
-  defp build_reasoning_metadata(nil), do: %{}
-
-  defp build_reasoning_metadata(ctx) do
-    %{
-      "reasoning_context" => %{
-        "session_id" => ctx.session_id,
-        "strategy" => to_string(ctx.strategy),
-        "decomposition" => ctx.decomposition,
-        "importance_reasoning" => ctx.importance_reasoning,
-        "detected_relationships" => format_relationships(ctx.detected_relationships),
-        "confidence" => ctx.confidence
-      }
-    }
-  end
-
-  defp format_relationships(rels) do
-    Enum.map(rels, fn rel ->
-      %{"type" => to_string(rel.type), "target_id" => rel.target_id, "confidence" => rel.confidence}
-    end)
-  end
-
-  defp handle_successful_insert(engram, category, project_id, tags, importance, reasoning_context) do
-    log_memory_event(:stored, engram.id, category, project_id, tags)
-    notify_memory_stored(engram)
-    AwakeningHooks.memory_stored(engram)
-    maybe_auto_protect(engram, importance)
-    log_reasoning_context(reasoning_context)
-    {:ok, engram.id}
-  end
-
-  defp log_reasoning_context(nil), do: :ok
-
-  defp log_reasoning_context(ctx) do
-    Logger.debug("SPEC-058: Memory stored with reasoning context (confidence: #{ctx.confidence})")
-  end
-
   defp log_memory_event(event, id, category, project_id \\ "global", tags \\ []) do
     :telemetry.execute(
       [:mimo, :brain, :memory, event],
@@ -1864,49 +1752,24 @@ defmodule Mimo.Brain.Memory do
   end
 
   defp auto_generate_tags(content) do
-    case Mimo.Brain.LLM.auto_tag(content) do
+    case LLM.auto_tag(content) do
       {:ok, tags} -> tags
       {:error, _} -> []
     end
   end
 
-  # ==========================================================================
-  # SPEC-025: Cognitive Codebase Integration
-  # ==========================================================================
-
   defp notify_memory_stored(engram) do
-    if Process.whereis(Mimo.Synapse.Orchestrator) do
-      Mimo.Synapse.Orchestrator.on_memory_stored(engram)
+    if Process.whereis(SynapseOrchestrator) do
+      SynapseOrchestrator.on_memory_stored(engram)
     end
   rescue
     e ->
       Logger.warning("Failed to notify orchestrator of memory storage: #{Exception.message(e)}")
   end
 
-  # ==========================================================================
-  # SPEC-032: Duplicate Prevention & Auto-Protection
-  # ==========================================================================
-
-  defp check_duplicate(content) do
-    case search_memories(content, limit: 1, min_similarity: 0.95, strategy: :exact) do
-      [%{id: id, similarity: sim}] when sim >= 0.95 ->
-        Logger.debug(
-          "[Memory] Duplicate detected (sim: #{Float.round(sim, 3)}), returning existing ##{id}"
-        )
-
-        {:duplicate, id}
-
-      _ ->
-        :unique
-    end
-  rescue
-    _ ->
-      :unique
-  end
-
   defp maybe_auto_protect(engram, importance) when importance >= 0.85 do
     try do
-      Mimo.Brain.Forgetting.protect(engram.id)
+      Forgetting.protect(engram.id)
       Logger.debug("[Memory] Auto-protected high-importance memory ##{engram.id}")
     rescue
       e ->
@@ -1915,10 +1778,6 @@ defmodule Mimo.Brain.Memory do
   end
 
   defp maybe_auto_protect(_engram, _importance), do: :ok
-
-  # ==========================================================================
-  # SPEC-034: Temporal Memory Chains (TMC) - Chain Traversal Functions
-  # ==========================================================================
 
   @doc """
   Get the complete supersession chain for a memory.
@@ -2072,10 +1931,6 @@ defmodule Mimo.Brain.Memory do
     |> length()
   end
 
-  # ==========================================================================
-  # Auto-Linking (SPEC-051 Phase 2)
-  # ==========================================================================
-
   # Asynchronously links a new memory to the knowledge graph.
   # This improves graph density without blocking memory storage.
   defp maybe_auto_link_memory(engram_id, content) when is_integer(engram_id) do
@@ -2083,7 +1938,7 @@ defmodule Mimo.Brain.Memory do
     if String.length(content || "") > 20 do
       try do
         # Use the Synapse Linker to create edges
-        Mimo.Synapse.Linker.link_memory(engram_id, threshold: 0.6, max_links: 3)
+        SynapseLinker.link_memory(engram_id, threshold: 0.6, max_links: 3)
       rescue
         e ->
           Logger.debug("[Memory] Auto-link failed for #{engram_id}: #{inspect(e)}")
