@@ -41,7 +41,7 @@ defmodule Mimo.Brain.BackgroundCognition do
   use GenServer
   require Logger
 
-  alias Mimo.Brain.{LLM, Memory}
+  alias Mimo.Brain.{DbMaintenance, LLM, Memory}
 
   # alias Mimo.Brain.DecayScorer  # Commented out - will be used when decay_intelligence is reactivated
   alias Mimo.Brain.Emergence.{Pattern, Promoter}
@@ -146,6 +146,7 @@ defmodule Mimo.Brain.BackgroundCognition do
         syntheses_created: 0,
         patterns_promoted: 0,
         upgrade_recommendations: 0,
+        db_maintenance_runs: 0,
         llm_calls_total: 0,
         last_error: nil
       }
@@ -224,8 +225,10 @@ defmodule Mimo.Brain.BackgroundCognition do
     Logger.info("[BackgroundCognition] Starting background cognitive cycle")
 
     # Run processes in priority order, respecting LLM budget
+    # db_maintenance runs first (no LLM, always runs if due)
     {results, state} =
       state
+      |> run_process(:db_maintenance)
       |> run_process(:deep_consolidation)
       |> run_process(:emergence_enhancement)
       |> run_process(:context_precomputation)
@@ -276,6 +279,34 @@ defmodule Mimo.Brain.BackgroundCognition do
   end
 
   defp finalize_results({results, state}), do: {results, state}
+
+  # ============================================================================
+  # Process 0: Database Maintenance (SPEC-101)
+  # ============================================================================
+
+  defp execute_process(:db_maintenance, state) do
+    Logger.debug("[BackgroundCognition] Running database maintenance check")
+
+    try do
+      # DbMaintenance handles its own scheduling (daily ANALYZE, weekly VACUUM)
+      case DbMaintenance.optimize() do
+        {:ok, results} ->
+          actions_taken =
+            Enum.count([:vacuum, :analyze, :pragma_optimize], fn key ->
+              results[key] == :completed
+            end)
+
+          {%{actions: actions_taken, results: results}, state}
+
+        {:error, reason} ->
+          {%{error: reason}, state}
+      end
+    rescue
+      e ->
+        Logger.warning("[BackgroundCognition] DB maintenance failed: #{Exception.message(e)}")
+        {%{error: Exception.message(e)}, state}
+    end
+  end
 
   # ============================================================================
   # Process 1: Deep Consolidation
@@ -1009,6 +1040,7 @@ defmodule Mimo.Brain.BackgroundCognition do
       stats
       | cycles_completed: stats.cycles_completed + 1,
         llm_calls_total: stats.llm_calls_total + llm_calls,
+        db_maintenance_runs: stats.db_maintenance_runs + (results[:db_maintenance][:actions] || 0),
         deep_consolidations:
           stats.deep_consolidations + if(results[:deep_consolidation][:insights], do: 1, else: 0),
         patterns_enhanced:

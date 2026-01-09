@@ -1,51 +1,41 @@
 # Mimo Fix Pattern
 
-Use this when debugging or fixing issues.
+Diagnostic-fix-verify loop for debugging issues.
 
-## The Diagnostic-Fix-Verify Loop
+## Steps
 
-### Step 1: Check Past Fixes
+### 1. Check Past Fixes
 ```
-memory operation=search query="similar error [paste error text]"
-memory operation=search query="fix for [module/function name]"
+memory operation=search query="fix for [error text or module name]"
 ```
-You may have solved this before.
 
-### Step 2: Get Structured Diagnostics
+### 2. Diagnose + Locate
 ```
 code operation=diagnose path="."
-```
-This gives you compiler errors, linter warnings, and type issues in one call.
-
-### Step 3: Locate the Problem
-```
 code operation=definition name="[failing_function]"
-code operation=references name="[problematic_symbol]"
+memory operation=graph query="what calls [function]"
 ```
 
-### Step 4: Understand Context
-```
-knowledge operation=query query="what calls [function]"
-```
+### 3. Make the Fix
+Edit with full context from steps 1-2.
 
-### Step 5: Make the Fix
-Edit the code with full context.
-
-### Step 6: Verify the Fix
+### 4. Verify
 ```
 code operation=diagnose path="."
 terminal command="mix test [relevant_test_file]"
 ```
 
-### Step 7: Store the Solution
+### 5. Store Solution
 ```
-memory operation=store content="Fixed [error]: [solution description]" category=action importance=0.8
+memory operation=store content="Fixed [error]: [solution]" category=action importance=0.8
 ```
 
 ## Why This Works
 
-- Past fixes save time (memory search)
+- Past fixes save time
 - Structured diagnostics catch all issues
 - Code intelligence finds root causes
 - Verification confirms the fix
 - Storing helps future sessions
+
+ARGUMENTS: $ARGUMENTS

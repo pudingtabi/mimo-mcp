@@ -1,35 +1,29 @@
 # Mimo Session Start
 
-Begin a new session with proper context gathering.
+Initialize a session with full context.
 
 ## Steps
 
-1. First, query accumulated wisdom about this project:
+1. **Get synthesized project context**:
 ```
-ask_mimo query="What context do you have about this project and any ongoing work?"
-```
-
-2. Check memory for recent sessions:
-```
-memory operation=search query="recent session work progress"
+memory operation=synthesize query="What context do you have about this project, ongoing work, and any pending issues?"
 ```
 
-3. If this is a new/unknown project, run onboarding:
+2. **Ensure project is indexed** (uses cache if unchanged):
 ```
 onboard path="."
 ```
 
-4. Check for any pending tasks or known issues:
+3. **Check for pre-computed context** (if background cognition is enabled):
 ```
-memory operation=search query="pending tasks TODO issues"
+memory operation=search query="precomputed_context active topics"
 ```
 
 ## Expected Outcome
 
-You should now have:
-- Project context from Mimo's accumulated wisdom
-- Recent session history if any
-- Code symbols indexed (if onboarded)
-- Known issues or pending work
+You now have:
+- Project context and accumulated wisdom
+- Code symbols indexed
+- Background insights (if available)
 
-Proceed with the user's request with full context.
+Proceed with the user's request.

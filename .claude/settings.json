@@ -1,7 +1,16 @@
 {
   "permissions": {
     "deny": [
-      "Bash"
+      "Bash",
+      "Search",
+      "Read",
+      "Write",
+      "Update",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "Web Search",
+      "Fetch"
     ]
   }
 }

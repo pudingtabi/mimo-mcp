@@ -14,6 +14,8 @@ config :mimo_mcp,
   api_key: "test-key-for-ci-minimum-32-characters-long",
   openrouter_api_key: nil,
   skip_external_apis: true,
+  # Skip instance lock to allow tests alongside running Mimo instance
+  skip_instance_lock: true,
   # Use fast timeouts in tests
   ollama_timeout: 1_000,
   environment: :test

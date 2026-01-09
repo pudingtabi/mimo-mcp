@@ -32,17 +32,20 @@ defmodule Mimo.Application do
 
     # ===== SINGLE INSTANCE LOCK (SPEC-R4) =====
     # Prevent multiple Mimo instances from running simultaneously
-    case InstanceLock.acquire() do
-      :ok ->
-        :ok
+    # Skip in test mode to allow parallel test runs with main instance
+    unless Application.get_env(:mimo_mcp, :skip_instance_lock, false) do
+      case InstanceLock.acquire() do
+        :ok ->
+          :ok
 
-      {:error, :already_running} ->
-        # Exit immediately - another instance is running
-        System.halt(1)
+        {:error, :already_running} ->
+          # Exit immediately - another instance is running
+          System.halt(1)
 
-      {:error, reason} ->
-        Logger.error("[Application] Failed to acquire instance lock: #{inspect(reason)}")
-        System.halt(1)
+        {:error, reason} ->
+          Logger.error("[Application] Failed to acquire instance lock: #{inspect(reason)}")
+          System.halt(1)
+      end
     end
 
     children =
