@@ -82,6 +82,9 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   # Level 2: Behavioral Self-Knowledge (SPEC-SELF-UNDERSTANDING)
   @behavioral_ops ~w[behavioral_summary behavioral_timeline behavioral_metrics]
 
+  # Level 3: Predictive Self-Modeling (SPEC-SELF-UNDERSTANDING)
+  @predictive_ops ~w[predict calibrate calibration_score predictions can_handle limitations]
+
   @all_ops @epistemic_ops ++
              @verification_ops ++
              @verify_ops ++
@@ -100,7 +103,8 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
              @learning_objectives_ops ++
              @learning_executor_ops ++
              @learning_progress_ops ++
-             @behavioral_ops
+             @behavioral_ops ++
+             @predictive_ops
 
   @doc """
   Dispatch cognitive operation based on args.
@@ -232,6 +236,14 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   defp do_dispatch("behavioral_summary", args), do: dispatch_behavioral_summary(args)
   defp do_dispatch("behavioral_timeline", args), do: dispatch_behavioral_timeline(args)
   defp do_dispatch("behavioral_metrics", _args), do: dispatch_behavioral_metrics()
+
+  # --- Level 3: Predictive Self-Modeling (SPEC-SELF-UNDERSTANDING) ---
+  defp do_dispatch("predict", args), do: dispatch_predict(args)
+  defp do_dispatch("calibrate", args), do: dispatch_calibrate(args)
+  defp do_dispatch("calibration_score", args), do: dispatch_calibration_score(args)
+  defp do_dispatch("predictions", args), do: dispatch_predictions(args)
+  defp do_dispatch("can_handle", args), do: dispatch_can_handle(args)
+  defp do_dispatch("limitations", args), do: dispatch_limitations(args)
 
   # --- Fallback for Unknown Operations ---
   defp do_dispatch(op, _args) do
@@ -2507,4 +2519,193 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   defp parse_category("classification"), do: :classification
   defp parse_category("retrieval"), do: :retrieval
   defp parse_category(_), do: nil
+
+  # ============================================================================
+  # Level 3: Predictive Self-Modeling Implementation (SPEC-SELF-UNDERSTANDING)
+  # ============================================================================
+
+  alias Mimo.Cognitive.{PredictiveModeling, CapabilityBoundary}
+
+  # Make a prediction before executing an action.
+  # Args: tool, operation, query
+  defp dispatch_predict(args) do
+    context = %{
+      tool: args["tool"] || "unknown",
+      operation: args["operation"] || "unknown",
+      query: args["query"],
+      problem: args["problem"]
+    }
+
+    case PredictiveModeling.predict(context) do
+      {:ok, prediction} ->
+        {:ok,
+         %{
+           type: "prediction",
+           prediction: prediction,
+           hint: "Store the prediction ID and call 'calibrate' after execution",
+           level: "L3 - Predictive Self-Modeling"
+         }}
+
+      {:error, reason} ->
+        {:error, "Failed to make prediction: #{inspect(reason)}"}
+    end
+  end
+
+  # Calibrate a prediction against actual outcome.
+  # Args: prediction_id, actual_duration_ms, success, actual_steps
+  defp dispatch_calibrate(args) do
+    prediction_id = args["prediction_id"]
+
+    if is_nil(prediction_id) do
+      {:error, "prediction_id is required for calibrate"}
+    else
+      actual = %{
+        actual_duration_ms: args["actual_duration_ms"] || 0,
+        success: args["success"] != false,
+        actual_steps: args["actual_steps"] || 1
+      }
+
+      # calibrate is a GenServer.cast, always returns :ok
+      :ok = PredictiveModeling.calibrate(prediction_id, actual)
+
+      {:ok,
+       %{
+         type: "calibration",
+         prediction_id: prediction_id,
+         message: "Prediction calibrated successfully",
+         level: "L3 - Predictive Self-Modeling"
+       }}
+    end
+  end
+
+  # Get the overall calibration score.
+  # Args: days (default: 7)
+  defp dispatch_calibration_score(args) do
+    days = args["days"] || 7
+
+    case PredictiveModeling.calibration_score(days: days) do
+      {:ok, score} ->
+        {:ok,
+         %{
+           type: "calibration_score",
+           score: score,
+           interpretation: interpret_calibration_score(score.score),
+           level: "L3 - Predictive Self-Modeling"
+         }}
+
+      {:error, reason} ->
+        {:error, "Failed to compute calibration score: #{inspect(reason)}"}
+    end
+  end
+
+  defp interpret_calibration_score(score) when score >= 0.8,
+    do: "Excellent - predictions highly accurate"
+
+  defp interpret_calibration_score(score) when score >= 0.6,
+    do: "Good - predictions reasonably accurate"
+
+  defp interpret_calibration_score(score) when score >= 0.4,
+    do: "Fair - predictions need improvement"
+
+  defp interpret_calibration_score(_), do: "Poor - insufficient data or inaccurate predictions"
+
+  # List prediction history.
+  # Args: limit (default: 50), tool
+  defp dispatch_predictions(args) do
+    opts =
+      []
+      |> maybe_add_opt(:limit, args["limit"])
+      |> maybe_add_opt(:tool, args["tool"])
+
+    case PredictiveModeling.list_predictions(opts) do
+      {:ok, predictions} ->
+        {:ok,
+         %{
+           type: "predictions",
+           predictions: predictions,
+           count: length(predictions),
+           level: "L3 - Predictive Self-Modeling"
+         }}
+
+      {:error, reason} ->
+        {:error, "Failed to list predictions: #{inspect(reason)}"}
+    end
+  end
+
+  # Check if Mimo can handle a given task.
+  # Args: query, tool (optional), operation (optional)
+  defp dispatch_can_handle(args) do
+    context = %{
+      query: args["query"] || "",
+      tool: args["tool"],
+      operation: args["operation"]
+    }
+
+    case CapabilityBoundary.can_handle?(context) do
+      {:ok, confidence} ->
+        {:ok,
+         %{
+           type: "can_handle",
+           can_handle: true,
+           confidence: confidence,
+           message: "Can handle this task with #{Float.round(confidence * 100, 1)}% confidence",
+           level: "L3 - Predictive Self-Modeling"
+         }}
+
+      {:uncertain, reason} ->
+        {:ok,
+         %{
+           type: "can_handle",
+           can_handle: :uncertain,
+           reason: reason,
+           message: "Uncertain - proceed with caution",
+           level: "L3 - Predictive Self-Modeling"
+         }}
+
+      {:no, explanation} ->
+        {:ok,
+         %{
+           type: "can_handle",
+           can_handle: false,
+           explanation: explanation,
+           message: "Known limitation - consider alternative approach",
+           level: "L3 - Predictive Self-Modeling"
+         }}
+    end
+  end
+
+  # List known capability limitations.
+  # Args: limit (default: 50), category
+  defp dispatch_limitations(args) do
+    opts =
+      []
+      |> maybe_add_opt(:limit, args["limit"])
+      |> maybe_add_opt(:category, parse_limitation_category(args["category"]))
+
+    case CapabilityBoundary.limitations(opts) do
+      {:ok, limitations} ->
+        {:ok,
+         %{
+           type: "limitations",
+           limitations: limitations,
+           count: length(limitations),
+           hint: "These are learned from past failures",
+           level: "L3 - Predictive Self-Modeling"
+         }}
+
+      {:error, reason} ->
+        {:error, "Failed to list limitations: #{inspect(reason)}"}
+    end
+  end
+
+  defp parse_limitation_category(nil), do: nil
+  defp parse_limitation_category("tool"), do: :tool
+  defp parse_limitation_category("domain"), do: :domain
+  defp parse_limitation_category("complexity"), do: :complexity
+  defp parse_limitation_category("resource"), do: :resource
+  defp parse_limitation_category("permission"), do: :permission
+  defp parse_limitation_category("knowledge"), do: :knowledge
+  defp parse_limitation_category("execution"), do: :execution
+  defp parse_limitation_category("general"), do: :general
+  defp parse_limitation_category(_), do: nil
 end

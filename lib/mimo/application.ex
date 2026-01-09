@@ -189,6 +189,11 @@ defmodule Mimo.Application do
         {Mimo.Cognitive.FeedbackLoop, []},
         # SPEC-087: Bridge that connects FeedbackLoop to UsageFeedback/HebbianLearner
         {Mimo.Cognitive.FeedbackBridge, []},
+        # ===== SPEC-SELF Level 3: Predictive Self-Modeling =====
+        # Predict outcomes before execution, calibrate against actual
+        {Mimo.Cognitive.PredictiveModeling, []},
+        # Learn capability boundaries from failures
+        {Mimo.Cognitive.CapabilityBoundary, []},
         # ===== Active Inference (SPEC-071) =====
         # Proactive context pushing based on Free Energy Principle
         {Mimo.ActiveInference, []},
