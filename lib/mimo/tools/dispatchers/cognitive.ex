@@ -79,6 +79,9 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   @learning_executor_ops ~w[learning_execute_now learning_pause learning_resume learning_history]
   @learning_progress_ops ~w[learning_progress_summary learning_progress_metrics learning_progress_stuck learning_progress_velocity learning_progress_recommendations]
 
+  # Level 2: Behavioral Self-Knowledge (SPEC-SELF-UNDERSTANDING)
+  @behavioral_ops ~w[behavioral_summary behavioral_timeline behavioral_metrics]
+
   @all_ops @epistemic_ops ++
              @verification_ops ++
              @verify_ops ++
@@ -96,7 +99,8 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
              @healing_ops ++
              @learning_objectives_ops ++
              @learning_executor_ops ++
-             @learning_progress_ops
+             @learning_progress_ops ++
+             @behavioral_ops
 
   @doc """
   Dispatch cognitive operation based on args.
@@ -223,6 +227,11 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
 
   defp do_dispatch("learning_progress_recommendations", _args),
     do: dispatch_learning_progress_recommendations()
+
+  # --- Level 2: Behavioral Self-Knowledge (SPEC-SELF-UNDERSTANDING) ---
+  defp do_dispatch("behavioral_summary", args), do: dispatch_behavioral_summary(args)
+  defp do_dispatch("behavioral_timeline", args), do: dispatch_behavioral_timeline(args)
+  defp do_dispatch("behavioral_metrics", _args), do: dispatch_behavioral_metrics()
 
   # --- Fallback for Unknown Operations ---
   defp do_dispatch(op, _args) do
@@ -2396,4 +2405,106 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
        hint: "Actionable suggestions to improve learning effectiveness"
      }}
   end
+
+  # ─────────────────────────────────────────────────────────────────
+  # Level 2: Behavioral Self-Knowledge (SPEC-SELF-UNDERSTANDING)
+  # ─────────────────────────────────────────────────────────────────
+
+  alias Mimo.Cognitive.FeedbackLoop
+
+  defp dispatch_behavioral_summary(args) do
+    opts = build_behavioral_opts(args)
+
+    case FeedbackLoop.daily_activity_summary(opts) do
+      summary when is_map(summary) ->
+        {:ok,
+         %{
+           type: "behavioral_summary",
+           summary: summary,
+           hint: "Summary of Mimo's activities for the time period",
+           level: "L2 - Behavioral Self-Knowledge"
+         }}
+
+      error ->
+        {:error, "Failed to get behavioral summary: #{inspect(error)}"}
+    end
+  end
+
+  defp dispatch_behavioral_timeline(args) do
+    opts =
+      []
+      |> maybe_add_opt(:limit, args["limit"])
+      |> maybe_add_opt(:category, parse_category(args["category"]))
+      |> maybe_add_opt(:success_only, args["success_only"])
+
+    case FeedbackLoop.get_activity_timeline(opts) do
+      timeline when is_list(timeline) ->
+        {:ok,
+         %{
+           type: "behavioral_timeline",
+           entries: timeline,
+           count: length(timeline),
+           hint: "Chronological list of Mimo's recent activities",
+           level: "L2 - Behavioral Self-Knowledge"
+         }}
+
+      error ->
+        {:error, "Failed to get activity timeline: #{inspect(error)}"}
+    end
+  end
+
+  defp dispatch_behavioral_metrics do
+    case FeedbackLoop.behavioral_metrics() do
+      metrics when is_map(metrics) ->
+        {:ok,
+         %{
+           type: "behavioral_metrics",
+           metrics: metrics,
+           hint: "Key behavioral metrics for self-assessment",
+           level: "L2 - Behavioral Self-Knowledge"
+         }}
+
+      error ->
+        {:error, "Failed to get behavioral metrics: #{inspect(error)}"}
+    end
+  end
+
+  # Helpers for behavioral operations
+
+  defp build_behavioral_opts(args) do
+    opts = []
+
+    opts =
+      case args["since"] do
+        since when is_binary(since) ->
+          case DateTime.from_iso8601(since) do
+            {:ok, dt, _} -> Keyword.put(opts, :since, dt)
+            _ -> opts
+          end
+
+        _ ->
+          opts
+      end
+
+    case args["until"] do
+      until when is_binary(until) ->
+        case DateTime.from_iso8601(until) do
+          {:ok, dt, _} -> Keyword.put(opts, :until, dt)
+          _ -> opts
+        end
+
+      _ ->
+        opts
+    end
+  end
+
+  defp maybe_add_opt(opts, _key, nil), do: opts
+  defp maybe_add_opt(opts, key, value), do: Keyword.put(opts, key, value)
+
+  defp parse_category(nil), do: nil
+  defp parse_category("tool_execution"), do: :tool_execution
+  defp parse_category("prediction"), do: :prediction
+  defp parse_category("classification"), do: :classification
+  defp parse_category("retrieval"), do: :retrieval
+  defp parse_category(_), do: nil
 end

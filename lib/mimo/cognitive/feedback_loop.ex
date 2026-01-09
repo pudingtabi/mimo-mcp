@@ -276,6 +276,112 @@ defmodule Mimo.Cognitive.FeedbackLoop do
     GenServer.call(__MODULE__, :calibration_warnings)
   end
 
+  # ─────────────────────────────────────────────────────────────────
+  # Level 2: Behavioral Self-Knowledge (SPEC-SELF-UNDERSTANDING)
+  # ─────────────────────────────────────────────────────────────────
+
+  @doc """
+  Get a summary of today's activities for behavioral self-knowledge.
+
+  Returns a structured summary of what Mimo has done today, enabling
+  answers to questions like "What did I do today?" and "How successful was I?"
+
+  ## Parameters
+    - opts: Keyword list with optional filters
+      - :since - DateTime to start from (default: start of today)
+      - :until - DateTime to end at (default: now)
+
+  ## Returns
+    Map with:
+    - `period` - The time period covered
+    - `total_actions` - Total number of actions performed
+    - `success_rate` - Overall success rate
+    - `by_category` - Breakdown by category (tool_execution, prediction, etc.)
+    - `by_tool` - Top tools used with success rates
+    - `notable_events` - Significant successes or failures
+    - `learning_progress` - Any detected improvements
+
+  ## Example
+      FeedbackLoop.daily_activity_summary()
+      # => %{
+      #   period: %{from: ~U[2025-01-14 00:00:00Z], to: ~U[2025-01-14 15:30:00Z]},
+      #   total_actions: 156,
+      #   success_rate: 0.87,
+      #   by_category: %{tool_execution: 120, prediction: 20, classification: 16},
+      #   by_tool: [%{tool: "memory", count: 45, success_rate: 0.93}, ...],
+      #   notable_events: [%{type: :success_streak, description: "15 consecutive successful memory operations"}],
+      #   learning_progress: %{trend: :improving, improvement: 0.05}
+      # }
+  """
+  @spec daily_activity_summary(keyword()) :: map()
+  def daily_activity_summary(opts \\ []) do
+    GenServer.call(__MODULE__, {:daily_activity_summary, opts})
+  end
+
+  @doc """
+  Get a chronological timeline of recent activities.
+
+  Returns a list of actions in chronological order, useful for
+  understanding sequence of behavior and decision patterns.
+
+  ## Parameters
+    - opts: Keyword list with optional filters
+      - :limit - Maximum entries to return (default: 50)
+      - :category - Filter by category (default: all)
+      - :success_only - Only include successful actions (default: false)
+      - :since - Start timestamp (default: last hour)
+
+  ## Returns
+    List of activity entries, each with:
+    - `timestamp` - When the action occurred
+    - `category` - What type of action
+    - `tool` - Which tool was used (for tool_execution)
+    - `operation` - What operation was performed
+    - `success` - Whether it succeeded
+    - `duration_ms` - How long it took (if available)
+
+  ## Example
+      FeedbackLoop.get_activity_timeline(limit: 10)
+      # => [
+      #   %{timestamp: ~U[...], category: :tool_execution, tool: "memory", operation: "search", success: true, duration_ms: 45},
+      #   %{timestamp: ~U[...], category: :tool_execution, tool: "code", operation: "symbols", success: true, duration_ms: 120},
+      #   ...
+      # ]
+  """
+  @spec get_activity_timeline(keyword()) :: [map()]
+  def get_activity_timeline(opts \\ []) do
+    GenServer.call(__MODULE__, {:get_activity_timeline, opts})
+  end
+
+  @doc """
+  Get behavioral metrics for self-assessment queries.
+
+  Returns key metrics about Mimo's own behavior that can be used
+  by ConfidenceAssessor when answering behavioral self-queries.
+
+  ## Returns
+    Map with:
+    - `session_activity` - Actions in current session
+    - `recent_success_rate` - Success rate in last hour
+    - `top_operations` - Most frequent operations
+    - `error_patterns` - Recent error types and frequencies
+    - `behavioral_consistency` - How consistent behavior has been
+
+  ## Example
+      FeedbackLoop.behavioral_metrics()
+      # => %{
+      #   session_activity: 42,
+      #   recent_success_rate: 0.88,
+      #   top_operations: ["memory.search", "file.read", "code.symbols"],
+      #   error_patterns: [%{type: :timeout, count: 2}],
+      #   behavioral_consistency: 0.91
+      # }
+  """
+  @spec behavioral_metrics() :: map()
+  def behavioral_metrics do
+    GenServer.call(__MODULE__, :behavioral_metrics)
+  end
+
   ## GenServer Implementation
 
   def start_link(opts \\ []) do
@@ -491,6 +597,28 @@ defmodule Mimo.Cognitive.FeedbackLoop do
   def handle_call(:calibration_warnings, _from, state) do
     warnings = compute_calibration_warnings()
     {:reply, warnings, state}
+  end
+
+  # ─────────────────────────────────────────────────────────────────
+  # Level 2: Behavioral Self-Knowledge Handlers
+  # ─────────────────────────────────────────────────────────────────
+
+  @impl true
+  def handle_call({:daily_activity_summary, opts}, _from, state) do
+    summary = compute_daily_activity_summary(opts)
+    {:reply, summary, state}
+  end
+
+  @impl true
+  def handle_call({:get_activity_timeline, opts}, _from, state) do
+    timeline = compute_activity_timeline(opts)
+    {:reply, timeline, state}
+  end
+
+  @impl true
+  def handle_call(:behavioral_metrics, _from, state) do
+    metrics = compute_behavioral_metrics()
+    {:reply, metrics, state}
   end
 
   @impl true
@@ -1245,6 +1373,330 @@ defmodule Mimo.Cognitive.FeedbackLoop do
 
       _ ->
         "#{category} calibration is within acceptable range"
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────
+  # Level 2: Behavioral Self-Knowledge Private Functions
+  # ─────────────────────────────────────────────────────────────────
+
+  defp compute_daily_activity_summary(opts) do
+    now = DateTime.utc_now()
+
+    # Default to start of today (midnight UTC)
+    default_since =
+      now
+      |> DateTime.to_date()
+      |> DateTime.new!(~T[00:00:00], "Etc/UTC")
+
+    since = Keyword.get(opts, :since, default_since)
+    until_time = Keyword.get(opts, :until, now)
+
+    # Get all entries from ETS within the time range
+    entries = get_entries_in_range(since, until_time)
+
+    # Calculate statistics
+    total_actions = length(entries)
+    successes = Enum.count(entries, fn {_ts, entry} -> entry.outcome.success end)
+    success_rate = if total_actions > 0, do: successes / total_actions, else: 0.0
+
+    # Group by category
+    by_category =
+      entries
+      |> Enum.group_by(fn {_ts, entry} -> entry.category end)
+      |> Enum.map(fn {cat, items} -> {cat, length(items)} end)
+      |> Map.new()
+
+    # Group by tool (for tool_execution category)
+    by_tool =
+      entries
+      |> Enum.filter(fn {_ts, entry} -> entry.category == :tool_execution end)
+      |> Enum.group_by(fn {_ts, entry} -> extract_tool_name(entry) end)
+      |> Enum.map(fn {tool, items} ->
+        tool_successes = Enum.count(items, fn {_key, e} -> e.outcome.success end)
+
+        %{
+          tool: tool,
+          count: length(items),
+          success_rate: if(length(items) > 0, do: tool_successes / length(items), else: 0.0)
+        }
+      end)
+      |> Enum.sort_by(& &1.count, :desc)
+      |> Enum.take(10)
+
+    # Detect notable events
+    notable_events = detect_notable_events(entries)
+
+    # Calculate learning progress (compare first half to second half)
+    learning_progress = compute_learning_progress(entries)
+
+    %{
+      period: %{from: since, to: until_time},
+      total_actions: total_actions,
+      success_rate: Float.round(success_rate, 3),
+      by_category: by_category,
+      by_tool: by_tool,
+      notable_events: notable_events,
+      learning_progress: learning_progress
+    }
+  end
+
+  defp compute_activity_timeline(opts) do
+    limit = Keyword.get(opts, :limit, 50)
+    category_filter = Keyword.get(opts, :category)
+    success_only = Keyword.get(opts, :success_only, false)
+
+    # Default to last hour
+    default_since = DateTime.add(DateTime.utc_now(), -3600, :second)
+    since = Keyword.get(opts, :since, default_since)
+
+    # Get entries from ETS
+    entries = get_entries_in_range(since, DateTime.utc_now())
+
+    entries
+    |> Enum.map(fn {_ts, entry} -> entry end)
+    |> maybe_filter_category(category_filter)
+    |> maybe_filter_success(success_only)
+    |> Enum.sort_by(& &1.timestamp, :desc)
+    |> Enum.take(limit)
+    |> Enum.map(&format_timeline_entry/1)
+  end
+
+  defp compute_behavioral_metrics do
+    now = DateTime.utc_now()
+    one_hour_ago = DateTime.add(now, -3600, :second)
+
+    # Get recent entries
+    recent_entries = get_entries_in_range(one_hour_ago, now)
+
+    # Session activity (approximate - entries in last hour)
+    session_activity = length(recent_entries)
+
+    # Recent success rate
+    recent_successes = Enum.count(recent_entries, fn {_ts, entry} -> entry.outcome.success end)
+
+    recent_success_rate =
+      if session_activity > 0, do: recent_successes / session_activity, else: 0.0
+
+    # Top operations
+    top_operations =
+      recent_entries
+      |> Enum.map(fn {_ts, entry} -> extract_operation_name(entry) end)
+      |> Enum.frequencies()
+      |> Enum.sort_by(fn {_op, count} -> count end, :desc)
+      |> Enum.take(5)
+      |> Enum.map(fn {op, _count} -> op end)
+
+    # Error patterns
+    error_patterns =
+      recent_entries
+      |> Enum.filter(fn {_ts, entry} -> not entry.outcome.success end)
+      |> Enum.map(fn {_ts, entry} -> extract_error_type(entry) end)
+      |> Enum.frequencies()
+      |> Enum.map(fn {type, count} -> %{type: type, count: count} end)
+      |> Enum.sort_by(& &1.count, :desc)
+      |> Enum.take(5)
+
+    # Behavioral consistency (standard deviation of success over time windows)
+    behavioral_consistency = compute_behavioral_consistency(recent_entries)
+
+    %{
+      session_activity: session_activity,
+      recent_success_rate: Float.round(recent_success_rate, 3),
+      top_operations: top_operations,
+      error_patterns: error_patterns,
+      behavioral_consistency: Float.round(behavioral_consistency, 3)
+    }
+  end
+
+  # Helper functions for behavioral self-knowledge
+
+  defp get_entries_in_range(since, until_time) do
+    since_ms = DateTime.to_unix(since, :millisecond)
+    until_ms = DateTime.to_unix(until_time, :millisecond)
+
+    # ETS ordered_set with timestamp as key allows range queries
+    # Entries are stored as {timestamp, entry}
+    :ets.foldl(
+      fn {ts, entry}, acc ->
+        if ts >= since_ms and ts <= until_ms do
+          [{ts, entry} | acc]
+        else
+          acc
+        end
+      end,
+      [],
+      @feedback_table
+    )
+  end
+
+  defp extract_tool_name(entry) do
+    cond do
+      is_binary(Map.get(entry.context, :tool)) -> entry.context.tool
+      is_atom(Map.get(entry.context, :tool)) -> Atom.to_string(entry.context.tool)
+      is_binary(Map.get(entry.context, :tool_name)) -> entry.context.tool_name
+      true -> "unknown"
+    end
+  end
+
+  defp extract_operation_name(entry) do
+    tool = extract_tool_name(entry)
+    operation = Map.get(entry.context, :operation, "execute")
+    "#{tool}.#{operation}"
+  end
+
+  defp extract_error_type(entry) do
+    cond do
+      Map.has_key?(entry.outcome, :error_type) -> entry.outcome.error_type
+      Map.has_key?(entry.outcome, :error) -> categorize_error(entry.outcome.error)
+      true -> :unknown
+    end
+  end
+
+  defp categorize_error(error) when is_binary(error) do
+    cond do
+      String.contains?(error, "timeout") -> :timeout
+      String.contains?(error, "not found") -> :not_found
+      String.contains?(error, "permission") -> :permission
+      String.contains?(error, "connection") -> :connection
+      true -> :other
+    end
+  end
+
+  defp categorize_error(_), do: :unknown
+
+  defp detect_notable_events(entries) do
+    events = []
+
+    # Detect success streaks
+    success_streak = count_max_success_streak(entries)
+
+    events =
+      if success_streak >= 10 do
+        [
+          %{
+            type: :success_streak,
+            description: "#{success_streak} consecutive successful operations"
+          }
+          | events
+        ]
+      else
+        events
+      end
+
+    # Detect failure clusters
+    failure_count = Enum.count(entries, fn {_key, e} -> not e.outcome.success end)
+
+    events =
+      if failure_count >= 5 and length(entries) > 10 do
+        failure_rate = failure_count / length(entries)
+
+        if failure_rate > 0.3 do
+          [
+            %{
+              type: :high_failure_rate,
+              description: "#{round(failure_rate * 100)}% failure rate detected"
+            }
+            | events
+          ]
+        else
+          events
+        end
+      else
+        events
+      end
+
+    Enum.reverse(events)
+  end
+
+  defp count_max_success_streak(entries) do
+    entries
+    |> Enum.sort_by(fn {ts, _} -> ts end)
+    |> Enum.map(fn {_ts, entry} -> entry.outcome.success end)
+    |> Enum.chunk_by(& &1)
+    |> Enum.filter(fn chunk -> hd(chunk) == true end)
+    |> Enum.map(&length/1)
+    |> Enum.max(fn -> 0 end)
+  end
+
+  defp compute_learning_progress(entries) when length(entries) < 10 do
+    %{trend: :insufficient_data, improvement: 0.0}
+  end
+
+  defp compute_learning_progress(entries) do
+    sorted = Enum.sort_by(entries, fn {ts, _} -> ts end)
+    mid = div(length(sorted), 2)
+    {first_half, second_half} = Enum.split(sorted, mid)
+
+    first_rate = success_rate_for(first_half)
+    second_rate = success_rate_for(second_half)
+    improvement = second_rate - first_rate
+
+    trend =
+      cond do
+        improvement > 0.05 -> :improving
+        improvement < -0.05 -> :declining
+        true -> :stable
+      end
+
+    %{trend: trend, improvement: Float.round(improvement, 3)}
+  end
+
+  defp success_rate_for([]), do: 0.0
+
+  defp success_rate_for(entries) do
+    successes = Enum.count(entries, fn {_key, e} -> e.outcome.success end)
+    successes / length(entries)
+  end
+
+  defp maybe_filter_category(entries, nil), do: entries
+  defp maybe_filter_category(entries, cat), do: Enum.filter(entries, &(&1.category == cat))
+
+  defp maybe_filter_success(entries, false), do: entries
+  defp maybe_filter_success(entries, true), do: Enum.filter(entries, & &1.outcome.success)
+
+  defp format_timeline_entry(entry) do
+    %{
+      timestamp: entry.timestamp,
+      category: entry.category,
+      tool: extract_tool_name(entry),
+      operation: Map.get(entry.context, :operation, "unknown"),
+      success: entry.outcome.success,
+      duration_ms: Map.get(entry.outcome, :latency_ms) || Map.get(entry.outcome, :duration_ms)
+    }
+  end
+
+  defp compute_behavioral_consistency(entries) when length(entries) < 5 do
+    # Not enough data, assume consistent
+    1.0
+  end
+
+  defp compute_behavioral_consistency(entries) do
+    # Divide into 5 time windows and compute success rate variance
+    sorted = Enum.sort_by(entries, fn {ts, _} -> ts end)
+    chunk_size = max(1, div(length(sorted), 5))
+
+    rates =
+      sorted
+      |> Enum.chunk_every(chunk_size)
+      |> Enum.map(&success_rate_for/1)
+
+    if length(rates) < 2 do
+      1.0
+    else
+      mean = Enum.sum(rates) / length(rates)
+
+      variance =
+        rates
+        |> Enum.map(fn r -> (r - mean) * (r - mean) end)
+        |> Enum.sum()
+        |> Kernel./(length(rates))
+
+      std_dev = :math.sqrt(variance)
+
+      # Convert to consistency score (lower std_dev = higher consistency)
+      # Max expected std_dev is 0.5 (all rates either 0 or 1)
+      max(0.0, 1.0 - std_dev * 2)
     end
   end
 end
