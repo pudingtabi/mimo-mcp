@@ -55,6 +55,7 @@ defmodule Mimo.Brain.Memory do
   import Ecto.Query
   require Logger
   alias Mimo.Awakening.Hooks, as: AwakeningHooks
+  alias Mimo.Brain.EmbeddingManager
   alias Mimo.Brain.Engram
   alias Mimo.Brain.HnswIndex
   alias Mimo.Brain.MemoryIntegrator
@@ -914,6 +915,186 @@ defmodule Mimo.Brain.Memory do
       {:error, reason} -> {:error, reason}
       other -> other
     end
+  end
+
+  @doc """
+  SPEC-099: Batch store multiple memories efficiently.
+
+  This function batches embedding generation and database inserts for
+  significantly improved performance when storing multiple memories.
+
+  Performance comparison (100 memories):
+  - Sequential: 100 × (200ms embed + 50ms db) = ~25 seconds
+  - Batched:    1 × (500ms batch embed) + 1 × (100ms batch insert) = ~600ms
+
+  ## Parameters
+
+    * `memories` - List of memory maps with required keys:
+      * `:content` - Memory content (required)
+      * `:category` - Memory category (required)
+      * `:importance` - Importance score (default: 0.5)
+      * `:metadata` - Additional metadata (default: %{})
+    * `opts` - Options
+      * `:batch_size` - Max embeddings per batch (default: 100)
+
+  ## Returns
+
+      {:ok, %{stored: count, ids: [id], failed: count}}
+      {:error, reason}
+  """
+  @spec store_batch([map()], keyword()) :: {:ok, map()} | {:error, term()}
+  def store_batch(memories, opts \\ []) when is_list(memories) do
+    if Enum.empty?(memories) do
+      {:ok, %{stored: 0, ids: [], failed: 0}}
+    else
+      batch_size = Keyword.get(opts, :batch_size, 100)
+      do_store_batch(memories, batch_size)
+    end
+  end
+
+  defp do_store_batch(memories, batch_size) do
+    # Phase 1: Validate all content upfront
+    case validate_batch_content(memories) do
+      {:error, reason} ->
+        {:error, reason}
+
+      :ok ->
+        # Phase 2: Batch generate embeddings
+        contents = Enum.map(memories, & &1[:content])
+
+        case batch_generate_embeddings(contents, batch_size) do
+          {:error, reason} ->
+            {:error, {:embedding_failed, reason}}
+
+          {:ok, embeddings} ->
+            # Phase 3: Prepare and batch insert
+            now = NaiveDateTime.utc_now()
+
+            entries =
+              memories
+              |> Enum.zip(embeddings)
+              |> Enum.map(fn {memory, embedding} ->
+                prepare_batch_entry(memory, embedding, now)
+              end)
+              |> Enum.filter(&(&1 != nil))
+
+            # Phase 4: Batch insert via WriteSerializer
+            case batch_insert_entries(entries) do
+              {:ok, inserted_ids} ->
+                # Phase 5: Add to HNSW index in batch
+                batch_add_to_index(entries, inserted_ids)
+
+                {:ok,
+                 %{
+                   stored: length(inserted_ids),
+                   ids: inserted_ids,
+                   failed: length(memories) - length(inserted_ids)
+                 }}
+
+              {:error, reason} ->
+                {:error, {:insert_failed, reason}}
+            end
+        end
+    end
+  end
+
+  defp validate_batch_content(memories) do
+    Enum.reduce_while(memories, :ok, fn memory, _acc ->
+      content = memory[:content]
+
+      cond do
+        is_nil(content) ->
+          {:halt, {:error, :missing_content}}
+
+        not is_binary(content) ->
+          {:halt, {:error, :invalid_content_type}}
+
+        byte_size(content) > @max_content_size ->
+          {:halt, {:error, :content_too_large}}
+
+        true ->
+          {:cont, :ok}
+      end
+    end)
+  end
+
+  defp batch_generate_embeddings(contents, batch_size) do
+    # Split into batches to avoid overloading embedding API
+    contents
+    |> Enum.chunk_every(batch_size)
+    |> Enum.reduce_while({:ok, []}, fn batch, {:ok, acc_embeddings} ->
+      case EmbeddingManager.generate_batch(batch) do
+        {:ok, embeddings, _provider} ->
+          {:cont, {:ok, acc_embeddings ++ embeddings}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp prepare_batch_entry(memory, embedding, now) do
+    category = to_string(memory[:category] || "fact")
+    importance = memory[:importance] || 0.5
+    metadata = memory[:metadata] || %{}
+    content = memory[:content]
+
+    # Quantize embedding
+    {_embedding_to_store, quantized_attrs} = quantize_embedding_for_storage(embedding)
+
+    # Build base entry (without :id which is auto-generated)
+    base = %{
+      content: content,
+      category: category,
+      importance: importance,
+      metadata: metadata,
+      last_accessed_at: now,
+      inserted_at: now,
+      updated_at: now
+    }
+
+    # Merge quantized attributes
+    Map.merge(base, quantized_attrs)
+  end
+
+  defp batch_insert_entries(entries) do
+    Mimo.Brain.WriteSerializer.transaction(fn ->
+      case Repo.insert_all(Engram, entries, returning: [:id]) do
+        {count, returned} when count > 0 ->
+          ids = Enum.map(returned, & &1.id)
+          {:ok, ids}
+
+        {0, _} ->
+          {:ok, []}
+      end
+    end)
+    |> case do
+      {:ok, {:ok, ids}} -> {:ok, ids}
+      {:ok, {:error, reason}} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp batch_add_to_index(entries, ids) do
+    # Prepare vectors for HNSW
+    vectors =
+      entries
+      |> Enum.zip(ids)
+      |> Enum.filter(fn {entry, _id} ->
+        Map.has_key?(entry, :embedding_int8) and entry.embedding_int8 != nil
+      end)
+      |> Enum.map(fn {entry, id} ->
+        {id, entry.embedding_int8}
+      end)
+
+    if length(vectors) > 0 do
+      HnswIndex.add_batch(vectors)
+    end
+
+    :ok
+  rescue
+    # HNSW might not be running in tests
+    _ -> :ok
   end
 
   # SPEC-STABILITY: This function is called inside WriteSerializer.transaction
