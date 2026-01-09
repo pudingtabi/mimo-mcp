@@ -68,6 +68,7 @@ defmodule Mimo.Tools do
   """
   def dispatch(tool_name, arguments \\ %{}) do
     alias Mimo.Knowledge.IntelligentMiddleware
+    alias Mimo.Cognitive.PredictiveModeling
 
     # Telemetry: track dispatch start
     start_time = System.monotonic_time(:millisecond)
@@ -79,6 +80,10 @@ defmodule Mimo.Tools do
 
     # Record activity for BackgroundCognition (prevents background cycles during active sessions)
     Mimo.Brain.BackgroundCognition.record_activity()
+
+    # Level 3 Self-Understanding: Predict outcome BEFORE dispatch
+    # Skip for predictive ops themselves to avoid recursion
+    prediction_id = maybe_predict(tool_name, arguments)
 
     # SPEC-083: Pre-dispatch intelligence check
     pre_context = IntelligentMiddleware.pre_dispatch(tool_name, arguments)
@@ -103,6 +108,9 @@ defmodule Mimo.Tools do
       %{duration_ms: duration_ms},
       Map.put(metadata, :success, match?({:ok, _}, result))
     )
+
+    # Level 3 Self-Understanding: Calibrate prediction AFTER dispatch
+    maybe_calibrate(prediction_id, duration_ms, result)
 
     # Determine if the result indicates success (for A/B testing outcome tracking)
     track_ab_outcome(result)
@@ -369,4 +377,72 @@ defmodule Mimo.Tools do
 
     Dispatchers.Knowledge.dispatch(Map.put(args, "operation", "teach"))
   end
+
+  # ===========================================================================
+  # Level 3 Self-Understanding: Predictive Dispatch Integration
+  # ===========================================================================
+
+  # Operations that should NOT trigger predictions (avoid recursion)
+  @skip_prediction_ops ~w[predict calibrate calibration_score predictions can_handle limitations]
+
+  # Make a prediction before dispatch (non-blocking, never fails the dispatch)
+  defp maybe_predict(tool_name, arguments) do
+    operation = arguments["operation"]
+
+    # Skip prediction for:
+    # 1. Cognitive predictive operations (avoid recursion)
+    # 2. If predictive dispatch is disabled
+    if should_skip_prediction?(tool_name, operation) do
+      nil
+    else
+      try do
+        alias Mimo.Cognitive.PredictiveModeling
+
+        context = %{
+          tool: tool_name,
+          operation: operation,
+          query: arguments["query"] || arguments["problem"] || arguments["command"]
+        }
+
+        case PredictiveModeling.predict(context) do
+          {:ok, prediction} -> prediction.id
+          _ -> nil
+        end
+      rescue
+        _ -> nil
+      catch
+        _, _ -> nil
+      end
+    end
+  end
+
+  # Calibrate prediction after dispatch (async, non-blocking)
+  defp maybe_calibrate(nil, _duration_ms, _result), do: :ok
+
+  defp maybe_calibrate(prediction_id, duration_ms, result) do
+    try do
+      alias Mimo.Cognitive.PredictiveModeling
+
+      success = match?({:ok, _}, result)
+
+      actual = %{
+        actual_duration_ms: duration_ms,
+        success: success,
+        actual_steps: 1
+      }
+
+      # calibrate is async (GenServer.cast), returns :ok immediately
+      PredictiveModeling.calibrate(prediction_id, actual)
+    rescue
+      _ -> :ok
+    catch
+      _, _ -> :ok
+    end
+  end
+
+  defp should_skip_prediction?("cognitive", operation) when operation in @skip_prediction_ops,
+    do: true
+
+  defp should_skip_prediction?(_, _),
+    do: not Application.get_env(:mimo_mcp, :predictive_dispatch, true)
 end
