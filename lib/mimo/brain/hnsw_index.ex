@@ -212,6 +212,35 @@ defmodule Mimo.Brain.HnswIndex do
   end
 
   @doc """
+  SPEC-100: Remove multiple keys from the index in batch.
+
+  Used by Forgetting module to remove archived memories from the index.
+
+  ## Parameters
+
+    - `keys` - List of Engram IDs to remove
+
+  ## Returns
+
+    - `{:ok, removed_count}` - Success with count of removed entries
+    - `{:error, reason}` - Error
+  """
+  @spec remove_batch([non_neg_integer()]) :: {:ok, non_neg_integer()} | {:error, term()}
+  def remove_batch([]), do: {:ok, 0}
+
+  def remove_batch(keys) when is_list(keys) do
+    if Process.whereis(__MODULE__) do
+      try do
+        GenServer.call(__MODULE__, {:remove_batch, keys}, 60_000)
+      catch
+        :exit, _ -> {:error, :not_running}
+      end
+    else
+      {:error, :not_running}
+    end
+  end
+
+  @doc """
   Checks if a key exists in the index.
 
   ## Parameters
@@ -617,6 +646,24 @@ defmodule Mimo.Brain.HnswIndex do
       {:error, _} = error ->
         {:reply, error, state}
     end
+  end
+
+  # SPEC-100: Batch remove for archived memories
+  def handle_call({:remove_batch, _keys}, _from, %{initialized: false} = state) do
+    {:reply, {:error, :not_initialized}, state}
+  end
+
+  def handle_call({:remove_batch, keys}, _from, state) do
+    removed_count =
+      Enum.reduce(keys, 0, fn key, acc ->
+        case Math.hnsw_remove(state.index, key) do
+          {:ok, :ok} -> acc + 1
+          {:error, _} -> acc
+        end
+      end)
+
+    new_state = if removed_count > 0, do: %{state | dirty: true}, else: state
+    {:reply, {:ok, removed_count}, new_state}
   end
 
   def handle_call({:contains, _key}, _from, %{initialized: false} = state) do

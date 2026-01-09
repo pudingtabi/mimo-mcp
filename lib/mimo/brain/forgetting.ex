@@ -29,7 +29,7 @@ defmodule Mimo.Brain.Forgetting do
   require Logger
 
   import Ecto.Query
-  alias Mimo.{Brain.DecayScorer, Brain.Engram, Repo}
+  alias Mimo.{Brain.DecayScorer, Brain.Engram, Brain.HnswIndex, Repo}
   alias Mimo.SafeCall
 
   @default_interval 3_600_000
@@ -225,15 +225,27 @@ defmodule Mimo.Brain.Forgetting do
   end
 
   # Archive memories instead of deleting - they can be recovered if needed
+  # SPEC-100: Also remove from HNSW index to keep it lean
   defp archive_memories([]), do: 0
 
   defp archive_memories(memories) do
     ids = Enum.map(memories, & &1.id)
     now = NaiveDateTime.utc_now()
 
+    # Phase 1: Mark as archived in database
     {count, _} =
       from(e in Engram, where: e.id in ^ids)
       |> Repo.update_all(set: [archived: true, archived_at: now])
+
+    # Phase 2: Remove from HNSW index (SPEC-100)
+    # This prevents archived memories from appearing in ANN search
+    case HnswIndex.remove_batch(ids) do
+      {:ok, removed} ->
+        Logger.debug("Removed #{removed} archived memories from HNSW index")
+
+      {:error, reason} ->
+        Logger.warning("Failed to remove archived memories from HNSW: #{inspect(reason)}")
+    end
 
     # Emit individual events for monitoring
     Enum.each(memories, fn m ->
