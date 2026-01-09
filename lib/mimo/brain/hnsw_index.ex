@@ -72,7 +72,9 @@ defmodule Mimo.Brain.HnswIndex do
     :last_saved_at,
     :dirty,
     :vector_count,
-    :initialized
+    :initialized,
+    # SPEC-098: Track highest indexed ID for incremental sync
+    :max_indexed_id
   ]
 
   @type t :: %__MODULE__{
@@ -83,7 +85,8 @@ defmodule Mimo.Brain.HnswIndex do
           last_saved_at: DateTime.t() | nil,
           dirty: boolean(),
           vector_count: non_neg_integer(),
-          initialized: boolean()
+          initialized: boolean(),
+          max_indexed_id: non_neg_integer()
         }
 
   @doc """
@@ -254,6 +257,32 @@ defmodule Mimo.Brain.HnswIndex do
   end
 
   @doc """
+  @doc \"""
+  SPEC-098: Incrementally syncs the index with new engrams.
+
+  Instead of rebuilding the entire index, this only adds engrams with
+  IDs greater than the last indexed ID. Much faster for large indices
+  where only a few new memories need to be added.
+
+  ## Returns
+
+    - `{:ok, count}` - Number of new vectors added
+    - `{:error, reason}` - Error (falls back to full rebuild)
+  """
+  @spec incremental_sync() :: {:ok, non_neg_integer()} | {:error, atom() | String.t()}
+  def incremental_sync do
+    if Process.whereis(__MODULE__) do
+      try do
+        GenServer.call(__MODULE__, :incremental_sync, :timer.minutes(10))
+      catch
+        :exit, _ -> {:error, :not_running}
+      end
+    else
+      {:error, :not_running}
+    end
+  end
+
+  @doc """
   Rebuilds the index from all engrams in the database.
 
   This is a heavy operation that should be run during maintenance windows
@@ -361,10 +390,12 @@ defmodule Mimo.Brain.HnswIndex do
   ## Returns
 
     - `:ok` - Index is healthy, no action needed
-    - `{:rebuilt, count}` - Index was rebuilt with `count` vectors
-    - `{:error, reason}` - Rebuild failed
+    - `{:synced, count}` - Index was incrementally synced with `count` new vectors
+    - `{:rebuilt, count}` - Index was fully rebuilt with `count` vectors
+    - `{:error, reason}` - Sync/rebuild failed
   """
-  @spec rebuild_if_needed() :: :ok | {:rebuilt, non_neg_integer()} | {:error, atom() | String.t()}
+  @spec rebuild_if_needed() ::
+          :ok | {:synced, non_neg_integer()} | {:rebuilt, non_neg_integer()} | {:error, term()}
   def rebuild_if_needed do
     case health_check() do
       {:healthy, db, idx} ->
@@ -372,32 +403,32 @@ defmodule Mimo.Brain.HnswIndex do
         :ok
 
       {:desync, db, idx} ->
-        Logger.warning(
-          "HNSW index desync detected: #{db} DB engrams vs #{idx} indexed. Rebuilding..."
+        # SPEC-098: Try incremental sync first (much faster!)
+        Logger.info(
+          "HNSW index desync detected: #{db} DB engrams vs #{idx} indexed. Trying incremental sync..."
         )
 
-        case rebuild() do
-          {:ok, count} ->
-            Logger.info("HNSW index rebuilt successfully with #{count} vectors")
-            {:rebuilt, count}
+        case incremental_sync() do
+          {:ok, count} when count > 0 ->
+            Logger.info("HNSW index synced incrementally with #{count} new vectors")
+            {:synced, count}
 
-          {:error, reason} = error ->
-            Logger.error("HNSW index rebuild failed: #{inspect(reason)}")
-            error
+          {:ok, 0} ->
+            # No new vectors but counts don't match - need full rebuild
+            Logger.warning("Incremental sync found no new vectors, falling back to full rebuild")
+            do_full_rebuild()
+
+          {:error, reason} ->
+            Logger.warning(
+              "Incremental sync failed: #{inspect(reason)}, falling back to full rebuild"
+            )
+
+            do_full_rebuild()
         end
 
       {:empty_index, db, _} ->
         Logger.warning("HNSW index empty but DB has #{db} engrams. Building...")
-
-        case rebuild() do
-          {:ok, count} ->
-            Logger.info("HNSW index built successfully with #{count} vectors")
-            {:rebuilt, count}
-
-          {:error, reason} = error ->
-            Logger.error("HNSW index build failed: #{inspect(reason)}")
-            error
-        end
+        do_full_rebuild()
 
       {:not_running, _, _} ->
         Logger.debug("HNSW index not running (feature may be disabled)")
@@ -406,6 +437,18 @@ defmodule Mimo.Brain.HnswIndex do
       {:not_initialized, _, _} ->
         Logger.debug("HNSW index not yet initialized")
         :ok
+    end
+  end
+
+  defp do_full_rebuild do
+    case rebuild() do
+      {:ok, count} ->
+        Logger.info("HNSW index rebuilt successfully with #{count} vectors")
+        {:rebuilt, count}
+
+      {:error, reason} = error ->
+        Logger.error("HNSW index rebuild failed: #{inspect(reason)}")
+        error
     end
   end
 
@@ -435,7 +478,8 @@ defmodule Mimo.Brain.HnswIndex do
         last_saved_at: nil,
         dirty: false,
         vector_count: 0,
-        initialized: false
+        initialized: false,
+        max_indexed_id: 0
       }
 
       # Try to load existing index or create new one
@@ -464,14 +508,18 @@ defmodule Mimo.Brain.HnswIndex do
                 {:error, _} -> 0
               end
 
-            Logger.info("HNSW index loaded with #{size} vectors")
+            # SPEC-098: Load max_indexed_id from metadata file
+            max_id = load_max_indexed_id(state.index_path)
+
+            Logger.info("HNSW index loaded with #{size} vectors, max_indexed_id=#{max_id}")
 
             %{
               state
               | index: index,
                 vector_count: size,
                 initialized: true,
-                last_saved_at: DateTime.utc_now()
+                last_saved_at: DateTime.utc_now(),
+                max_indexed_id: max_id
             }
 
           {:error, reason} ->
@@ -513,7 +561,16 @@ defmodule Mimo.Brain.HnswIndex do
   def handle_call({:add, key, vector_int8}, _from, state) do
     case Math.hnsw_add(state.index, key, vector_int8) do
       {:ok, :ok} ->
-        new_state = %{state | vector_count: state.vector_count + 1, dirty: true}
+        # SPEC-098: Track max_indexed_id for incremental sync
+        new_max = max(state.max_indexed_id, key)
+
+        new_state = %{
+          state
+          | vector_count: state.vector_count + 1,
+            dirty: true,
+            max_indexed_id: new_max
+        }
+
         {:reply, :ok, new_state}
 
       {:error, _} = error ->
@@ -528,7 +585,17 @@ defmodule Mimo.Brain.HnswIndex do
   def handle_call({:add_batch, entries}, _from, state) do
     case Math.hnsw_add_batch(state.index, entries) do
       {:ok, count} ->
-        new_state = %{state | vector_count: state.vector_count + count, dirty: true}
+        # SPEC-098: Track max_indexed_id from batch
+        batch_max = entries |> Enum.map(fn {id, _} -> id end) |> Enum.max(fn -> 0 end)
+        new_max = max(state.max_indexed_id, batch_max)
+
+        new_state = %{
+          state
+          | vector_count: state.vector_count + count,
+            dirty: true,
+            max_indexed_id: new_max
+        }
+
         {:reply, {:ok, count}, new_state}
 
       {:error, _} = error ->
@@ -576,6 +643,14 @@ defmodule Mimo.Brain.HnswIndex do
 
   def handle_call(:rebuild, _from, state) do
     case do_rebuild(state) do
+      {:ok, count, new_state} -> {:reply, {:ok, count}, new_state}
+      {:error, _} = error -> {:reply, error, state}
+    end
+  end
+
+  # SPEC-098: Incremental sync handler
+  def handle_call(:incremental_sync, _from, state) do
+    case do_incremental_sync(state) do
       {:ok, count, new_state} -> {:reply, {:ok, count}, new_state}
       {:error, _} = error -> {:reply, error, state}
     end
@@ -698,6 +773,94 @@ defmodule Mimo.Brain.HnswIndex do
     end
   end
 
+  # SPEC-098: Incremental sync - only add engrams with ID > max_indexed_id
+  defp do_incremental_sync(state) do
+    max_id = state.max_indexed_id
+    Logger.info("Starting incremental sync from ID #{max_id}...")
+
+    try do
+      # Count new engrams with embeddings that aren't indexed yet
+      new_count =
+        from(e in Engram,
+          where: not is_nil(e.embedding_int8) and e.id > ^max_id,
+          select: count()
+        )
+        |> Repo.one()
+
+      Logger.info("Found #{new_count} new engrams to sync")
+
+      if new_count == 0 do
+        {:ok, 0, state}
+      else
+        # Stream new engrams in batches and add to existing index
+        batch_size = 1000
+
+        {added, new_max_id} =
+          stream_incremental_sync(state.index, max_id, batch_size, new_count)
+
+        Logger.info("Incremental sync added #{added} vectors (max_id: #{new_max_id})")
+
+        new_state = %{
+          state
+          | vector_count: state.vector_count + added,
+            dirty: true,
+            max_indexed_id: new_max_id
+        }
+
+        # Save the updated index
+        case do_save(new_state) do
+          {:ok, saved_state} -> {:ok, added, saved_state}
+          {:error, _} -> {:ok, added, new_state}
+        end
+      end
+    rescue
+      e ->
+        Logger.error("Incremental sync failed: #{Exception.message(e)}")
+        {:error, Exception.message(e)}
+    end
+  end
+
+  defp stream_incremental_sync(index, from_id, batch_size, total) do
+    Repo.transaction(
+      fn ->
+        from(e in Engram,
+          where: not is_nil(e.embedding_int8) and e.id > ^from_id,
+          select: {e.id, e.embedding_int8},
+          order_by: [asc: e.id]
+        )
+        |> Repo.stream(max_rows: batch_size)
+        |> Stream.chunk_every(batch_size)
+        |> Enum.reduce({0, from_id}, fn batch, {acc, _max_id} ->
+          batch_max = batch |> Enum.map(fn {id, _} -> id end) |> Enum.max(fn -> from_id end)
+
+          case Math.hnsw_add_batch(index, batch) do
+            {:ok, count} ->
+              progress = (acc + count) * 100 / total
+
+              Logger.info(
+                "HNSW incremental sync: #{Float.round(progress, 1)}% (#{acc + count}/#{total})"
+              )
+
+              {acc + count, batch_max}
+
+            {:error, reason} ->
+              Logger.warning("HNSW incremental batch add failed: #{inspect(reason)}")
+              {acc, batch_max}
+          end
+        end)
+      end,
+      timeout: :infinity
+    )
+    |> case do
+      {:ok, result} ->
+        result
+
+      {:error, reason} ->
+        Logger.error("Incremental sync transaction failed: #{inspect(reason)}")
+        {0, from_id}
+    end
+  end
+
   defp do_save(state) do
     # Ensure directory exists
     dir = Path.dirname(state.index_path)
@@ -705,6 +868,8 @@ defmodule Mimo.Brain.HnswIndex do
 
     case Math.hnsw_save(state.index, state.index_path) do
       {:ok, :ok} ->
+        # SPEC-098: Save max_indexed_id for incremental sync
+        save_max_indexed_id(state.index_path, state.max_indexed_id)
         {:ok, %{state | dirty: false, last_saved_at: DateTime.utc_now()}}
 
       {:error, reason} ->
@@ -739,16 +904,17 @@ defmodule Mimo.Brain.HnswIndex do
 
           # Stream engrams in batches
           batch_size = 1000
-          added = stream_rebuild(new_index, batch_size, total_count)
+          {added, max_id} = stream_rebuild(new_index, batch_size, total_count)
 
-          Logger.info("HNSW index rebuilt with #{added} vectors")
+          Logger.info("HNSW index rebuilt with #{added} vectors (max_id: #{max_id})")
 
           new_state = %{
             state
             | index: new_index,
               vector_count: added,
               dirty: true,
-              initialized: true
+              initialized: true,
+              max_indexed_id: max_id
           }
 
           # Save the rebuilt index
@@ -774,7 +940,10 @@ defmodule Mimo.Brain.HnswIndex do
         )
         |> Repo.stream(max_rows: batch_size)
         |> Stream.chunk_every(batch_size)
-        |> Enum.reduce(0, fn batch, acc ->
+        |> Enum.reduce({0, 0}, fn batch, {acc, max_id} ->
+          # SPEC-098: Track max ID for incremental sync
+          batch_max = batch |> Enum.map(fn {id, _} -> id end) |> Enum.max(fn -> max_id end)
+
           case Math.hnsw_add_batch(index, batch) do
             {:ok, count} ->
               progress = (acc + count) * 100 / total
@@ -783,23 +952,72 @@ defmodule Mimo.Brain.HnswIndex do
                 "HNSW rebuild progress: #{Float.round(progress, 1)}% (#{acc + count}/#{total})"
               )
 
-              acc + count
+              {acc + count, batch_max}
 
             {:error, reason} ->
               Logger.warning("HNSW batch add failed: #{inspect(reason)}")
-              acc
+              {acc, batch_max}
           end
         end)
       end,
       timeout: :infinity
     )
     |> case do
-      {:ok, count} ->
-        count
+      {:ok, {count, max_id}} ->
+        {count, max_id}
 
       {:error, reason} ->
         Logger.error("HNSW rebuild transaction failed: #{inspect(reason)}")
-        0
+        {0, 0}
     end
+  end
+
+  # ============================================================================
+  # SPEC-098: Incremental Index Sync
+  # ============================================================================
+
+  @metadata_suffix ".meta"
+
+  @doc false
+  defp metadata_path(index_path) do
+    index_path <> @metadata_suffix
+  end
+
+  @doc false
+  defp load_max_indexed_id(index_path) do
+    meta_path = metadata_path(index_path)
+
+    if File.exists?(meta_path) do
+      case File.read(meta_path) do
+        {:ok, content} ->
+          case Jason.decode(content) do
+            {:ok, %{"max_indexed_id" => id}} when is_integer(id) -> id
+            _ -> 0
+          end
+
+        _ ->
+          0
+      end
+    else
+      # No metadata file - try to get max ID from database
+      # This is a fallback for indices created before SPEC-098
+      case Repo.one(from(e in Engram, where: not is_nil(e.embedding_int8), select: max(e.id))) do
+        nil -> 0
+        max_id -> max_id
+      end
+    end
+  rescue
+    _ -> 0
+  end
+
+  @doc false
+  defp save_max_indexed_id(index_path, max_id) do
+    meta_path = metadata_path(index_path)
+    content = Jason.encode!(%{max_indexed_id: max_id, saved_at: DateTime.utc_now()})
+    File.write!(meta_path, content)
+  rescue
+    e ->
+      Logger.warning("Failed to save HNSW metadata: #{Exception.message(e)}")
+      :error
   end
 end
