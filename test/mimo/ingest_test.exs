@@ -247,4 +247,64 @@ defmodule Mimo.IngestTest do
       assert result.strategy_used == :whole
     end
   end
+
+  describe "SPEC-099 batch store integration" do
+    @tag :batch_store
+    test "multiple chunks are stored via batch (not sequential)" do
+      # Create a file with multiple paragraphs to trigger batch store
+      content = """
+      First paragraph with enough content to be stored.
+
+      Second paragraph with enough content to be stored.
+
+      Third paragraph with enough content to be stored.
+
+      Fourth paragraph with enough content to be stored.
+
+      Fifth paragraph with enough content to be stored.
+      """
+
+      path = Path.join(@test_dir, "batch_test.txt")
+      File.write!(path, content)
+
+      {:ok, result} = Ingest.ingest_file(path, strategy: :paragraphs)
+
+      # All chunks should be stored
+      assert result.chunks_created == 5
+      assert length(result.ids) == 5
+
+      # Verify all have embeddings (batch embedding worked)
+      for id <- result.ids do
+        engram = Repo.get(Engram, id)
+        assert engram != nil
+        assert engram.embedding_int8 != nil or engram.embedding != []
+      end
+    end
+
+    @tag :batch_store
+    test "chunk metadata is correctly applied in batch" do
+      content = "Chunk one content.\n\nChunk two content."
+      path = Path.join(@test_dir, "metadata_batch.txt")
+      File.write!(path, content)
+
+      {:ok, result} =
+        Ingest.ingest_file(path,
+          category: "action",
+          importance: 0.75,
+          tags: ["batch_test"],
+          metadata: %{"custom_field" => "custom_value"}
+        )
+
+      assert result.chunks_created == 2
+
+      for id <- result.ids do
+        engram = Repo.get(Engram, id)
+        assert engram.category == "action"
+        assert engram.importance == 0.75
+        assert engram.metadata["tags"] == ["batch_test"]
+        assert engram.metadata["custom_field"] == "custom_value"
+        assert engram.metadata["source_file"] == path
+      end
+    end
+  end
 end

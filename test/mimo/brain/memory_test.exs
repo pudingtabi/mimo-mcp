@@ -50,4 +50,68 @@ defmodule Mimo.Brain.MemoryTest do
       assert is_list(result) or match?({:ok, _}, result)
     end
   end
+
+  describe "store_batch/2" do
+    @tag :batch_store
+    test "stores multiple memories in batch" do
+      memories = [
+        %{content: "Batch memory 1 for testing", category: "fact", importance: 0.7},
+        %{content: "Batch memory 2 for testing", category: "observation", importance: 0.6},
+        %{content: "Batch memory 3 for testing", category: "action", importance: 0.8}
+      ]
+
+      result = Memory.store_batch(memories)
+
+      assert {:ok, %{stored: stored, ids: ids, failed: failed}} = result
+      assert stored == 3
+      assert length(ids) == 3
+      assert failed == 0
+      assert Enum.all?(ids, &is_integer/1)
+    end
+
+    @tag :batch_store
+    test "returns empty result for empty list" do
+      result = Memory.store_batch([])
+
+      assert {:ok, %{stored: 0, ids: [], failed: 0}} = result
+    end
+
+    @tag :batch_store
+    test "handles default values for optional fields" do
+      memories = [
+        %{content: "Minimal batch memory test"}
+      ]
+
+      result = Memory.store_batch(memories)
+
+      assert {:ok, %{stored: 1, ids: [id], failed: 0}} = result
+      assert is_integer(id)
+    end
+
+    @tag :batch_store
+    test "fails with missing content" do
+      memories = [
+        %{category: "fact", importance: 0.7}
+      ]
+
+      result = Memory.store_batch(memories)
+
+      assert {:error, :missing_content} = result
+    end
+
+    @tag :batch_store
+    test "respects custom batch_size option" do
+      # Create more memories than default batch size
+      memories =
+        for i <- 1..5 do
+          %{content: "Batch size test memory #{i}", category: "fact"}
+        end
+
+      # Use small batch_size to force multiple embedding batches
+      result = Memory.store_batch(memories, batch_size: 2)
+
+      assert {:ok, %{stored: 5, ids: ids, failed: 0}} = result
+      assert length(ids) == 5
+    end
+  end
 end
