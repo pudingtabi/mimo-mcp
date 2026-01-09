@@ -315,6 +315,20 @@ defmodule Mimo.Cognitive.Reasoner do
           # Calculate progress
           progress = calculate_progress(updated_session)
 
+          # Level 4: Record step evaluation for metacognitive monitoring
+          Mimo.Cognitive.MetacognitiveMonitor.record_step_evaluation(
+            session_id,
+            "step_#{new_thought.step}",
+            %{
+              evaluation: evaluation.quality,
+              confidence: new_thought.confidence,
+              feedback: evaluation.feedback,
+              issues: evaluation.issues,
+              step_number: new_thought.step,
+              branch_id: new_thought.branch_id
+            }
+          )
+
           {:ok,
            %{
              session_id: session_id,
@@ -556,13 +570,27 @@ defmodule Mimo.Cognitive.Reasoner do
   defp switch_to_branch(session_id, session, next_branch) do
     case ReasoningSession.switch_branch(session_id, next_branch.id) do
       {:ok, final_session} ->
+        remaining = count_unexplored_branches(final_session.branches)
+
+        # Level 4: Record backtrack decision for metacognitive monitoring
+        Mimo.Cognitive.MetacognitiveMonitor.record_backtrack(
+          session_id,
+          session.current_branch_id,
+          %{
+            reason: "Branch marked as dead-end",
+            to_branch: next_branch.id,
+            remaining_unexplored: remaining,
+            branch_evaluation: next_branch.evaluation
+          }
+        )
+
         {:ok,
          %{
            session_id: session_id,
            backtracked_from: session.current_branch_id,
            now_on_branch: next_branch.id,
            branch_status: next_branch.evaluation,
-           remaining_unexplored: count_unexplored_branches(final_session.branches)
+           remaining_unexplored: remaining
          }}
 
       {:error, reason} ->
