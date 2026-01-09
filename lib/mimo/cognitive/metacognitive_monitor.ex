@@ -144,6 +144,32 @@ defmodule Mimo.Cognitive.MetacognitiveMonitor do
   end
 
   @doc """
+  Record a branch creation decision (ToT).
+
+  Called when a new reasoning branch is created.
+  """
+  @spec record_branch_choice(String.t(), String.t(), map()) :: :ok
+  def record_branch_choice(session_id, branch_id, context \\ %{}) do
+    decision = %{
+      decision_id: generate_id("brch"),
+      session_id: session_id,
+      decision_type: :branch_choice,
+      choice: :create_branch,
+      alternatives: [:continue_current, :create_branch, :backtrack],
+      factors: %{
+        exploration_depth: context[:depth] || 0,
+        total_branches: context[:total_branches] || 1,
+        branch_evaluation: context[:evaluation] || :uncertain
+      },
+      reason: context[:reason] || "Exploring alternative approach",
+      context: Map.put(context, :branch_id, branch_id),
+      timestamp: DateTime.utc_now()
+    }
+
+    GenServer.cast(__MODULE__, {:record_decision, decision})
+  end
+
+  @doc """
   Record a backtrack decision (ToT).
 
   Called when reasoning backtracks from a dead-end branch.
@@ -389,6 +415,7 @@ defmodule Mimo.Cognitive.MetacognitiveMonitor do
       total_decisions: length(decisions),
       strategy: explain_strategy_choice(strategy_decision),
       step_evaluations: explain_step_evaluations(by_type[:step_evaluation] || []),
+      branch_choices: explain_branch_choices(by_type[:branch_choice] || []),
       backtracks: explain_backtracks(by_type[:backtrack] || []),
       timeline: build_timeline(decisions),
       summary: build_summary(decisions)
@@ -419,6 +446,21 @@ defmodule Mimo.Cognitive.MetacognitiveMonitor do
         confidence: eval.factors[:confidence],
         feedback: eval.reason,
         timestamp: eval.timestamp
+      }
+    end)
+  end
+
+  defp explain_branch_choices([]), do: []
+
+  defp explain_branch_choices(branches) do
+    Enum.map(branches, fn br ->
+      %{
+        branch_id: br.context[:branch_id],
+        reason: br.reason,
+        exploration_depth: br.factors[:exploration_depth],
+        total_branches: br.factors[:total_branches],
+        evaluation: br.factors[:branch_evaluation],
+        timestamp: br.timestamp
       }
     end)
   end

@@ -56,6 +56,29 @@ defmodule Mimo.Cognitive.MetacognitiveMonitorTest do
     end
   end
 
+  describe "record_branch_choice/3" do
+    test "records branch creation decisions" do
+      session_id = "test_session_#{:rand.uniform(10000)}"
+
+      :ok = MetacognitiveMonitor.record_strategy_decision(session_id, :tot, %{reason: "Complex"})
+
+      :ok =
+        MetacognitiveMonitor.record_branch_choice(session_id, "branch_1", %{
+          depth: 1,
+          total_branches: 2,
+          evaluation: :uncertain,
+          reason: "Exploring alternative approach"
+        })
+
+      Process.sleep(50)
+
+      {:ok, explanation} = MetacognitiveMonitor.explain_session(session_id)
+      assert length(explanation.branch_choices) == 1
+      assert hd(explanation.branch_choices).branch_id == "branch_1"
+      assert hd(explanation.branch_choices).reason == "Exploring alternative approach"
+    end
+  end
+
   describe "record_backtrack/3" do
     test "records backtrack decisions" do
       session_id = "test_session_#{:rand.uniform(10000)}"
@@ -97,6 +120,13 @@ defmodule Mimo.Cognitive.MetacognitiveMonitorTest do
         })
 
       :ok =
+        MetacognitiveMonitor.record_branch_choice(session_id, "branch_2", %{
+          depth: 1,
+          total_branches: 2,
+          reason: "Alternative approach"
+        })
+
+      :ok =
         MetacognitiveMonitor.record_backtrack(session_id, "branch_1", %{
           reason: "Dead end"
         })
@@ -106,11 +136,12 @@ defmodule Mimo.Cognitive.MetacognitiveMonitorTest do
       {:ok, explanation} = MetacognitiveMonitor.explain_session(session_id)
 
       assert explanation.session_id == session_id
-      assert explanation.total_decisions == 3
+      assert explanation.total_decisions == 4
       assert explanation.strategy.selected == :tot
       assert length(explanation.step_evaluations) == 1
+      assert length(explanation.branch_choices) == 1
       assert length(explanation.backtracks) == 1
-      assert explanation.summary =~ "3 traced decisions"
+      assert explanation.summary =~ "4 traced decisions"
     end
   end
 

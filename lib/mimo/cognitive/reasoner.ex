@@ -496,15 +496,28 @@ defmodule Mimo.Cognitive.Reasoner do
           {:ok, updated_session} ->
             # Get the created branch
             created_branch = List.last(updated_session.branches)
+            total_branches = length(updated_session.branches)
+            depth = TreeOfThoughts.calculate_depth(created_branch, updated_session.branches)
+
+            # Level 4: Record branch choice for metacognitive monitoring
+            Mimo.Cognitive.MetacognitiveMonitor.record_branch_choice(
+              session_id,
+              created_branch.id,
+              %{
+                depth: depth,
+                total_branches: total_branches,
+                evaluation: evaluation.quality,
+                reason: "Exploring alternative: #{String.slice(branch_thought, 0, 50)}..."
+              }
+            )
 
             {:ok,
              %{
                session_id: session_id,
                branch_id: created_branch.id,
                branch_thought: branch_thought,
-               total_branches: length(updated_session.branches),
-               current_exploration_depth:
-                 TreeOfThoughts.calculate_depth(created_branch, updated_session.branches)
+               total_branches: total_branches,
+               current_exploration_depth: depth
              }}
 
           {:error, reason} ->
