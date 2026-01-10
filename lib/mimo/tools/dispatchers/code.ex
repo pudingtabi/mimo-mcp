@@ -119,8 +119,19 @@ defmodule Mimo.Tools.Dispatchers.Code do
         end
 
       args["path"] ->
-        # List symbols in file
+        # List symbols in file - auto-index if empty (SPEC-105 improvement)
         symbols = SymbolIndex.symbols_in_file(args["path"])
+
+        # If no symbols found and file exists, try indexing it first
+        symbols =
+          if symbols == [] and File.exists?(args["path"]) do
+            case SymbolIndex.index_file(args["path"]) do
+              {:ok, _stats} -> SymbolIndex.symbols_in_file(args["path"])
+              _ -> symbols
+            end
+          else
+            symbols
+          end
 
         {:ok,
          %{

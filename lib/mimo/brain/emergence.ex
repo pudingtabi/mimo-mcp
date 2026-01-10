@@ -127,10 +127,10 @@ defmodule Mimo.Brain.Emergence do
 
       # Detect patterns from last 7 days
       detect_patterns()
-      
+
       # Detect from last 30 days
       detect_patterns(days: 30)
-      
+
       # Only detect workflows
       detect_patterns(modes: [:pattern_repetition, :novel_tool_chains])
   """
