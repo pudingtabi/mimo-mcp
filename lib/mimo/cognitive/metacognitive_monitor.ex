@@ -21,11 +21,11 @@ defmodule Mimo.Cognitive.MetacognitiveMonitor do
         similar_problems_found: 3,
         reason: "ToT recommended for complex ambiguous problem"
       })
-      
+
       # Later, explain that decision
       {:ok, explanation} = MetacognitiveMonitor.explain_session(session_id)
       # => "Strategy :tot was selected because: ToT recommended for complex..."
-      
+
       # Check cognitive load
       {:ok, load} = MetacognitiveMonitor.cognitive_load()
       # => %{level: :normal, active_sessions: 2, indicators: [...]}

@@ -88,6 +88,9 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   # Level 4: Metacognitive Monitoring (SPEC-SELF-UNDERSTANDING)
   @metacognitive_ops ~w[explain_session explain_decision cognitive_load decision_trace metacognitive_stats]
 
+  # SPEC-105: Memory Consolidation
+  @consolidation_ops ~w[consolidation_candidates consolidation_preview consolidation_run consolidation_stats]
+
   @all_ops @epistemic_ops ++
              @verification_ops ++
              @verify_ops ++
@@ -108,7 +111,8 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
              @learning_progress_ops ++
              @behavioral_ops ++
              @predictive_ops ++
-             @metacognitive_ops
+             @metacognitive_ops ++
+             @consolidation_ops
 
   @doc """
   Dispatch cognitive operation based on args.
@@ -255,6 +259,12 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   defp do_dispatch("cognitive_load", args), do: dispatch_cognitive_load(args)
   defp do_dispatch("decision_trace", args), do: dispatch_decision_trace(args)
   defp do_dispatch("metacognitive_stats", args), do: dispatch_metacognitive_stats(args)
+
+  # --- SPEC-105: Memory Consolidation Operations ---
+  defp do_dispatch("consolidation_candidates", args), do: dispatch_consolidation_candidates(args)
+  defp do_dispatch("consolidation_preview", args), do: dispatch_consolidation_preview(args)
+  defp do_dispatch("consolidation_run", args), do: dispatch_consolidation_run(args)
+  defp do_dispatch("consolidation_stats", _args), do: dispatch_consolidation_stats()
 
   # --- Fallback for Unknown Operations ---
   defp do_dispatch(op, _args) do
@@ -2834,6 +2844,125 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
 
       {:error, reason} ->
         {:error, "Failed to get metacognitive stats: #{inspect(reason)}"}
+    end
+  end
+
+  # ===========================================================================
+  # SPEC-105: Memory Consolidation Dispatchers
+  # ===========================================================================
+
+  alias Mimo.Brain.MemoryConsolidator
+
+  # Find clusters that could be consolidated
+  defp dispatch_consolidation_candidates(args) do
+    threshold = args["threshold"]
+    min_size = args["min_size"]
+    limit = args["limit"]
+
+    opts =
+      []
+      |> then(fn o -> if threshold, do: Keyword.put(o, :threshold, threshold), else: o end)
+      |> then(fn o -> if min_size, do: Keyword.put(o, :min_size, min_size), else: o end)
+      |> then(fn o -> if limit, do: Keyword.put(o, :limit, limit), else: o end)
+
+    case MemoryConsolidator.find_candidates(opts) do
+      {:ok, candidates} ->
+        {:ok,
+         %{
+           type: "consolidation_candidates",
+           candidates: candidates,
+           count: length(candidates),
+           total_memories: Enum.sum(Enum.map(candidates, & &1.size)),
+           hint: "Use consolidation_preview with cluster_id to see proposed summary",
+           level: "SPEC-105 - Memory Consolidation"
+         }}
+
+      {:error, reason} ->
+        {:error, "Failed to find consolidation candidates: #{inspect(reason)}"}
+    end
+  end
+
+  # Preview consolidation of a specific cluster
+  defp dispatch_consolidation_preview(args) do
+    cluster_id = args["cluster_id"]
+
+    if is_nil(cluster_id) do
+      {:error, "cluster_id is required for consolidation_preview"}
+    else
+      case MemoryConsolidator.preview(cluster_id) do
+        {:ok, preview} ->
+          {:ok,
+           %{
+             type: "consolidation_preview",
+             preview: preview,
+             hint: "Use consolidation_run to actually consolidate this cluster",
+             level: "SPEC-105 - Memory Consolidation"
+           }}
+
+        {:error, reason} ->
+          {:error, "Failed to generate preview: #{inspect(reason)}"}
+      end
+    end
+  end
+
+  # Run consolidation
+  defp dispatch_consolidation_run(args) do
+    cluster_id = args["cluster_id"]
+    dry_run = args["dry_run"] || false
+    max_clusters = args["max_clusters"]
+
+    cond do
+      cluster_id ->
+        # Consolidate specific cluster
+        case MemoryConsolidator.consolidate(cluster_id, dry_run: dry_run) do
+          {:ok, result} ->
+            {:ok,
+             %{
+               type: "consolidation_result",
+               result: result,
+               level: "SPEC-105 - Memory Consolidation"
+             }}
+
+          {:error, reason} ->
+            {:error, "Failed to consolidate cluster: #{inspect(reason)}"}
+        end
+
+      true ->
+        # Run consolidation on all eligible clusters
+        opts =
+          [dry_run: dry_run]
+          |> then(fn o ->
+            if max_clusters, do: Keyword.put(o, :max_clusters, max_clusters), else: o
+          end)
+
+        case MemoryConsolidator.run(opts) do
+          {:ok, results} ->
+            {:ok,
+             %{
+               type: "consolidation_run",
+               results: results,
+               level: "SPEC-105 - Memory Consolidation"
+             }}
+
+          {:error, reason} ->
+            {:error, "Failed to run consolidation: #{inspect(reason)}"}
+        end
+    end
+  end
+
+  # Get consolidation statistics
+  defp dispatch_consolidation_stats do
+    case MemoryConsolidator.stats() do
+      {:ok, stats} ->
+        {:ok,
+         %{
+           type: "consolidation_stats",
+           stats: stats,
+           level: "SPEC-105 - Memory Consolidation"
+         }}
+
+      {:error, reason} ->
+        {:error, "Failed to get consolidation stats: #{inspect(reason)}"}
     end
   end
 end
