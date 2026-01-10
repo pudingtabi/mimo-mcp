@@ -91,6 +91,9 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   # SPEC-105: Memory Consolidation
   @consolidation_ops ~w[consolidation_candidates consolidation_preview consolidation_run consolidation_stats]
 
+  # SPEC-105: Emotional Salience
+  @emotional_ops ~w[emotional_score emotional_stats]
+
   @all_ops @epistemic_ops ++
              @verification_ops ++
              @verify_ops ++
@@ -112,7 +115,8 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
              @behavioral_ops ++
              @predictive_ops ++
              @metacognitive_ops ++
-             @consolidation_ops
+             @consolidation_ops ++
+             @emotional_ops
 
   @doc """
   Dispatch cognitive operation based on args.
@@ -265,6 +269,10 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   defp do_dispatch("consolidation_preview", args), do: dispatch_consolidation_preview(args)
   defp do_dispatch("consolidation_run", args), do: dispatch_consolidation_run(args)
   defp do_dispatch("consolidation_stats", _args), do: dispatch_consolidation_stats()
+
+  # --- SPEC-105: Emotional Salience Operations ---
+  defp do_dispatch("emotional_score", args), do: dispatch_emotional_score(args)
+  defp do_dispatch("emotional_stats", _args), do: dispatch_emotional_stats()
 
   # --- Fallback for Unknown Operations ---
   defp do_dispatch(op, _args) do
@@ -2964,5 +2972,43 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
       {:error, reason} ->
         {:error, "Failed to get consolidation stats: #{inspect(reason)}"}
     end
+  end
+
+  # ─────────────────────────────────────────────────────────────────
+  # SPEC-105: Emotional Salience Operations
+  # ─────────────────────────────────────────────────────────────────
+
+  alias Mimo.Brain.EmotionalScorer
+
+  # Score emotional content
+  defp dispatch_emotional_score(args) do
+    content = args["content"] || ""
+    use_llm = args["use_llm"] == true
+
+    {:ok, result} = EmotionalScorer.score(content, use_llm: use_llm)
+
+    {:ok,
+     %{
+       type: "emotional_score",
+       content_preview: String.slice(content, 0, 50),
+       score: result.score,
+       valence: result.valence,
+       importance_boost: result.importance_boost,
+       keywords_found: result.keywords_found,
+       method: result.method,
+       level: "SPEC-105 - Emotional Salience"
+     }}
+  end
+
+  # Get emotional scoring statistics
+  defp dispatch_emotional_stats do
+    stats = EmotionalScorer.stats()
+
+    {:ok,
+     %{
+       type: "emotional_stats",
+       stats: stats,
+       level: "SPEC-105 - Emotional Salience"
+     }}
   end
 end

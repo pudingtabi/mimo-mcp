@@ -56,6 +56,7 @@ defmodule Mimo.Brain.Memory do
   require Logger
   alias Mimo.Awakening.Hooks, as: AwakeningHooks
   alias Mimo.Brain.EmbeddingManager
+  alias Mimo.Brain.EmotionalScorer
   alias Mimo.Brain.Engram
   alias Mimo.Brain.HnswIndex
   alias Mimo.Brain.MemoryIntegrator
@@ -592,14 +593,27 @@ defmodule Mimo.Brain.Memory do
     metadata = attrs[:metadata] || attrs["metadata"] || %{}
     importance = attrs[:importance] || attrs["importance"] || 0.8
 
+    # SPEC-105: Apply emotional salience scoring
+    # Boost importance for emotionally charged content
+    {final_importance, final_metadata} =
+      case EmotionalScorer.score(content || "") do
+        {:ok, %{importance_boost: boost, score: emotional_score}} when boost > 0 ->
+          boosted = min(1.0, importance + boost)
+          enhanced_meta = Map.put(metadata, "emotional_score", emotional_score)
+          {boosted, enhanced_meta}
+
+        _ ->
+          {importance, metadata}
+      end
+
     # Q1 2026 Phase 3: Auto-inject session tagging from process context
     # This enables multi-agent session isolation and filtering
-    enhanced_metadata = inject_session_context(metadata)
+    enhanced_metadata = inject_session_context(final_metadata)
 
     # SPEC-STABILITY: Wrap in WriteSerializer to serialize SQLite writes
     # This prevents "Database busy" errors under concurrent load
     Mimo.Brain.WriteSerializer.transaction(fn ->
-      persist_memory_with_metadata(content, type, ref, enhanced_metadata, importance)
+      persist_memory_with_metadata(content, type, ref, enhanced_metadata, final_importance)
     end)
   end
 

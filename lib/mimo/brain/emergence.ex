@@ -30,6 +30,15 @@ defmodule Mimo.Brain.Emergence do
   4. **Persistence**: State maintained across time
   5. **Pressure**: Challenges that drive adaptation
 
+  ## Run Cycle Phases
+
+  The `run_cycle/1` function executes 5 phases:
+  1. **Detection**: Find emergent patterns in system behavior
+  2. **Amplification**: Strengthen promising patterns
+  3. **Promotion**: Graduate mature patterns to capabilities
+  4. **Alerts**: Check for patterns needing attention
+  5. **Consolidation**: Merge similar memories (SPEC-105)
+
   ## Pattern Types
 
   | Type | Description |
@@ -99,6 +108,8 @@ defmodule Mimo.Brain.Emergence do
     Pattern,
     Promoter
   }
+
+  alias Mimo.Brain.MemoryConsolidator
 
   # ─────────────────────────────────────────────────────────────────
   # Detection
@@ -439,8 +450,22 @@ defmodule Mimo.Brain.Emergence do
     # Phase 4: Alerts
     alerts = check_alerts()
 
+    # Phase 5: Memory Consolidation (SPEC-105)
+    # Consolidate up to 3 clusters per cycle to avoid over-merging
+    consolidation =
+      case MemoryConsolidator.run(max_clusters: 3) do
+        {:ok, result} ->
+          result
+
+        {:error, reason} ->
+          Logger.debug("[Emergence] Consolidation skipped: #{inspect(reason)}")
+          %{consolidated: 0, archived: 0}
+      end
+
     Logger.info(
-      "[Emergence] Cycle complete: #{map_size(detection)} detection modes, #{promotions.promoted} promotions, #{length(alerts)} alerts"
+      "[Emergence] Cycle complete: #{map_size(detection)} detection modes, " <>
+        "#{promotions.promoted} promotions, #{length(alerts)} alerts, " <>
+        "#{consolidation[:consolidated] || 0} memories consolidated"
     )
 
     {:ok,
@@ -449,6 +474,7 @@ defmodule Mimo.Brain.Emergence do
        amplification: amplification,
        promotions: promotions,
        alerts: alerts,
+       consolidation: consolidation,
        completed_at: DateTime.utc_now()
      }}
   end
