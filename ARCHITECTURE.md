@@ -1,16 +1,19 @@
 # Mimo Architecture: Tools, Skills, and the Cognitive Stack
 
 > This document clarifies the architecture of Mimo and defines the relationship between Tools, Skills, and Dispatchers.
+> 
+> **Last Updated:** 2026-01-10 | **Version:** 2.9.1 | **LOC:** ~109,000
 
 ---
 
 ## Quick Reference
 
-| Layer | What Is It | Where Defined | Example |
-|-------|-----------|---------------|---------|
-| **Tools** | MCP-exposed interfaces | `lib/mimo/tools/definitions.ex` | `memory`, `file`, `code` |
-| **Dispatchers** | Routing logic | `lib/mimo/tools/dispatchers/*.ex` | `memory.ex`, `file.ex` |
-| **Skills** | Elixir implementations | `lib/mimo/skills/*.ex` | `Terminal`, `FileOps`, `Web` |
+| Layer | What Is It | Where Defined | Count |
+|-------|-----------|---------------|-------|
+| **Tools** | MCP-exposed interfaces | `lib/mimo/tools/definitions.ex` | 14 core |
+| **Dispatchers** | Routing logic | `lib/mimo/tools/dispatchers/*.ex` | 21 modules |
+| **Skills** | Elixir implementations | `lib/mimo/skills/*.ex` | 22 modules |
+| **Total Files** | All Elixir source | `lib/mimo/` | 381 files |
 
 ---
 
@@ -153,6 +156,8 @@ Beyond tools and skills, Mimo has cognitive subsystems:
 │   │   • Episodic Memory (SQLite) - Experiences with vector embeddings   │   │
 │   │   • Semantic Memory (Triples)- Facts and relationships              │   │
 │   │   • Procedural Memory (FSM)  - Stored procedures/workflows          │   │
+│   │   • MemoryConsolidator       - Clusters and synthesizes memories    │   │
+│   │   • EmotionalScorer          - Emotional salience detection         │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
@@ -222,9 +227,11 @@ lib/mimo/
 │   ├── feedback_loop.ex
 │   └── meta_learner.ex
 │
-└── brain/                       # Higher cognition
+├── brain/                       # Higher cognition
     ├── reasoning.ex
     ├── amplifier.ex
+    ├── memory_consolidator.ex   # SPEC-105: Cluster & synthesize
+    ├── emotional_scorer.ex      # SPEC-105: Emotional salience
     └── reflector/
 ```
 
@@ -237,8 +244,8 @@ lib/mimo/
 | Pillar | Status | Implementation |
 |--------|--------|----------------|
 | **PERSISTENCE** "I remember" | ✅ Complete | Episodic + Semantic + Procedural memory |
-| **SYNTHESIS** "I understand" | 🔄 70% | Knowledge graph, reasoning, feedback learning |
-| **EMERGENCE** "I discover" | 🔄 45% | Pattern detection exists, true emergence pending |
+| **SYNTHESIS** "I understand" | ✅ ~85% | Knowledge graph, reasoning, feedback learning, memory consolidation |
+| **EMERGENCE** "I discover" | 🔄 ~55% | Pattern detection, emotional salience, auto-promotion in progress |
 
 ### Human Memory Model Comparison
 
@@ -250,11 +257,21 @@ lib/mimo/
 | Procedural Memory | FSM Workflows | ✅ |
 | Sleep Consolidation | Sleep Cycle | ✅ |
 | Forgetting/Decay | Active-time Decay | ✅ |
-| Emotional Tagging | (importance score) | 🔄 Partial |
-| Priming/Association | Knowledge Graph | 🔄 Partial |
+| Emotional Tagging | EmotionalScorer (SPEC-105) | ✅ |
+| Memory Consolidation | MemoryConsolidator (SPEC-105) | ✅ |
+| Priming/Association | Knowledge Graph + GNN | ✅ |
 | Metacognition | Reflector + Confidence | ✅ |
 
-**Overall: ~65-70% toward the "human memory and beyond" vision**
+**Overall: ~80% toward the "human memory and beyond" vision**
+
+### SPEC-105 Additions (2026-01-10)
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **MemoryConsolidator** | Clusters similar episodic memories, synthesizes into semantic facts | ✅ Complete |
+| **EmotionalScorer** | Keyword + LLM-based emotional salience detection, importance boost | ✅ Complete |
+| **Background Consolidation** | Runs every 6h via Emergence.Scheduler | ✅ Integrated |
+| **Auto-index Symbols** | Code symbols auto-index on first access | ✅ Complete |
 
 ---
 

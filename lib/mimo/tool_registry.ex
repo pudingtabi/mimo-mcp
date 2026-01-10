@@ -32,7 +32,8 @@ defmodule Mimo.ToolRegistry do
   use GenServer
   require Logger
 
-  @topic :"mimo_tools_#{Mix.env()}"
+  # Topic for PubSub - no env distinction needed, Mimo works the same everywhere
+  @topic :mimo_tools
 
   # Internal tool definitions (exposed to MCP)
   # Deprecated aliases (search_vibes, store_fact) are defined but filtered out

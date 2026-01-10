@@ -1806,7 +1806,6 @@ defmodule Mimo.Brain.Memory do
   defp calculate_similarity(_, _), do: 0.0
 
   # SPEC-065 FIX: Content quality filter to prevent test data pollution
-  @test_patterns ~w(test Test TEST unique123 placeholder dummy sample example lorem ipsum)
   @min_content_length 10
 
   defp validate_content_quality(content) when is_binary(content) do
@@ -1816,10 +1815,6 @@ defmodule Mimo.Brain.Memory do
       # Reject very short content
       String.length(content) < @min_content_length ->
         {:error, {:content_too_short, String.length(content), @min_content_length}}
-
-      # Reject obvious test patterns in production
-      Mix.env() == :prod and contains_test_pattern?(content_lower) ->
-        {:error, :test_data_in_production}
 
       # Check for generic/low-value content
       generic_content?(content_lower) ->
@@ -1831,16 +1826,6 @@ defmodule Mimo.Brain.Memory do
   end
 
   defp validate_content_quality(_), do: {:error, :invalid_content_type}
-
-  defp contains_test_pattern?(content) do
-    Enum.any?(@test_patterns, fn pattern ->
-      # Only match whole words, not substrings
-      String.contains?(content, pattern) and
-        (String.starts_with?(content, pattern) or
-           String.contains?(content, " #{pattern}") or
-           String.ends_with?(content, pattern))
-    end)
-  end
 
   defp generic_content?(content) do
     # Content that's too generic to be useful
