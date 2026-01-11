@@ -198,8 +198,10 @@ defmodule Mimo.Brain.Emergence.Catalog do
   def init(_opts) do
     Mimo.EtsSafe.ensure_table(@catalog_table, [:named_table, :set, :public, read_concurrency: true])
 
-    # Load existing promoted patterns from database
-    load_promoted_patterns()
+    # Load existing promoted patterns from database (skip in test mode)
+    unless Application.get_env(:mimo_mcp, :disable_emergence_scheduler, false) do
+      load_promoted_patterns()
+    end
 
     {:ok, %{}}
   end

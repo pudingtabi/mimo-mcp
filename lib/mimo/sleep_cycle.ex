@@ -102,28 +102,41 @@ defmodule Mimo.SleepCycle do
 
   @impl true
   def init(_opts) do
-    # Schedule periodic quiet period checks
-    schedule_check()
+    # Skip sleep cycle in test mode to avoid DB connection pool exhaustion
+    if Application.get_env(:mimo_mcp, :disable_sleep_cycle, false) do
+      Logger.debug("[SleepCycle] Disabled in test mode")
 
-    state = %__MODULE__{
-      last_activity: System.monotonic_time(:millisecond),
-      cycle_count: 0,
-      quiet_since: nil,
-      stats: %{
-        cycles_completed: 0,
-        patterns_extracted: 0,
-        procedures_created: 0,
-        memories_pruned: 0,
-        edges_predicted: 0,
-        hebbian_edges_cleaned: 0,
-        quality_issues_fixed: 0,
-        last_cycle_at: nil
+      {:ok,
+       %__MODULE__{
+         last_activity: System.monotonic_time(:millisecond),
+         cycle_count: 0,
+         quiet_since: nil,
+         stats: %{}
+       }}
+    else
+      # Schedule periodic quiet period checks
+      schedule_check()
+
+      state = %__MODULE__{
+        last_activity: System.monotonic_time(:millisecond),
+        cycle_count: 0,
+        quiet_since: nil,
+        stats: %{
+          cycles_completed: 0,
+          patterns_extracted: 0,
+          procedures_created: 0,
+          memories_pruned: 0,
+          edges_predicted: 0,
+          hebbian_edges_cleaned: 0,
+          quality_issues_fixed: 0,
+          last_cycle_at: nil
+        }
       }
-    }
 
-    Logger.info("[SleepCycle] Initialized - monitoring for quiet periods")
+      Logger.info("[SleepCycle] Initialized - monitoring for quiet periods")
 
-    {:ok, state}
+      {:ok, state}
+    end
   end
 
   @impl true

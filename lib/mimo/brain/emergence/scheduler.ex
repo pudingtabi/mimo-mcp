@@ -60,20 +60,24 @@ defmodule Mimo.Brain.Emergence.Scheduler do
       error_count: 0
     }
 
-    # Initialize emergence framework
-    try do
-      Emergence.init()
-    rescue
-      e -> Logger.warning("[Emergence.Scheduler] Init failed: #{Exception.message(e)}")
-    end
+    # Initialize emergence framework (skip in test mode to avoid DB pool exhaustion)
+    if config.enabled do
+      try do
+        Emergence.init()
+      rescue
+        e -> Logger.warning("[Emergence.Scheduler] Init failed: #{Exception.message(e)}")
+      end
 
-    # Schedule first run if enabled and run_on_startup
-    if config.enabled and config.run_on_startup do
-      Process.send_after(self(), :run_cycle, @startup_delay_ms)
-      Logger.info("[Emergence.Scheduler] Started, first run in #{div(@startup_delay_ms, 1000)}s")
+      # Schedule first run if enabled and run_on_startup
+      if config.run_on_startup do
+        Process.send_after(self(), :run_cycle, @startup_delay_ms)
+        Logger.info("[Emergence.Scheduler] Started, first run in #{div(@startup_delay_ms, 1000)}s")
+      else
+        schedule_next_cycle(state)
+        Logger.info("[Emergence.Scheduler] Started, next run in #{div(state.interval_ms, 1000)}s")
+      end
     else
-      schedule_next_cycle(state)
-      Logger.info("[Emergence.Scheduler] Started, next run in #{div(state.interval_ms, 1000)}s")
+      Logger.debug("[Emergence.Scheduler] Disabled - skipping init")
     end
 
     {:ok, state}
@@ -194,8 +198,11 @@ defmodule Mimo.Brain.Emergence.Scheduler do
   defp get_config do
     app_config = Application.get_env(:mimo, __MODULE__, [])
 
+    # Disable in test environment if configured
+    test_disabled = Application.get_env(:mimo_mcp, :disable_emergence_scheduler, false)
+
     %{
-      enabled: Keyword.get(app_config, :enabled, true),
+      enabled: Keyword.get(app_config, :enabled, true) and not test_disabled,
       interval_ms: Keyword.get(app_config, :interval_ms, @default_interval_ms),
       run_on_startup: Keyword.get(app_config, :run_on_startup, false)
     }

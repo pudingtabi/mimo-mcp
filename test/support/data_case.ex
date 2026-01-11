@@ -24,15 +24,35 @@ defmodule Mimo.DataCase do
     end
   end
 
+  @doc """
+  Start sandbox with retry to handle race conditions during parallel test startup.
+  """
+  def start_sandbox_with_retry(0), do: raise("Failed to start sandbox after retries")
+
+  def start_sandbox_with_retry(attempts) do
+    try do
+      # Use shared mode to allow WriteSerializer and other GenServers to access the connection
+      pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Mimo.Repo, shared: true)
+      on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
+      :ok
+    rescue
+      e in DBConnection.ConnectionError ->
+        Process.sleep(100)
+        start_sandbox_with_retry(attempts - 1)
+
+      e in ArgumentError ->
+        # Repo not started yet - wait and retry
+        Process.sleep(100)
+        start_sandbox_with_retry(attempts - 1)
+    end
+  end
+
   setup tags do
     repo_config = Application.get_env(:mimo_mcp, Mimo.Repo, [])
 
     if Keyword.get(repo_config, :pool) == Ecto.Adapters.SQL.Sandbox do
-      # Use shared mode to allow WriteSerializer and other GenServers to access the connection
-      # Note: This means tests cannot be async: true when using shared mode
-      pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Mimo.Repo, shared: true)
-      on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
-      :ok
+      # Start sandbox with retry - handles race conditions during parallel test startup
+      start_sandbox_with_retry(5)
     else
       # SAFEGUARD: Prevent tests from running against dev/prod DB without sandbox
       # This prevents catastrophic data loss if someone runs tests with MIX_ENV=dev

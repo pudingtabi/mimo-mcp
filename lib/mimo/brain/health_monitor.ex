@@ -72,8 +72,10 @@ defmodule Mimo.Brain.HealthMonitor do
       check_count: 0
     }
 
-    # Schedule first check after startup delay
-    if get_config(:enabled, true) do
+    # Schedule first check after startup delay (skip in test mode)
+    test_mode = Application.get_env(:mimo_mcp, :environment) == :test
+
+    if get_config(:enabled, true) and not test_mode do
       Process.send_after(self(), :scheduled_check, 5_000)
     end
 

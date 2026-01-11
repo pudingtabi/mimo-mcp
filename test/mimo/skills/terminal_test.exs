@@ -20,12 +20,21 @@ defmodule Mimo.Skills.TerminalTest do
     {:ok, test_dir: @test_dir}
   end
 
+  # Helper to strip shell warnings from output (e.g., locale warnings in CI)
+  defp clean_output(output) do
+    output
+    |> String.split("\n")
+    |> Enum.reject(&String.contains?(&1, "warning:"))
+    |> Enum.join("\n")
+    |> String.trim()
+  end
+
   describe "execute/2 with cwd option" do
     test "executes command in specified directory", %{test_dir: test_dir} do
       result = Terminal.execute("pwd", cwd: test_dir, shell: "bash")
 
       assert result.status == 0
-      assert String.trim(result.output) == test_dir
+      assert clean_output(result.output) == test_dir
     end
 
     test "returns error for non-existent directory" do
@@ -52,7 +61,7 @@ defmodule Mimo.Skills.TerminalTest do
         )
 
       assert result.status == 0
-      assert String.trim(result.output) == "hello_world"
+      assert clean_output(result.output) == "hello_world"
     end
 
     test "sets multiple environment variables" do
@@ -71,7 +80,7 @@ defmodule Mimo.Skills.TerminalTest do
       result = Terminal.execute("echo test", env: %{}, shell: "bash")
 
       assert result.status == 0
-      assert String.trim(result.output) == "test"
+      assert clean_output(result.output) == "test"
     end
   end
 
@@ -80,7 +89,7 @@ defmodule Mimo.Skills.TerminalTest do
       result = Terminal.execute("echo hello from bash", shell: "bash")
 
       assert result.status == 0
-      assert String.trim(result.output) == "hello from bash"
+      assert clean_output(result.output) == "hello from bash"
     end
 
     test "executes command with sh shell" do

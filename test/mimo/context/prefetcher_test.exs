@@ -1,14 +1,17 @@
 defmodule Mimo.Context.PrefetcherTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
+  # async: false because we're using the global Prefetcher and need to clear between tests
 
   alias Mimo.Context.Prefetcher
 
-  describe "cache operations" do
-    setup do
-      start_supervised!(Prefetcher)
-      :ok
-    end
+  # Clear cache before each test to ensure isolation
+  setup do
+    Prefetcher.clear()
+    Process.sleep(10)
+    :ok
+  end
 
+  describe "cache operations" do
     test "cache_put and get_cached work together" do
       Prefetcher.cache_put(:memory, "test_query", [%{id: 1, content: "test"}])
       Process.sleep(10)
@@ -32,11 +35,6 @@ defmodule Mimo.Context.PrefetcherTest do
   end
 
   describe "suggest/1" do
-    setup do
-      start_supervised!(Prefetcher)
-      :ok
-    end
-
     test "returns suggestions for known query" do
       Prefetcher.cache_put(:memory, "auth patterns", [%{id: 1}])
       Process.sleep(10)
@@ -52,11 +50,6 @@ defmodule Mimo.Context.PrefetcherTest do
   end
 
   describe "prefetch_for_query/2" do
-    setup do
-      start_supervised!(Prefetcher)
-      :ok
-    end
-
     test "starts prefetching without blocking" do
       # Should return immediately
       result = Prefetcher.prefetch_for_query("test query", sources: [:memory])
@@ -75,11 +68,6 @@ defmodule Mimo.Context.PrefetcherTest do
   end
 
   describe "invalidate/2" do
-    setup do
-      start_supervised!(Prefetcher)
-      :ok
-    end
-
     test "invalidates cache entry" do
       Prefetcher.cache_put(:memory, "to_invalidate", [%{id: 1}])
       Process.sleep(10)
@@ -97,11 +85,6 @@ defmodule Mimo.Context.PrefetcherTest do
   end
 
   describe "invalidate_source/1" do
-    setup do
-      start_supervised!(Prefetcher)
-      :ok
-    end
-
     test "invalidates all entries for a source type" do
       Prefetcher.cache_put(:memory, "query1", [%{id: 1}])
       Prefetcher.cache_put(:memory, "query2", [%{id: 2}])
@@ -121,11 +104,6 @@ defmodule Mimo.Context.PrefetcherTest do
   end
 
   describe "clear/0" do
-    setup do
-      start_supervised!(Prefetcher)
-      :ok
-    end
-
     test "clears all cache entries" do
       Prefetcher.cache_put(:memory, "q1", [%{id: 1}])
       Prefetcher.cache_put(:knowledge, "q2", [%{id: 2}])
@@ -140,11 +118,6 @@ defmodule Mimo.Context.PrefetcherTest do
   end
 
   describe "stats/0" do
-    setup do
-      start_supervised!(Prefetcher)
-      :ok
-    end
-
     test "returns cache statistics" do
       stats = Prefetcher.stats()
 
@@ -177,11 +150,6 @@ defmodule Mimo.Context.PrefetcherTest do
   end
 
   describe "TTL expiration" do
-    setup do
-      start_supervised!(Prefetcher)
-      :ok
-    end
-
     test "expired entries return nil" do
       # Use a very short TTL
       Prefetcher.cache_put(:memory, "short_lived", [%{id: 1}], ttl_ms: 50)

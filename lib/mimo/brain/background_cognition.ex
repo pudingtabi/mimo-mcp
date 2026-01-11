@@ -128,32 +128,48 @@ defmodule Mimo.Brain.BackgroundCognition do
 
   @impl true
   def init(_opts) do
-    schedule_idle_check()
+    # Skip background cognition in test mode to avoid DB connection pool exhaustion
+    if Application.get_env(:mimo_mcp, :disable_background_cognition, false) do
+      Logger.debug("[BackgroundCognition] Disabled in test mode")
 
-    state = %__MODULE__{
-      last_activity: System.monotonic_time(:millisecond),
-      last_cycle_at: nil,
-      last_synthesis_at: nil,
-      cycle_count: 0,
-      llm_calls_this_cycle: 0,
-      running: false,
-      stats: %{
-        cycles_completed: 0,
-        deep_consolidations: 0,
-        patterns_enhanced: 0,
-        contexts_precomputed: 0,
-        decay_decisions: 0,
-        syntheses_created: 0,
-        patterns_promoted: 0,
-        upgrade_recommendations: 0,
-        db_maintenance_runs: 0,
-        llm_calls_total: 0,
-        last_error: nil
+      {:ok,
+       %__MODULE__{
+         last_activity: System.monotonic_time(:millisecond),
+         last_cycle_at: nil,
+         last_synthesis_at: nil,
+         cycle_count: 0,
+         llm_calls_this_cycle: 0,
+         running: false,
+         stats: %{}
+       }}
+    else
+      schedule_idle_check()
+
+      state = %__MODULE__{
+        last_activity: System.monotonic_time(:millisecond),
+        last_cycle_at: nil,
+        last_synthesis_at: nil,
+        cycle_count: 0,
+        llm_calls_this_cycle: 0,
+        running: false,
+        stats: %{
+          cycles_completed: 0,
+          deep_consolidations: 0,
+          patterns_enhanced: 0,
+          contexts_precomputed: 0,
+          decay_decisions: 0,
+          syntheses_created: 0,
+          patterns_promoted: 0,
+          upgrade_recommendations: 0,
+          db_maintenance_runs: 0,
+          llm_calls_total: 0,
+          last_error: nil
+        }
       }
-    }
 
-    Logger.info("[BackgroundCognition] Initialized - monitoring for session end")
-    {:ok, state}
+      Logger.info("[BackgroundCognition] Initialized - monitoring for session end")
+      {:ok, state}
+    end
   end
 
   @impl true
