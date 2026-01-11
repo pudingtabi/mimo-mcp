@@ -118,6 +118,9 @@ test_*.exs
 # Skills manifest (user-specific, generated at runtime)
 priv/skills_manifest.json
 
+# Database maintenance state (user-specific timestamps)
+priv/db_maintenance.json
+
 # Crash dumps
 erl_crash.dump
 *.dump

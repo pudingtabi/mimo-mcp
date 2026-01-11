@@ -14,8 +14,6 @@ Mimo is a memory system for AI agents. It stores memories, builds knowledge grap
 | Document | Purpose |
 |----------|---------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Tools vs Skills explained |
-| [AGENTS.md](AGENTS.md) | Quick reference for AI agents |
-| [VISION.md](VISION.md) | Long-term roadmap |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
 
 ---

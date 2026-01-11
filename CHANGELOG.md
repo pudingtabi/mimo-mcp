@@ -5,6 +5,34 @@ All notable changes to Mimo-MCP Gateway will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.0] - 2026-01-11
+
+### Fixed
+
+- **Memory Time Filter** - Time filtering now works correctly for all queries
+  - Root cause: time_filter was applied POST-retrieval after HybridRetriever's internal limits
+  - Fix: Pushed time filter INTO HybridRetriever pipeline, applied before scoring/limiting
+  - Added `from_date`/`to_date` options to HybridRetriever.search()
+  - Added `apply_time_filter/3` helper for NaiveDateTime/DateTime comparison
+  - Increased search limit 5x when time filter is active to ensure enough candidates
+
+- **Memory List Sort Order** - `sort=recent` now correctly returns newest first
+  - Fixed `order_by: [desc: e.id]` in list query
+
+### Added
+
+- **LLM-Enhanced Query Understanding** (Phase 1b P1)
+  - New `analyze_with_llm/1` in MemoryRouter for intelligent query parsing
+  - Extracts: query_type, intent, time_context, entities, confidence
+  - Falls back to keyword-based analysis if LLM unavailable or fails
+  - New `:aggregation` route for count/stats queries
+  - Added `aggregation_route/2` for queries like "how many memories"
+
+### Changed
+
+- **Security** - Added `priv/db_maintenance.json` to .gitignore (user-specific timestamps)
+- **Documentation** - Updated README.md for public release
+
 ## [2.9.0] - 2026-01-07
 
 **Major Release** - Phase 3-6 Complete: Learning Loop + True Emergence + Evolution + Self-Directed Learning
