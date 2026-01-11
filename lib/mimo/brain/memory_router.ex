@@ -6,6 +6,7 @@ defmodule Mimo.Brain.MemoryRouter do
   - Query type detection (factual, relational, temporal, procedural)
   - Query complexity analysis
   - Available store capabilities
+  - LLM-enhanced understanding (ROADMAP Phase 1b P1)
 
   ## Query Types
 
@@ -14,6 +15,14 @@ defmodule Mimo.Brain.MemoryRouter do
     * `:temporal` - Time-based queries → Recency search
     * `:procedural` - How-to/process → Procedural store
     * `:hybrid` - Complex multi-aspect → All stores
+
+  ## LLM Enhancement
+
+  When enabled, uses LLM for natural language understanding:
+  - Extracts time references ("yesterday" → ~D[...])
+  - Identifies query intent beyond keywords
+  - Expands query terms for better recall
+  - Falls back to keyword-based analysis on failure
 
   ## Examples
 
@@ -28,6 +37,7 @@ defmodule Mimo.Brain.MemoryRouter do
   """
   require Logger
 
+  alias Mimo.Brain.LLM
   alias Mimo.Brain.{HybridRetriever, SafeMemory}
   alias Mimo.Cache.SearchResult
   alias Mimo.ProceduralStore
@@ -45,6 +55,157 @@ defmodule Mimo.Brain.MemoryRouter do
   # SPEC-092: Strong temporal indicators that should redirect to list operation
   @strong_temporal_indicators ~w(latest newest)
   @strong_temporal_patterns ["most recent", "last created", "just added"]
+
+  # ROADMAP Phase 1b P1: LLM-enhanced query understanding config
+  # Enable LLM for complex queries that benefit from natural language understanding
+  @llm_analysis_enabled Application.compile_env(:mimo, :llm_query_analysis, true)
+  # Minimum query length to trigger LLM analysis (short queries use keyword-based)
+  @llm_min_query_length 10
+
+  # ============================================================================
+  # ROADMAP Phase 1b P1: LLM-Enhanced Query Understanding
+  # ============================================================================
+
+  @doc """
+  Use LLM to understand query intent, time references, and topics.
+
+  Returns structured analysis for more accurate routing and retrieval.
+
+  ## Parameters
+
+    * `query` - Natural language query
+
+  ## Returns
+
+    * `{:ok, analysis}` - Structured analysis map
+    * `{:error, reason}` - LLM failure (fallback to keyword-based)
+
+  ## Analysis Structure
+
+      %{
+        "intent" => "temporal" | "semantic" | "relational" | "procedural" | "aggregation",
+        "time_reference" => nil | "yesterday" | "last_week" | ...,
+        "topics" => ["keyword1", "keyword2"],
+        "expanded_queries" => ["variation1", "variation2"],
+        "confidence" => 0.0..1.0
+      }
+  """
+  @spec understand_query_with_llm(String.t()) :: {:ok, map()} | {:error, term()}
+  def understand_query_with_llm(query) do
+    prompt = """
+    Analyze this memory search query and extract structured information.
+
+    Query: "#{query}"
+
+    Respond with ONLY valid JSON (no markdown, no explanation):
+    {
+      "intent": "semantic|temporal|relational|procedural|aggregation",
+      "time_reference": null or one of: "today", "yesterday", "last_week", "last_month", "recent",
+      "topics": ["keyword1", "keyword2"],
+      "expanded_queries": ["variation1", "variation2"],
+      "confidence": 0.0 to 1.0
+    }
+
+    Intent definitions:
+    - semantic: General knowledge/fact lookup
+    - temporal: Time-based queries (recent, yesterday, latest)
+    - relational: Queries about connections between entities
+    - procedural: How-to, steps, process questions
+    - aggregation: Summarize, count, or aggregate multiple memories
+
+    Important:
+    - Extract time references from natural language (e.g., "yesterday" → "yesterday")
+    - Topics are key concepts to search for
+    - Expanded queries are semantic variations that might match relevant memories
+    """
+
+    case LLM.complete(prompt, format: :json, raw: true, max_tokens: 200, skip_retry: true) do
+      {:ok, json_str} ->
+        case Jason.decode(json_str) do
+          {:ok, analysis} when is_map(analysis) ->
+            # Validate and normalize the response
+            normalized = normalize_llm_analysis(analysis)
+            Logger.debug("[MemoryRouter] LLM analysis: #{inspect(normalized)}")
+            {:ok, normalized}
+
+          {:error, _} ->
+            Logger.warning("[MemoryRouter] LLM returned invalid JSON: #{json_str}")
+            {:error, :invalid_json}
+        end
+
+      {:error, reason} ->
+        Logger.debug("[MemoryRouter] LLM analysis failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp normalize_llm_analysis(analysis) do
+    # Map LLM intents to our internal types
+    intent =
+      case Map.get(analysis, "intent", "semantic") do
+        "temporal" -> :temporal
+        "relational" -> :relational
+        "procedural" -> :procedural
+        "aggregation" -> :aggregation
+        _ -> :factual
+      end
+
+    %{
+      intent: intent,
+      time_reference: Map.get(analysis, "time_reference"),
+      topics: Map.get(analysis, "topics", []),
+      expanded_queries: Map.get(analysis, "expanded_queries", []),
+      confidence: Map.get(analysis, "confidence", 0.5) |> to_float()
+    }
+  end
+
+  defp to_float(val) when is_float(val), do: val
+  defp to_float(val) when is_integer(val), do: val / 1.0
+  defp to_float(_), do: 0.5
+
+  @doc """
+  Analyze query with LLM enhancement when beneficial, fallback to keywords.
+
+  Uses LLM for complex queries where natural language understanding helps.
+  Falls back to fast keyword-based analysis for:
+  - Short queries (< 10 chars)
+  - When LLM is disabled
+  - When LLM fails
+
+  ## Parameters
+
+    * `query` - Natural language query
+    * `opts` - Options:
+      - `:force_llm` - Always use LLM even for short queries
+      - `:skip_llm` - Never use LLM, use keyword-based only
+
+  ## Returns
+
+    `{type, confidence}` tuple compatible with existing analyze/1
+  """
+  @spec analyze_with_llm(String.t(), keyword()) :: {atom(), float()}
+  def analyze_with_llm(query, opts \\ []) do
+    force_llm = Keyword.get(opts, :force_llm, false)
+    skip_llm = Keyword.get(opts, :skip_llm, false)
+
+    use_llm =
+      @llm_analysis_enabled and
+        not skip_llm and
+        (force_llm or String.length(query) >= @llm_min_query_length)
+
+    if use_llm do
+      case understand_query_with_llm(query) do
+        {:ok, %{intent: intent, confidence: confidence}} ->
+          {intent, confidence}
+
+        {:error, _} ->
+          # Fallback to keyword-based
+          analyze(query)
+      end
+    else
+      analyze(query)
+    end
+  end
 
   @doc """
   SPEC-092: Recommend the appropriate operation based on query intent.
@@ -138,17 +299,25 @@ defmodule Mimo.Brain.MemoryRouter do
   end
 
   # Internal routing implementation
+  # ROADMAP Phase 1b P1: Now uses LLM-enhanced analysis when available
   defp do_route(query, opts) do
     strategy = Keyword.get(opts, :strategy, :auto)
     limit = Keyword.get(opts, :limit, 10)
     include_working = Keyword.get(opts, :include_working, true)
+    use_llm = Keyword.get(opts, :use_llm, @llm_analysis_enabled)
 
     # Determine routing strategy
+    # ROADMAP Phase 1b P1: Use LLM analysis for better intent detection
     {query_type, confidence} =
-      if strategy == :auto do
-        analyze(query)
-      else
-        {strategy, 1.0}
+      cond do
+        strategy != :auto ->
+          {strategy, 1.0}
+
+        use_llm ->
+          analyze_with_llm(query, skip_llm: not use_llm)
+
+        true ->
+          analyze(query)
       end
 
     :telemetry.execute(
@@ -160,12 +329,14 @@ defmodule Mimo.Brain.MemoryRouter do
     Logger.debug("Routing query as #{query_type} (confidence: #{Float.round(confidence, 2)})")
 
     # Execute appropriate retrieval strategy
+    # ROADMAP Phase 1b P1: Added :aggregation for summarization queries
     results =
       case query_type do
         :relational -> graph_route(query, opts)
         :temporal -> temporal_route(query, opts)
         :procedural -> procedural_route(query, opts)
         :factual -> vector_route(query, opts)
+        :aggregation -> aggregation_route(query, opts)
         :hybrid -> hybrid_route(query, opts)
         _ -> hybrid_route(query, opts)
       end
@@ -325,6 +496,21 @@ defmodule Mimo.Brain.MemoryRouter do
     end
   end
 
+  # ROADMAP Phase 1b P1: Aggregation route for summarization queries
+  # Returns more results for summarization, with balanced retrieval
+  defp aggregation_route(query, opts) do
+    # For aggregation/summarization, we want more diverse results
+    aggregation_opts =
+      opts
+      |> Keyword.put(:limit, max(Keyword.get(opts, :limit, 10) * 2, 20))
+      |> Keyword.put(:strategy, :balanced)
+
+    case HybridRetriever.search(query, aggregation_opts) do
+      results when is_list(results) -> results
+      _ -> []
+    end
+  end
+
   defp procedural_route(query, opts) do
     limit = Keyword.get(opts, :limit, 10)
 
@@ -400,6 +586,7 @@ defmodule Mimo.Brain.MemoryRouter do
   defp get_recommended_stores(:temporal), do: [:vector, :recency]
   defp get_recommended_stores(:procedural), do: [:procedural, :vector]
   defp get_recommended_stores(:factual), do: [:vector]
+  defp get_recommended_stores(:aggregation), do: [:vector, :graph, :recency]
   defp get_recommended_stores(:hybrid), do: [:vector, :graph, :recency]
   defp get_recommended_stores(_), do: [:vector]
 

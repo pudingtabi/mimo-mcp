@@ -34,6 +34,59 @@ defmodule Mimo.Brain.MemoryRouterTest do
     end
   end
 
+  describe "analyze_with_llm/2" do
+    test "falls back to keyword-based analysis when skip_llm is true" do
+      # This should use keyword-based analysis (no LLM call)
+      {type, confidence} =
+        MemoryRouter.analyze_with_llm("How is auth related to users?", skip_llm: true)
+
+      assert type == :relational
+      assert confidence > 0.3
+    end
+
+    test "falls back for short queries under threshold" do
+      # Short queries (< 10 chars) should use keyword-based
+      {type, _confidence} = MemoryRouter.analyze_with_llm("recent", skip_llm: false)
+      assert type == :temporal
+    end
+
+    test "returns same result as analyze/1 when LLM disabled" do
+      query = "What happened recently?"
+      {type1, conf1} = MemoryRouter.analyze(query)
+      {type2, conf2} = MemoryRouter.analyze_with_llm(query, skip_llm: true)
+
+      assert type1 == type2
+      assert conf1 == conf2
+    end
+  end
+
+  describe "understand_query_with_llm/1" do
+    # Note: These tests verify the function structure, not actual LLM calls
+    # In CI, LLM may not be available so we just verify the function exists
+    # and handles errors gracefully
+
+    test "function exists and returns expected structure" do
+      # The function should exist and be callable
+      # It may fail due to no LLM, but should return {:error, _}
+      result = MemoryRouter.understand_query_with_llm("what is the latest plan?")
+
+      case result do
+        {:ok, analysis} ->
+          # If LLM is available, verify structure
+          assert Map.has_key?(analysis, :intent)
+          assert Map.has_key?(analysis, :time_reference)
+          assert Map.has_key?(analysis, :topics)
+          assert Map.has_key?(analysis, :expanded_queries)
+          assert Map.has_key?(analysis, :confidence)
+          assert analysis.intent in [:temporal, :factual, :relational, :procedural, :aggregation]
+
+        {:error, _reason} ->
+          # LLM not available, which is fine in test
+          :ok
+      end
+    end
+  end
+
   describe "explain_routing/1" do
     test "returns routing explanation" do
       explanation = MemoryRouter.explain_routing("How is user related to session?")
