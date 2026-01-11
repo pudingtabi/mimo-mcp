@@ -53,10 +53,13 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
   defp do_dispatch("ab_stats", _args), do: dispatch_ab_stats()
   # Phase 4.2: Prediction Layer (SPEC-044 v1.4)
   defp do_dispatch("predict", args), do: dispatch_predict(args)
+  # Phase 4.3: Explanation Layer (SPEC-044 v1.5)
+  defp do_dispatch("explain", args), do: dispatch_explain(args)
+  defp do_dispatch("hypothesize", args), do: dispatch_hypothesize(args)
 
   defp do_dispatch(op, _args) do
     {:error,
-     "Unknown emergence operation: #{op}. Available: detect, dashboard, alerts, amplify, promote, cycle, list, search, suggest, status, pattern, impact, track_usage, usage_stats, ab_stats, predict"}
+     "Unknown emergence operation: #{op}. Available: detect, dashboard, alerts, amplify, promote, cycle, list, search, suggest, status, pattern, impact, track_usage, usage_stats, ab_stats, predict, explain, hypothesize"}
   end
 
   defp dispatch_detect(args) do
@@ -549,13 +552,135 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
 
   defp parse_modes(nil), do: nil
 
-  defp parse_modes(modes) when is_list(modes) do
-    Enum.map(modes, fn mode ->
-      if is_atom(mode), do: mode, else: String.to_atom(mode)
-    end)
+  # ─────────────────────────────────────────────────────────────────
+  # Phase 4.3: Explanation Layer (SPEC-044 v1.5)
+  # ─────────────────────────────────────────────────────────────────
+
+  defp dispatch_explain(args) do
+    alias Mimo.Brain.Emergence.Explainer
+
+    pattern_id = args["pattern_id"]
+    use_llm = args["use_llm"] != false
+    include_evolution = args["include_evolution"] == true
+    include_prediction = args["include_prediction"] != false
+
+    opts = [
+      use_llm: use_llm,
+      include_evolution: include_evolution,
+      include_prediction: include_prediction
+    ]
+
+    cond do
+      pattern_id ->
+        # Explain specific pattern
+        case Explainer.explain(pattern_id, opts) do
+          {:ok, explanation} ->
+            {:ok,
+             %{
+               operation: :explain,
+               pattern_id: pattern_id,
+               explanation: explanation,
+               interpretation: interpret_explanation(explanation)
+             }}
+
+          {:error, :not_found} ->
+            {:error, "Pattern not found: #{pattern_id}"}
+
+          {:error, reason} ->
+            {:error, "Explanation failed: #{inspect(reason)}"}
+        end
+
+      true ->
+        # Explain all active patterns (batch mode)
+        # Pattern.list returns a list directly, not {:ok, list}
+        case Mimo.Brain.Emergence.Pattern.list(status: :active, limit: 10) do
+          patterns when is_list(patterns) and length(patterns) > 0 ->
+            case Explainer.explain_batch(patterns, opts) do
+              {:ok, result} ->
+                {:ok,
+                 %{
+                   operation: :explain_batch,
+                   patterns_explained: result.summary.explained_count,
+                   summary: result.summary,
+                   explanations: Enum.take(result.explanations, 5)
+                 }}
+            end
+
+          [] ->
+            {:ok,
+             %{
+               operation: :explain,
+               message: "No active patterns to explain",
+               suggestion: "Run emergence_detect to find patterns first"
+             }}
+        end
+    end
   end
 
-  defp parse_modes(_), do: nil
+  defp dispatch_hypothesize(args) do
+    alias Mimo.Brain.Emergence.Explainer
+
+    pattern_id = args["pattern_id"]
+
+    unless pattern_id do
+      {:error, "pattern_id is required for hypothesize operation"}
+    else
+      case Explainer.hypothesize(pattern_id) do
+        {:ok, hypotheses} ->
+          {:ok,
+           %{
+             operation: :hypothesize,
+             pattern_id: pattern_id,
+             hypothesis_count: length(hypotheses),
+             hypotheses: hypotheses,
+             interpretation: interpret_hypotheses(hypotheses)
+           }}
+
+        {:error, :not_found} ->
+          {:error, "Pattern not found: #{pattern_id}"}
+
+        {:error, reason} ->
+          {:error, "Hypothesis generation failed: #{inspect(reason)}"}
+      end
+    end
+  end
+
+  defp interpret_explanation(%{significance: %{level: :high}} = explanation) do
+    "This is a high-significance #{explanation.type} pattern. " <>
+      "#{explanation.recommendation}"
+  end
+
+  defp interpret_explanation(%{significance: %{level: :medium}} = explanation) do
+    "This #{explanation.type} pattern is developing. " <>
+      "#{explanation.recommendation}"
+  end
+
+  defp interpret_explanation(explanation) do
+    "This pattern is still emerging. #{explanation[:recommendation] || "Continue monitoring."}"
+  end
+
+  defp interpret_hypotheses(hypotheses) when length(hypotheses) > 0 do
+    top = List.first(hypotheses)
+    plausibility = top["plausibility"] || 0.5
+
+    cond do
+      plausibility >= 0.8 ->
+        "High confidence hypothesis: #{top["hypothesis"]}"
+
+      plausibility >= 0.5 ->
+        "Moderate confidence hypothesis: #{top["hypothesis"]}"
+
+      true ->
+        "Low confidence - #{length(hypotheses)} hypotheses generated, more data needed"
+    end
+  end
+
+  defp interpret_hypotheses(_),
+    do: "Unable to generate hypotheses - pattern may lack sufficient context"
+
+  # ─────────────────────────────────────────────────────────────────
+  # Helper Functions
+  # ─────────────────────────────────────────────────────────────────
 
   # map_detection_results only accepts maps
   defp map_detection_results(detection) when is_map(detection) do

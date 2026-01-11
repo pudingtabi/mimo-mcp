@@ -176,6 +176,17 @@ defmodule Mimo.Brain.Emergence.Pattern do
   end
 
   @doc """
+  Gets a pattern by ID.
+  """
+  @spec get(binary()) :: {:ok, t()} | {:error, :not_found}
+  def get(id) when is_binary(id) do
+    case Repo.get(__MODULE__, id) do
+      nil -> {:error, :not_found}
+      pattern -> {:ok, pattern}
+    end
+  end
+
+  @doc """
   Finds or creates a pattern by signature.
   If found, increments occurrence count and updates last_seen.
   Handles race conditions with retry on constraint violation.

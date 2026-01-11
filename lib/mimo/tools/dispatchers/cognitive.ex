@@ -59,7 +59,7 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
   @epistemic_ops ~w[assess gaps query can_answer suggest stats]
   @verification_ops ~w[verification_stats verification_overconfidence verification_success_by_type verification_brier_score]
   @verify_ops ~w[verify_count verify_math verify_logic verify_compare verify_self_check]
-  @emergence_ops ~w[emergence_detect emergence_dashboard emergence_alerts emergence_amplify emergence_promote emergence_cycle emergence_list emergence_search emergence_suggest emergence_status emergence_predict]
+  @emergence_ops ~w[emergence_detect emergence_dashboard emergence_alerts emergence_amplify emergence_promote emergence_cycle emergence_list emergence_search emergence_suggest emergence_status emergence_predict emergence_explain emergence_hypothesize]
   @reflector_ops ~w[reflector_reflect reflector_evaluate reflector_confidence reflector_errors reflector_format reflector_config]
   @lifecycle_ops ~w[lifecycle_stats lifecycle_distribution lifecycle_warnings]
   @optimizer_ops ~w[optimizer_stats optimizer_metrics optimizer_recommendations optimizer_record_outcome optimizer_optimize]
