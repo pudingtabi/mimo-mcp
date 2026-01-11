@@ -374,6 +374,11 @@ web operation=read_pdf path="/path/to/file.pdf"           # Read local PDF
 web operation=read_pdf url="https://example.com/doc.pdf"  # Read PDF from URL
 memory operation=ingest path="document.pdf"               # Ingest PDF into memory
 
+# === ARXIV RESEARCH ===
+web operation=arxiv_search query="large language models memory" limit=5  # Search arXiv
+web operation=arxiv_paper id="2601.01885"                                # Get paper metadata
+web operation=arxiv_paper id="2601.01885" include_pdf=true               # Get paper + full PDF
+
 # === PHASE 4: LEARNING ===
 memory operation=store content="[discovery]" category=fact importance=0.8
 knowledge operation=teach text="A depends on B"

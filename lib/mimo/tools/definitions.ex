@@ -299,6 +299,10 @@ defmodule Mimo.Tools.Definitions do
       • `parse` - Convert HTML to Markdown
       • `read_pdf` - Read PDF file/URL and convert to Markdown
 
+      ### arXiv Operations
+      • `arxiv_search` - Search arXiv for research papers
+      • `arxiv_paper` - Get paper metadata and optionally PDF content
+
       ### Search
       • `search` - Web search with library-first optimization
       • `code_search` - Code-specific search
@@ -344,6 +348,12 @@ defmodule Mimo.Tools.Definitions do
 
       # Read PDF from URL
       web operation=read_pdf url="https://example.com/document.pdf"
+
+      # Search arXiv for papers
+      web operation=arxiv_search query="large language models memory"
+
+      # Get arXiv paper with PDF content
+      web operation=arxiv_paper id="2601.01885" include_pdf=true
       ```
 
       TIP: For package docs, use `code operation=library_get` - it's faster (cached)!
@@ -358,6 +368,8 @@ defmodule Mimo.Tools.Definitions do
               "extract",
               "parse",
               "read_pdf",
+              "arxiv_search",
+              "arxiv_paper",
               "search",
               "code_search",
               "image_search",
@@ -390,6 +402,33 @@ defmodule Mimo.Tools.Definitions do
             type: "boolean",
             default: true,
             description: "For read_pdf: include PDF metadata in response"
+          },
+
+          # arXiv parameters
+          id: %{
+            type: "string",
+            description: "For arxiv_paper: arXiv paper ID (e.g., '2601.01885', 'hep-th/9901001')"
+          },
+          include_pdf: %{
+            type: "boolean",
+            default: false,
+            description: "For arxiv_paper: download and extract PDF content"
+          },
+          extract_sections: %{
+            type: "boolean",
+            default: true,
+            description: "For arxiv_paper: extract paper sections (abstract, methods, etc.)"
+          },
+          categories: %{
+            type: "array",
+            items: %{type: "string"},
+            description: "For arxiv_search: filter by arXiv categories (e.g., ['cs.AI', 'cs.LG'])"
+          },
+          sort_by: %{
+            type: "string",
+            enum: ["relevance", "lastUpdatedDate", "submittedDate"],
+            default: "relevance",
+            description: "For arxiv_search: sort field"
           },
 
           # Fetch parameters

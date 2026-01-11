@@ -103,6 +103,10 @@ defmodule Mimo.Tools.Dispatchers.Web do
   defp do_dispatch("parse", args), do: dispatch_web_parse(args)
   defp do_dispatch("read_pdf", args), do: dispatch_read_pdf(args)
 
+  # arXiv operations
+  defp do_dispatch("arxiv_search", args), do: dispatch_arxiv_search(args)
+  defp do_dispatch("arxiv_paper", args), do: dispatch_arxiv_paper(args)
+
   # Search operations
   defp do_dispatch("search", args), do: dispatch_search(args)
   defp do_dispatch("code_search", args), do: dispatch_search(Map.put(args, "operation", "code"))
@@ -131,7 +135,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
   # Unknown operation
   defp do_dispatch(op, _args) do
     {:error,
-     "Unknown web operation: #{op}. Valid operations: fetch, extract, parse, read_pdf, search, code_search, image_search, blink, blink_analyze, blink_smart, browser, screenshot, pdf, evaluate, interact, test, vision, sonar"}
+     "Unknown web operation: #{op}. Valid operations: fetch, extract, parse, read_pdf, arxiv_search, arxiv_paper, search, code_search, image_search, blink, blink_analyze, blink_smart, browser, screenshot, pdf, evaluate, interact, test, vision, sonar"}
   end
 
   @doc """
@@ -1217,5 +1221,163 @@ defmodule Mimo.Tools.Dispatchers.Web do
       true ->
         {:error, "Either 'path' or 'url' is required for read_pdf operation"}
     end
+  end
+
+  # ─────────────────────────────────────────────────────────────────
+  # arXiv Operations
+  # ─────────────────────────────────────────────────────────────────
+
+  @doc """
+  Search arXiv for research papers.
+
+  ## Parameters
+  - `query` (required) - Search query
+  - `limit` - Maximum results (default: 10, max: 100)
+  - `start` - Pagination offset (default: 0)
+  - `sort_by` - "relevance", "lastUpdatedDate", "submittedDate" (default: "relevance")
+  - `categories` - List of arXiv categories, e.g. ["cs.AI", "cs.LG"]
+
+  ## Examples
+
+      dispatch_arxiv_search(%{"query" => "large language models memory"})
+      dispatch_arxiv_search(%{"query" => "transformers", "categories" => ["cs.AI"], "limit" => 5})
+  """
+  def dispatch_arxiv_search(args) do
+    alias Mimo.Skills.Arxiv
+
+    query = args["query"]
+
+    if is_nil(query) or query == "" do
+      {:error, "Query is required for arxiv_search operation"}
+    else
+      limit = args["limit"] || 10
+      start = args["start"] || 0
+      sort_by = args["sort_by"] || "relevance"
+      categories = args["categories"] || []
+
+      opts = [
+        limit: limit,
+        start: start,
+        sort_by: sort_by,
+        categories: categories
+      ]
+
+      case Arxiv.search(query, opts) do
+        {:ok, papers} ->
+          {:ok,
+           %{
+             operation: :arxiv_search,
+             query: query,
+             results_count: length(papers),
+             papers:
+               Enum.map(papers, fn p ->
+                 %{
+                   id: p.id,
+                   title: p.title,
+                   authors: Enum.map(p.authors, & &1.name),
+                   summary: truncate_text(p.summary, 500),
+                   published: p.published,
+                   categories: p.categories,
+                   pdf_url: p.pdf_url
+                 }
+               end),
+             interpretation:
+               "Found #{length(papers)} papers matching '#{query}'" <>
+                 if(categories != [], do: " in categories #{inspect(categories)}", else: "")
+           }}
+
+        {:error, reason} ->
+          {:error, "arXiv search failed: #{inspect(reason)}"}
+      end
+    end
+  end
+
+  @doc """
+  Get a specific arXiv paper by ID.
+
+  ## Parameters
+  - `id` (required) - arXiv paper ID (e.g., "2601.01885", "hep-th/9901001")
+  - `include_pdf` - Download and extract PDF content (default: false)
+  - `extract_sections` - Try to extract paper sections (default: true, only with include_pdf)
+
+  ## Examples
+
+      dispatch_arxiv_paper(%{"id" => "2601.01885"})
+      dispatch_arxiv_paper(%{"id" => "2601.01885", "include_pdf" => true})
+  """
+  def dispatch_arxiv_paper(args) do
+    alias Mimo.Skills.Arxiv
+
+    arxiv_id = args["id"] || args["arxiv_id"]
+    include_pdf = args["include_pdf"] == true
+    extract_sections = args["extract_sections"] != false
+
+    if is_nil(arxiv_id) or arxiv_id == "" do
+      {:error, "Paper ID is required for arxiv_paper operation (e.g., '2601.01885')"}
+    else
+      if include_pdf do
+        case Arxiv.get_paper_with_pdf(arxiv_id, extract_sections: extract_sections) do
+          {:ok, result} ->
+            {:ok,
+             %{
+               operation: :arxiv_paper,
+               paper: format_paper(result.paper),
+               pages_total: result.pages_total,
+               sections: result.sections,
+               pdf_content: truncate_text(result.pdf_content, 50_000),
+               interpretation:
+                 "Retrieved paper '#{result.paper.title}' with #{result.pages_total} pages of content"
+             }}
+
+          {:error, :not_found} ->
+            {:error, "Paper not found: #{arxiv_id}"}
+
+          {:error, reason} ->
+            {:error, "Failed to retrieve paper: #{inspect(reason)}"}
+        end
+      else
+        case Arxiv.get_paper(arxiv_id) do
+          {:ok, paper} ->
+            {:ok,
+             %{
+               operation: :arxiv_paper,
+               paper: format_paper(paper),
+               interpretation:
+                 "Retrieved paper metadata for '#{paper.title}'. Use include_pdf=true to get full content."
+             }}
+
+          {:error, :not_found} ->
+            {:error, "Paper not found: #{arxiv_id}"}
+
+          {:error, reason} ->
+            {:error, "Failed to retrieve paper: #{inspect(reason)}"}
+        end
+      end
+    end
+  end
+
+  defp format_paper(paper) do
+    %{
+      id: paper.id,
+      title: paper.title,
+      authors: Enum.map(paper.authors, & &1.name),
+      summary: paper.summary,
+      published: paper.published,
+      updated: paper.updated,
+      categories: paper.categories,
+      primary_category: paper.primary_category,
+      pdf_url: paper.pdf_url,
+      abs_url: paper.abs_url,
+      comment: paper.comment,
+      journal_ref: paper.journal_ref,
+      doi: paper.doi
+    }
+  end
+
+  defp truncate_text(nil, _max), do: nil
+  defp truncate_text(text, max) when byte_size(text) <= max, do: text
+
+  defp truncate_text(text, max) do
+    String.slice(text, 0, max) <> "\n\n[Content truncated...]"
   end
 end
