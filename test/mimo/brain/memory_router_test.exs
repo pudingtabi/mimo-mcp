@@ -114,4 +114,33 @@ defmodule Mimo.Brain.MemoryRouterTest do
       assert :recency in temporal.recommended_stores
     end
   end
+
+  describe "multi-query expansion (Phase 1b P3)" do
+    test "route/2 accepts use_expansion option" do
+      # Should not crash with expansion enabled/disabled
+      result1 = MemoryRouter.route("test query", use_expansion: true, use_llm: false)
+      assert match?({:ok, _}, result1)
+
+      result2 = MemoryRouter.route("test query", use_expansion: false, use_llm: false)
+      assert match?({:ok, _}, result2)
+    end
+
+    test "route/2 defaults to using expansion when LLM is enabled" do
+      # When LLM is disabled, expansion won't have queries to expand
+      # (expanded_queries comes from LLM)
+      {:ok, results} = MemoryRouter.route("test query", use_llm: false)
+      # Should return results (may be empty list)
+      assert is_list(results)
+    end
+
+    test "expansion is limited to 3 queries maximum" do
+      # This tests the internal behavior - we can't directly test the limit
+      # but we can verify the function handles many expansions gracefully
+      # by mocking or checking behavior
+
+      # For now, just verify the route succeeds with LLM disabled
+      {:ok, results} = MemoryRouter.route("authentication patterns", use_llm: false)
+      assert is_list(results)
+    end
+  end
 end

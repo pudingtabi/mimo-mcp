@@ -300,37 +300,50 @@ defmodule Mimo.Brain.MemoryRouter do
 
   # Internal routing implementation
   # ROADMAP Phase 1b P1: Now uses LLM-enhanced analysis when available
+  # ROADMAP Phase 1b P3: Multi-query expansion for better recall
   defp do_route(query, opts) do
     strategy = Keyword.get(opts, :strategy, :auto)
     limit = Keyword.get(opts, :limit, 10)
     include_working = Keyword.get(opts, :include_working, true)
     use_llm = Keyword.get(opts, :use_llm, @llm_analysis_enabled)
+    use_expansion = Keyword.get(opts, :use_expansion, true)
 
     # Determine routing strategy
     # ROADMAP Phase 1b P1: Use LLM analysis for better intent detection
-    {query_type, confidence} =
+    # ROADMAP Phase 1b P3: Also get expanded_queries for multi-query search
+    {query_type, confidence, expanded_queries} =
       cond do
         strategy != :auto ->
-          {strategy, 1.0}
+          {strategy, 1.0, []}
 
         use_llm ->
-          analyze_with_llm(query, skip_llm: not use_llm)
+          case understand_query_with_llm(query) do
+            {:ok, %{intent: intent, confidence: conf, expanded_queries: expansions}} ->
+              {intent, conf, expansions || []}
+
+            {:error, _} ->
+              {type, conf} = analyze(query)
+              {type, conf, []}
+          end
 
         true ->
-          analyze(query)
+          {type, conf} = analyze(query)
+          {type, conf, []}
       end
 
     :telemetry.execute(
       [:mimo, :memory, :routing],
-      %{confidence: confidence},
+      %{confidence: confidence, expansion_count: length(expanded_queries)},
       %{query_type: query_type, strategy: strategy}
     )
 
-    Logger.debug("Routing query as #{query_type} (confidence: #{Float.round(confidence, 2)})")
+    Logger.debug(
+      "Routing query as #{query_type} (confidence: #{Float.round(confidence, 2)}, expansions: #{length(expanded_queries)})"
+    )
 
-    # Execute appropriate retrieval strategy
+    # Execute appropriate retrieval strategy for PRIMARY query
     # ROADMAP Phase 1b P1: Added :aggregation for summarization queries
-    results =
+    primary_results =
       case query_type do
         :relational -> graph_route(query, opts)
         :temporal -> temporal_route(query, opts)
@@ -339,6 +352,15 @@ defmodule Mimo.Brain.MemoryRouter do
         :aggregation -> aggregation_route(query, opts)
         :hybrid -> hybrid_route(query, opts)
         _ -> hybrid_route(query, opts)
+      end
+
+    # ROADMAP Phase 1b P3: Multi-query expansion
+    # Run additional searches for expanded queries and merge results
+    results =
+      if use_expansion and length(expanded_queries) > 0 do
+        expand_and_merge(primary_results, expanded_queries, query_type, opts)
+      else
+        primary_results
       end
 
     # Optionally include working memory
@@ -589,6 +611,65 @@ defmodule Mimo.Brain.MemoryRouter do
   defp get_recommended_stores(:aggregation), do: [:vector, :graph, :recency]
   defp get_recommended_stores(:hybrid), do: [:vector, :graph, :recency]
   defp get_recommended_stores(_), do: [:vector]
+
+  # ============================================================================
+  # ROADMAP Phase 1b P3: Multi-Query Expansion
+  # ============================================================================
+
+  @doc false
+  # Expand search by running additional queries and merging results.
+  # Primary query results get a score boost, expansion results are weighted lower.
+  # Limited to max 3 expansions to avoid latency explosion.
+  defp expand_and_merge(primary_results, expanded_queries, query_type, opts) do
+    # Limit expansions to avoid excessive latency
+    expansions = Enum.take(expanded_queries, 3)
+
+    Logger.debug("[MemoryRouter] Expanding with #{length(expansions)} additional queries")
+
+    # Run expansion queries with reduced limit (we're supplementing, not replacing)
+    expansion_limit = min(Keyword.get(opts, :limit, 10), 5)
+
+    expansion_opts =
+      opts |> Keyword.put(:limit, expansion_limit) |> Keyword.put(:use_expansion, false)
+
+    # Execute expansion queries in parallel for better performance
+    expansion_results =
+      expansions
+      |> Task.async_stream(
+        fn exp_query ->
+          route_for_type(exp_query, query_type, expansion_opts)
+        end,
+        timeout: 5_000,
+        on_timeout: :kill_task
+      )
+      |> Enum.flat_map(fn
+        {:ok, results} when is_list(results) -> results
+        _ -> []
+      end)
+
+    # Discount expansion results by 20% (primary query is more relevant)
+    discounted_expansions =
+      Enum.map(expansion_results, fn
+        {item, score} -> {item, score * 0.8}
+        item -> {item, 0.4}
+      end)
+
+    # Merge with primary results
+    merge_results(primary_results, discounted_expansions)
+  end
+
+  # Route a single query to the appropriate retrieval function based on type
+  defp route_for_type(query, query_type, opts) do
+    case query_type do
+      :relational -> graph_route(query, opts)
+      :temporal -> temporal_route(query, opts)
+      :procedural -> procedural_route(query, opts)
+      :factual -> vector_route(query, opts)
+      :aggregation -> aggregation_route(query, opts)
+      :hybrid -> hybrid_route(query, opts)
+      _ -> hybrid_route(query, opts)
+    end
+  end
 
   defp merge_results(results1, results2) do
     # Merge and deduplicate by id, keeping highest score
