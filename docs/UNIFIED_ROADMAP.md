@@ -191,6 +191,29 @@
 |-------|-------------|------------------|
 | ACD (arXiv:2502.07577) | Self-exploration for capability discovery | Active probing |
 | Nature Reviews Physics | Abductive AI for emergence | Hypothesis generation |
+| **Self-Developing (arXiv:2410.15639)** | LLMs invent improvement algorithms via DPO | Algorithm Factory pattern |
+| **STaPLe (arXiv:2505.16927v2)** | Latent principles via Monte Carlo EM | Pattern-as-latent-variable |
+
+### 🆕 Research Synthesis (2025-01-12)
+
+#### Self-Developing Framework (NEC Corporation)
+- **Key Innovation**: Algorithm Factory that generates improvement algorithms as code
+- **Technique**: DPO from high/low performing algorithm pairs
+- **Result**: +6% on GSM8k, outperforms human-designed algorithms
+- **Mimo Integration**:
+  - Emergence Detector could generate pattern-improvement code
+  - DPO training on pattern pairs (successful vs failed patterns)
+  - Temperature decay for exploration→exploitation balance
+
+#### STaPLe - Latent Principle Discovery (IBM Research)
+- **Key Innovation**: Principles as latent variables in Monte Carlo EM
+- **Technique**: Posterior-regularized EM + hierarchical clustering
+- **Result**: +8-10% AlpacaEval, +19-23% principle-following
+- **Mimo Integration**:
+  - Patterns = latent principles between input and improved output
+  - Clustering patterns to "capability constitution" (30-50 patterns)
+  - Medoid selection for representative patterns
+  - Self-improvement WITHOUT external supervision
 
 ### Existing Infrastructure (~70% exists!)
 | Capability | Location | Status |
@@ -274,6 +297,10 @@
 |------|------------|--------|
 | mcp_microsoft_mar_convert_to_markdown | URL→Markdown conversion | ✅ External MCP |
 | Supports http/https/file/data URIs | Full document extraction | ✅ Tested |
+| bin/browser-stealth.js generatePdf() | Page→PDF generation | ✅ Exists |
+| web operation=pdf | Puppeteer PDF creation | ✅ Defined |
+
+**Note**: PDF GENERATION exists. PDF READING (parsing) requires external tool wrapper.
 
 ### Proposed Integration
 | Feature | Priority | Effort | Description |
@@ -356,6 +383,8 @@
 
 | Date | Changes |
 |------|---------|
+| 2026-01-12 | Added Self-Developing and STaPLe research papers to Track 4 |
+| 2026-01-12 | Updated Track 6 PDF capabilities - discovered existing PDF generation |
 | 2026-01-12 | Initial consolidation from 5 roadmap files |
 
 ---
