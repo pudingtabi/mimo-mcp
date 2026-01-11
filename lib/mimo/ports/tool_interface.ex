@@ -783,9 +783,104 @@ defmodule Mimo.ToolInterface do
     end
   end
 
+  # SPEC-106: Add synthesize operation - triggers memory synthesis/consolidation
+  defp do_execute("memory", %{"operation" => "synthesize"} = args) do
+    query = Map.get(args, "query")
+
+    result =
+      if query do
+        # Query-based synthesis using QueryInterface (same as ask_mimo)
+        case Mimo.QueryInterface.ask(query, nil, timeout_ms: 30_000) do
+          {:ok, response} ->
+            {:ok, %{type: :query_synthesis, query: query, response: sanitize_for_json(response)}}
+
+          {:error, reason} ->
+            {:error, "Synthesis failed: #{inspect(reason)}"}
+        end
+      else
+        # Background synthesis using Synthesizer
+        case Mimo.Brain.Synthesizer.synthesize_now() do
+          {:ok, stats} -> {:ok, %{type: :background_synthesis, stats: stats}}
+          {:error, reason} -> {:error, "Synthesis failed: #{inspect(reason)}"}
+        end
+      end
+
+    case result do
+      {:ok, data} ->
+        {:ok, %{tool_call_id: UUID.uuid4(), status: "success", data: data}}
+
+      {:error, msg} ->
+        {:error, msg}
+    end
+  end
+
+  # SPEC-106: Add graph operation - redirects to knowledge dispatcher for graph queries
+  defp do_execute("memory", %{"operation" => "graph"} = args) do
+    # Redirect to knowledge dispatcher which handles all graph operations
+    case Mimo.Tools.Dispatchers.Knowledge.dispatch_graph(args) do
+      {:ok, result} ->
+        {:ok,
+         %{
+           tool_call_id: UUID.uuid4(),
+           status: "success",
+           data: result,
+           note:
+             "Graph operations are handled by the knowledge tool. Consider using 'knowledge operation=query' directly."
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # SPEC-106: Add ingest operation - ingests files/text into memory
+  defp do_execute("memory", %{"operation" => "ingest"} = args) do
+    path = Map.get(args, "path")
+    content = Map.get(args, "content")
+    strategy = Map.get(args, "strategy", "auto") |> String.to_atom()
+    category = Map.get(args, "category", "fact")
+    importance = Map.get(args, "importance", 0.5)
+    tags = Map.get(args, "tags", [])
+    metadata = Map.get(args, "metadata", %{})
+
+    result =
+      cond do
+        path && path != "" ->
+          # Ingest from file
+          Mimo.Ingest.ingest_file(path,
+            strategy: strategy,
+            category: category,
+            importance: importance,
+            tags: tags,
+            metadata: metadata
+          )
+
+        content && content != "" ->
+          # Ingest from text content
+          Mimo.Ingest.ingest_text(content,
+            strategy: strategy,
+            category: category,
+            importance: importance,
+            tags: tags,
+            metadata: metadata
+          )
+
+        true ->
+          {:error, "Missing required argument: 'path' or 'content'"}
+      end
+
+    case result do
+      {:ok, data} ->
+        {:ok, %{tool_call_id: UUID.uuid4(), status: "success", data: data}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp do_execute("memory", %{"operation" => op}) do
     {:error,
-     "Unknown memory operation: #{op}. Valid: store, search, list, delete, stats, health, decay_check, get_chain, get_current, get_original, supersede"}
+     "Unknown memory operation: #{op}. Valid: store, search, list, delete, stats, health, decay_check, get_chain, get_current, get_original, supersede, synthesize, graph, ingest"}
   end
 
   defp do_execute("memory", _args) do
