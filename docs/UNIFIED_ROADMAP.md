@@ -311,40 +311,48 @@
 ## Track 6: PDF/Document Integration
 *Source: NEW - User request for PDF capabilities*
 
-> **Status**: 🆕 0% COMPLETE - Design phase
+> **Status**: 🔄 50% COMPLETE - Core implementation done
 
 ### Current State
 | Tool | Capability | Status |
 |------|------------|--------|
-| mcp_microsoft_mar_convert_to_markdown | URL→Markdown conversion | ✅ External MCP |
-| Supports http/https/file/data URIs | Full document extraction | ✅ Tested |
+| Mimo.Skills.Pdf | PyMuPDF-based PDF extraction | ✅ Implemented |
+| web operation=read_pdf | Read local/URL PDFs | ✅ Implemented |
+| memory operation=ingest path=*.pdf | PDF→memory chunks by page | ✅ Implemented |
 | bin/browser-stealth.js generatePdf() | Page→PDF generation | ✅ Exists |
 | web operation=pdf | Puppeteer PDF creation | ✅ Defined |
 
-**Note**: PDF GENERATION exists. PDF READING (parsing) requires external tool wrapper.
+**Note**: PDF READING now uses PyMuPDF (fitz) with page-by-page extraction.
 
-### Proposed Integration
-| Feature | Priority | Effort | Description |
-|---------|----------|--------|-------------|
-| web operation=pdf | P2 | 1 day | Expose PDF→markdown via web tool |
-| file operation=read_pdf | P2 | 1 day | Local PDF reading |
-| memory operation=ingest path=*.pdf | P1 | 2 days | PDF→memory chunks |
-| library docs for PDFs | P3 | 1 day | Cache PDF specs as docs |
+### Implemented Features
+| Feature | Status | Description |
+|---------|--------|-------------|
+| web operation=read_pdf | ✅ Done | Read PDFs from path or URL |
+| memory operation=ingest path=*.pdf | ✅ Done | Auto-detect PDFs, chunk by page |
+| PDF metadata extraction | ✅ Done | Title, author, pages, page numbers |
 
-### Phase 6.1: PDF Wrapper ⏸️ PLANNED
-- Wrap mcp_microsoft_mar_convert_to_markdown as Mimo skill
-- Add to web dispatcher as operation=pdf
-- Handle local files via file:// URIs
+### Phase 6.1: PDF Reading ✅ COMPLETE (2025-01-12)
+- Created Mimo.Skills.Pdf using PyMuPDF
+- Added web operation=read_pdf for local and URL PDFs
+- Tested with 25-page research paper (arXiv)
+- Commit: `4fcce08`
 
-### Phase 6.2: PDF Memory Ingest ⏸️ PLANNED
-- Extend memory ingest to detect PDF files
-- Chunk by pages/sections
-- Store with PDF-specific metadata
+### Phase 6.2: PDF Memory Ingest ✅ COMPLETE (2025-01-12)
+- Extended memory ingest to detect PDF files (@pdf_extensions)
+- Chunks by pages with page numbers in metadata
+- Stores PDF-specific metadata (title, author, pages_total)
+- Commit: `4fcce08`
 
 ### Phase 6.3: Research Paper Integration ⏸️ PLANNED
-- Auto-discover arXiv papers
-- Extract and store research insights
-- Link to knowledge graph
+- Auto-discover arXiv papers from queries
+- Extract structured sections (abstract, methods, results)
+- Link papers to knowledge graph by topic
+- Citation extraction and linking
+
+### Phase 6.4: Section-Aware Chunking ⏸️ PLANNED
+- Detect section headers within pages
+- Chunk by logical sections, not just pages
+- Preserve section hierarchy in metadata
 
 ---
 
@@ -352,10 +360,10 @@
 
 ### Available Work (Priority Order)
 
-1. **[Track 6] Phase 6.1: PDF Wrapper** (MEDIUM PRIORITY, ~1 day)
-   - [ ] Create PDF skill wrapper
-   - [ ] Add web operation=pdf
-   - [ ] Wrap mcp_microsoft_mar_convert_to_markdown
+1. **[Track 6] Phase 6.3: Research Paper Integration** (MEDIUM PRIORITY, ~2 days)
+   - [ ] arXiv paper discovery and parsing
+   - [ ] Section extraction (abstract, methods, results)
+   - [ ] Knowledge graph linking by topic
 
 2. **[Track 3] Complete Structured Data Extraction** (MEDIUM PRIORITY)
    - [ ] Full JSON-LD extraction
@@ -370,6 +378,8 @@
 
 - **[Track 4] Phase 4.2: Prediction Layer** - COMPLETE (2025-01-12)
 - **[Track 4] Phase 4.3: Explanation Layer** - COMPLETE (2025-01-12)
+- **[Track 6] Phase 6.1: PDF Reading** - COMPLETE (2025-01-12)
+- **[Track 6] Phase 6.2: PDF Memory Ingest** - COMPLETE (2025-01-12)
 
 ### Deferred
 
@@ -400,8 +410,8 @@
 | Memory Excellence | 85% | 90% | 95% |
 | Search/Web | 65% | 80% | 90% |
 | Emergence Research | 55% | 70% | 85% |
-| PDF Integration | 0% | 30% | 60% |
-| **Overall** | **~68%** | **77%** | **88%** |
+| PDF Integration | 50% | 60% | 80% |
+| **Overall** | **~70%** | **79%** | **90%** |
 
 ---
 
