@@ -11,28 +11,32 @@ defmodule Mimo.Awakening.ContextInjector do
   - Unlocked capabilities based on level
   - Behavioral guidance hints
   - Personalized awakening message
+  - Emerged skills and patterns
   """
   require Logger
 
   alias Mimo.Awakening.{PowerCalculator, SessionTracker, Stats}
+  alias Mimo.Brain.Emergence.Pattern
 
   @doc """
   Build the complete awakening context payload.
   This is injected into the first tool response of a session.
   Now includes tool balance tracking for behavioral transformation (SPEC-040 v1.2).
+  Now includes emerged skills visibility (SPEC-044 v1.3).
   """
   @spec build_awakening_context(SessionTracker.t(), Stats.t()) :: map()
   def build_awakening_context(session_state, stats) do
     %{
       "awakening" => %{
-        "version" => "1.2.0",
+        "version" => "1.3.0",
         "power_level" => build_power_level_info(stats),
         "accumulated_wisdom" => build_wisdom_stats(stats),
         "capabilities" => PowerCalculator.unlocked_capabilities(stats.current_level),
         "behavioral_guidance" => build_behavioral_hints(stats.current_level),
         "transformation_message" => build_transformation_message(),
         "message" => build_awakening_message(session_state, stats),
-        "library" => build_library_status()
+        "library" => build_library_status(),
+        "emerged_skills" => build_emerged_skills()
       }
     }
   end
@@ -194,10 +198,30 @@ defmodule Mimo.Awakening.ContextInjector do
   end
 
   defp build_returning_message(stats) do
+    skills_line = build_skills_line()
+
     """
     Mimo active. Level #{stats.current_level} | XP: #{stats.total_xp} | Memories: #{stats.total_memories}
-    Sessions: #{stats.total_sessions + 1} | Relationships: #{stats.total_relationships}
+    Sessions: #{stats.total_sessions + 1} | Relationships: #{stats.total_relationships}#{skills_line}
     """
+  end
+
+  # Build the skills summary line for returning message
+  defp build_skills_line do
+    skills_count = count_emerged_skills()
+
+    if skills_count > 0 do
+      " | 🧠 Skills: #{skills_count}"
+    else
+      ""
+    end
+  end
+
+  # Count emerged skill patterns
+  defp count_emerged_skills do
+    Pattern.list(type: :skill, status: :promoted, limit: 100) |> length()
+  rescue
+    _ -> 0
   end
 
   defp format_datetime(nil), do: nil
@@ -333,6 +357,83 @@ defmodule Mimo.Awakening.ContextInjector do
           "hint" => "[Library] Cache unavailable",
           "status" => "error"
         }
+    end
+  end
+
+  @doc """
+  Build emerged skills information for the awakening context.
+
+  SPEC-044 v1.3: Makes learned capabilities visible to agents.
+  Skills are patterns of type :skill that have been promoted.
+  """
+  @spec build_emerged_skills() :: map()
+  def build_emerged_skills do
+    try do
+      # Get promoted skill patterns (top performers)
+      skills = Pattern.list(type: :skill, status: :promoted, limit: 10)
+      total_skills = count_emerged_skills()
+
+      # Also get pattern counts by type
+      type_counts = get_pattern_type_counts()
+
+      if length(skills) > 0 do
+        top_skills =
+          skills
+          |> Enum.take(3)
+          |> Enum.map(fn pattern ->
+            %{
+              "description" => pattern.description,
+              "success_rate" => Float.round(pattern.success_rate * 100, 1),
+              "occurrences" => pattern.occurrences
+            }
+          end)
+
+        hint =
+          if total_skills > 3 do
+            "Mimo has learned #{total_skills} skills. Use `cognitive emergence_suggest` to see relevant ones."
+          else
+            "Mimo is learning. These skills were discovered through usage patterns."
+          end
+
+        %{
+          "count" => total_skills,
+          "top_skills" => top_skills,
+          "pattern_counts" => type_counts,
+          "hint" => hint,
+          "status" => "active"
+        }
+      else
+        %{
+          "count" => 0,
+          "top_skills" => [],
+          "pattern_counts" => type_counts,
+          "hint" => "No skills emerged yet. Continue using Mimo to develop patterns.",
+          "status" => "learning"
+        }
+      end
+    rescue
+      _ ->
+        %{
+          "count" => 0,
+          "top_skills" => [],
+          "pattern_counts" => %{},
+          "hint" => "Emergence unavailable",
+          "status" => "error"
+        }
+    end
+  end
+
+  # Get pattern counts by type for emerged_skills context
+  defp get_pattern_type_counts do
+    try do
+      %{
+        "workflows" => Pattern.list(type: :workflow, status: :promoted, limit: 1000) |> length(),
+        "heuristics" => Pattern.list(type: :heuristic, status: :promoted, limit: 1000) |> length(),
+        "inferences" => Pattern.list(type: :inference, status: :promoted, limit: 1000) |> length(),
+        "skills" => count_emerged_skills()
+      }
+    rescue
+      _ -> %{}
     end
   end
 end
