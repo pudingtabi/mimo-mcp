@@ -49,6 +49,14 @@ defmodule Mimo.Cognitive.Reasoner do
     VerificationTelemetry
   }
 
+  # Suppress Dialyzer warnings for thought/branch type mismatches
+  # ReasoningSession.add_thought/add_branch accept partial maps and add defaults
+  @dialyzer [
+    {:nowarn_function, step: 3},
+    {:nowarn_function, branch: 3},
+    {:nowarn_function, backtrack: 2}
+  ]
+
   alias Mimo.Cognitive.Strategies.{
     ChainOfThought,
     Reflexion,
@@ -1143,7 +1151,6 @@ defmodule Mimo.Cognitive.Reasoner do
 
   defp merge_wisdom(prepared_wisdom, injected_wisdom) do
     prepared_wisdom = prepared_wisdom || %{}
-    injected_wisdom = injected_wisdom || %{}
 
     failures = (prepared_wisdom[:failures] || []) ++ (injected_wisdom[:failures] || [])
     warnings = (prepared_wisdom[:warnings] || []) ++ (injected_wisdom[:warnings] || [])

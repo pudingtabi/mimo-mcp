@@ -34,6 +34,16 @@ defmodule Mimo.ToolInterface do
   alias Mimo.Repo
   alias Mimo.Awakening.Hooks, as: AwakeningHooks
 
+  # Suppress Dialyzer warnings for defensive catch-all patterns
+  # These patterns exist for robustness but Dialyzer infers they can't match current callers
+  @dialyzer [
+    {:nowarn_function, build_suggestion_hint: 2},
+    {:nowarn_function, extract_output_text: 1},
+    {:nowarn_function, analyze_result: 1},
+    {:nowarn_function, extract_memory_result_id: 1},
+    {:nowarn_function, normalize_router_results: 1}
+  ]
+
   # Timeouts
   @procedure_sync_timeout 60_000
 
@@ -1379,7 +1389,9 @@ defmodule Mimo.ToolInterface do
               Enum.filter(filtered, fn result ->
                 case Map.get(result, :inserted_at) do
                   nil ->
-                    true
+                    # BUG FIX 2026-01-11: If no timestamp, exclude from time-filtered results
+                    # Previously returned true which caused all results to pass
+                    false
 
                   dt ->
                     NaiveDateTime.compare(dt, from_naive) != :lt and
@@ -1579,12 +1591,13 @@ defmodule Mimo.ToolInterface do
     # Apply sort order
     # Note: For cursor pagination to work correctly with non-ID sorts,
     # we need compound cursors. Currently cursor only works with ID sort.
+    # BUG FIX 2026-01-11: Was using [asc: e.id] which returned oldest first!
     query =
       case sort do
-        "importance" -> from(e in query, order_by: [desc: e.importance, asc: e.id])
-        "decay_score" -> from(e in query, order_by: [asc: e.importance, asc: e.id])
-        # Default: recent (by ID since ID correlates with insert time)
-        _ -> from(e in query, order_by: [asc: e.id])
+        "importance" -> from(e in query, order_by: [desc: e.importance, desc: e.id])
+        "decay_score" -> from(e in query, order_by: [asc: e.importance, desc: e.id])
+        # Default: recent (by ID since ID correlates with insert time - highest ID = most recent)
+        _ -> from(e in query, order_by: [desc: e.id])
       end
 
     results = Repo.all(query)
