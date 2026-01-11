@@ -32,6 +32,7 @@ defmodule Mimo.Ingest do
   @markdown_extensions ~w(.md .markdown)
   @whole_file_extensions ~w(.json .yaml .yml .toml .xml .html .htm)
   @paragraph_extensions ~w(.txt .text .ex .exs .py .js .ts .rb .go .rs .java .c .cpp .h .cs)
+  @pdf_extensions ~w(.pdf)
 
   # Configuration
   # 10MB
@@ -90,6 +91,80 @@ defmodule Mimo.Ingest do
 
   @spec ingest_file(String.t(), ingest_opts()) :: {:ok, map()} | {:error, term()}
   def ingest_file(path, opts \\ []) do
+    ext = Path.extname(path) |> String.downcase()
+
+    # PDFs need special handling - extract text first
+    if ext in @pdf_extensions do
+      ingest_pdf_file(path, opts)
+    else
+      ingest_text_file(path, opts)
+    end
+  end
+
+  # Handle PDF files using Mimo.Skills.Pdf
+  defp ingest_pdf_file(path, opts) do
+    category = Keyword.get(opts, :category, "fact")
+    importance = Keyword.get(opts, :importance, 0.5)
+    tags = Keyword.get(opts, :tags, [])
+    metadata = Keyword.get(opts, :metadata, %{})
+    force = Keyword.get(opts, :force, false)
+
+    with :ok <- check_sandbox(path),
+         {:ok, %{size: file_size}} <- File.stat(path),
+         :ok <-
+           if(file_size > @max_file_size,
+             do: {:error, {:file_too_large, file_size, @max_file_size}},
+             else: :ok
+           ),
+         :ok <- check_already_ingested(path, File.read!(path), force),
+         {:ok, pdf_result} <- Mimo.Skills.Pdf.read(path, include_metadata: true) do
+      # Chunk by pages for PDFs
+      chunks =
+        Enum.map(pdf_result.content_by_page, & &1["text"])
+        |> Enum.filter(&(String.length(String.trim(&1)) >= @min_chunk_size))
+
+      if length(chunks) > @max_chunks do
+        {:error, {:too_many_chunks, length(chunks), @max_chunks}}
+      else
+        # Add PDF-specific metadata
+        pdf_metadata =
+          Map.merge(metadata, %{
+            "file_type" => "pdf",
+            "pages_total" => pdf_result.pages_total,
+            "pdf_title" => pdf_result.metadata["title"],
+            "pdf_author" => pdf_result.metadata["author"]
+          })
+
+        case store_chunks(chunks, category, importance, tags, path, pdf_metadata) do
+          {:ok, ids} ->
+            # Cache file hash
+            cache_file_hash(path, File.read!(path))
+
+            :telemetry.execute(
+              [:mimo, :ingest, :file],
+              %{chunks: length(ids), file_size: file_size},
+              %{path: path, strategy: :pdf}
+            )
+
+            {:ok,
+             %{
+               chunks_created: length(ids),
+               file_size: file_size,
+               strategy_used: :pdf,
+               ids: ids,
+               source_file: path,
+               pdf_metadata: pdf_result.metadata
+             }}
+
+          error ->
+            error
+        end
+      end
+    end
+  end
+
+  # Handle regular text files
+  defp ingest_text_file(path, opts) do
     strategy = Keyword.get(opts, :strategy, :auto)
     category = Keyword.get(opts, :category, "fact")
     importance = Keyword.get(opts, :importance, 0.5)

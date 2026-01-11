@@ -350,26 +350,31 @@
 
 ## 📋 Immediate Action Items
 
-### This Week (Priority Order)
+### Available Work (Priority Order)
 
-1. **[Track 4] Phase 4.2: Prediction Layer** (HIGH PRIORITY)
-   - [ ] Add `predict_emergence/1` to Metrics module
-   - [ ] Add `emergence_predict` MCP operation
-   - [ ] Use existing velocity infrastructure
-
-2. **[Track 6] Phase 6.1: PDF Wrapper** (MEDIUM PRIORITY)
+1. **[Track 6] Phase 6.1: PDF Wrapper** (MEDIUM PRIORITY, ~1 day)
    - [ ] Create PDF skill wrapper
    - [ ] Add web operation=pdf
+   - [ ] Wrap mcp_microsoft_mar_convert_to_markdown
 
-3. **[Track 3] Complete Structured Data Extraction** (MEDIUM PRIORITY)
+2. **[Track 3] Complete Structured Data Extraction** (MEDIUM PRIORITY)
    - [ ] Full JSON-LD extraction
    - [ ] OpenGraph completeness
 
-### Next Month
+3. **[Track 4] Phase 4.4: Active Probing** (LOW PRIORITY, ~80% new code)
+   - [ ] Implement Emergence.Prober module
+   - [ ] Define capability taxonomy
+   - [ ] Add emergence_probe MCP operation
 
-4. **[Track 4] Phase 4.3: Explanation Layer**
-5. **[Track 2] Phase 3: Working Memory Extension**
-6. **[Track 5] SPEC-057 LOCOMO Benchmark**
+### Recently Completed ✅
+
+- **[Track 4] Phase 4.2: Prediction Layer** - COMPLETE (2025-01-12)
+- **[Track 4] Phase 4.3: Explanation Layer** - COMPLETE (2025-01-12)
+
+### Deferred
+
+4. **[Track 2] Phase 3: Working Memory Extension** (Future Month 2)
+5. **[Track 5] SPEC-057 LOCOMO Benchmark** (Deferred)
 
 ---
 
@@ -394,9 +399,9 @@
 | Cognitive Evolution | 95% | 95% | 100% |
 | Memory Excellence | 85% | 90% | 95% |
 | Search/Web | 65% | 80% | 90% |
-| Emergence Research | 25% | 50% | 75% |
+| Emergence Research | 55% | 70% | 85% |
 | PDF Integration | 0% | 30% | 60% |
-| **Overall** | **65%** | **75%** | **85%** |
+| **Overall** | **~68%** | **77%** | **88%** |
 
 ---
 

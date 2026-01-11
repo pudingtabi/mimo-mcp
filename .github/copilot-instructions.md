@@ -369,6 +369,11 @@ file operation=glob pattern="**/*.ex" base_path="/project"
 file operation=multi_replace replacements=[{...}]
 terminal command="mix test" cwd="/project"
 
+# === PDF OPERATIONS ===
+web operation=read_pdf path="/path/to/file.pdf"           # Read local PDF
+web operation=read_pdf url="https://example.com/doc.pdf"  # Read PDF from URL
+memory operation=ingest path="document.pdf"               # Ingest PDF into memory
+
 # === PHASE 4: LEARNING ===
 memory operation=store content="[discovery]" category=fact importance=0.8
 knowledge operation=teach text="A depends on B"

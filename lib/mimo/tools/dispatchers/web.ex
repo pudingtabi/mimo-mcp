@@ -101,6 +101,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
   defp do_dispatch("fetch", args), do: dispatch_fetch(args)
   defp do_dispatch("extract", args), do: dispatch_web_extract(args)
   defp do_dispatch("parse", args), do: dispatch_web_parse(args)
+  defp do_dispatch("read_pdf", args), do: dispatch_read_pdf(args)
 
   # Search operations
   defp do_dispatch("search", args), do: dispatch_search(args)
@@ -130,7 +131,7 @@ defmodule Mimo.Tools.Dispatchers.Web do
   # Unknown operation
   defp do_dispatch(op, _args) do
     {:error,
-     "Unknown web operation: #{op}. Valid operations: fetch, extract, parse, search, code_search, image_search, blink, blink_analyze, blink_smart, browser, screenshot, pdf, evaluate, interact, test, vision, sonar"}
+     "Unknown web operation: #{op}. Valid operations: fetch, extract, parse, read_pdf, search, code_search, image_search, blink, blink_analyze, blink_smart, browser, screenshot, pdf, evaluate, interact, test, vision, sonar"}
   end
 
   @doc """
@@ -1139,5 +1140,82 @@ defmodule Mimo.Tools.Dispatchers.Web do
   """
   def dispatch_web_parse(args) do
     {:ok, SkillsWeb.parse(args["html"] || "")}
+  end
+
+  # ─────────────────────────────────────────────────────────────────
+  # PDF Operations (Track 6: PDF/Document Integration)
+  # ─────────────────────────────────────────────────────────────────
+
+  @doc """
+  Read a PDF file or URL and convert to Markdown.
+
+  ## Arguments
+  - `path` - Local file path to PDF
+  - `url` - URL to PDF (alternative to path)
+  - `pages` - List of page numbers to extract (optional, 1-indexed)
+  - `include_metadata` - Include document metadata (default: true)
+
+  ## Examples
+
+      dispatch_read_pdf(%{"path" => "/path/to/doc.pdf"})
+      dispatch_read_pdf(%{"url" => "https://example.com/doc.pdf"})
+      dispatch_read_pdf(%{"path" => "/doc.pdf", "pages" => [1, 2, 3]})
+  """
+  def dispatch_read_pdf(args) do
+    alias Mimo.Skills.Pdf
+
+    path = args["path"]
+    url = args["url"]
+    pages = args["pages"]
+    include_metadata = args["include_metadata"] != false
+
+    opts = [include_metadata: include_metadata]
+    opts = if pages, do: Keyword.put(opts, :pages, pages), else: opts
+
+    cond do
+      path && url ->
+        {:error, "Provide either 'path' or 'url', not both"}
+
+      path ->
+        case Pdf.read(path, opts) do
+          {:ok, result} ->
+            {:ok,
+             %{
+               operation: :read_pdf,
+               source: path,
+               pages_total: result.pages_total,
+               pages_extracted: result.pages_extracted,
+               metadata: result.metadata,
+               markdown: result.markdown,
+               interpretation:
+                 "Extracted #{result.pages_extracted} of #{result.pages_total} pages from PDF"
+             }}
+
+          {:error, reason} ->
+            {:error, "PDF read failed: #{reason}"}
+        end
+
+      url ->
+        case Pdf.read_url(url, opts) do
+          {:ok, result} ->
+            {:ok,
+             %{
+               operation: :read_pdf,
+               source: url,
+               pages_total: result.pages_total,
+               pages_extracted: result.pages_extracted,
+               metadata: result.metadata,
+               markdown: result.markdown,
+               interpretation:
+                 "Downloaded and extracted #{result.pages_extracted} of #{result.pages_total} pages from PDF"
+             }}
+
+          {:error, reason} ->
+            {:error, "PDF URL read failed: #{reason}"}
+        end
+
+      true ->
+        {:error, "Either 'path' or 'url' is required for read_pdf operation"}
+    end
   end
 end

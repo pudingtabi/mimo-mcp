@@ -297,6 +297,7 @@ defmodule Mimo.Tools.Definitions do
       • `fetch` - URL content in various formats (text/html/json/markdown/raw)
       • `extract` - Clean content extraction (Readability-style)
       • `parse` - Convert HTML to Markdown
+      • `read_pdf` - Read PDF file/URL and convert to Markdown
 
       ### Search
       • `search` - Web search with library-first optimization
@@ -337,6 +338,12 @@ defmodule Mimo.Tools.Definitions do
 
       # Bypass bot protection
       web operation=blink_smart url="https://protected-site.com"
+
+      # Read a PDF file
+      web operation=read_pdf path="/path/to/document.pdf"
+
+      # Read PDF from URL
+      web operation=read_pdf url="https://example.com/document.pdf"
       ```
 
       TIP: For package docs, use `code operation=library_get` - it's faster (cached)!
@@ -350,6 +357,7 @@ defmodule Mimo.Tools.Definitions do
               "fetch",
               "extract",
               "parse",
+              "read_pdf",
               "search",
               "code_search",
               "image_search",
@@ -370,6 +378,19 @@ defmodule Mimo.Tools.Definitions do
           },
           # Common URL parameter
           url: %{type: "string", description: "URL for fetch/extract/blink/browser operations"},
+
+          # PDF parameters
+          path: %{type: "string", description: "For read_pdf: local file path to PDF"},
+          pages: %{
+            type: "array",
+            items: %{type: "integer"},
+            description: "For read_pdf: specific pages to extract (1-indexed)"
+          },
+          include_metadata: %{
+            type: "boolean",
+            default: true,
+            description: "For read_pdf: include PDF metadata in response"
+          },
 
           # Fetch parameters
           format: %{
