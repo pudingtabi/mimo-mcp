@@ -1343,10 +1343,34 @@ defmodule Mimo.ToolInterface do
     # New: opt-in intelligent routing via MemoryRouter
     use_router = Map.get(args, "use_router", true)
 
+    # Parse time_filter BEFORE calling router (SPEC-XXX: Push time filter to retriever)
+    # This allows the retriever to filter by date during search, not after
+    {from_date, to_date} =
+      case time_filter do
+        nil ->
+          {nil, nil}
+
+        filter ->
+          case Mimo.Utils.TimeParser.parse(filter) do
+            {:ok, {from_dt, to_dt}} -> {from_dt, to_dt}
+            {:error, _} -> {nil, nil}
+          end
+      end
+
+    # Increase search limit when time filtering (to get more candidates before filter)
+    search_limit = if time_filter, do: limit * 5, else: limit * 2
+
     # Use MemoryRouter for intelligent routing or fall back to direct search
     {base_results, query_type, routing_confidence} =
       if use_router do
-        case Mimo.Brain.MemoryRouter.route(query, limit: limit * 2, include_working: true) do
+        router_opts = [
+          limit: search_limit,
+          include_working: true,
+          from_date: from_date,
+          to_date: to_date
+        ]
+
+        case Mimo.Brain.MemoryRouter.route(query, router_opts) do
           {:ok, routed_results} ->
             # MemoryRouter returns tuples {memory, score} - convert to map format
             results = normalize_router_results(routed_results)
@@ -1357,7 +1381,7 @@ defmodule Mimo.ToolInterface do
           {:error, _reason} ->
             # Fallback to direct search
             Logger.warning("MemoryRouter failed, falling back to direct search")
-            results = Memory.search_memories(query, limit: limit * 2, min_similarity: threshold)
+            results = Memory.search_memories(query, limit: search_limit, min_similarity: threshold)
             {results, :fallback, 0.0}
         end
       else
@@ -1381,13 +1405,17 @@ defmodule Mimo.ToolInterface do
           filtered
 
         filter ->
+          # Time filter is now also applied in HybridRetriever, but we keep this
+          # as a fallback for direct searches and for category/validity filtering
           case Mimo.Utils.TimeParser.parse(filter) do
             {:ok, {from_dt, to_dt}} ->
               from_naive = DateTime.to_naive(from_dt)
               to_naive = DateTime.to_naive(to_dt)
 
               Enum.filter(filtered, fn result ->
-                case Map.get(result, :inserted_at) do
+                inserted_at = Map.get(result, :inserted_at)
+
+                case inserted_at do
                   nil ->
                     # BUG FIX 2026-01-11: If no timestamp, exclude from time-filtered results
                     # Previously returned true which caused all results to pass

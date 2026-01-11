@@ -70,6 +70,9 @@ defmodule Mimo.Brain.HybridRetriever do
     min_score = Keyword.get(opts, :min_score, 0.1)
     track_access = Keyword.get(opts, :track_access, true)
     filters = Keyword.get(opts, :filters, %{})
+    # Time filter support - filter by date range
+    from_date = Keyword.get(opts, :from_date)
+    to_date = Keyword.get(opts, :to_date)
 
     :telemetry.execute(
       [:mimo, :memory, :hybrid_search, :started],
@@ -114,6 +117,7 @@ defmodule Mimo.Brain.HybridRetriever do
       |> List.flatten()
       |> deduplicate()
       |> apply_filters(filters)
+      |> apply_time_filter(from_date, to_date)
       |> score_and_rank(query_embedding, weights)
       |> Enum.filter(fn {_, score} -> score >= min_score end)
       |> Enum.take(limit)
@@ -449,6 +453,44 @@ defmodule Mimo.Brain.HybridRetriever do
       end)
     end)
   end
+
+  # Time filter - filter memories by date range
+  # Applied BEFORE scoring to ensure we have enough candidates in the time window
+  defp apply_time_filter(memories, nil, nil), do: memories
+
+  defp apply_time_filter(memories, from_date, to_date) do
+    Enum.filter(memories, fn memory ->
+      # Support both :inserted_at (long-term) and :created_at (working memory)
+      inserted_at = Map.get(memory, :inserted_at) || Map.get(memory, :created_at)
+
+      case inserted_at do
+        nil ->
+          # No date = include (conservative approach for graph/working memory results)
+          true
+
+        dt when is_struct(dt, NaiveDateTime) ->
+          from_ok = is_nil(from_date) or NaiveDateTime.compare(dt, to_naive(from_date)) != :lt
+          to_ok = is_nil(to_date) or NaiveDateTime.compare(dt, to_naive(to_date)) != :gt
+          from_ok and to_ok
+
+        dt when is_struct(dt, DateTime) ->
+          # Convert DateTime to NaiveDateTime for comparison
+          naive_dt = DateTime.to_naive(dt)
+          from_ok = is_nil(from_date) or NaiveDateTime.compare(naive_dt, to_naive(from_date)) != :lt
+          to_ok = is_nil(to_date) or NaiveDateTime.compare(naive_dt, to_naive(to_date)) != :gt
+          from_ok and to_ok
+
+        _ ->
+          # Unknown format - include to avoid false negatives
+          true
+      end
+    end)
+  end
+
+  # Convert DateTime/NaiveDateTime to NaiveDateTime for comparison
+  defp to_naive(%DateTime{} = dt), do: DateTime.to_naive(dt)
+  defp to_naive(%NaiveDateTime{} = dt), do: dt
+  defp to_naive(nil), do: nil
 
   defp triple_to_memories(%{subject: s, predicate: p, object: o} = triple) do
     # Convert graph triple to memory-like map for scoring
