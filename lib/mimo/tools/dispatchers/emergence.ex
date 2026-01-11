@@ -51,10 +51,12 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
   defp do_dispatch("track_usage", args), do: dispatch_track_usage(args)
   defp do_dispatch("usage_stats", _args), do: dispatch_usage_stats()
   defp do_dispatch("ab_stats", _args), do: dispatch_ab_stats()
+  # Phase 4.2: Prediction Layer (SPEC-044 v1.4)
+  defp do_dispatch("predict", args), do: dispatch_predict(args)
 
   defp do_dispatch(op, _args) do
     {:error,
-     "Unknown emergence operation: #{op}. Available: detect, dashboard, alerts, amplify, promote, cycle, list, search, suggest, status, pattern, impact, track_usage, usage_stats, ab_stats"}
+     "Unknown emergence operation: #{op}. Available: detect, dashboard, alerts, amplify, promote, cycle, list, search, suggest, status, pattern, impact, track_usage, usage_stats, ab_stats, predict"}
   end
 
   defp dispatch_detect(args) do
@@ -368,6 +370,144 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
        lift_percentage: stats.lift,
        interpretation: interpret_ab_results(stats)
      }}
+  end
+
+  # Phase 4.2: Prediction Layer (SPEC-044 v1.4)
+  #
+  # Predicts which patterns are likely to emerge as capabilities.
+  # Analyzes active patterns using velocity, strength trajectory, and
+  # historical promotion data to predict emergence likelihood.
+  #
+  # Options:
+  #   - limit: Maximum predictions to return (default: 10)
+  #   - min_confidence: Minimum confidence threshold (default: 0.3)
+  #   - pattern_id: Get prediction for a specific pattern
+  defp dispatch_predict(args) do
+    alias Mimo.Brain.Emergence.Metrics
+
+    pattern_id = args["pattern_id"]
+
+    if pattern_id do
+      # Get prediction for a specific pattern
+      dispatch_predict_single(pattern_id)
+    else
+      # Get predictions for all active patterns
+      limit = InputValidation.validate_limit(args["limit"], default: 10, max: 50)
+      min_confidence = args["min_confidence"] || 0.3
+
+      result = Metrics.predict_emergence(limit: limit, min_confidence: min_confidence)
+
+      {:ok,
+       %{
+         operation: :predict,
+         spec: "SPEC-044 v1.4 Phase 4.2",
+         model_accuracy: result.model_accuracy,
+         total_active_patterns: result.total_active_patterns,
+         prediction_count: result.prediction_count,
+         predictions: format_predictions(result.predictions),
+         interpretation: interpret_predictions(result),
+         timestamp: DateTime.to_iso8601(result.timestamp)
+       }}
+    end
+  end
+
+  defp dispatch_predict_single(pattern_id) do
+    alias Mimo.Brain.Emergence.Metrics
+    alias Mimo.Brain.Emergence.Pattern
+
+    case Mimo.Repo.get(Pattern, pattern_id) do
+      nil ->
+        {:error, "Pattern not found: #{pattern_id}"}
+
+      pattern ->
+        {:ok, eta_result} = Metrics.calculate_eta(pattern)
+        confidence = Metrics.calculate_prediction_confidence(pattern)
+
+        {:ok,
+         %{
+           operation: :predict,
+           spec: "SPEC-044 v1.4 Phase 4.2",
+           pattern_id: pattern.id,
+           type: pattern.type,
+           description: pattern.description,
+           current_state: %{
+             occurrences: pattern.occurrences,
+             success_rate: pattern.success_rate,
+             strength: pattern.strength,
+             status: pattern.status
+           },
+           prediction: %{
+             eta_days: eta_result.days,
+             confidence: confidence,
+             limiting_factor: eta_result.limiting_factor,
+             reason: eta_result[:reason]
+           },
+           promotion_ready:
+             pattern.occurrences >= 10 and
+               pattern.success_rate >= 0.8 and
+               pattern.strength >= 0.75,
+           recommendation: generate_recommendation(pattern, eta_result)
+         }}
+    end
+  end
+
+  defp format_predictions(predictions) do
+    Enum.map(predictions, fn p ->
+      %{
+        pattern_id: p.pattern_id,
+        type: p.type,
+        description: p.description,
+        current_strength: p.current_strength,
+        eta_days: p.eta_days,
+        confidence: p.confidence,
+        trajectory: p.trajectory,
+        limiting_factor: p.limiting_factor,
+        promotion_ready: p.promotion_ready
+      }
+    end)
+  end
+
+  defp interpret_predictions(result) do
+    cond do
+      result.prediction_count == 0 ->
+        "No patterns meet the confidence threshold. Consider lowering min_confidence or running more detection cycles."
+
+      Enum.any?(result.predictions, & &1.promotion_ready) ->
+        ready_count = Enum.count(result.predictions, & &1.promotion_ready)
+        "#{ready_count} pattern(s) ready for promotion. Use emergence_promote to promote them."
+
+      true ->
+        fastest = Enum.min_by(result.predictions, & &1.eta_days, fn -> nil end)
+
+        if fastest && fastest.eta_days do
+          "Nearest emergence: #{fastest.description} in ~#{fastest.eta_days} days (confidence: #{Float.round(fastest.confidence * 100, 0)}%)"
+        else
+          "Patterns detected but ETA cannot be estimated. More usage data needed."
+        end
+    end
+  end
+
+  defp generate_recommendation(pattern, eta_result) do
+    cond do
+      pattern.status == :promoted ->
+        "Pattern already promoted."
+
+      pattern.occurrences >= 10 and pattern.success_rate >= 0.8 and pattern.strength >= 0.75 ->
+        "Ready for promotion. Run emergence_promote to promote this pattern."
+
+      eta_result.limiting_factor == :occurrences ->
+        "Pattern needs more usage. Current: #{pattern.occurrences}/10 occurrences."
+
+      eta_result.limiting_factor == :success_rate ->
+        rate_pct = Float.round(pattern.success_rate * 100, 1)
+        "Pattern needs higher success rate. Current: #{rate_pct}% (target: 80%)."
+
+      eta_result.limiting_factor == :strength ->
+        "Pattern strength building. Current: #{Float.round(pattern.strength, 3)} (target: 0.75)."
+
+      true ->
+        "Continue monitoring. ETA: #{eta_result.days || "unknown"} days."
+    end
   end
 
   defp interpret_ab_results(stats) do

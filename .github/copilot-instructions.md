@@ -340,6 +340,8 @@ cognitive operation=emergence_cycle                  # Full emergence cycle
 cognitive operation=emergence_alerts                 # Patterns needing attention
 cognitive operation=emergence_suggest topic="..."   # Pattern suggestions for task
 cognitive operation=emergence_promote pattern_id="..." # Promote to capability
+cognitive operation=emergence_predict               # Predict which patterns will emerge (Phase 4.2)
+cognitive operation=emergence_predict pattern_id="..." # Predict for specific pattern
 
 # === REFLECTOR (via cognitive tool - SPEC-043 Self-Reflection) ===
 cognitive operation=reflector_reflect content="..." task="..."  # Deep reflection
