@@ -56,10 +56,14 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
   # Phase 4.3: Explanation Layer (SPEC-044 v1.5)
   defp do_dispatch("explain", args), do: dispatch_explain(args)
   defp do_dispatch("hypothesize", args), do: dispatch_hypothesize(args)
+  # Phase 4.4: Active Probing (SPEC-044 v1.6)
+  defp do_dispatch("probe", args), do: dispatch_probe(args)
+  defp do_dispatch("probe_candidates", args), do: dispatch_probe_candidates(args)
+  defp do_dispatch("capability_summary", _args), do: dispatch_capability_summary()
 
   defp do_dispatch(op, _args) do
     {:error,
-     "Unknown emergence operation: #{op}. Available: detect, dashboard, alerts, amplify, promote, cycle, list, search, suggest, status, pattern, impact, track_usage, usage_stats, ab_stats, predict, explain, hypothesize"}
+     "Unknown emergence operation: #{op}. Available: detect, dashboard, alerts, amplify, promote, cycle, list, search, suggest, status, pattern, impact, track_usage, usage_stats, ab_stats, predict, explain, hypothesize, probe, probe_candidates, capability_summary"}
   end
 
   defp dispatch_detect(args) do
@@ -714,5 +718,114 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
       first_seen: pattern.first_seen,
       last_seen: pattern.last_seen
     }
+  end
+
+  # ─────────────────────────────────────────────────────────────────
+  # Phase 4.4: Active Probing Functions (SPEC-044 v1.6)
+  # ─────────────────────────────────────────────────────────────────
+
+  defp dispatch_probe(args) do
+    alias Mimo.Brain.Emergence.{Prober, Pattern}
+
+    pattern_id = args["pattern_id"]
+    probe_type = String.to_existing_atom(args["type"] || "validation")
+
+    unless pattern_id do
+      {:error, "pattern_id is required for probe operation"}
+    else
+      # First get the pattern
+      case Emergence.get_pattern(pattern_id) do
+        {:ok, pattern} ->
+          # Generate and execute probe task
+          task = Prober.generate_probe_task(pattern, type: probe_type)
+          result = Prober.probe_pattern(pattern, task)
+
+          {:ok,
+           %{
+             operation: :probe,
+             pattern_id: pattern_id,
+             probe_type: probe_type,
+             domain: Prober.classify_pattern_domain(pattern),
+             task_description: task.description,
+             result: %{
+               success: result.success,
+               confidence: result.confidence,
+               probed_at: result.probed_at
+             },
+             interpretation: interpret_probe_result(result, probe_type)
+           }}
+
+        {:error, :not_found} ->
+          {:error, "Pattern not found: #{pattern_id}"}
+
+        {:error, reason} ->
+          {:error, "Failed to probe pattern: #{inspect(reason)}"}
+      end
+    end
+  rescue
+    ArgumentError ->
+      alias Mimo.Brain.Emergence.Prober
+      valid_types = Prober.probe_types() |> Enum.join(", ")
+      {:error, "Invalid probe type. Valid types: #{valid_types}"}
+  end
+
+  defp dispatch_probe_candidates(args) do
+    alias Mimo.Brain.Emergence.Prober
+
+    limit = args["limit"] || 10
+    candidates = Prober.probe_candidates(limit: limit)
+
+    {:ok,
+     %{
+       operation: :probe_candidates,
+       candidate_count: length(candidates),
+       candidates: candidates,
+       interpretation:
+         if length(candidates) > 0 do
+           "Found #{length(candidates)} patterns ready for probing"
+         else
+           "No patterns currently ready for probing"
+         end
+     }}
+  end
+
+  defp dispatch_capability_summary do
+    alias Mimo.Brain.Emergence.Prober
+
+    summary = Prober.capability_summary()
+
+    {:ok,
+     %{
+       operation: :capability_summary,
+       total_patterns: summary.total_patterns,
+       domain_count: summary.domain_count,
+       domains: summary.domains,
+       strongest_domains: summary.strongest_domains,
+       weakest_domains: summary.weakest_domains,
+       updated_at: summary.updated_at
+     }}
+  end
+
+  defp interpret_probe_result(%{success: true, confidence: confidence}, _type)
+       when confidence >= 0.8 do
+    "✅ High-confidence success - pattern capability confirmed"
+  end
+
+  defp interpret_probe_result(%{success: true, confidence: confidence}, _type)
+       when confidence >= 0.5 do
+    "✓ Moderate-confidence success - pattern likely effective"
+  end
+
+  defp interpret_probe_result(%{success: true}, _type) do
+    "? Success with low confidence - more data needed"
+  end
+
+  defp interpret_probe_result(%{success: false, confidence: confidence}, type)
+       when confidence >= 0.8 do
+    "⚠️ High-confidence failure at #{type} probe - pattern may have limitations"
+  end
+
+  defp interpret_probe_result(%{success: false}, type) do
+    "Failed #{type} probe - investigating boundaries"
   end
 end
