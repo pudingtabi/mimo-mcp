@@ -16,7 +16,7 @@ defmodule Mimo.Awakening.ContextInjector do
   require Logger
 
   alias Mimo.Awakening.{PowerCalculator, SessionTracker, Stats}
-  alias Mimo.Brain.Emergence.Pattern
+  alias Mimo.Brain.Emergence.{Metrics, Pattern}
 
   @doc """
   Build the complete awakening context payload.
@@ -28,7 +28,7 @@ defmodule Mimo.Awakening.ContextInjector do
   def build_awakening_context(session_state, stats) do
     %{
       "awakening" => %{
-        "version" => "1.3.0",
+        "version" => "1.4.0",
         "power_level" => build_power_level_info(stats),
         "accumulated_wisdom" => build_wisdom_stats(stats),
         "capabilities" => PowerCalculator.unlocked_capabilities(stats.current_level),
@@ -36,7 +36,8 @@ defmodule Mimo.Awakening.ContextInjector do
         "transformation_message" => build_transformation_message(),
         "message" => build_awakening_message(session_state, stats),
         "library" => build_library_status(),
-        "emerged_skills" => build_emerged_skills()
+        "emerged_skills" => build_emerged_skills(),
+        "emergence_velocity" => build_emergence_velocity()
       }
     }
   end
@@ -434,6 +435,49 @@ defmodule Mimo.Awakening.ContextInjector do
       }
     rescue
       _ -> %{}
+    end
+  end
+
+  @doc """
+  Build emergence velocity information for the awakening context.
+
+  SPEC-044 Phase 4.1: Surfaces pattern velocity metrics to show learning momentum.
+  """
+  @spec build_emergence_velocity() :: map()
+  def build_emergence_velocity do
+    try do
+      velocity = Metrics.pattern_velocity(days: 7)
+
+      %{
+        "period_days" => velocity.period_days,
+        "new_patterns" => velocity.total_new,
+        "daily_average" => Float.round(velocity.daily_average, 2),
+        "trend" => velocity.trend,
+        "momentum" => velocity_momentum_label(velocity.trend, velocity.daily_average)
+      }
+    rescue
+      _ ->
+        %{
+          "period_days" => 7,
+          "new_patterns" => 0,
+          "daily_average" => 0.0,
+          "trend" => :stable,
+          "momentum" => "unknown"
+        }
+    end
+  end
+
+  # Human-readable momentum label based on velocity trend and rate
+  defp velocity_momentum_label(trend, daily_avg) do
+    cond do
+      daily_avg == 0 -> "dormant"
+      trend == :accelerating and daily_avg >= 3 -> "rapid_learning"
+      trend == :accelerating -> "accelerating"
+      trend == :decelerating and daily_avg < 1 -> "slowing"
+      trend == :decelerating -> "consolidating"
+      daily_avg >= 2 -> "active"
+      daily_avg >= 0.5 -> "steady"
+      true -> "emerging"
     end
   end
 end
