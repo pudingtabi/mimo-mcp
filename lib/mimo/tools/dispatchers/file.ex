@@ -117,14 +117,34 @@ defmodule Mimo.Tools.Dispatchers.File do
 
   # Write operations
   defp do_dispatch("write", path, args, _skip_context) do
-    content = args["content"] || ""
-    mode = if args["mode"] == "append", do: :append, else: :rewrite
-    result = FileOps.write(path, content, mode: mode)
-    FileReadCache.invalidate(path)
-    result
+    cond do
+      path == "." or path == "" ->
+        {:error, "Path is required for write operation. Provide a file path."}
+
+      File.dir?(path) ->
+        {:error, "Cannot write to directory '#{path}'. Provide a file path."}
+
+      true ->
+        content = args["content"] || ""
+        mode = if args["mode"] == "append", do: :append, else: :rewrite
+        result = FileOps.write(path, content, mode: mode)
+        FileReadCache.invalidate(path)
+        normalize_error(result)
+    end
   end
 
-  defp do_dispatch("edit", path, args, skip_context), do: dispatch_edit(path, args, skip_context)
+  defp do_dispatch("edit", path, args, skip_context) do
+    cond do
+      path == "." or path == "" ->
+        {:error, "Path is required for edit operation. Provide a file path."}
+
+      File.dir?(path) ->
+        {:error, "Cannot edit a directory '#{path}'. Provide a file path."}
+
+      true ->
+        dispatch_edit(path, args, skip_context)
+    end
+  end
 
   defp do_dispatch("replace_string", path, args, _skip_context) do
     result = FileOps.replace_string(path, args["old_str"] || "", args["new_str"] || "")
@@ -575,4 +595,18 @@ defmodule Mimo.Tools.Dispatchers.File do
     ext = Path.extname(path)
     ext in ~w(.ex .exs .ts .tsx .js .jsx .py .rs .go)
   end
+
+  # Normalize error responses to string format for MCP compatibility
+  defp normalize_error({:error, :eisdir}), do: {:error, "Is a directory"}
+  defp normalize_error({:error, :enoent}), do: {:error, "File not found"}
+  defp normalize_error({:error, :eacces}), do: {:error, "Permission denied"}
+  defp normalize_error({:error, :enospc}), do: {:error, "No space left on device"}
+
+  defp normalize_error({:error, :path_outside_allowed_roots}),
+    do: {:error, "Path is outside allowed roots"}
+
+  defp normalize_error({:error, atom}) when is_atom(atom),
+    do: {:error, "File operation failed: #{atom}"}
+
+  defp normalize_error(result), do: result
 end

@@ -483,31 +483,36 @@ defmodule Mimo.Tools.Dispatchers.Web do
   """
   def dispatch_search(args) do
     query = args["query"] || ""
-    # Normalize operation: "search" and "web" both mean web search
-    raw_op = args["operation"] || "web"
-    op = if raw_op == "search", do: "web", else: raw_op
-    analyze_images = args["analyze_images"] || false
-    max_analyze = args["max_analyze"] || 3
 
-    # Check library first for package-related queries (web search only)
-    if op == "web" do
-      case maybe_check_library_first(query) do
-        {:library_hit, package_info} ->
-          {:ok,
-           %{
-             source: "library_cache",
-             type: "package_documentation",
-             query: query,
-             package: package_info,
-             note: "Found in library cache - no web search needed"
-           }}
-
-        :continue_to_web ->
-          perform_web_search(query, args, analyze_images, max_analyze)
-      end
+    if query == "" do
+      {:error, "Query is required for search operation"}
     else
-      # For code/image searches, proceed directly
-      perform_search(op, query, args, analyze_images, max_analyze)
+      # Normalize operation: "search" and "web" both mean web search
+      raw_op = args["operation"] || "web"
+      op = if raw_op == "search", do: "web", else: raw_op
+      analyze_images = args["analyze_images"] || false
+      max_analyze = args["max_analyze"] || 3
+
+      # Check library first for package-related queries (web search only)
+      if op == "web" do
+        case maybe_check_library_first(query) do
+          {:library_hit, package_info} ->
+            {:ok,
+             %{
+               source: "library_cache",
+               type: "package_documentation",
+               query: query,
+               package: package_info,
+               note: "Found in library cache - no web search needed"
+             }}
+
+          :continue_to_web ->
+            perform_web_search(query, args, analyze_images, max_analyze)
+        end
+      else
+        # For code/image searches, proceed directly
+        perform_search(op, query, args, analyze_images, max_analyze)
+      end
     end
   end
 
