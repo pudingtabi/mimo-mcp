@@ -345,6 +345,10 @@ cognitive operation=emergence_predict pattern_id="..." # Predict for specific pa
 cognitive operation=emergence_explain               # Explain all active patterns (Phase 4.3)
 cognitive operation=emergence_explain pattern_id="..." # Explain specific pattern
 cognitive operation=emergence_hypothesize pattern_id="..." # Generate hypotheses about pattern origin
+# Phase 4.4: Active Probing
+cognitive operation=emergence_probe pattern_id="..." [type=validation|boundary|generalization|composition]  # Probe pattern
+cognitive operation=emergence_probe_candidates [limit=N]  # List patterns ready for probing
+cognitive operation=emergence_capability_summary    # Get capability overview by domain
 
 # === REFLECTOR (via cognitive tool - SPEC-043 Self-Reflection) ===
 cognitive operation=reflector_reflect content="..." task="..."  # Deep reflection
