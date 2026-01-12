@@ -123,61 +123,68 @@ defmodule Mimo.AutoMemory do
     operation = arguments["operation"] || "read"
     path = arguments["path"] || arguments["name"] || "unknown"
 
-    case operation do
-      op when op in ["read", "read_lines", "read_multiple"] ->
-        content = extract_content_string(result)
-
-        if String.length(content) > 50 do
-          store_memory(
-            "Read #{path}: #{summarize_content(content, 200)}",
-            "observation",
-            calculate_importance(content)
-          )
-        end
-
-      op when op in ["write", "edit", "replace_string", "multi_replace"] ->
-        # Phase 3 Enhancement: Include more meaningful change details
-        old_content = arguments["old_str"] || arguments["target_content"] || ""
-        new_content = arguments["new_str"] || arguments["replacement_content"] || ""
-        description = summarize_edit_change(op, path, old_content, new_content)
-
-        store_memory(
-          description,
-          "action",
-          calculate_edit_importance(op, old_content, new_content)
-        )
-
-      op when op in ["find_definition", "find_references", "symbols", "call_graph"] ->
-        # Store code navigation for learning patterns
-        name = arguments["name"] || arguments["pattern"] || ""
-        result_count = get_result_count(result)
-
-        if result_count > 0 do
-          store_memory(
-            "Code navigation: #{op} '#{name}' found #{result_count} results",
-            "observation",
-            0.5
-          )
-        end
-
-      op when op in ["search", "glob"] ->
-        pattern = arguments["pattern"] || ""
-        result_count = get_result_count(result)
-
-        if result_count > 0 do
-          store_memory(
-            "File search: #{op} '#{pattern}' found #{result_count} matches",
-            "observation",
-            0.4
-          )
-        end
-
-      _ ->
-        :ok
-    end
+    handle_file_op(operation, path, arguments, result)
   end
 
   defp handle_file_operation(_, _), do: :ok
+
+  # Dispatch file operations to specific handlers
+  defp handle_file_op(op, path, _arguments, result)
+       when op in ["read", "read_lines", "read_multiple"] do
+    content = extract_content_string(result)
+
+    if String.length(content) > 50 do
+      store_memory(
+        "Read #{path}: #{summarize_content(content, 200)}",
+        "observation",
+        calculate_importance(content)
+      )
+    end
+  end
+
+  defp handle_file_op(op, path, arguments, _result)
+       when op in ["write", "edit", "replace_string", "multi_replace"] do
+    # Phase 3 Enhancement: Include more meaningful change details
+    old_content = arguments["old_str"] || arguments["target_content"] || ""
+    new_content = arguments["new_str"] || arguments["replacement_content"] || ""
+    description = summarize_edit_change(op, path, old_content, new_content)
+
+    store_memory(
+      description,
+      "action",
+      calculate_edit_importance(op, old_content, new_content)
+    )
+  end
+
+  defp handle_file_op(op, _path, arguments, result)
+       when op in ["find_definition", "find_references", "symbols", "call_graph"] do
+    # Store code navigation for learning patterns
+    name = arguments["name"] || arguments["pattern"] || ""
+    result_count = get_result_count(result)
+
+    if result_count > 0 do
+      store_memory(
+        "Code navigation: #{op} '#{name}' found #{result_count} results",
+        "observation",
+        0.5
+      )
+    end
+  end
+
+  defp handle_file_op(op, _path, arguments, result) when op in ["search", "glob"] do
+    pattern = arguments["pattern"] || ""
+    result_count = get_result_count(result)
+
+    if result_count > 0 do
+      store_memory(
+        "File search: #{op} '#{pattern}' found #{result_count} matches",
+        "observation",
+        0.4
+      )
+    end
+  end
+
+  defp handle_file_op(_op, _path, _arguments, _result), do: :ok
 
   # Handle web tool operations
   defp handle_web_operation(arguments, {:ok, result}) do
@@ -417,28 +424,37 @@ defmodule Mimo.AutoMemory do
   # Primary tools: file, terminal, web, code, knowledge, memory, think, reason, etc.
   @skip_patterns ["memory", "ask_mimo", "awakening", "tool_usage", "list_", "reload"]
 
+  # Tool category dispatch table for O(1) lookup
+  @tool_categories %{
+    "file" => {:file_op, :check_operation},
+    "terminal" => {:process, :from_args},
+    "web" => {:web_op, :check_operation},
+    "code" => {:code_op, :check_operation},
+    "knowledge" => {:knowledge_op, :check_operation},
+    "reason" => {:reason_op, :from_args},
+    "meta" => {:meta_op, :check_operation},
+    "cognitive" => {:cognitive_op, :check_operation}
+  }
+
   # Categorize tools by their type - now based on unified tool names + operation arg
   defp categorize_tool(tool_name) do
     cond do
       # Skip memory-related tools to avoid recursive storage
-      matches_any?(tool_name, @skip_patterns) -> :skip
-      # Unified file tool - check operation in arguments
-      tool_name == "file" -> {:file_op, :check_operation}
-      # Terminal/process execution
-      tool_name == "terminal" -> {:process, :from_args}
-      # Web operations (fetch, search, browser, etc.)
-      tool_name == "web" -> {:web_op, :check_operation}
-      # Code intelligence (symbols, library, diagnostics)
-      tool_name == "code" -> {:code_op, :check_operation}
-      # Knowledge graph operations
-      tool_name == "knowledge" -> {:knowledge_op, :check_operation}
-      # Reasoning operations - worth storing for learning
-      tool_name == "reason" -> {:reason_op, :from_args}
-      # Meta operations (analyze_file, debug_error, etc.)
-      tool_name == "meta" -> {:meta_op, :check_operation}
-      # Cognitive operations (emergence, reflector, verify)
-      tool_name == "cognitive" -> {:cognitive_op, :check_operation}
+      matches_any?(tool_name, @skip_patterns) ->
+        :skip
+
+      # Check dispatch table first (O(1) lookup for primary tools)
+      Map.has_key?(@tool_categories, tool_name) ->
+        Map.get(@tool_categories, tool_name)
+
       # Legacy patterns for backwards compatibility
+      true ->
+        categorize_legacy_tool(tool_name)
+    end
+  end
+
+  defp categorize_legacy_tool(tool_name) do
+    cond do
       String.contains?(tool_name, "read_file") -> {:file_read, :from_args}
       String.contains?(tool_name, "write_file") -> {:file_write, :from_args}
       String.contains?(tool_name, "search") -> {:search, :from_args}
