@@ -626,9 +626,7 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
 
     pattern_id = args["pattern_id"]
 
-    unless pattern_id do
-      {:error, "pattern_id is required for hypothesize operation"}
-    else
+    if pattern_id do
       case Explainer.hypothesize(pattern_id) do
         {:ok, hypotheses} ->
           {:ok,
@@ -646,6 +644,8 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
         {:error, reason} ->
           {:error, "Hypothesis generation failed: #{inspect(reason)}"}
       end
+    else
+      {:error, "pattern_id is required for hypothesize operation"}
     end
   end
 
@@ -730,9 +730,7 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
     pattern_id = args["pattern_id"]
     probe_type = String.to_existing_atom(args["type"] || "validation")
 
-    unless pattern_id do
-      {:error, "pattern_id is required for probe operation"}
-    else
+    if pattern_id do
       # First get the pattern
       case Emergence.get_pattern(pattern_id) do
         nil ->
@@ -758,6 +756,8 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
              interpretation: interpret_probe_result(result, probe_type)
            }}
       end
+    else
+      {:error, "pattern_id is required for probe operation"}
     end
   rescue
     ArgumentError ->

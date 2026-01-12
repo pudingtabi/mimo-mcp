@@ -939,8 +939,7 @@ defmodule Mimo.Cognitive.FeedbackLoop do
 
     valuable_successes =
       entries
-      |> Enum.filter(& &1.success)
-      |> Enum.filter(&is_valuable_success?/1)
+      |> Enum.filter(&(&1.success and is_valuable_success?(&1)))
       |> Enum.take(max_successes)
 
     failures ++ valuable_successes

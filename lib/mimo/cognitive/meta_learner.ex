@@ -378,7 +378,7 @@ defmodule Mimo.Cognitive.MetaLearner do
           %{
             type: :underperformers,
             message:
-              "These strategies need attention: #{Enum.join(Enum.map(underperforming, &humanize/1), ", ")}",
+              "These strategies need attention: #{Enum.map_join(underperforming, ", ", &humanize/1)}",
             action: "Review parameter recommendations or investigate data quality"
           }
           | insights
@@ -415,7 +415,7 @@ defmodule Mimo.Cognitive.MetaLearner do
         [
           %{
             type: :data_gap,
-            message: "Missing data from: #{Enum.join(Enum.map(data_issues, &to_string/1), ", ")}",
+            message: "Missing data from: #{Enum.map_join(data_issues, ", ", &to_string/1)}",
             action: "Ensure these systems are running and collecting data"
           }
           | insights
@@ -687,7 +687,7 @@ defmodule Mimo.Cognitive.MetaLearner do
     # Insight about high-value modes
     if high_value_modes != [] do
       [
-        "High-value detection modes active: #{Enum.join(Enum.map(high_value_modes, &to_string/1), ", ")}"
+        "High-value detection modes active: #{Enum.map_join(high_value_modes, ", ", &to_string/1)}"
         | insights
       ]
     else

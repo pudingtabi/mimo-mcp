@@ -66,9 +66,7 @@ defmodule Mimo.Context.Project do
   def register(path, opts \\ []) do
     abs_path = Path.expand(path)
 
-    unless File.dir?(abs_path) do
-      {:error, "Path does not exist or is not a directory: #{abs_path}"}
-    else
+    if File.dir?(abs_path) do
       now = DateTime.utc_now()
       basename = Path.basename(abs_path)
 
@@ -89,6 +87,8 @@ defmodule Mimo.Context.Project do
 
       Logger.debug("[SPEC-097] Project registered: #{project.name} (#{abs_path})")
       {:ok, project}
+    else
+      {:error, "Path does not exist or is not a directory: #{abs_path}"}
     end
   end
 

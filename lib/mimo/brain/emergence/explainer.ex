@@ -521,7 +521,7 @@ defmodule Mimo.Brain.Emergence.Explainer do
 
   defp generate_promotion_assessment(pattern, criteria, false) do
     unmet = Enum.filter(criteria, &(not &1.met))
-    unmet_names = Enum.map(unmet, & &1.criterion) |> Enum.join(", ")
+    unmet_names = Enum.map_join(unmet, ", ", & &1.criterion)
 
     "Pattern '#{truncate(pattern.description, 50)}' is not ready for promotion. Unmet criteria: #{unmet_names}"
   end

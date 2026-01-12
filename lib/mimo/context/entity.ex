@@ -83,9 +83,7 @@ defmodule Mimo.Context.Entity do
   @spec track(String.t(), entity_type(), String.t() | nil, String.t() | nil, keyword()) ::
           {:ok, t()} | {:error, term()}
   def track(name, type, project_path \\ nil, context \\ nil, opts \\ []) do
-    unless is_valid_name?(name) do
-      {:error, "Invalid entity name"}
-    else
+    if is_valid_name?(name) do
       now = DateTime.utc_now()
 
       # Check if entity already exists by name + project
@@ -107,6 +105,8 @@ defmodule Mimo.Context.Entity do
 
       Logger.debug("[SPEC-097] Entity tracked: #{entity.name} (#{entity.type})")
       {:ok, entity}
+    else
+      {:error, "Invalid entity name"}
     end
   end
 

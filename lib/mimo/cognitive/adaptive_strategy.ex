@@ -122,8 +122,9 @@ defmodule Mimo.Cognitive.AdaptiveStrategy do
     entries =
       @threshold_table
       |> :ets.tab2list()
-      |> Enum.filter(fn {{a, _}, _} -> a == action end)
-      |> Enum.filter(fn {_, %{attempts: a}} -> a >= @min_samples_for_learning end)
+      |> Enum.filter(fn {{a, _}, %{attempts: attempts}} ->
+        a == action and attempts >= @min_samples_for_learning
+      end)
 
     if entries == [] do
       default_threshold(action)

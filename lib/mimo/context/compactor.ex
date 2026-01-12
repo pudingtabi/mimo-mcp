@@ -125,12 +125,11 @@ defmodule Mimo.Context.Compactor do
 
   defp messages_to_text(messages) when is_list(messages) do
     messages
-    |> Enum.map(fn
+    |> Enum.map_join(" ", fn
       %{content: content} when is_binary(content) -> content
       msg when is_binary(msg) -> msg
       _ -> ""
     end)
-    |> Enum.join(" ")
   end
 
   defp extract_file_mentions(text) do

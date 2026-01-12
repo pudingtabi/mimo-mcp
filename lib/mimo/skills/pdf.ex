@@ -295,8 +295,7 @@ defmodule Mimo.Skills.Pdf do
       {:ok, %{"success" => true, "data" => data}} ->
         markdown =
           data["content"]
-          |> Enum.map(& &1["text"])
-          |> Enum.join("\n\n")
+          |> Enum.map_join("\n\n", & &1["text"])
 
         {:ok,
          %{

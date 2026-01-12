@@ -86,11 +86,10 @@ defmodule Mimo.SystemHealth do
 
     checks_summary =
       health.checks
-      |> Enum.map(fn {name, result} ->
+      |> Enum.map_join(", ", fn {name, result} ->
         check_status = Map.get(result, :status, :unknown)
         "#{name}=#{check_status}"
       end)
-      |> Enum.join(", ")
 
     "#{status_emoji} System #{health.status}: #{checks_summary}"
   end

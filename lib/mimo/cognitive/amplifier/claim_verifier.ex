@@ -362,8 +362,7 @@ defmodule Mimo.Cognitive.Amplifier.ClaimVerifier do
     |> String.downcase()
     |> String.replace(~r/[^\w\s]/, "")
     |> String.split()
-    |> Enum.reject(&(String.length(&1) < 4))
-    |> Enum.reject(&is_stop_word?/1)
+    |> Enum.reject(&(String.length(&1) < 4 or is_stop_word?(&1)))
     |> MapSet.new()
   end
 

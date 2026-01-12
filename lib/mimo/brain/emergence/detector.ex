@@ -750,8 +750,7 @@ defmodule Mimo.Brain.Emergence.Detector do
               args
               # Limit to avoid huge signatures
               |> Enum.take(3)
-              |> Enum.map(fn {k, v} -> "#{k}: #{truncate_value(v)}" end)
-              |> Enum.join(", ")
+              |> Enum.map_join(", ", fn {k, v} -> "#{k}: #{truncate_value(v)}" end)
 
             _ ->
               ""
@@ -863,8 +862,7 @@ defmodule Mimo.Brain.Emergence.Detector do
       |> Enum.frequencies()
       |> Enum.sort_by(fn {_, count} -> count end, :desc)
       |> Enum.take(3)
-      |> Enum.map(fn {tool, _} -> tool end)
-      |> Enum.join(", ")
+      |> Enum.map_join(", ", fn {tool, _} -> tool end)
 
     member_signatures =
       cluster.members

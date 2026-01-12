@@ -176,8 +176,7 @@ defmodule Mimo.Skills.Arxiv do
     # Build category filter
     cat_filter =
       categories
-      |> Enum.map(&"cat:#{&1}")
-      |> Enum.join("+OR+")
+      |> Enum.map_join("+OR+", &"cat:#{&1}")
 
     "all:#{query}+AND+(#{cat_filter})"
   end

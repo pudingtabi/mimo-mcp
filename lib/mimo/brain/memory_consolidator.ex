@@ -186,9 +186,8 @@ defmodule Mimo.Brain.MemoryConsolidator do
     dry_run = Keyword.get(opts, :dry_run, false)
 
     with {:ok, members} <- get_cluster_members(cluster_id),
-         {:ok, preview} <- generate_preview(members, opts),
-         {:ok, result} <- maybe_persist(preview, members, archive_originals, dry_run) do
-      {:ok, result}
+         {:ok, preview} <- generate_preview(members, opts) do
+      maybe_persist(preview, members, archive_originals, dry_run)
     end
   end
 
