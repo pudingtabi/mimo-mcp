@@ -1414,11 +1414,12 @@ defmodule Mimo.Cognitive.FeedbackLoop do
       |> Enum.group_by(fn {_ts, entry} -> extract_tool_name(entry) end)
       |> Enum.map(fn {tool, items} ->
         tool_successes = Enum.count(items, fn {_key, e} -> e.outcome.success end)
+        item_count = length(items)
 
         %{
           tool: tool,
-          count: length(items),
-          success_rate: if(length(items) > 0, do: tool_successes / length(items), else: 0.0)
+          count: item_count,
+          success_rate: if(item_count > 0, do: tool_successes / item_count, else: 0.0)
         }
       end)
       |> Enum.sort_by(& &1.count, :desc)

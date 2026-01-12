@@ -357,7 +357,7 @@ defmodule Mimo.Brain.MemoryRouter do
     # ROADMAP Phase 1b P3: Multi-query expansion
     # Run additional searches for expanded queries and merge results
     results =
-      if use_expansion and length(expanded_queries) > 0 do
+      if use_expansion and expanded_queries != [] do
         expand_and_merge(primary_results, expanded_queries, query_type, opts)
       else
         primary_results

@@ -93,7 +93,7 @@ defmodule Mimo.Tools.Dispatchers.SuggestNextTool do
   end
 
   # Phase 3 L4: Get suggestion from emergence patterns
-  defp get_pattern_based_suggestion(recent_tools) when length(recent_tools) >= 1 do
+  defp get_pattern_based_suggestion(recent_tools) when recent_tools != [] do
     try do
       Pattern.suggest_next_tool_from_patterns(recent_tools, min_success_rate: 0.7)
     rescue

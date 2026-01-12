@@ -380,7 +380,7 @@ defmodule Mimo.Cognitive.Amplifier.ClaimVerifier do
     ]
 
     combined = premise <> " " <> conclusion
-    Enum.count(logical_patterns, &Regex.match?(&1, combined)) >= 1
+    Enum.any?(logical_patterns, &Regex.match?(&1, combined))
   end
 
   defp extract_date(text) do

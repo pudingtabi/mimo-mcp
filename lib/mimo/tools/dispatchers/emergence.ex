@@ -598,7 +598,7 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
         # Explain all active patterns (batch mode)
         # Pattern.list returns a list directly, not {:ok, list}
         case Mimo.Brain.Emergence.Pattern.list(status: :active, limit: 10) do
-          patterns when is_list(patterns) and length(patterns) > 0 ->
+          patterns when is_list(patterns) and patterns != [] ->
             case Explainer.explain_batch(patterns, opts) do
               {:ok, result} ->
                 {:ok,
@@ -663,7 +663,7 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
     "This pattern is still emerging. #{explanation[:recommendation] || "Continue monitoring."}"
   end
 
-  defp interpret_hypotheses(hypotheses) when length(hypotheses) > 0 do
+  defp interpret_hypotheses(hypotheses) when hypotheses != [] do
     top = List.first(hypotheses)
     plausibility = top["plausibility"] || 0.5
 
@@ -778,7 +778,7 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
        candidate_count: length(candidates),
        candidates: candidates,
        interpretation:
-         if length(candidates) > 0 do
+         if candidates != [] do
            "Found #{length(candidates)} patterns ready for probing"
          else
            "No patterns currently ready for probing"

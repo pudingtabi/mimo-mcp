@@ -121,7 +121,7 @@ defmodule Mimo.Orchestration.SmartPlanner do
     # Check for relevant corrections (past mistakes)
     corrections = CorrectionLearning.find_relevant_corrections(description, limit: 3)
 
-    if length(corrections) > 0 do
+    if corrections != [] do
       Logger.warning("[SmartPlanner] Found #{length(corrections)} relevant past corrections")
       # Don't block, but add warning to context
     end
@@ -175,7 +175,7 @@ defmodule Mimo.Orchestration.SmartPlanner do
     # 2. GNN Predictor (semantic similarity)
     predictions =
       case GnnPredictor.predict_links(%{content: description}, 10) do
-        {:ok, links} when is_list(links) and length(links) > 0 ->
+        {:ok, links} when is_list(links) and links != [] ->
           %{predictions | gnn: links}
 
         _ ->
@@ -442,7 +442,7 @@ defmodule Mimo.Orchestration.SmartPlanner do
 
     # GNN has predictions
     scores =
-      if predictions.gnn && length(predictions.gnn) > 0 do
+      if predictions.gnn && predictions.gnn != [] do
         [0.7 | scores]
       else
         scores

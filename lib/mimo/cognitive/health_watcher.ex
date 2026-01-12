@@ -271,7 +271,7 @@ defmodule Mimo.Cognitive.HealthWatcher do
     high_priority = get_in(meta_insights, [:high_priority_recommendations]) || []
 
     meta_alerts =
-      if length(high_priority) > 0 do
+      if high_priority != [] do
         [
           %{
             type: :meta_learning,

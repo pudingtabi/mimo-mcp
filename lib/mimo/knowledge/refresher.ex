@@ -143,7 +143,7 @@ defmodule Mimo.Knowledge.Refresher do
 
     stale = do_check_all_packages()
 
-    if length(stale) > 0 do
+    if stale != [] do
       Logger.info(
         "[Refresher] Found #{length(stale)} stale package(s): #{inspect(Enum.map(stale, & &1.package))}"
       )
