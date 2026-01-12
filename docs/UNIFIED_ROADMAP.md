@@ -13,12 +13,12 @@
 |-------|--------|----------|----------|
 | [Cognitive Evolution](#track-1-cognitive-evolution) | ✅ Complete | 95% | Maintenance |
 | [Memory Excellence](#track-2-memory-excellence) | 🔄 Active | 85% | HIGH |
-| [Search/Web](#track-3-searchweb-capabilities) | 🔄 Active | 65% | Medium |
+| [Search/Web](#track-3-searchweb-capabilities) | 🔄 Active | 75% | Medium |
 | [Emergence Research](#track-4-emergence-research) | 🔄 Active | 55% | HIGH |
 | [Competitive Strategy](#track-5-competitive-strategy) | ⏸️ Deferred | 20% | Low |
-| [PDF/Document Integration](#track-6-pdfdocument-integration) | 🆕 New | 0% | Medium |
+| [PDF/Document Integration](#track-6-pdfdocument-integration) | 🔄 Active | 70% | Medium |
 
-**Overall Progress**: ~68%
+**Overall Progress**: ~75%
 
 ---
 
@@ -146,7 +146,7 @@
 ## Track 3: Search/Web Capabilities
 *Source: SEARCH_EVOLUTION_ROADMAP.md*
 
-> **Status**: 🔄 65% COMPLETE - Phase 2-3 partially done
+> **Status**: 🔄 75% COMPLETE - Phase 2 now complete
 
 ### Phase 1: Multi-Backend Search ✅ MOSTLY COMPLETE
 | Feature | Status | Notes |
@@ -156,12 +156,14 @@
 | Brave Search Fallback | ✅ | Added |
 | Smart Search Orchestration | ✅ | Multi-backend fallback |
 
-### Phase 2: AI-Powered Content Extraction 🔄 70% COMPLETE
+### Phase 2: AI-Powered Content Extraction ✅ COMPLETE
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Readability-Style Extraction | ✅ | web_extract operation |
 | AI Summarization | ✅ | LLM integration |
-| Structured Data Extraction | 🔄 PARTIAL | JSON-LD, OpenGraph |
+| Structured Data Extraction | ✅ | JSON-LD, OpenGraph, Twitter Card |
+| Meta Info Extraction | ✅ | Canonical URL, charset, language, article tags |
+| JSON-LD @graph Normalization | ✅ | Handles nested arrays |
 
 ### Phase 3: Browser Automation 🔄 60% COMPLETE
 | Feature | Status | Notes |
@@ -370,17 +372,17 @@
    - [ ] Chunk by logical sections, not just pages
    - [ ] Preserve section hierarchy in metadata
 
-2. **[Track 3] Complete Structured Data Extraction** (MEDIUM PRIORITY)
-   - [ ] Full JSON-LD extraction
-   - [ ] OpenGraph completeness
-
-3. **[Track 4] Phase 4.4: Active Probing** (LOW PRIORITY, ~80% new code)
+2. **[Track 4] Phase 4.4: Active Probing** (LOW PRIORITY, ~80% new code)
    - [ ] Implement Emergence.Prober module
    - [ ] Define capability taxonomy
    - [ ] Add emergence_probe MCP operation
 
 ### Recently Completed ✅
 
+- **[Track 3] Phase 2: Structured Data Extraction** - COMPLETE (2025-01-12)
+  - JSON-LD with @graph normalization
+  - OpenGraph, Twitter Card extraction
+  - Meta info: canonical URL, charset, language, article tags
 - **[Track 4] Phase 4.2: Prediction Layer** - COMPLETE (2025-01-12)
 - **[Track 4] Phase 4.3: Explanation Layer** - COMPLETE (2025-01-12)
 - **[Track 6] Phase 6.1: PDF Reading** - COMPLETE (2025-01-12)
@@ -414,7 +416,7 @@
 |--------|---------|-------------|-------------|
 | Cognitive Evolution | 95% | 95% | 100% |
 | Memory Excellence | 85% | 90% | 95% |
-| Search/Web | 65% | 80% | 90% |
+| Search/Web | 75% | 85% | 90% |
 | Emergence Research | 55% | 70% | 85% |
 | PDF Integration | 70% | 80% | 90% |
 | **Overall** | **~74%** | **83%** | **92%** |

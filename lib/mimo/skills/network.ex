@@ -717,8 +717,9 @@ defmodule Mimo.Skills.Network do
         json_ld =
           doc
           |> Floki.find("script[type='application/ld+json']")
-          |> Enum.map(fn el ->
-            el |> Floki.text() |> String.trim() |> safe_json_decode()
+          |> Enum.map(fn {_tag, _attrs, children} ->
+            # Floki.text() returns empty for script tags, get content from children
+            children |> Enum.join("") |> String.trim() |> safe_json_decode()
           end)
           |> Enum.reject(&is_nil/1)
 
@@ -754,14 +755,120 @@ defmodule Mimo.Skills.Network do
 
         {:ok,
          %{
-           json_ld: json_ld,
+           json_ld: normalize_json_ld(json_ld),
            opengraph: og_data,
-           twitter: twitter_data
+           twitter: twitter_data,
+           meta: extract_meta_info(doc)
          }}
 
       {:error, _} ->
         {:error, "Failed to parse HTML"}
     end
+  end
+
+  # Normalize JSON-LD data, handling @graph arrays and extracting main entity
+  defp normalize_json_ld([]), do: []
+
+  defp normalize_json_ld(items) when is_list(items) do
+    items
+    |> Enum.flat_map(&flatten_json_ld/1)
+    |> Enum.uniq_by(&normalize_entity_id/1)
+  end
+
+  defp flatten_json_ld(%{"@graph" => graph}) when is_list(graph), do: graph
+  defp flatten_json_ld(item) when is_map(item), do: [item]
+  defp flatten_json_ld(_), do: []
+
+  defp normalize_entity_id(%{"@id" => id}), do: id
+  defp normalize_entity_id(%{"@type" => type, "name" => name}), do: "#{type}:#{name}"
+  defp normalize_entity_id(item), do: :erlang.phash2(item)
+
+  # Extract additional meta information from the document
+  defp extract_meta_info(doc) do
+    %{
+      canonical: extract_canonical(doc),
+      language: extract_language(doc),
+      charset: extract_charset(doc),
+      author: extract_meta_content(doc, "author"),
+      description: extract_meta_content(doc, "description"),
+      keywords: extract_meta_content(doc, "keywords"),
+      robots: extract_meta_content(doc, "robots"),
+      published_time:
+        extract_meta_property(doc, "article:published_time") ||
+          extract_meta_content(doc, "date") ||
+          extract_meta_content(doc, "DC.date"),
+      modified_time: extract_meta_property(doc, "article:modified_time"),
+      section: extract_meta_property(doc, "article:section"),
+      tags: extract_meta_properties(doc, "article:tag")
+    }
+    |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" or v == [] end)
+    |> Map.new()
+  end
+
+  defp extract_canonical(doc) do
+    doc
+    |> Floki.find("link[rel=canonical]")
+    |> Floki.attribute("href")
+    |> List.first()
+  end
+
+  defp extract_language(doc) do
+    # Try html lang attribute first, then meta
+    html_lang =
+      doc
+      |> Floki.find("html")
+      |> Floki.attribute("lang")
+      |> List.first()
+
+    html_lang || extract_meta_content(doc, "language") || extract_meta_property(doc, "og:locale")
+  end
+
+  defp extract_charset(doc) do
+    # Try meta charset first, then Content-Type
+    charset =
+      doc
+      |> Floki.find("meta[charset]")
+      |> Floki.attribute("charset")
+      |> List.first()
+
+    if charset do
+      charset
+    else
+      # Parse from Content-Type meta
+      content_type =
+        doc
+        |> Floki.find("meta[http-equiv='Content-Type']")
+        |> Floki.attribute("content")
+        |> List.first()
+
+      if content_type do
+        case Regex.run(~r/charset=([^\s;]+)/i, content_type) do
+          [_, cs] -> cs
+          _ -> nil
+        end
+      end
+    end
+  end
+
+  defp extract_meta_content(doc, name) do
+    doc
+    |> Floki.find("meta[name='#{name}']")
+    |> Floki.attribute("content")
+    |> List.first()
+  end
+
+  defp extract_meta_property(doc, property) do
+    doc
+    |> Floki.find("meta[property='#{property}']")
+    |> Floki.attribute("content")
+    |> List.first()
+  end
+
+  defp extract_meta_properties(doc, property) do
+    doc
+    |> Floki.find("meta[property='#{property}']")
+    |> Enum.map(fn el -> Floki.attribute(el, "content") |> List.first() end)
+    |> Enum.reject(&is_nil/1)
   end
 
   defp safe_json_decode(text) do
