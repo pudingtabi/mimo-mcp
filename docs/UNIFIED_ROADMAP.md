@@ -16,9 +16,9 @@
 | [Search/Web](#track-3-searchweb-capabilities) | 🔄 Active | 75% | Medium |
 | [Emergence Research](#track-4-emergence-research) | 🔄 Active | 55% | HIGH |
 | [Competitive Strategy](#track-5-competitive-strategy) | ⏸️ Deferred | 20% | Low |
-| [PDF/Document Integration](#track-6-pdfdocument-integration) | 🔄 Active | 70% | Medium |
+| [PDF/Document Integration](#track-6-pdfdocument-integration) | 🔄 Active | 85% | Medium |
 
-**Overall Progress**: ~75%
+**Overall Progress**: ~78%
 
 ---
 
@@ -313,7 +313,7 @@
 ## Track 6: PDF/Document Integration
 *Source: NEW - User request for PDF capabilities*
 
-> **Status**: 🔄 70% COMPLETE - Core implementation done
+> **Status**: ✅ 85% COMPLETE - Section-aware chunking implemented
 
 ### Current State
 | Tool | Capability | Status |
@@ -356,8 +356,14 @@
 - 16 tests all passing
 - Commit: `722540a`
 
-### Phase 6.4: Section-Aware Chunking ⏸️ PLANNED
-- Detect section headers within pages
+### Phase 6.4: Section-Aware Chunking ✅ COMPLETE (2025-01-12)
+- Added Pdf.extract_sections/2 with flexible pattern matching
+- Supports numbered sections (1., 1.1, 1.1.1), ALL CAPS, title case
+- Detects common academic sections (Abstract, Introduction, Methods, etc.)
+- Hierarchy detection with parent_index metadata
+- Added Pdf.chunk_by_sections/2 for section-based PDF chunking
+- 11 new tests all passing
+- Commit: TBD
 - Chunk by logical sections, not just pages
 - Preserve section hierarchy in metadata
 
@@ -367,18 +373,17 @@
 
 ### Available Work (Priority Order)
 
-1. **[Track 6] Phase 6.4: Section-Aware Chunking** (LOW PRIORITY, ~1 day)
-   - [ ] Detect section headers within PDF pages
-   - [ ] Chunk by logical sections, not just pages
-   - [ ] Preserve section hierarchy in metadata
-
-2. **[Track 4] Phase 4.4: Active Probing** (LOW PRIORITY, ~80% new code)
+1. **[Track 4] Phase 4.4: Active Probing** (LOW PRIORITY, ~80% new code)
    - [ ] Implement Emergence.Prober module
    - [ ] Define capability taxonomy
    - [ ] Add emergence_probe MCP operation
 
 ### Recently Completed ✅
 
+- **[Track 6] Phase 6.4: Section-Aware Chunking** - COMPLETE (2025-01-12)
+  - Pdf.extract_sections/2 with numbered, CAPS, title case patterns
+  - Hierarchy detection with parent_index metadata
+  - Pdf.chunk_by_sections/2 for section-based chunking
 - **[Track 3] Phase 2: Structured Data Extraction** - COMPLETE (2025-01-12)
   - JSON-LD with @graph normalization
   - OpenGraph, Twitter Card extraction
