@@ -106,10 +106,12 @@ defmodule Mimo.Tools.Dispatchers.Code do
   end
 
   defp dispatch_symbols(args) do
+    path = args["path"]
+
     cond do
-      args["path"] && File.dir?(args["path"]) ->
+      is_binary(path) and path != "" and File.dir?(path) ->
         # List symbols in directory
-        case SymbolIndex.index_directory(args["path"]) do
+        case SymbolIndex.index_directory(path) do
           {:ok, _} ->
             stats = SymbolIndex.stats()
             {:ok, stats}
@@ -118,13 +120,13 @@ defmodule Mimo.Tools.Dispatchers.Code do
             error
         end
 
-      args["path"] ->
+      is_binary(path) and path != "" ->
         # List symbols in file - auto-index if empty (SPEC-105 improvement)
-        symbols = SymbolIndex.symbols_in_file(args["path"])
+        symbols = SymbolIndex.symbols_in_file(path)
 
         # If no symbols found and file exists, try indexing it first
         symbols =
-          if symbols == [] and File.exists?(args["path"]) do
+          if symbols == [] and File.exists?(path) do
             case SymbolIndex.index_file(args["path"]) do
               {:ok, _stats} -> SymbolIndex.symbols_in_file(args["path"])
               _ -> symbols
@@ -141,8 +143,9 @@ defmodule Mimo.Tools.Dispatchers.Code do
          }}
 
       true ->
-        # Return index stats
-        {:ok, SymbolIndex.stats()}
+        # No path provided - return error message
+        {:error,
+         "Path is required for symbols operation. Provide a file or directory path to list symbols."}
     end
   end
 

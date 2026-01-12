@@ -143,15 +143,21 @@ defmodule Mimo.Tools.Dispatchers.Web do
   """
   def dispatch_fetch(args) do
     url = args["url"]
-    format = args["format"] || "text"
-    analyze_image = args["analyze_image"] || false
 
-    is_image_url = Helpers.image_url?(url)
-
-    if analyze_image or (is_image_url and analyze_image != false) do
-      analyze_image_url(url, args)
+    # Validate URL is provided
+    if is_nil(url) or url == "" do
+      {:error, "URL is required for fetch operation"}
     else
-      fetch_content(url, format, args)
+      format = args["format"] || "text"
+      analyze_image = args["analyze_image"] || false
+
+      is_image_url = Helpers.image_url?(url)
+
+      if analyze_image or (is_image_url and analyze_image != false) do
+        analyze_image_url(url, args)
+      else
+        fetch_content(url, format, args)
+      end
     end
   end
 
