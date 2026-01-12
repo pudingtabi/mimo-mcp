@@ -574,50 +574,48 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
       include_prediction: include_prediction
     ]
 
-    cond do
-      pattern_id ->
-        # Explain specific pattern
-        case Explainer.explain(pattern_id, opts) do
-          {:ok, explanation} ->
-            {:ok,
-             %{
-               operation: :explain,
-               pattern_id: pattern_id,
-               explanation: explanation,
-               interpretation: interpret_explanation(explanation)
-             }}
+    if pattern_id do
+      # Explain specific pattern
+      case Explainer.explain(pattern_id, opts) do
+        {:ok, explanation} ->
+          {:ok,
+           %{
+             operation: :explain,
+             pattern_id: pattern_id,
+             explanation: explanation,
+             interpretation: interpret_explanation(explanation)
+           }}
 
-          {:error, :not_found} ->
-            {:error, "Pattern not found: #{pattern_id}"}
+        {:error, :not_found} ->
+          {:error, "Pattern not found: #{pattern_id}"}
 
-          {:error, reason} ->
-            {:error, "Explanation failed: #{inspect(reason)}"}
-        end
+        {:error, reason} ->
+          {:error, "Explanation failed: #{inspect(reason)}"}
+      end
+    else
+      # Explain all active patterns (batch mode)
+      # Pattern.list returns a list directly, not {:ok, list}
+      case Mimo.Brain.Emergence.Pattern.list(status: :active, limit: 10) do
+        patterns when is_list(patterns) and patterns != [] ->
+          case Explainer.explain_batch(patterns, opts) do
+            {:ok, result} ->
+              {:ok,
+               %{
+                 operation: :explain_batch,
+                 patterns_explained: result.summary.explained_count,
+                 summary: result.summary,
+                 explanations: Enum.take(result.explanations, 5)
+               }}
+          end
 
-      true ->
-        # Explain all active patterns (batch mode)
-        # Pattern.list returns a list directly, not {:ok, list}
-        case Mimo.Brain.Emergence.Pattern.list(status: :active, limit: 10) do
-          patterns when is_list(patterns) and patterns != [] ->
-            case Explainer.explain_batch(patterns, opts) do
-              {:ok, result} ->
-                {:ok,
-                 %{
-                   operation: :explain_batch,
-                   patterns_explained: result.summary.explained_count,
-                   summary: result.summary,
-                   explanations: Enum.take(result.explanations, 5)
-                 }}
-            end
-
-          [] ->
-            {:ok,
-             %{
-               operation: :explain,
-               message: "No active patterns to explain",
-               suggestion: "Run emergence_detect to find patterns first"
-             }}
-        end
+        [] ->
+          {:ok,
+           %{
+             operation: :explain,
+             message: "No active patterns to explain",
+             suggestion: "Run emergence_detect to find patterns first"
+           }}
+      end
     end
   end
 

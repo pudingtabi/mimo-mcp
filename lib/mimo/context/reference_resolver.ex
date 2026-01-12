@@ -58,14 +58,12 @@ defmodule Mimo.Context.ReferenceResolver do
 
   # Handle "X project" pattern
   defp do_resolve(ref) do
-    cond do
-      String.ends_with?(ref, " project") ->
-        name = String.replace_suffix(ref, " project", "")
-        resolve_by_name(name)
-
-      true ->
-        # Try as direct name/alias lookup
-        resolve_by_name(ref)
+    if String.ends_with?(ref, " project") do
+      name = String.replace_suffix(ref, " project", "")
+      resolve_by_name(name)
+    else
+      # Try as direct name/alias lookup
+      resolve_by_name(ref)
     end
   end
 

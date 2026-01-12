@@ -157,97 +157,125 @@ defmodule Mimo.Robustness.PatternEvolution do
   def evaluate_patterns do
     case load_patterns() do
       {:ok, data} ->
-        config = data["evolution_config"] || %{}
-        min_samples = config["ab_test_sample_size"] || @default_min_samples
-        max_fp_rate = config["max_false_positive_rate"] || @default_max_fp_rate
-        min_real_bug_rate = config["min_catches_real_bugs"] || @default_min_real_bug_rate
-
-        experimental = data["experimental_patterns"] || []
-        active_patterns = data["patterns"] || %{}
-        deprecated = data["deprecated_patterns"] || []
-
-        _actions = []
-
-        # Evaluate experimental patterns
-        {to_promote, to_deprecate, remaining} =
-          Enum.reduce(experimental, {[], [], []}, fn pattern, {promote, deprecate, keep} ->
-            samples = pattern["sample_count"] || 0
-            positives = pattern["positive_detections"] || 0
-            fps = pattern["false_positives"] || 0
-
-            if samples >= min_samples do
-              fp_rate = if positives > 0, do: fps / positives, else: 1.0
-              real_bug_rate = if samples > 0, do: (positives - fps) / samples, else: 0
-
-              cond do
-                fp_rate <= max_fp_rate and real_bug_rate >= min_real_bug_rate ->
-                  {[pattern | promote], deprecate, keep}
-
-                fp_rate > max_fp_rate * 1.5 or real_bug_rate < min_real_bug_rate * 0.5 ->
-                  {promote, [pattern | deprecate], keep}
-
-                true ->
-                  # Keep testing
-                  {promote, deprecate, [pattern | keep]}
-              end
-            else
-              {promote, deprecate, [pattern | keep]}
-            end
-          end)
-
-        # Apply promotions
-        updated_active =
-          Enum.reduce(to_promote, active_patterns, fn pattern, acc ->
-            language = infer_language(pattern)
-
-            promoted =
-              pattern
-              |> Map.put("status", "active")
-              |> Map.put("promoted_date", Date.to_string(Date.utc_today()))
-              |> Map.put("false_positive_rate", calculate_fp_rate(pattern))
-              |> Map.put("catches_real_bugs", calculate_real_bug_rate(pattern))
-
-            Map.update(acc, language, [promoted], &[promoted | &1])
-          end)
-
-        # Apply deprecations
-        updated_deprecated =
-          Enum.map(to_deprecate, fn pattern ->
-            pattern
-            |> Map.put("status", "deprecated")
-            |> Map.put("deprecated_date", Date.to_string(Date.utc_today()))
-            |> Map.put("deprecation_reason", "Low effectiveness in A/B testing")
-          end) ++ deprecated
-
-        # Build actions list
-        promotion_actions =
-          Enum.map(to_promote, fn p ->
-            %{action: "promote", pattern_id: p["id"], reason: "Passed A/B testing"}
-          end)
-
-        deprecation_actions =
-          Enum.map(to_deprecate, fn p ->
-            %{action: "deprecate", pattern_id: p["id"], reason: "Failed A/B testing"}
-          end)
-
-        # Save updated data
-        updated_data =
-          data
-          |> Map.put("patterns", updated_active)
-          |> Map.put("experimental_patterns", remaining)
-          |> Map.put("deprecated_patterns", updated_deprecated)
-
-        save_patterns(updated_data)
-
-        # Store learnings in semantic store
-        Enum.each(to_promote, &store_pattern_evolution(&1, :promoted))
-        Enum.each(to_deprecate, &store_pattern_evolution(&1, :deprecated))
-
-        promotion_actions ++ deprecation_actions
+        do_evaluate_patterns(data)
 
       {:error, _} ->
         []
     end
+  end
+
+  # Main evaluation logic, extracted to reduce complexity
+  defp do_evaluate_patterns(data) do
+    config = extract_evolution_config(data)
+
+    experimental = data["experimental_patterns"] || []
+    active_patterns = data["patterns"] || %{}
+    deprecated = data["deprecated_patterns"] || []
+
+    # Evaluate experimental patterns
+    {to_promote, to_deprecate, remaining} =
+      Enum.reduce(experimental, {[], [], []}, fn pattern, acc ->
+        classify_pattern(pattern, config, acc)
+      end)
+
+    # Apply updates
+    updated_active = apply_promotions(to_promote, active_patterns)
+    updated_deprecated = apply_deprecations(to_deprecate, deprecated)
+
+    # Build actions list
+    promotion_actions = build_promotion_actions(to_promote)
+    deprecation_actions = build_deprecation_actions(to_deprecate)
+
+    # Save updated data
+    updated_data =
+      data
+      |> Map.put("patterns", updated_active)
+      |> Map.put("experimental_patterns", remaining)
+      |> Map.put("deprecated_patterns", updated_deprecated)
+
+    save_patterns(updated_data)
+
+    # Store learnings in semantic store
+    Enum.each(to_promote, &store_pattern_evolution(&1, :promoted))
+    Enum.each(to_deprecate, &store_pattern_evolution(&1, :deprecated))
+
+    promotion_actions ++ deprecation_actions
+  end
+
+  defp extract_evolution_config(data) do
+    config = data["evolution_config"] || %{}
+
+    %{
+      min_samples: config["ab_test_sample_size"] || @default_min_samples,
+      max_fp_rate: config["max_false_positive_rate"] || @default_max_fp_rate,
+      min_real_bug_rate: config["min_catches_real_bugs"] || @default_min_real_bug_rate
+    }
+  end
+
+  defp classify_pattern(pattern, config, {promote, deprecate, keep}) do
+    samples = pattern["sample_count"] || 0
+    positives = pattern["positive_detections"] || 0
+    fps = pattern["false_positives"] || 0
+
+    if samples < config.min_samples do
+      # Not enough samples yet, keep testing
+      {promote, deprecate, [pattern | keep]}
+    else
+      fp_rate = if positives > 0, do: fps / positives, else: 1.0
+      real_bug_rate = if samples > 0, do: (positives - fps) / samples, else: 0
+
+      classify_by_metrics(pattern, fp_rate, real_bug_rate, config, {promote, deprecate, keep})
+    end
+  end
+
+  defp classify_by_metrics(pattern, fp_rate, real_bug_rate, config, {promote, deprecate, keep}) do
+    cond do
+      fp_rate <= config.max_fp_rate and real_bug_rate >= config.min_real_bug_rate ->
+        {[pattern | promote], deprecate, keep}
+
+      fp_rate > config.max_fp_rate * 1.5 or real_bug_rate < config.min_real_bug_rate * 0.5 ->
+        {promote, [pattern | deprecate], keep}
+
+      true ->
+        # Keep testing
+        {promote, deprecate, [pattern | keep]}
+    end
+  end
+
+  defp apply_promotions(to_promote, active_patterns) do
+    Enum.reduce(to_promote, active_patterns, fn pattern, acc ->
+      language = infer_language(pattern)
+
+      promoted =
+        pattern
+        |> Map.put("status", "active")
+        |> Map.put("promoted_date", Date.to_string(Date.utc_today()))
+        |> Map.put("false_positive_rate", calculate_fp_rate(pattern))
+        |> Map.put("catches_real_bugs", calculate_real_bug_rate(pattern))
+
+      Map.update(acc, language, [promoted], &[promoted | &1])
+    end)
+  end
+
+  defp apply_deprecations(to_deprecate, deprecated) do
+    Enum.map(to_deprecate, fn pattern ->
+      pattern
+      |> Map.put("status", "deprecated")
+      |> Map.put("deprecated_date", Date.to_string(Date.utc_today()))
+      |> Map.put("deprecation_reason", "Low effectiveness in A/B testing")
+    end) ++ deprecated
+  end
+
+  defp build_promotion_actions(to_promote) do
+    Enum.map(to_promote, fn p ->
+      %{action: "promote", pattern_id: p["id"], reason: "Passed A/B testing"}
+    end)
+  end
+
+  defp build_deprecation_actions(to_deprecate) do
+    Enum.map(to_deprecate, fn p ->
+      %{action: "deprecate", pattern_id: p["id"], reason: "Failed A/B testing"}
+    end)
   end
 
   @doc """

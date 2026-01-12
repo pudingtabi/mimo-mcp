@@ -32,15 +32,13 @@ defmodule Mimo.Learning.WebFallback do
     min_results = Keyword.get(opts, :min_results, 1)
     store_to_memory = Keyword.get(opts, :store_to_memory, true)
 
-    cond do
+    if is_list(memory_results) and length(memory_results) >= min_results do
       # Memory had sufficient results
-      is_list(memory_results) and length(memory_results) >= min_results ->
-        {:hit, memory_results}
-
+      {:hit, memory_results}
+    else
       # No results or insufficient - try web fallback
-      true ->
-        Logger.info("[P5 Synergy] Memory miss for: #{String.slice(query, 0, 50)}... trying web")
-        perform_web_fallback(query, store_to_memory, opts)
+      Logger.info("[P5 Synergy] Memory miss for: #{String.slice(query, 0, 50)}... trying web")
+      perform_web_fallback(query, store_to_memory, opts)
     end
   end
 

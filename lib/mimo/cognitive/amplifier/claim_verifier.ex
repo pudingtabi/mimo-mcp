@@ -321,31 +321,29 @@ defmodule Mimo.Cognitive.Amplifier.ClaimVerifier do
     date2 = extract_date(event2)
 
     {verified, confidence, evidence} =
-      cond do
+      if date1 != nil and date2 != nil do
         # Both dates extracted - can verify
-        date1 != nil and date2 != nil ->
-          chronological = Date.compare(date1, date2) == :lt
+        chronological = Date.compare(date1, date2) == :lt
 
-          case relation do
-            "before" ->
-              {chronological, 0.9, "Dates: #{date1} vs #{date2}"}
+        case relation do
+          "before" ->
+            {chronological, 0.9, "Dates: #{date1} vs #{date2}"}
 
-            "after" ->
-              {not chronological, 0.9, "Dates: #{date1} vs #{date2}"}
+          "after" ->
+            {not chronological, 0.9, "Dates: #{date1} vs #{date2}"}
 
-            _ ->
-              {false, 0.0, "Unknown temporal relation: #{relation}"}
-          end
-
+          _ ->
+            {false, 0.0, "Unknown temporal relation: #{relation}"}
+        end
+      else
         # Try to detect temporal ordering from text patterns
-        true ->
-          ordering = infer_temporal_ordering(event1, event2)
+        ordering = infer_temporal_ordering(event1, event2)
 
-          case {relation, ordering} do
-            {"before", :first_earlier} -> {true, 0.5, "Inferred from text patterns"}
-            {"after", :second_earlier} -> {true, 0.5, "Inferred from text patterns"}
-            _ -> {false, 0.3, "Could not determine temporal relationship"}
-          end
+        case {relation, ordering} do
+          {"before", :first_earlier} -> {true, 0.5, "Inferred from text patterns"}
+          {"after", :second_earlier} -> {true, 0.5, "Inferred from text patterns"}
+          _ -> {false, 0.3, "Could not determine temporal relationship"}
+        end
       end
 
     %{

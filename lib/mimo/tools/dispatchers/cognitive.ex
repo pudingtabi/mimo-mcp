@@ -2919,42 +2919,40 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
     dry_run = args["dry_run"] || false
     max_clusters = args["max_clusters"]
 
-    cond do
-      cluster_id ->
-        # Consolidate specific cluster
-        case MemoryConsolidator.consolidate(cluster_id, dry_run: dry_run) do
-          {:ok, result} ->
-            {:ok,
-             %{
-               type: "consolidation_result",
-               result: result,
-               level: "SPEC-105 - Memory Consolidation"
-             }}
+    if cluster_id do
+      # Consolidate specific cluster
+      case MemoryConsolidator.consolidate(cluster_id, dry_run: dry_run) do
+        {:ok, result} ->
+          {:ok,
+           %{
+             type: "consolidation_result",
+             result: result,
+             level: "SPEC-105 - Memory Consolidation"
+           }}
 
-          {:error, reason} ->
-            {:error, "Failed to consolidate cluster: #{inspect(reason)}"}
-        end
+        {:error, reason} ->
+          {:error, "Failed to consolidate cluster: #{inspect(reason)}"}
+      end
+    else
+      # Run consolidation on all eligible clusters
+      opts =
+        [dry_run: dry_run]
+        |> then(fn o ->
+          if max_clusters, do: Keyword.put(o, :max_clusters, max_clusters), else: o
+        end)
 
-      true ->
-        # Run consolidation on all eligible clusters
-        opts =
-          [dry_run: dry_run]
-          |> then(fn o ->
-            if max_clusters, do: Keyword.put(o, :max_clusters, max_clusters), else: o
-          end)
+      case MemoryConsolidator.run(opts) do
+        {:ok, results} ->
+          {:ok,
+           %{
+             type: "consolidation_run",
+             results: results,
+             level: "SPEC-105 - Memory Consolidation"
+           }}
 
-        case MemoryConsolidator.run(opts) do
-          {:ok, results} ->
-            {:ok,
-             %{
-               type: "consolidation_run",
-               results: results,
-               level: "SPEC-105 - Memory Consolidation"
-             }}
-
-          {:error, reason} ->
-            {:error, "Failed to run consolidation: #{inspect(reason)}"}
-        end
+        {:error, reason} ->
+          {:error, "Failed to run consolidation: #{inspect(reason)}"}
+      end
     end
   end
 
