@@ -49,14 +49,14 @@ defmodule Mimo.Tools.Dispatchers.SuggestNextToolPatternTest do
       :ok
     end
 
-    test "handle/2 returns pattern_insight when patterns match" do
+    test "dispatch/1 returns pattern_insight when patterns match" do
       # Create a request that would match our patterns
       args = %{
         "task" => "debug an issue",
         "recent_tools" => ["memory"]
       }
 
-      result = SuggestNextTool.handle(args, %{})
+      result = SuggestNextTool.dispatch(args)
 
       assert {:ok, response} = result
       assert is_map(response)
@@ -67,21 +67,22 @@ defmodule Mimo.Tools.Dispatchers.SuggestNextToolPatternTest do
                Map.has_key?(response, "pattern_insight")
     end
 
-    test "pattern_insight contains suggested tool from patterns" do
+    test "pattern_insight contains metadata about pattern usage" do
       args = %{
         "task" => "fix a bug",
         "recent_tools" => ["memory", "code"]
       }
 
-      {:ok, response} = SuggestNextTool.handle(args, %{})
+      {:ok, response} = SuggestNextTool.dispatch(args)
 
       pattern_insight = response[:pattern_insight] || response["pattern_insight"]
 
       if pattern_insight do
         assert is_map(pattern_insight)
 
-        assert Map.has_key?(pattern_insight, :suggested_tool) or
-                 Map.has_key?(pattern_insight, "suggested_tool")
+        # Pattern insight should have 'from_pattern' key indicating if pattern was applied
+        assert Map.has_key?(pattern_insight, :from_pattern) or
+                 Map.has_key?(pattern_insight, "from_pattern")
       end
     end
 
@@ -92,7 +93,7 @@ defmodule Mimo.Tools.Dispatchers.SuggestNextToolPatternTest do
         "recent_tools" => ["unknown_tool_xyz"]
       }
 
-      result = SuggestNextTool.handle(args, %{})
+      result = SuggestNextTool.dispatch(args)
 
       # Should still return a valid suggestion (not crash)
       assert {:ok, response} = result
@@ -105,7 +106,7 @@ defmodule Mimo.Tools.Dispatchers.SuggestNextToolPatternTest do
         "recent_tools" => ["memory"]
       }
 
-      {:ok, response} = SuggestNextTool.handle(args, %{})
+      {:ok, response} = SuggestNextTool.dispatch(args)
 
       pattern_insight = response[:pattern_insight] || response["pattern_insight"]
 
@@ -128,7 +129,7 @@ defmodule Mimo.Tools.Dispatchers.SuggestNextToolPatternTest do
         "context" => "Starting a new task"
       }
 
-      {:ok, response} = SuggestNextTool.handle(args, %{})
+      {:ok, response} = SuggestNextTool.dispatch(args)
 
       # Should have the main suggestion
       assert Map.has_key?(response, :suggested_tool) or
