@@ -14,8 +14,8 @@ defmodule Mimo.Skills.Pdf.SectionExtractionTest do
 
       1. Introduction
 
-      This is the introduction section with some content that spans multiple lines 
-      and provides context about what we're doing. It needs to be long enough to 
+      This is the introduction section with some content that spans multiple lines
+      and provides context about what we're doing. It needs to be long enough to
       pass the minimum length filter of 50 characters.
 
       2. Methods
@@ -44,17 +44,17 @@ defmodule Mimo.Skills.Pdf.SectionExtractionTest do
       text = """
       1. Main Section
 
-      Overview of the main section content here with enough detail to pass the 
+      Overview of the main section content here with enough detail to pass the
       minimum length filter. This content needs to be substantial.
 
       1.1 Subsection A
 
-      Content for subsection A with details that span multiple lines to ensure 
+      Content for subsection A with details that span multiple lines to ensure
       we have enough characters to pass the filter requirement.
 
       1.1.1 Sub-subsection
 
-      Even more detailed content here that goes into the specifics of this 
+      Even more detailed content here that goes into the specifics of this
       particular sub-subsection topic.
 
       1.2 Subsection B

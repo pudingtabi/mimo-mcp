@@ -1101,7 +1101,7 @@ defmodule Mimo.Brain.Memory do
         {id, entry.embedding_int8}
       end)
 
-    if length(vectors) > 0 do
+    if vectors != [] do
       HnswIndex.add_batch(vectors)
     end
 

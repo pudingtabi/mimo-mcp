@@ -376,7 +376,7 @@ defmodule Mimo.Awakening.ContextInjector do
       # Also get pattern counts by type
       type_counts = get_pattern_type_counts()
 
-      if length(skills) > 0 do
+      if skills != [] do
         top_skills =
           skills
           |> Enum.take(3)

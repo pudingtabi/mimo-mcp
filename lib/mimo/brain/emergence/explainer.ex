@@ -400,7 +400,7 @@ defmodule Mimo.Brain.Emergence.Explainer do
          first_seen: first_seen,
          last_seen: last_seen
        })
-       when is_list(evolution) and length(evolution) > 0 do
+       when is_list(evolution) and evolution != [] do
     age = age_in_days(first_seen)
     last_activity = age_in_days(last_seen)
 

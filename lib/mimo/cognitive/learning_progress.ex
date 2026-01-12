@@ -226,13 +226,15 @@ defmodule Mimo.Cognitive.LearningProgress do
     # Check calibration via FeedbackLoop
     calibration_warnings = safe_call(fn -> FeedbackLoop.calibration_warnings() end, [])
 
+    num_warnings = length(calibration_warnings)
+
     recommendations =
-      if length(calibration_warnings) > 0 do
+      if num_warnings > 0 do
         [
           %{
             type: :calibration_needed,
             severity: :info,
-            message: "#{length(calibration_warnings)} categories need confidence calibration",
+            message: "#{num_warnings} categories need confidence calibration",
             suggestion: "Record more outcomes to improve calibration accuracy"
           }
           | recommendations
