@@ -725,7 +725,7 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
   # ─────────────────────────────────────────────────────────────────
 
   defp dispatch_probe(args) do
-    alias Mimo.Brain.Emergence.{Prober, Pattern}
+    alias Mimo.Brain.Emergence.Prober
 
     pattern_id = args["pattern_id"]
     probe_type = String.to_existing_atom(args["type"] || "validation")
@@ -735,7 +735,10 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
     else
       # First get the pattern
       case Emergence.get_pattern(pattern_id) do
-        {:ok, pattern} ->
+        nil ->
+          {:error, "Pattern not found: #{pattern_id}"}
+
+        pattern ->
           # Generate and execute probe task
           task = Prober.generate_probe_task(pattern, type: probe_type)
           result = Prober.probe_pattern(pattern, task)
@@ -754,12 +757,6 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
              },
              interpretation: interpret_probe_result(result, probe_type)
            }}
-
-        {:error, :not_found} ->
-          {:error, "Pattern not found: #{pattern_id}"}
-
-        {:error, reason} ->
-          {:error, "Failed to probe pattern: #{inspect(reason)}"}
       end
     end
   rescue
