@@ -1235,6 +1235,7 @@ defmodule Mimo.Brain.Memory do
   end
 
   # Resolve embedding - use provided or generate new
+  # SPEC-RESILIENCE: Graceful degradation when embedding service unavailable
   defp resolve_embedding(_content, emb) when is_list(emb) and emb != [], do: {:ok, emb}
 
   defp resolve_embedding(content, _) do
@@ -1243,12 +1244,18 @@ defmodule Mimo.Brain.Memory do
         {:ok, emb}
 
       {:ok, []} ->
-        Logger.warning("Embedding generation returned empty list for content")
-        {:error, {:empty_embedding, "Embedding generation returned empty result"}}
+        Logger.warning("Embedding generation returned empty list - storing without embedding")
+        # GRACEFUL DEGRADATION: Store memory without embedding rather than failing
+        {:ok, []}
 
       {:error, reason} ->
-        Logger.warning("Embedding generation failed: #{inspect(reason)}")
-        {:error, {:embedding_failed, reason}}
+        Logger.warning(
+          "Embedding generation failed: #{inspect(reason)} - storing without embedding"
+        )
+
+        # GRACEFUL DEGRADATION: Allow memory storage to continue without embeddings
+        # Memories can be re-embedded later when service recovers
+        {:ok, []}
     end
   end
 
