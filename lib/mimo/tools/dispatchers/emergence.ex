@@ -53,6 +53,8 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
   defp do_dispatch("ab_stats", _args), do: dispatch_ab_stats()
   # Phase 4.2: Prediction Layer (SPEC-044 v1.4)
   defp do_dispatch("predict", args), do: dispatch_predict(args)
+  defp do_dispatch("prediction_feedback", _args), do: dispatch_prediction_feedback()
+  defp do_dispatch("process_predictions", _args), do: dispatch_process_predictions()
   # Phase 4.3: Explanation Layer (SPEC-044 v1.5)
   defp do_dispatch("explain", args), do: dispatch_explain(args)
   defp do_dispatch("hypothesize", args), do: dispatch_hypothesize(args)
@@ -63,7 +65,7 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
 
   defp do_dispatch(op, _args) do
     {:error,
-     "Unknown emergence operation: #{op}. Available: detect, dashboard, alerts, amplify, promote, cycle, list, search, suggest, status, pattern, impact, track_usage, usage_stats, ab_stats, predict, explain, hypothesize, probe, probe_candidates, capability_summary"}
+     "Unknown emergence operation: #{op}. Available: detect, dashboard, alerts, amplify, promote, cycle, list, search, suggest, status, pattern, impact, track_usage, usage_stats, ab_stats, predict, prediction_feedback, process_predictions, explain, hypothesize, probe, probe_candidates, capability_summary"}
   end
 
   defp dispatch_detect(args) do
@@ -822,5 +824,75 @@ defmodule Mimo.Tools.Dispatchers.Emergence do
 
   defp interpret_probe_result(%{success: false}, type) do
     "Failed #{type} probe - investigating boundaries"
+  end
+
+  # ─────────────────────────────────────────────────────────────────
+  # Phase 4.2 P2: Prediction Feedback Loop
+  # ─────────────────────────────────────────────────────────────────
+
+  defp dispatch_prediction_feedback do
+    alias Mimo.Brain.Emergence.PredictionFeedback
+
+    stats = PredictionFeedback.stats()
+    calibration = stats.calibration
+
+    {:ok,
+     %{
+       operation: :prediction_feedback,
+       spec: "SPEC-044 v1.4 Phase 4.2 P2",
+       total_predictions: stats.total_predictions,
+       pending_count: stats.pending_count,
+       by_outcome: stats.by_outcome,
+       accuracy: %{
+         overall: stats.accuracy.avg_accuracy,
+         calibration_error: stats.accuracy.calibration_error,
+         is_calibrated: stats.accuracy.is_calibrated,
+         sample_size: stats.accuracy.total
+       },
+       calibration_adjustments: calibration.adjustments,
+       interpretation: interpret_feedback(stats)
+     }}
+  end
+
+  defp dispatch_process_predictions do
+    alias Mimo.Brain.Emergence.PredictionFeedback
+
+    {:ok, result} = PredictionFeedback.process_pending()
+
+    {:ok,
+     %{
+       operation: :process_predictions,
+       spec: "SPEC-044 v1.4 Phase 4.2 P2",
+       processed: result.processed,
+       success: result.success,
+       errors: result.errors,
+       timestamp: DateTime.to_iso8601(result.timestamp),
+       interpretation:
+         if result.processed > 0 do
+           "Processed #{result.processed} pending predictions (#{result.success} success, #{result.errors} errors)"
+         else
+           "No pending predictions to process"
+         end
+     }}
+  end
+
+  defp interpret_feedback(stats) do
+    cond do
+      stats.total_predictions == 0 ->
+        "No predictions recorded yet. Run `emergence predict` to generate predictions."
+
+      !stats.accuracy.is_calibrated ->
+        "Need at least 10 completed predictions for calibration. Current: #{stats.accuracy.total}"
+
+      stats.accuracy.calibration_error && stats.accuracy.calibration_error > 0.2 ->
+        "Predictions are under-calibrated (error: #{Float.round(stats.accuracy.calibration_error, 3)}). " <>
+          "Consider adjusting confidence thresholds."
+
+      stats.accuracy.avg_accuracy && stats.accuracy.avg_accuracy >= 0.7 ->
+        "Predictions are well-calibrated (accuracy: #{Float.round(stats.accuracy.avg_accuracy, 2)})"
+
+      true ->
+        "Prediction accuracy is moderate. More data will improve calibration."
+    end
   end
 end

@@ -5,6 +5,99 @@ All notable changes to Mimo-MCP Gateway will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.11.0] - 2026-01-13
+
+### Added
+
+- **Emergence Explanation Layer (Phase 4.3)**
+  - New `Mimo.Brain.Emergence.Explainer` module (~600 lines)
+  - `explain/2` - Human-readable explanation of any pattern
+  - `hypothesize/1` - LLM-powered hypothesis generation for pattern origins
+  - `explain_promotion_readiness/1` - Detailed promotion analysis with recommendations
+  - `explain_batch/2` - Batch explanation with relationship detection
+  - MCP operations: `cognitive operation=emergence_explain`, `emergence_hypothesize`
+  - 35 tests all passing
+
+- **Active Probing System (Phase 4.4)**
+  - New `Mimo.Brain.Emergence.Prober` module (~500 lines)
+  - 8-domain capability taxonomy: code_analysis, code_generation, debugging, research, file_operations, memory_management, reasoning, communication
+  - 4 probe types: validation, boundary, generalization, composition
+  - `probe_pattern/2` - Execute probe on pattern to validate capability
+  - `probe_candidates/1` - Find patterns ready for probing
+  - `classify_pattern_domain/1` - Classify pattern into domain
+  - `capability_summary/0` - Aggregate capability metrics by domain
+  - MCP operations: `emergence_probe`, `emergence_probe_candidates`, `emergence_capability_summary`
+  - 16 tests all passing
+
+- **PDF Reading (Phase 6.1)**
+  - New `Mimo.Skills.Pdf` module (~400 lines) using PyMuPDF
+  - `read/2` - Read local PDF files with page-by-page extraction
+  - `read_url/2` - Read PDFs from URLs
+  - MCP operation: `web operation=read_pdf path="..." url="..."`
+  - Metadata extraction: title, author, pages, page numbers
+
+- **PDF Memory Ingest (Phase 6.2)**
+  - Extended `Mimo.Ingest` to detect and process PDF files
+  - Chunks PDFs by page with page numbers in metadata
+  - Auto-detection via `@pdf_extensions`
+  - MCP: `memory operation=ingest path="document.pdf"`
+
+- **arXiv Research Paper Integration (Phase 6.3)**
+  - New `Mimo.Skills.Arxiv` module (~400 lines)
+  - `search/2` - Search arXiv with query, categories, sort, limit
+  - `get_paper/1` - Get paper metadata from arXiv ID
+  - `get_paper_with_pdf/2` - Get paper with full PDF text extraction
+  - `extract_sections/1` - Parse academic sections (Abstract, Methods, etc.)
+  - MCP operations: `web operation=arxiv_search`, `web operation=arxiv_paper`
+  - 16 tests all passing
+
+- **Section-Aware PDF Chunking (Phase 6.4)**
+  - `Pdf.extract_sections/2` - Extract sections with flexible pattern matching
+  - Patterns: numbered (1., 1.1, 1.1.1), ALL CAPS, title case, academic
+  - Hierarchy detection with parent_index metadata
+  - `Pdf.chunk_by_sections/2` - Section-based chunking for better context
+  - 11 tests all passing
+
+- **Emergence Velocity in Awakening (Phase 4.1 completion)**
+  - Added `build_emergence_velocity/0` to awakening context
+  - Surfaces velocity metrics in LLM context injection
+
+### Fixed
+
+- **Structured Data Extraction** - Fixed JSON-LD/OpenGraph extraction from script tags
+  - Root cause: `Floki.text()` returns empty string for `<script>` tags
+  - Fix: Extract raw content from element children directly
+  - Affected file: [lib/mimo/skills/network.ex](lib/mimo/skills/network.ex)
+
+- **Dispatcher Crash Bugs (5 total)**
+  - `dispatch_fetch` - Crashed with nil URL → Added validation
+  - `dispatch_symbols` - Crashed calling stats() without path → Return error
+  - `dispatch_search` - Crashed with empty query → Added validation
+  - `file write` - Returned atom errors → Added `normalize_error/1`
+  - `file edit` - Returned atom errors → Added `normalize_error/1`
+
+- **Credo Code Quality (30+ fixes)**
+  - Fixed 12 `length/1 > 0` patterns → use `!= []` or pattern matching
+  - Fixed 18+ consistency issues: `map |> join` → `map_join`, `cond` with 2 branches → `if`, `unless` → `if !`
+  - Refactored high-complexity functions in PatternEvolution and AutoMemory
+  - Result: 0 compiler warnings with `--warnings-as-errors`
+
+- **Memory Retrieval Bugs** - Verified all 3 documented bugs in MEMORY_RETRIEVAL_GAPS.md already fixed
+  - Bug 1: Sort order (fixed 2026-01-11)
+  - Bug 2: Time filter (fixed 2026-01-11)
+  - Bug 3: Temporal routing (fixed 2026-01-11)
+
+### Changed
+
+- **Test Coverage** - Added comprehensive dispatcher tests
+  - File dispatcher: 33 tests
+  - Emergence probe dispatcher: 11 tests
+
+### Documentation
+
+- Updated [docs/UNIFIED_ROADMAP.md](docs/UNIFIED_ROADMAP.md) - Overall progress now ~90%
+- Updated [docs/research/MEMORY_RETRIEVAL_GAPS.md](docs/research/MEMORY_RETRIEVAL_GAPS.md) - All bugs marked RESOLVED
+
 ## [2.10.0] - 2026-01-11
 
 ### Fixed

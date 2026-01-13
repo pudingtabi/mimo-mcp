@@ -903,11 +903,17 @@ defmodule Mimo.Brain.Emergence.Metrics do
       pattern.strength >= 0.75
   end
 
-  # Calculate model accuracy from historical data
+  # Calculate model accuracy from historical prediction data
   defp calculate_model_accuracy do
-    # For now, return a baseline estimate
-    # In production, this would query a predictions table
-    # and compare against actual promotions
-    0.70
+    alias Mimo.Brain.Emergence.Prediction
+
+    stats = Prediction.accuracy_stats(days: 90)
+
+    case stats.avg_accuracy do
+      # Default baseline when no data
+      nil -> 0.70
+      accuracy when is_float(accuracy) -> Float.round(accuracy, 3)
+      _ -> 0.70
+    end
   end
 end
