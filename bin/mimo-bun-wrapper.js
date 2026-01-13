@@ -16,9 +16,37 @@
 
 import { spawn } from "child_process";  // Use Node's spawn for reliable stdin.pipe()
 import { spawnSync } from "bun";  // Keep Bun's spawnSync for preflight checks
-import { existsSync, readdirSync, statSync } from "fs";
+import { existsSync, readdirSync, statSync, readFileSync } from "fs";
 import { join, resolve, isAbsolute } from "path";
 import { homedir } from "os";
+
+// --- Load .env file ---
+function loadEnvFile(dir) {
+  const envPath = join(dir, '.env');
+  if (!existsSync(envPath)) return {};
+  
+  try {
+    const content = readFileSync(envPath, 'utf8');
+    const env = {};
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx === -1) continue;
+      const key = trimmed.slice(0, eqIdx);
+      let value = trimmed.slice(eqIdx + 1);
+      // Remove surrounding quotes if present
+      if ((value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      env[key] = value;
+    }
+    return env;
+  } catch (e) {
+    return {};
+  }
+}
 
 // CRITICAL: Force all console output to stderr
 const originalLog = console.log;
@@ -109,12 +137,21 @@ function findElixirPaths() {
 
 const ELIXIR_PATH = findElixirPaths();
 const mixEnv = Bun.env.MIX_ENV || 'dev';
+const dotEnv = loadEnvFile(MIMO_DIR);
+
+// Log .env loading status (only in non-silent mode)
+if (Object.keys(dotEnv).length > 0) {
+  log(`.env loaded with ${Object.keys(dotEnv).length} variables`);
+} else {
+  log('Warning: No .env file found or it was empty');
+}
 
 // --- Environment ---
 
 function buildEnv() {
   return {
     ...Bun.env,
+    ...dotEnv,  // Load .env file variables (API keys, etc.)
     LC_ALL: Bun.env.LC_ALL || 'C.UTF-8',
     LANG: Bun.env.LANG || 'C.UTF-8',
     PATH: `${ELIXIR_PATH}:${Bun.env.PATH}`,
@@ -127,7 +164,7 @@ function buildEnv() {
     MIMO_DISABLE_HTTP: 'true',
     LOGGER_LEVEL: 'none',
     // Set MIMO_ROOT to allow file/terminal operations on the project directory
-    MIMO_ROOT: Bun.env.MIMO_ROOT || MIMO_DIR,
+    MIMO_ROOT: Bun.env.MIMO_ROOT || dotEnv.MIMO_ROOT || MIMO_DIR,
     // Allow additional paths (user home, /tmp, etc.) for broader file access
     MIMO_ALLOWED_PATHS: Bun.env.MIMO_ALLOWED_PATHS || '/root:/tmp:/home',
   };
