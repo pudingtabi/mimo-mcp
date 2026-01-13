@@ -39,7 +39,7 @@ defmodule Mimo.Brain.DbMaintenanceTest do
       assert is_boolean(stats.vacuum_recommended)
 
       # SQLite page size is typically 4096 (default) or 1024, 2048, 8192, etc.
-      assert stats.page_size in [1024, 2048, 4096, 8192, 16384, 32768, 65536]
+      assert stats.page_size in [1024, 2048, 4096, 8192, 16_384, 32_768, 65_536]
     end
 
     @tag :db_maintenance
