@@ -889,6 +889,87 @@ defmodule Mimo.Brain.Memory do
   end
 
   @doc """
+  Get memories within a specific date range.
+
+  This is the PRIMARY method for time-filtered searches. Instead of post-filtering
+  semantic search results, this queries the database directly for memories
+  in the specified time window.
+
+  ## Options
+
+    * `:limit` - Maximum results (default: 100)
+    * `:category` - Filter by category
+    * `:order` - :desc (newest first, default) or :asc (oldest first)
+
+  ## Examples
+
+      # Get all memories from yesterday
+      {:ok, memories} = Memory.get_memories_in_range(from_dt, to_dt, limit: 50)
+
+  """
+  @spec get_memories_in_range(
+          DateTime.t() | NaiveDateTime.t(),
+          DateTime.t() | NaiveDateTime.t(),
+          keyword()
+        ) ::
+          {:ok, list()} | {:error, term()}
+  def get_memories_in_range(from_date, to_date, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 100)
+    category = Keyword.get(opts, :category)
+    order = Keyword.get(opts, :order, :desc)
+
+    # Convert to NaiveDateTime for comparison
+    from_naive = to_naive_dt(from_date)
+    to_naive = to_naive_dt(to_date)
+
+    base_query =
+      from(e in Engram,
+        where: e.inserted_at >= ^from_naive and e.inserted_at <= ^to_naive,
+        limit: ^limit,
+        select: %{
+          id: e.id,
+          content: e.content,
+          category: e.category,
+          importance: e.importance,
+          access_count: e.access_count,
+          last_accessed_at: e.last_accessed_at,
+          decay_rate: e.decay_rate,
+          protected: e.protected,
+          metadata: e.metadata,
+          inserted_at: e.inserted_at,
+          source: :date_range
+        }
+      )
+
+    query =
+      if category do
+        from(e in base_query, where: e.category == ^category)
+      else
+        base_query
+      end
+
+    query =
+      case order do
+        :asc -> from(e in query, order_by: [asc: e.inserted_at])
+        _ -> from(e in query, order_by: [desc: e.inserted_at])
+      end
+
+    {:ok, Repo.all(query)}
+  rescue
+    e in DBConnection.OwnershipError ->
+      Logger.debug("Get memories in range skipped (sandbox mode): #{Exception.message(e)}")
+      {:ok, []}
+
+    e ->
+      Logger.error("Get memories in range failed: #{Exception.message(e)}")
+      {:error, e}
+  end
+
+  # Helper to convert DateTime/NaiveDateTime to NaiveDateTime
+  defp to_naive_dt(%DateTime{} = dt), do: DateTime.to_naive(dt)
+  defp to_naive_dt(%NaiveDateTime{} = dt), do: dt
+
+  @doc """
   Alias for get_recent/1 - returns recent engrams for Awakening integration.
   """
   @spec recent_engrams(non_neg_integer()) :: {:ok, list()} | {:error, term()}

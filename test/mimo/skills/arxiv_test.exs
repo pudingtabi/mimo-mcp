@@ -13,7 +13,7 @@ defmodule Mimo.Skills.ArxivTest do
       assert is_list(papers)
       assert length(papers) <= 3
 
-      if length(papers) > 0 do
+      if Enum.any?(papers) do
         paper = List.first(papers)
         assert is_binary(paper.id)
         assert is_binary(paper.title)
@@ -29,7 +29,7 @@ defmodule Mimo.Skills.ArxivTest do
 
       assert is_list(papers)
 
-      if length(papers) > 0 do
+      if Enum.any?(papers) do
         # All papers should have at least one of the requested categories
         for paper <- papers do
           assert Enum.any?(paper.categories, &(&1 in ["cs.AI", "cs.LG", "cs.CL", "cs.NE"]))
@@ -51,7 +51,7 @@ defmodule Mimo.Skills.ArxivTest do
       assert paper.id =~ "1706.03762"
       assert paper.title =~ "Attention"
       assert is_list(paper.authors)
-      assert length(paper.authors) > 0
+      assert Enum.any?(paper.authors)
     end
 
     test "returns error for non-existent paper" do

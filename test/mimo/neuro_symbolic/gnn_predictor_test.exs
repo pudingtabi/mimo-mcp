@@ -107,7 +107,7 @@ defmodule Mimo.NeuroSymbolic.GnnPredictorTest do
         clusters = GnnPredictor.cluster_similar(nil, :memory)
 
         assert is_list(clusters)
-        assert length(clusters) > 0
+        assert Enum.any?(clusters)
 
         # Verify cluster structure
         first_cluster = hd(clusters)
@@ -180,7 +180,7 @@ defmodule Mimo.NeuroSymbolic.GnnPredictorTest do
 
         assert is_list(predictions)
 
-        if length(predictions) > 0 do
+        if Enum.any?(predictions) do
           first = hd(predictions)
 
           # Verify structure
@@ -245,7 +245,7 @@ defmodule Mimo.NeuroSymbolic.GnnPredictorTest do
         # Get clusters
         clusters = GnnPredictor.cluster_similar(nil, :memory)
 
-        if length(clusters) > 0 do
+        if Enum.any?(clusters) do
           # Members in same cluster should have higher avg_similarity
           # than the minimum threshold (0.5)
           cluster_with_members =

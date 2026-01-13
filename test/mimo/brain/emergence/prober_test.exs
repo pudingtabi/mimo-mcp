@@ -25,7 +25,7 @@ defmodule Mimo.Brain.Emergence.ProberTest do
         assert is_binary(config[:description])
         assert is_list(config[:tools])
         assert is_list(config[:keywords])
-        assert length(config[:keywords]) > 0
+        assert Enum.any?(config[:keywords])
       end
     end
   end

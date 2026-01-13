@@ -260,7 +260,7 @@ defmodule Mimo.Skills.Pdf.SectionExtractionTest do
       {:ok, result} = Pdf.extract_sections(text, detect_hierarchy: false)
 
       # Should not have parent_index key
-      assert length(result.sections) > 0
+      assert Enum.any?(result.sections)
       refute Map.has_key?(hd(result.sections), :parent_index)
     end
   end
@@ -270,7 +270,7 @@ defmodule Mimo.Skills.Pdf.SectionExtractionTest do
       patterns = Pdf.default_section_patterns()
 
       assert is_list(patterns)
-      assert length(patterns) > 0
+      assert Enum.any?(patterns)
 
       Enum.each(patterns, fn {type, pattern} ->
         assert is_atom(type)

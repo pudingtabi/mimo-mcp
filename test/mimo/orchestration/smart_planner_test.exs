@@ -111,7 +111,7 @@ defmodule Mimo.Orchestration.SmartPlannerTest do
 
       # Should still produce a plan
       assert is_list(plan.tools)
-      assert length(plan.tools) > 0
+      assert Enum.any?(plan.tools)
     end
   end
 

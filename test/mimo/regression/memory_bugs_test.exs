@@ -228,7 +228,7 @@ defmodule Mimo.Regression.MemoryBugsTest do
       # Should have at least one result from today
       result_ids = get_in(result, [:data, :results]) |> Kernel.||([]) |> Enum.map(& &1[:id])
 
-      assert today_mem.id in result_ids or length(result_ids) == 0 or
+      assert today_mem.id in result_ids or Enum.empty?(result_ids) or
                not is_nil(result.data[:query_id]),
              "If today's memory matches, it should be in results (not filtered out by HNSW limiting)"
     end

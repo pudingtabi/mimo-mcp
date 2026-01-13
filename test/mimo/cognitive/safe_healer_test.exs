@@ -13,7 +13,7 @@ defmodule Mimo.Cognitive.SafeHealerTest do
       catalog = SafeHealer.catalog()
 
       assert is_list(catalog)
-      assert length(catalog) > 0
+      assert Enum.any?(catalog)
     end
 
     test "each action has required fields" do

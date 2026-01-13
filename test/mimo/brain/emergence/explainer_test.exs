@@ -218,7 +218,7 @@ defmodule Mimo.Brain.Emergence.ExplainerTest do
       assert result.ready_for_promotion == false
       refute Enum.all?(result.criteria, & &1.met)
       assert is_list(result.next_steps)
-      assert length(result.next_steps) > 0
+      assert Enum.any?(result.next_steps)
     end
 
     test "calculates gap for unmet criteria" do
@@ -252,7 +252,7 @@ defmodule Mimo.Brain.Emergence.ExplainerTest do
       {:ok, hypotheses} = Explainer.hypothesize(pattern)
 
       assert is_list(hypotheses)
-      assert length(hypotheses) >= 1
+      assert Enum.any?(hypotheses)
       assert Enum.all?(hypotheses, &is_map/1)
     end
 

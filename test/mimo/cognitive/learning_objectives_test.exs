@@ -79,7 +79,7 @@ defmodule Mimo.Cognitive.LearningObjectivesTest do
       # Generate objectives first
       objectives = LearningObjectives.generate()
 
-      if length(objectives) > 0 do
+      if Enum.any?(objectives) do
         obj = hd(objectives)
         result = LearningObjectives.mark_addressed(obj.id)
 

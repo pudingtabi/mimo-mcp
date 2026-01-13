@@ -38,7 +38,7 @@ defmodule Mimo.Integration.MetacognitiveReasoningTest do
 
       # Should have strategy + step evaluation
       assert explanation.total_decisions >= 2
-      assert length(explanation.step_evaluations) >= 1
+      assert Enum.any?(explanation.step_evaluations)
     end
 
     test "backtrack decisions are recorded for ToT sessions" do
@@ -64,7 +64,7 @@ defmodule Mimo.Integration.MetacognitiveReasoningTest do
 
       # If we actually backtracked (not all branches explored)
       if not Map.get(backtrack_result, :all_explored, false) do
-        assert length(explanation.backtracks) >= 1
+        assert Enum.any?(explanation.backtracks)
         backtrack = hd(explanation.backtracks)
         assert backtrack.reason == "Branch marked as dead-end"
       end

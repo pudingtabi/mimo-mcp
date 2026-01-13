@@ -232,8 +232,8 @@ defmodule Mimo.Tools.Dispatchers.FileTest do
       data = extract_data(result)
       # ls returns either {:ok, list} or {:ok, %{entries: list}}
       case data do
-        entries when is_list(entries) -> assert length(entries) >= 1
-        %{entries: entries} -> assert is_list(entries) and length(entries) >= 1
+        entries when is_list(entries) -> assert Enum.any?(entries)
+        %{entries: entries} -> assert is_list(entries) and Enum.any?(entries)
       end
     end
 

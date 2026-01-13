@@ -299,7 +299,7 @@ defmodule Mimo.ToolInterfaceTest do
         })
 
       # Should get remaining memories
-      assert length(page3.data.memories) >= 1
+      assert Enum.any?(page3.data.memories)
     end
 
     @tag :cursor_pagination

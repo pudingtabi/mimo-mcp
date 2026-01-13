@@ -155,7 +155,7 @@ defmodule Mimo.Brain.Emergence.PatternToolSequenceTest do
 
       assert is_list(suggestions)
 
-      if length(suggestions) > 0 do
+      if Enum.any?(suggestions) do
         first = hd(suggestions)
         assert Map.has_key?(first, :suggested_tool)
         assert Map.has_key?(first, :success_rate)
@@ -170,7 +170,7 @@ defmodule Mimo.Brain.Emergence.PatternToolSequenceTest do
       # If user used memory → code, should suggest file
       suggestions = Pattern.suggest_next_tool_from_patterns(["memory", "code"])
 
-      if length(suggestions) > 0 do
+      if Enum.any?(suggestions) do
         first = hd(suggestions)
         assert first.suggested_tool == "file"
       end
@@ -230,7 +230,7 @@ defmodule Mimo.Brain.Emergence.PatternToolSequenceTest do
 
       # ["a"] is prefix of ["a", "b", "c"]
       suggestions = Pattern.suggest_next_tool_from_patterns(["a"])
-      assert length(suggestions) >= 1
+      assert Enum.any?(suggestions)
       assert hd(suggestions).suggested_tool == "b"
     end
 
@@ -250,7 +250,7 @@ defmodule Mimo.Brain.Emergence.PatternToolSequenceTest do
 
       # ["x", "y"] is prefix of ["x", "y", "z"]
       suggestions = Pattern.suggest_next_tool_from_patterns(["x", "y"])
-      assert length(suggestions) >= 1
+      assert Enum.any?(suggestions)
       assert hd(suggestions).suggested_tool == "z"
     end
 

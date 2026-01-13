@@ -168,7 +168,7 @@ defmodule Mimo.Cognitive.MetacognitiveMonitorTest do
       Process.sleep(50)
 
       {:ok, trace} = MetacognitiveMonitor.get_trace(session_id)
-      assert length(trace) >= 1
+      assert Enum.any?(trace)
       assert hd(trace).decision_type == :strategy_selection
     end
 

@@ -228,8 +228,18 @@ defmodule Mimo.Brain.HybridRetriever do
 
   defp recency_search(opts) do
     limit = Keyword.get(opts, :recency_limit, @default_graph_limit)
+    from_date = Keyword.get(opts, :from_date)
+    to_date = Keyword.get(opts, :to_date)
 
-    case Memory.get_recent(limit: limit) do
+    # If time bounds are provided, use date-range query instead of recency
+    result =
+      if from_date && to_date do
+        Memory.get_memories_in_range(from_date, to_date, limit: limit)
+      else
+        Memory.get_recent(limit: limit)
+      end
+
+    case result do
       {:ok, results} -> results
       _ -> []
     end

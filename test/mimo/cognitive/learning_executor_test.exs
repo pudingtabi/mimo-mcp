@@ -88,7 +88,7 @@ defmodule Mimo.Cognitive.LearningExecutorTest do
       LearningExecutor.execute_now()
       history = LearningExecutor.history()
 
-      if length(history) > 0 do
+      if Enum.any?(history) do
         entry = hd(history)
         assert Map.has_key?(entry, :timestamp)
         assert Map.has_key?(entry, :objectives_addressed)
