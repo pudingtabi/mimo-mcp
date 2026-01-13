@@ -1123,7 +1123,13 @@ defmodule Mimo.Brain.Memory do
           {:cont, {:ok, acc_embeddings ++ embeddings}}
 
         {:error, reason} ->
-          {:halt, {:error, reason}}
+          # SPEC-RESILIENCE: Graceful degradation - generate empty embeddings for batch
+          Logger.warning(
+            "Batch embedding failed: #{inspect(reason)} - using empty embeddings for #{length(batch)} items"
+          )
+
+          empty_embeddings = List.duplicate([], length(batch))
+          {:cont, {:ok, acc_embeddings ++ empty_embeddings}}
       end
     end)
   end
@@ -1991,13 +1997,13 @@ defmodule Mimo.Brain.Memory do
           {:ok, embedding}
 
         {:error, reason} ->
-          # CRITICAL: Do NOT fall back to garbage embeddings
-          # Better to fail storage than corrupt the memory store with unsearchable embeddings
-          Logger.error(
-            "Embedding generation failed: #{inspect(reason)} - memory will NOT be stored"
+          # SPEC-RESILIENCE: Graceful degradation when embedding service unavailable
+          # Store memory with empty embedding - can be re-embedded later
+          Logger.warning(
+            "Embedding generation failed: #{inspect(reason)} - storing without embedding"
           )
 
-          {:error, {:embedding_failed, reason}}
+          {:ok, []}
       end
     end)
   end
