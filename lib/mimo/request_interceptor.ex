@@ -276,7 +276,7 @@ defmodule Mimo.RequestInterceptor do
   defp search_memories(query) do
     # Try to search memories if the Brain module is available
     if Code.ensure_loaded?(Mimo.Brain) and function_exported?(Mimo.Brain, :search, 2) do
-      # credo:disable-for-next-line Credo.Check.Warning.UnsafeToAtom
+      # credo:disable-for-lines:2 Credo.Check.Refactor.Apply
       # Intentionally using apply/3 to avoid compile-time dependency on Mimo.Brain
       case apply(Mimo.Brain, :search, [query, [limit: 3]]) do
         {:ok, results} -> {:ok, results}
