@@ -431,18 +431,22 @@ defmodule Mimo.Synapse.EdgePredictor do
             select: t.name
           )
         )
-        |> Enum.flat_map(fn name ->
-          case String.split(name, ":") do
-            ["memory", id_str] ->
-              case Integer.parse(id_str) do
-                {id, ""} -> [id]
-                _ -> []
-              end
+        |> Enum.flat_map(&extract_memory_id_from_node_name/1)
+    end
+  end
 
-            _ ->
-              []
-          end
-        end)
+  # Extract memory ID from node name like "memory:123"
+  defp extract_memory_id_from_node_name(name) do
+    case String.split(name, ":") do
+      ["memory", id_str] -> parse_memory_id(id_str)
+      _ -> []
+    end
+  end
+
+  defp parse_memory_id(id_str) do
+    case Integer.parse(id_str) do
+      {id, ""} -> [id]
+      _ -> []
     end
   end
 

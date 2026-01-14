@@ -772,27 +772,30 @@ defmodule Mimo.Brain.Emergence.Metrics do
     if strength_gap <= 0 do
       0.0
     else
-      # Estimate strength growth rate from evolution
-      case pattern.evolution do
-        entries when length(entries) >= 2 ->
-          recent = Enum.take(entries, -5)
-          strengths = Enum.map(recent, &(&1["strength"] || &1[:strength] || 0))
-
-          if length(strengths) >= 2 do
-            first_s = List.first(strengths)
-            last_s = List.last(strengths)
-            growth = (last_s - first_s) / length(recent)
-
-            if growth > 0, do: strength_gap / growth, else: :infinity
-          else
-            :infinity
-          end
-
-        _ ->
-          :infinity
-      end
+      calculate_strength_growth_eta(pattern.evolution, strength_gap)
     end
   end
+
+  # Calculate ETA based on strength growth rate from evolution history
+  defp calculate_strength_growth_eta(evolution, strength_gap) when length(evolution) >= 2 do
+    recent = Enum.take(evolution, -5)
+    strengths = Enum.map(recent, &(&1["strength"] || &1[:strength] || 0))
+
+    calculate_eta_from_strengths(strengths, strength_gap, length(recent))
+  end
+
+  defp calculate_strength_growth_eta(_evolution, _strength_gap), do: :infinity
+
+  defp calculate_eta_from_strengths(strengths, strength_gap, sample_size)
+       when length(strengths) >= 2 do
+    first_s = List.first(strengths)
+    last_s = List.last(strengths)
+    growth = (last_s - first_s) / sample_size
+
+    if growth > 0, do: strength_gap / growth, else: :infinity
+  end
+
+  defp calculate_eta_from_strengths(_strengths, _strength_gap, _sample_size), do: :infinity
 
   # Estimate days to reach success rate threshold
   defp estimate_success_eta(_pattern, success_gap) do

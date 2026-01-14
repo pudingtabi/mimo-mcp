@@ -942,46 +942,46 @@ defmodule Mimo.Tools.Dispatchers.Cognitive do
     perspective = args["perspective"] || ""
     insights = args["insights"] || []
 
-    # Parse perspective name
-    perspective_name =
-      cond do
-        is_atom(perspective) -> perspective
-        is_binary(perspective) and perspective != "" -> String.to_atom(perspective)
-        true -> nil
-      end
+    perspective_name = parse_perspective_name(perspective)
+    parsed_insights = parse_insights(insights)
 
-    # Parse insights (accept string or list)
-    parsed_insights =
-      cond do
-        is_list(insights) -> insights
-        is_binary(insights) and insights != "" -> [insights]
-        true -> []
-      end
+    with :ok <- validate_perspective_args(session_id, perspective_name, parsed_insights) do
+      {:ok, result} = Amplifier.record_perspective(session_id, perspective_name, parsed_insights)
 
-    cond do
-      session_id == "" ->
-        {:error, "session_id is required for amplify_perspective operation"}
-
-      perspective_name == nil ->
-        {:error,
-         "perspective is required (e.g., 'user', 'security', 'performance', 'critical', etc.)"}
-
-      parsed_insights == [] ->
-        {:error, "insights (list of strings) is required for amplify_perspective operation"}
-
-      true ->
-        {:ok, result} = Amplifier.record_perspective(session_id, perspective_name, parsed_insights)
-
-        {:ok,
-         %{
-           type: "amplify_perspective_recorded",
-           session_id: session_id,
-           perspective: perspective_name,
-           insights_recorded: result[:insights_recorded] || length(parsed_insights),
-           hint: "Perspective recorded. Use amplify_status to check remaining perspectives."
-         }}
+      {:ok,
+       %{
+         type: "amplify_perspective_recorded",
+         session_id: session_id,
+         perspective: perspective_name,
+         insights_recorded: result[:insights_recorded] || length(parsed_insights),
+         hint: "Perspective recorded. Use amplify_status to check remaining perspectives."
+       }}
     end
   end
+
+  defp parse_perspective_name(perspective) when is_atom(perspective), do: perspective
+
+  defp parse_perspective_name(perspective) when is_binary(perspective) and perspective != "",
+    do: String.to_atom(perspective)
+
+  defp parse_perspective_name(_), do: nil
+
+  defp parse_insights(insights) when is_list(insights), do: insights
+  defp parse_insights(insights) when is_binary(insights) and insights != "", do: [insights]
+  defp parse_insights(_), do: []
+
+  defp validate_perspective_args("", _, _),
+    do: {:error, "session_id is required for amplify_perspective operation"}
+
+  defp validate_perspective_args(_, nil, _),
+    do:
+      {:error,
+       "perspective is required (e.g., 'user', 'security', 'performance', 'critical', etc.)"}
+
+  defp validate_perspective_args(_, _, []),
+    do: {:error, "insights (list of strings) is required for amplify_perspective operation"}
+
+  defp validate_perspective_args(_, _, _), do: :ok
 
   # Conclude amplified reasoning with forced synthesis.
   defp dispatch_amplify_conclude(args) do

@@ -36,6 +36,12 @@ defmodule Mimo.Retry do
   @default_max_delay 30_000
   @default_jitter_max 500
 
+  # Context struct to reduce function arity
+  defmodule Context do
+    @moduledoc false
+    defstruct [:func, :max_attempts, :base_delay, :max_delay, :jitter_max, :retryable_fn]
+  end
+
   @doc """
   Execute a function with exponential backoff retry on failure.
 
@@ -54,102 +60,39 @@ defmodule Mimo.Retry do
   """
   @spec with_backoff(fun(), keyword()) :: {:ok, term()} | {:error, term()}
   def with_backoff(func, opts \\ []) do
-    max_attempts = get_opt(opts, :max_attempts, @default_max_attempts)
-    base_delay = get_opt(opts, :base_delay, @default_base_delay)
-    max_delay = get_opt(opts, :max_delay, @default_max_delay)
-    jitter_max = get_opt(opts, :jitter_max, @default_jitter_max)
-    retryable_fn = Keyword.get(opts, :retryable, &default_retryable?/1)
+    ctx = %Context{
+      func: func,
+      max_attempts: get_opt(opts, :max_attempts, @default_max_attempts),
+      base_delay: get_opt(opts, :base_delay, @default_base_delay),
+      max_delay: get_opt(opts, :max_delay, @default_max_delay),
+      jitter_max: get_opt(opts, :jitter_max, @default_jitter_max),
+      retryable_fn: Keyword.get(opts, :retryable, &default_retryable?/1)
+    }
 
-    do_with_backoff(func, 1, max_attempts, base_delay, max_delay, jitter_max, retryable_fn, nil)
+    do_with_backoff(ctx, 1, nil)
   end
 
-  defp do_with_backoff(
-         func,
-         attempt,
-         max_attempts,
-         base_delay,
-         max_delay,
-         jitter_max,
-         retryable_fn,
-         _last_error
-       ) do
+  defp do_with_backoff(%Context{func: func} = ctx, attempt, _last_error) do
     result = func.()
-
-    handle_result(
-      result,
-      func,
-      attempt,
-      max_attempts,
-      base_delay,
-      max_delay,
-      jitter_max,
-      retryable_fn
-    )
+    handle_result(result, ctx, attempt)
   end
 
-  defp handle_result(
-         {:ok, _} = success,
-         _func,
-         attempt,
-         _max_attempts,
-         _base_delay,
-         _max_delay,
-         _jitter_max,
-         _retryable_fn
-       ) do
+  defp handle_result({:ok, _} = success, _ctx, attempt) do
     if attempt > 1, do: Logger.info("[Retry] Succeeded on attempt #{attempt}")
     success
   end
 
-  defp handle_result(
-         {:error, reason} = error,
-         func,
-         attempt,
-         max_attempts,
-         base_delay,
-         max_delay,
-         jitter_max,
-         retryable_fn
-       ) do
-    handle_error(
-      error,
-      reason,
-      func,
-      attempt,
-      max_attempts,
-      base_delay,
-      max_delay,
-      jitter_max,
-      retryable_fn
-    )
+  defp handle_result({:error, reason} = error, ctx, attempt) do
+    handle_error(error, reason, ctx, attempt)
   end
 
-  defp handle_result(
-         other,
-         _func,
-         _attempt,
-         _max_attempts,
-         _base_delay,
-         _max_delay,
-         _jitter_max,
-         _retryable_fn
-       ) do
+  defp handle_result(other, _ctx, _attempt) do
     # Non-standard return, treat as success
     other
   end
 
   # All attempts exhausted
-  defp handle_error(
-         error,
-         reason,
-         _func,
-         attempt,
-         max_attempts,
-         _base_delay,
-         _max_delay,
-         _jitter_max,
-         _retryable_fn
-       )
+  defp handle_error(error, reason, %Context{max_attempts: max_attempts}, attempt)
        when attempt >= max_attempts do
     Logger.warning(
       "[Retry] All #{max_attempts} attempts exhausted, final error: #{inspect(reason)}"
@@ -159,64 +102,24 @@ defmodule Mimo.Retry do
   end
 
   # More attempts available
-  defp handle_error(
-         error,
-         reason,
-         func,
-         attempt,
-         max_attempts,
-         base_delay,
-         max_delay,
-         jitter_max,
-         retryable_fn
-       ) do
-    if retryable_fn.(error) do
-      retry_with_delay(
-        func,
-        attempt,
-        max_attempts,
-        base_delay,
-        max_delay,
-        jitter_max,
-        retryable_fn,
-        error,
-        reason
-      )
+  defp handle_error(error, reason, ctx, attempt) do
+    if ctx.retryable_fn.(error) do
+      retry_with_delay(ctx, attempt, error, reason)
     else
       Logger.warning("[Retry] Error not retryable: #{inspect(reason)}")
       error
     end
   end
 
-  defp retry_with_delay(
-         func,
-         attempt,
-         max_attempts,
-         base_delay,
-         max_delay,
-         jitter_max,
-         retryable_fn,
-         error,
-         reason
-       ) do
-    delay = calculate_delay(attempt, base_delay, max_delay, jitter_max)
+  defp retry_with_delay(ctx, attempt, error, reason) do
+    delay = calculate_delay(attempt, ctx.base_delay, ctx.max_delay, ctx.jitter_max)
 
     Logger.warning(
-      "[Retry] Attempt #{attempt}/#{max_attempts} failed (#{inspect(reason)}), retrying in #{delay}ms"
+      "[Retry] Attempt #{attempt}/#{ctx.max_attempts} failed (#{inspect(reason)}), retrying in #{delay}ms"
     )
 
     Process.sleep(delay)
-
-    do_with_backoff(
-      func,
-      attempt + 1,
-      max_attempts,
-      base_delay,
-      max_delay,
-      jitter_max,
-      retryable_fn,
-      error
-    )
+    do_with_backoff(ctx, attempt + 1, error)
   end
 
   @doc """

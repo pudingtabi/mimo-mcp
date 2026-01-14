@@ -157,19 +157,23 @@ defmodule Mimo.Cognitive.Strategies.TreeOfThoughts do
 
         :best_first ->
           # Select by evaluation, then by thought count (prefer more progress)
-          Enum.sort_by(unexplored, fn b ->
-            priority =
-              case b.evaluation do
-                :promising -> 0
-                :uncertain -> 1
-                _ -> 2
-              end
-
-            {priority, -length(b.thoughts)}
-          end)
+          unexplored
+          |> Enum.sort_by(&branch_priority/1)
           |> List.first()
       end
     end
+  end
+
+  # Calculate priority tuple for branch selection (lower = better)
+  defp branch_priority(branch) do
+    evaluation_score =
+      case branch.evaluation do
+        :promising -> 0
+        :uncertain -> 1
+        _ -> 2
+      end
+
+    {evaluation_score, -length(branch.thoughts)}
   end
 
   @doc """

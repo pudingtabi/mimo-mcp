@@ -100,22 +100,28 @@ defmodule Mix.Tasks.Mimo.RepairEmbeddings do
       if dry_run do
         preview_orphaned(orphaned_query)
       else
-        if not force do
-          Mix.shell().info("⚠️  This will generate embeddings for #{total} memories.")
-          Mix.shell().info("   Make sure Ollama is running with qwen3-embedding model.")
-
-          case IO.gets("Continue? [y/N] ") do
-            input when input in ["y\n", "Y\n"] ->
-              :ok
-
-            _ ->
-              Mix.shell().info("Aborted.")
-              System.halt(0)
-          end
-        end
-
-        repair_all(orphaned_query, batch_size, dim, quantize, total)
+        run_repair_with_confirmation(orphaned_query, batch_size, dim, quantize, total, force)
       end
+    end
+  end
+
+  # Run repair with optional confirmation prompt
+  defp run_repair_with_confirmation(orphaned_query, batch_size, dim, quantize, total, force) do
+    if force or confirm_repair(total) do
+      repair_all(orphaned_query, batch_size, dim, quantize, total)
+    else
+      Mix.shell().info("Aborted.")
+      System.halt(0)
+    end
+  end
+
+  defp confirm_repair(total) do
+    Mix.shell().info("⚠️  This will generate embeddings for #{total} memories.")
+    Mix.shell().info("   Make sure Ollama is running with qwen3-embedding model.")
+
+    case IO.gets("Continue? [y/N] ") do
+      input when input in ["y\n", "Y\n"] -> true
+      _ -> false
     end
   end
 

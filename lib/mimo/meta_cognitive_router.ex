@@ -551,18 +551,8 @@ defmodule Mimo.MetaCognitiveRouter do
         Logger.info("[MetaCognitiveRouter] Computing prototype embeddings...")
 
         results =
-          Enum.map(@prototype_queries, fn {category, queries} ->
-            embeddings =
-              Enum.map(queries, fn q ->
-                case LLM.get_embedding(q) do
-                  {:ok, emb} -> emb
-                  {:error, _} -> nil
-                end
-              end)
-              |> Enum.reject(&is_nil/1)
-
-            {category, embeddings}
-          end)
+          @prototype_queries
+          |> Enum.map(&compute_category_embeddings/1)
           |> Map.new()
 
         # Verify we got embeddings for all categories
@@ -575,6 +565,24 @@ defmodule Mimo.MetaCognitiveRouter do
     end
   rescue
     e -> {:error, Exception.message(e)}
+  end
+
+  # Compute embeddings for a single category
+  defp compute_category_embeddings({category, queries}) do
+    embeddings =
+      queries
+      |> Enum.map(&get_embedding_safe/1)
+      |> Enum.reject(&is_nil/1)
+
+    {category, embeddings}
+  end
+
+  # Get embedding with error handling, returns nil on failure
+  defp get_embedding_safe(query) do
+    case LLM.get_embedding(query) do
+      {:ok, emb} -> emb
+      {:error, _} -> nil
+    end
   end
 
   # Cache prototype embeddings in ETS

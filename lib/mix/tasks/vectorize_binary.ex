@@ -170,33 +170,28 @@ defmodule Mix.Tasks.Mimo.VectorizeBinary do
   defp process_batch(engrams, verbose) do
     results =
       Enum.map(engrams, fn %{id: id, embedding_int8: int8} ->
-        case convert_to_binary(int8) do
-          {:ok, binary} ->
-            case update_engram(id, binary) do
-              {:ok, _} ->
-                :ok
-
-              {:error, reason} ->
-                if verbose do
-                  IO.puts("\n  Error updating engram #{id}: #{inspect(reason)}")
-                end
-
-                :error
-            end
-
-          {:error, reason} ->
-            if verbose do
-              IO.puts("\n  Error converting engram #{id}: #{inspect(reason)}")
-            end
-
-            :error
-        end
+        convert_and_update_engram(id, int8, verbose)
       end)
 
     processed = Enum.count(results, &(&1 == :ok))
     errors = Enum.count(results, &(&1 == :error))
 
     {processed, errors}
+  end
+
+  # Convert int8 embedding to binary and update the engram
+  defp convert_and_update_engram(id, int8, verbose) do
+    with {:ok, binary} <- convert_to_binary(int8),
+         {:ok, _} <- update_engram(id, binary) do
+      :ok
+    else
+      {:error, reason} ->
+        if verbose do
+          IO.puts("\n  Error processing engram #{id}: #{inspect(reason)}")
+        end
+
+        :error
+    end
   end
 
   defp convert_to_binary(int8) when is_binary(int8) do

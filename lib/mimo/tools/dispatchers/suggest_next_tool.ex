@@ -278,16 +278,33 @@ defmodule Mimo.Tools.Dispatchers.SuggestNextTool do
 
   # Suggest tool based on task content and phase
   defp suggest_for_task(task_lower, recent_tools, phase) do
+    # Try each suggestion rule in priority order
+    suggest_by_phase_start(phase, recent_tools) ||
+      suggest_by_task_content(task_lower, recent_tools) ||
+      suggest_by_phase_action(phase) ||
+      {"memory", "When in doubt, search memory first", ["ask_mimo", "prepare_context"]}
+  end
+
+  # Phase-based early suggestions (context phase)
+  defp suggest_by_phase_start(:context, recent_tools) do
     cond do
-      # Phase-based defaults
-      phase == :context and "memory" not in recent_tools ->
+      "memory" not in recent_tools ->
         {"memory", "Start with memory search to check existing context",
          ["ask_mimo", "prepare_context"]}
 
-      phase == :context and "askmimo" not in recent_tools ->
+      "askmimo" not in recent_tools ->
         {"ask_mimo", "Consult Mimo for strategic guidance on this task", ["memory", "knowledge"]}
 
-      # Task-specific suggestions
+      true ->
+        nil
+    end
+  end
+
+  defp suggest_by_phase_start(_, _), do: nil
+
+  # Task content-based suggestions
+  defp suggest_by_task_content(task_lower, recent_tools) do
+    cond do
       contains_any?(task_lower, @package_keywords) and "library" not in recent_tools ->
         {"library", "Library provides instant cached package documentation", ["search"]}
 
@@ -307,18 +324,19 @@ defmodule Mimo.Tools.Dispatchers.SuggestNextTool do
         {"knowledge", "Query the knowledge graph for relationships and dependencies",
          ["code_symbols"]}
 
-      # Phase-based action suggestions
-      phase == :action ->
-        {"file", "Context gathered, ready for file operations", ["terminal", "multi_replace"]}
-
-      phase == :learning ->
-        {"memory", "Store your discoveries in memory", ["knowledge teach"]}
-
-      # Default to context if nothing else matches
       true ->
-        {"memory", "When in doubt, search memory first", ["ask_mimo", "prepare_context"]}
+        nil
     end
   end
+
+  # Phase-based action/learning suggestions
+  defp suggest_by_phase_action(:action),
+    do: {"file", "Context gathered, ready for file operations", ["terminal", "multi_replace"]}
+
+  defp suggest_by_phase_action(:learning),
+    do: {"memory", "Store your discoveries in memory", ["knowledge teach"]}
+
+  defp suggest_by_phase_action(_), do: nil
 
   # Get guidance text for current phase
   defp get_phase_guidance(:context) do

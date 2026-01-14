@@ -50,82 +50,83 @@ defmodule Mimo.NeuroSymbolic.RuleGenerator do
   Returns: {:ok, %{candidates: [...], persisted: [...], others: [...]}}
   """
   def validate_and_persist(candidates, opts \\ []) when is_list(candidates) do
-    persist_validated = Keyword.get(opts, :persist_validated, false)
-    persist_rejected = Keyword.get(opts, :persist_rejected, false)
+    persist_opts = %{
+      validated: Keyword.get(opts, :persist_validated, false),
+      rejected: Keyword.get(opts, :persist_rejected, false)
+    }
 
     {persisted, others} =
-      Enum.reduce(candidates, {[], []}, fn candidate, {acc_persisted, acc_other} ->
-        case RuleValidator.validate_rule(candidate) do
-          {:ok, %{validated: true} = v} ->
-            if persist_validated do
-              attrs =
-                Map.merge(candidate, %{
-                  premise:
-                    Jason.encode!(Map.get(candidate, :premise) || Map.get(candidate, "premise")),
-                  conclusion:
-                    Jason.encode!(
-                      Map.get(candidate, :conclusion) || Map.get(candidate, "conclusion")
-                    ),
-                  validation_status: "validated",
-                  validation_evidence: v.evidence,
-                  confidence: v.precision
-                })
-
-              changeset = Rule.changeset(%Rule{}, attrs)
-
-              case Repo.insert(changeset) do
-                {:ok, struct} ->
-                  {[struct | acc_persisted], acc_other}
-
-                {:error, cs} ->
-                  Logger.error("Failed to persist rule: #{inspect(cs)}")
-                  {acc_persisted, [Map.put(candidate, :validation, v) | acc_other]}
-              end
-            else
-              {acc_persisted, [Map.put(candidate, :validation, v) | acc_other]}
-            end
-
-          {:ok, %{validated: false} = v} ->
-            if persist_rejected do
-              attrs =
-                Map.merge(candidate, %{
-                  premise:
-                    Jason.encode!(Map.get(candidate, :premise) || Map.get(candidate, "premise")),
-                  conclusion:
-                    Jason.encode!(
-                      Map.get(candidate, :conclusion) || Map.get(candidate, "conclusion")
-                    ),
-                  validation_status: "rejected",
-                  validation_evidence: v.evidence,
-                  confidence: v.precision
-                })
-
-              changeset = Rule.changeset(%Rule{}, attrs)
-
-              case Repo.insert(changeset) do
-                {:ok, struct} ->
-                  {[struct | acc_persisted], acc_other}
-
-                {:error, cs} ->
-                  Logger.error("Failed to persist rejected rule: #{inspect(cs)}")
-                  {acc_persisted, [Map.put(candidate, :validation, v) | acc_other]}
-              end
-            else
-              {acc_persisted, [Map.put(candidate, :validation, v) | acc_other]}
-            end
-
-          {:error, reason} ->
-            # Validation failed due to invalid structure - log and skip
-            Logger.warning(
-              "Rule validation failed: #{inspect(reason)}, candidate: #{inspect(Map.keys(candidate))}"
-            )
-
-            {acc_persisted, [Map.put(candidate, :validation_error, reason) | acc_other]}
-        end
+      Enum.reduce(candidates, {[], []}, fn candidate, acc ->
+        process_validation_result(candidate, acc, persist_opts)
       end)
 
     {:ok,
      %{candidates: candidates, persisted: Enum.reverse(persisted), others: Enum.reverse(others)}}
+  end
+
+  # Process a single validation result and update accumulators
+  defp process_validation_result(candidate, {acc_persisted, acc_other}, persist_opts) do
+    case RuleValidator.validate_rule(candidate) do
+      {:ok, %{validated: true} = v} ->
+        maybe_persist_rule(
+          candidate,
+          v,
+          "validated",
+          persist_opts.validated,
+          acc_persisted,
+          acc_other
+        )
+
+      {:ok, %{validated: false} = v} ->
+        maybe_persist_rule(
+          candidate,
+          v,
+          "rejected",
+          persist_opts.rejected,
+          acc_persisted,
+          acc_other
+        )
+
+      {:error, reason} ->
+        Logger.warning(
+          "Rule validation failed: #{inspect(reason)}, candidate: #{inspect(Map.keys(candidate))}"
+        )
+
+        {acc_persisted, [Map.put(candidate, :validation_error, reason) | acc_other]}
+    end
+  end
+
+  # Attempt to persist a rule if persistence is enabled
+  defp maybe_persist_rule(candidate, validation, status, should_persist, acc_persisted, acc_other) do
+    if should_persist do
+      persist_rule(candidate, validation, status, acc_persisted, acc_other)
+    else
+      {acc_persisted, [Map.put(candidate, :validation, validation) | acc_other]}
+    end
+  end
+
+  # Persist a validated/rejected rule to the database
+  defp persist_rule(candidate, validation, status, acc_persisted, acc_other) do
+    attrs =
+      Map.merge(candidate, %{
+        premise: Jason.encode!(Map.get(candidate, :premise) || Map.get(candidate, "premise")),
+        conclusion:
+          Jason.encode!(Map.get(candidate, :conclusion) || Map.get(candidate, "conclusion")),
+        validation_status: status,
+        validation_evidence: validation.evidence,
+        confidence: validation.precision
+      })
+
+    changeset = Rule.changeset(%Rule{}, attrs)
+
+    case Repo.insert(changeset) do
+      {:ok, struct} ->
+        {[struct | acc_persisted], acc_other}
+
+      {:error, cs} ->
+        Logger.error("Failed to persist #{status} rule: #{inspect(cs)}")
+        {acc_persisted, [Map.put(candidate, :validation, validation) | acc_other]}
+    end
   end
 
   defp build_prompt(prompt, max_rules, _opts) do

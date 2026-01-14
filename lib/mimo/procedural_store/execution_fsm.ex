@@ -518,16 +518,7 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
 
         properties when is_map(properties) ->
           Enum.reduce(properties, errors, fn {key, prop_schema}, acc ->
-            case Map.get(data, key) do
-              nil ->
-                acc
-
-              value ->
-                case validate_property(value, prop_schema) do
-                  :ok -> acc
-                  {:error, reason} -> acc ++ [{:invalid_property, key, reason}]
-                end
-            end
+            validate_property_in_data(data, key, prop_schema, acc)
           end)
 
         _ ->
@@ -541,7 +532,22 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
     end
   end
 
-  defp validate_against_schema(_data, _schema), do: :ok
+  # Validate a single property from data against its schema
+  defp validate_property_in_data(data, key, prop_schema, errors) do
+    case Map.get(data, key) do
+      nil ->
+        errors
+
+      value ->
+        case validate_property(value, prop_schema) do
+          :ok -> errors
+          {:error, reason} -> errors ++ [{:invalid_property, key, reason}]
+        end
+    end
+  end
+
+  # Catchall moved to be adjacent to other validate_against_schema clauses
+  # defp validate_against_schema(_data, _schema), do: :ok  # Already handled above
 
   defp validate_property(value, schema) when is_map(schema) do
     type = Map.get(schema, "type")

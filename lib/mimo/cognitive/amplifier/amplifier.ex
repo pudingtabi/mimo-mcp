@@ -170,60 +170,7 @@ defmodule Mimo.Cognitive.Amplifier do
 
       case ThinkingForcer.validate_decomposition(response, strategy) do
         {:valid, items} ->
-          # Check if response is comprehensive enough to satisfy all prompts
-          # A response with 300+ chars or 5+ extracted items covers decomposition aspects
-          comprehensive = String.length(response) >= 300 or length(items) >= 5
-
-          if comprehensive do
-            # Mark ALL decomposition prompts as answered
-            num_prompts = length(state.decomposition)
-
-            if num_prompts > 0 do
-              Enum.each(0..(num_prompts - 1)//1, fn i ->
-                AmplificationSession.mark_decomposition_answered(session_id, i)
-              end)
-            end
-          else
-            AmplificationSession.mark_decomposition_answered(session_id, index)
-          end
-
-          if comprehensive or AmplificationSession.decomposition_complete?(session_id) do
-            AmplificationSession.clear_blocking(session_id)
-            AmplificationSession.update_state(session_id, %{stage: :thinking})
-
-            {:ok,
-             %{
-               session_id: session_id,
-               stage: :thinking,
-               content: %{
-                 decomposition_complete: true,
-                 items_extracted: items
-               },
-               next_action: %{
-                 type: :think,
-                 instruction: "Decomposition complete. Begin reasoning."
-               },
-               blocking: false
-             }}
-          else
-            remaining = length(state.decomposition) - index - 1
-
-            {:ok,
-             %{
-               session_id: session_id,
-               stage: :decomposition,
-               content: %{
-                 items_extracted: items,
-                 remaining: remaining
-               },
-               next_action: %{
-                 type: :respond_to_decomposition,
-                 prompts: [Enum.at(state.decomposition, index + 1)],
-                 instruction: "Address the next decomposition prompt."
-               },
-               blocking: true
-             }}
-          end
+          handle_valid_decomposition(session_id, state, response, items, index)
 
         {:invalid, reason} ->
           {:ok,
@@ -705,5 +652,75 @@ defmodule Mimo.Cognitive.Amplifier do
           {:error, "Synthesis preparation failed: #{reason}"}
       end
     end
+  end
+
+  # Helper to handle valid decomposition response with reduced nesting
+  defp handle_valid_decomposition(session_id, state, response, items, index) do
+    # Check if response is comprehensive enough to satisfy all prompts
+    comprehensive = String.length(response) >= 300 or length(items) >= 5
+
+    # Mark appropriate prompts as answered
+    mark_decomposition_prompts(session_id, state, comprehensive, index)
+
+    # Determine if decomposition is complete
+    if comprehensive or AmplificationSession.decomposition_complete?(session_id) do
+      build_decomposition_complete_response(session_id, items)
+    else
+      build_decomposition_continue_response(session_id, state, items, index)
+    end
+  end
+
+  defp mark_decomposition_prompts(session_id, state, true = _comprehensive, _index) do
+    num_prompts = length(state.decomposition)
+
+    if num_prompts > 0 do
+      Enum.each(0..(num_prompts - 1)//1, fn i ->
+        AmplificationSession.mark_decomposition_answered(session_id, i)
+      end)
+    end
+  end
+
+  defp mark_decomposition_prompts(session_id, _state, false = _comprehensive, index) do
+    AmplificationSession.mark_decomposition_answered(session_id, index)
+  end
+
+  defp build_decomposition_complete_response(session_id, items) do
+    AmplificationSession.clear_blocking(session_id)
+    AmplificationSession.update_state(session_id, %{stage: :thinking})
+
+    {:ok,
+     %{
+       session_id: session_id,
+       stage: :thinking,
+       content: %{
+         decomposition_complete: true,
+         items_extracted: items
+       },
+       next_action: %{
+         type: :think,
+         instruction: "Decomposition complete. Begin reasoning."
+       },
+       blocking: false
+     }}
+  end
+
+  defp build_decomposition_continue_response(session_id, state, items, index) do
+    remaining = length(state.decomposition) - index - 1
+
+    {:ok,
+     %{
+       session_id: session_id,
+       stage: :decomposition,
+       content: %{
+         items_extracted: items,
+         remaining: remaining
+       },
+       next_action: %{
+         type: :respond_to_decomposition,
+         prompts: [Enum.at(state.decomposition, index + 1)],
+         instruction: "Address the next decomposition prompt."
+       },
+       blocking: true
+     }}
   end
 end

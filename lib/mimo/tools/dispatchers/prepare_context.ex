@@ -27,6 +27,20 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
 
   alias WisdomInjector
   alias Pattern
+
+  # Context struct to group flat response parameters (reduces arity from 11)
+  defmodule FlatResponseContext do
+    @moduledoc false
+    defstruct [
+      :query,
+      :entities,
+      :duration,
+      :max_tokens,
+      :include_scores,
+      sources: %{memory: nil, knowledge: nil, code: nil, library: nil, patterns: nil, wisdom: nil}
+    ]
+  end
+
   alias Mimo.Brain.{HybridScorer, Memory}
   alias Mimo.Cognitive.KnowledgeTransfer
   alias Mimo.Context.BudgetAllocator
@@ -42,7 +56,7 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
     - sources: List of sources to query (default: all)
                Options: ["memory", "knowledge", "code", "library", "actions"]
     - include_scores: Include relevance scores in output (default: false)
-    
+
   ## SPEC-051 Tiered Options
     - tiered: Enable tiered context delivery (default: false)
     - model_type: Model type for budget allocation ("haiku", "opus", etc.)
@@ -415,19 +429,23 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
       build_tiered_response(query, entities, results, duration, max_tokens, args)
     else
       # Legacy flat response for backward compatibility
-      build_flat_response(
-        query,
-        entities,
-        memory,
-        knowledge,
-        code,
-        library,
-        patterns,
-        wisdom,
-        duration,
-        max_tokens,
-        include_scores
-      )
+      ctx = %FlatResponseContext{
+        query: query,
+        entities: entities,
+        duration: duration,
+        max_tokens: max_tokens,
+        include_scores: include_scores,
+        sources: %{
+          memory: memory,
+          knowledge: knowledge,
+          code: code,
+          library: library,
+          patterns: patterns,
+          wisdom: wisdom
+        }
+      }
+
+      build_flat_response(ctx)
     end
   end
 
@@ -518,19 +536,23 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
   end
 
   # Legacy flat response format
-  defp build_flat_response(
-         query,
-         entities,
-         memory,
-         knowledge,
-         code,
-         library,
-         patterns,
-         wisdom,
-         duration,
-         max_tokens,
-         include_scores
-       ) do
+  defp build_flat_response(%FlatResponseContext{} = ctx) do
+    %{
+      query: query,
+      entities: entities,
+      duration: duration,
+      max_tokens: max_tokens,
+      include_scores: include_scores,
+      sources: %{
+        memory: memory,
+        knowledge: knowledge,
+        code: code,
+        library: library,
+        patterns: patterns,
+        wisdom: wisdom
+      }
+    } = ctx
+
     # Build structured context with patterns and wisdom
     context_sections =
       build_context_sections(memory, knowledge, code, library, patterns, wisdom, include_scores)
@@ -638,7 +660,9 @@ defmodule Mimo.Tools.Dispatchers.PrepareContext do
           else: base
 
       # Add cross-modality info if available
-      if cross_refs = item[:cross_modality] || item[:cross_modality_connections] do
+      cross_refs = item[:cross_modality] || item[:cross_modality_connections]
+
+      if cross_refs do
         Map.put(base, :cross_modality, cross_refs)
       else
         base

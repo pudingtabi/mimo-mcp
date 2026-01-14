@@ -1244,24 +1244,20 @@ defmodule Mimo.Brain.Memory do
   # SPEC-RESILIENCE: Graceful degradation when embedding service unavailable
   defp resolve_embedding(_content, emb) when is_list(emb) and emb != [], do: {:ok, emb}
 
+  # Resolve embedding - use provided or generate new
+  # IMPORTANT: Always require embeddings for memory quality
   defp resolve_embedding(content, _) do
     case generate_embedding(content) do
       {:ok, emb} when is_list(emb) and emb != [] ->
         {:ok, emb}
 
       {:ok, []} ->
-        Logger.warning("Embedding generation returned empty list - storing without embedding")
-        # GRACEFUL DEGRADATION: Store memory without embedding rather than failing
-        {:ok, []}
+        Logger.warning("Embedding generation returned empty list for content")
+        {:error, {:empty_embedding, "Embedding generation returned empty result"}}
 
       {:error, reason} ->
-        Logger.warning(
-          "Embedding generation failed: #{inspect(reason)} - storing without embedding"
-        )
-
-        # GRACEFUL DEGRADATION: Allow memory storage to continue without embeddings
-        # Memories can be re-embedded later when service recovers
-        {:ok, []}
+        Logger.warning("Embedding generation failed: #{inspect(reason)}")
+        {:error, {:embedding_failed, reason}}
     end
   end
 
@@ -1997,13 +1993,10 @@ defmodule Mimo.Brain.Memory do
           {:ok, embedding}
 
         {:error, reason} ->
-          # SPEC-RESILIENCE: Graceful degradation when embedding service unavailable
-          # Store memory with empty embedding - can be re-embedded later
-          Logger.warning(
-            "Embedding generation failed: #{inspect(reason)} - storing without embedding"
-          )
-
-          {:ok, []}
+          # CRITICAL: Do NOT fall back to garbage embeddings
+          # Better to fail storage than corrupt the memory store with unsearchable embeddings
+          Logger.warning("Embedding generation failed: #{inspect(reason)}")
+          {:error, {:embedding_failed, reason}}
       end
     end)
   end

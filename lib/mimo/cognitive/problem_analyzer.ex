@@ -301,61 +301,53 @@ defmodule Mimo.Cognitive.ProblemAnalyzer do
   end
 
   defp strategy_reason(analysis, strategy) do
-    reasons = []
-
-    reasons =
-      case strategy do
-        :cot ->
-          cond do
-            analysis.requires_calculation ->
-              ["Problem involves calculation/math" | reasons]
-
-            analysis.step_count in [:moderate, :many] ->
-              ["Problem has multiple sequential steps" | reasons]
-
-            true ->
-              ["Best solved with step-by-step reasoning" | reasons]
-          end
-
-        :tot ->
-          cond do
-            analysis.ambiguous and analysis.branching_factor in [:medium, :high] ->
-              ["Multiple valid approaches exist" | reasons]
-
-            analysis.ambiguous ->
-              ["Problem requires design decisions or comparisons" | reasons]
-
-            true ->
-              ["Exploration of alternatives needed" | reasons]
-          end
-
-        :react ->
-          cond do
-            analysis.involves_tools ->
-              ["Problem requires tool use (file operations, searches)" | reasons]
-
-            analysis.requires_lookup ->
-              ["Problem needs external information lookup" | reasons]
-
-            true ->
-              ["Interleaved reasoning and action recommended" | reasons]
-          end
-
-        :reflexion ->
-          cond do
-            analysis.trial_and_error and analysis.programming_task ->
-              ["Programming task that may need iteration" | reasons]
-
-            analysis.trial_and_error ->
-              ["Trial-and-error approach likely needed" | reasons]
-
-            true ->
-              ["Learning from attempts will improve results" | reasons]
-          end
-      end
-
+    reasons = strategy_specific_reasons(analysis, strategy)
     Enum.join(reasons, "; ")
   end
+
+  defp strategy_specific_reasons(analysis, :cot) do
+    cond do
+      analysis.requires_calculation -> ["Problem involves calculation/math"]
+      analysis.step_count in [:moderate, :many] -> ["Problem has multiple sequential steps"]
+      true -> ["Best solved with step-by-step reasoning"]
+    end
+  end
+
+  defp strategy_specific_reasons(analysis, :tot) do
+    cond do
+      analysis.ambiguous and analysis.branching_factor in [:medium, :high] ->
+        ["Multiple valid approaches exist"]
+
+      analysis.ambiguous ->
+        ["Problem requires design decisions or comparisons"]
+
+      true ->
+        ["Exploration of alternatives needed"]
+    end
+  end
+
+  defp strategy_specific_reasons(analysis, :react) do
+    cond do
+      analysis.involves_tools -> ["Problem requires tool use (file operations, searches)"]
+      analysis.requires_lookup -> ["Problem needs external information lookup"]
+      true -> ["Interleaved reasoning and action recommended"]
+    end
+  end
+
+  defp strategy_specific_reasons(analysis, :reflexion) do
+    cond do
+      analysis.trial_and_error and analysis.programming_task ->
+        ["Programming task that may need iteration"]
+
+      analysis.trial_and_error ->
+        ["Trial-and-error approach likely needed"]
+
+      true ->
+        ["Learning from attempts will improve results"]
+    end
+  end
+
+  defp strategy_specific_reasons(_analysis, _strategy), do: []
 
   # Decomposition helpers
 

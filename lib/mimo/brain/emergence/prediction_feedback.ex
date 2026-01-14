@@ -119,10 +119,7 @@ defmodule Mimo.Brain.Emergence.PredictionFeedback do
   def apply_calibration(raw_confidence) do
     adjustment = calibration_adjustment()
 
-    unless adjustment.is_calibrated do
-      # Not enough data for calibration
-      raw_confidence
-    else
+    if adjustment.is_calibrated do
       # Find the appropriate bucket
       bucket = round(raw_confidence * 10) * 10
       multiplier = Map.get(adjustment.adjustments, bucket, 1.0)
@@ -130,6 +127,9 @@ defmodule Mimo.Brain.Emergence.PredictionFeedback do
       # Apply adjustment and clamp to valid range
       adjusted = raw_confidence * multiplier
       min(1.0, max(0.0, Float.round(adjusted, 3)))
+    else
+      # Not enough data for calibration
+      raw_confidence
     end
   end
 

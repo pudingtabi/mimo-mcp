@@ -174,27 +174,7 @@ defmodule Mimo.Brain.VocabularyIndex do
       {:ok, %{rows: rows, columns: columns}} ->
         results =
           rows
-          |> Enum.map(fn row ->
-            # Convert row to map with column names
-            record = Enum.zip(columns, row) |> Map.new()
-            engram_id = record["id"]
-
-            # Fetch full engram
-            case Repo.get(Engram, engram_id) do
-              nil ->
-                nil
-
-              engram ->
-                raw_score = record["score"]
-                normalized = normalize_bm25(raw_score)
-
-                if normalized >= min_score do
-                  {Map.from_struct(engram), normalized}
-                else
-                  nil
-                end
-            end
-          end)
+          |> Enum.map(&parse_fts_row(&1, columns, min_score))
           |> Enum.reject(&is_nil/1)
 
         {:ok, results}
@@ -202,6 +182,27 @@ defmodule Mimo.Brain.VocabularyIndex do
       {:error, reason} ->
         Logger.warning("[VocabularyIndex] FTS5 query failed: #{inspect(reason)}")
         {:error, reason}
+    end
+  end
+
+  # Parse an FTS row into an engram with normalized score
+  defp parse_fts_row(row, columns, min_score) do
+    record = Enum.zip(columns, row) |> Map.new()
+    engram_id = record["id"]
+
+    case Repo.get(Engram, engram_id) do
+      nil ->
+        nil
+
+      engram ->
+        raw_score = record["score"]
+        normalized = normalize_bm25(raw_score)
+
+        if normalized >= min_score do
+          {Map.from_struct(engram), normalized}
+        else
+          nil
+        end
     end
   end
 
@@ -242,7 +243,7 @@ defmodule Mimo.Brain.VocabularyIndex do
     # - Caret: boost operator
     # - Dash: NOT operator at start of term
     # - Parentheses: grouping
-    # 
+    #
     # Strategy: Remove problematic characters, keep only safe alphanumeric + spaces + OR/AND
     query
     # Remove quotes (prevent unterminated string)

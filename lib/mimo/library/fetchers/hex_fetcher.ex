@@ -261,22 +261,7 @@ defmodule Mimo.Library.Fetchers.HexFetcher do
 
         result =
           Enum.find_value(patterns, fn pattern ->
-            case Regex.run(pattern, html) do
-              [_, json] ->
-                # Clean up the JSON - remove trailing semicolons and whitespace
-                clean_json =
-                  json
-                  |> String.trim()
-                  |> String.trim_trailing(";")
-
-                case Jason.decode(clean_json) do
-                  {:ok, data} when is_list(data) -> {:ok, data}
-                  _ -> nil
-                end
-
-              _ ->
-                nil
-            end
+            try_parse_search_pattern(pattern, html)
           end)
 
         case result do
@@ -286,6 +271,26 @@ defmodule Mimo.Library.Fetchers.HexFetcher do
 
       error ->
         error
+    end
+  end
+
+  # Try to extract and parse search data from a regex pattern match
+  defp try_parse_search_pattern(pattern, html) do
+    case Regex.run(pattern, html) do
+      [_, json] ->
+        # Clean up the JSON - remove trailing semicolons and whitespace
+        clean_json =
+          json
+          |> String.trim()
+          |> String.trim_trailing(";")
+
+        case Jason.decode(clean_json) do
+          {:ok, data} when is_list(data) -> {:ok, data}
+          _ -> nil
+        end
+
+      _ ->
+        nil
     end
   end
 

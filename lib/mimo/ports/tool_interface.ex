@@ -1407,30 +1407,7 @@ defmodule Mimo.ToolInterface do
         filter ->
           # Time filter is now also applied in HybridRetriever, but we keep this
           # as a fallback for direct searches and for category/validity filtering
-          case Mimo.Utils.TimeParser.parse(filter) do
-            {:ok, {from_dt, to_dt}} ->
-              from_naive = DateTime.to_naive(from_dt)
-              to_naive = DateTime.to_naive(to_dt)
-
-              Enum.filter(filtered, fn result ->
-                inserted_at = Map.get(result, :inserted_at)
-
-                case inserted_at do
-                  nil ->
-                    # BUG FIX 2026-01-11: If no timestamp, exclude from time-filtered results
-                    # Previously returned true which caused all results to pass
-                    false
-
-                  dt ->
-                    NaiveDateTime.compare(dt, from_naive) != :lt and
-                      NaiveDateTime.compare(dt, to_naive) != :gt
-                end
-              end)
-
-            {:error, _reason} ->
-              # Invalid time filter - return all results
-              filtered
-          end
+          apply_time_filter(filtered, filter)
       end
 
     # SPEC-060: Apply temporal validity filters
@@ -1523,6 +1500,34 @@ defmodule Mimo.ToolInterface do
       # Default cross-tool suggestion
       true ->
         "💡 For entity relationships, also check `knowledge operation=query`"
+    end
+  end
+
+  # Apply time filter to search results using TimeParser
+  defp apply_time_filter(results, filter) do
+    case Mimo.Utils.TimeParser.parse(filter) do
+      {:ok, {from_dt, to_dt}} ->
+        from_naive = DateTime.to_naive(from_dt)
+        to_naive = DateTime.to_naive(to_dt)
+        Enum.filter(results, &result_in_time_range?(&1, from_naive, to_naive))
+
+      {:error, _reason} ->
+        # Invalid time filter - return all results
+        results
+    end
+  end
+
+  # Check if a result's timestamp is within the given time range
+  defp result_in_time_range?(result, from_naive, to_naive) do
+    case Map.get(result, :inserted_at) do
+      nil ->
+        # BUG FIX 2026-01-11: If no timestamp, exclude from time-filtered results
+        # Previously returned true which caused all results to pass
+        false
+
+      dt ->
+        NaiveDateTime.compare(dt, from_naive) != :lt and
+          NaiveDateTime.compare(dt, to_naive) != :gt
     end
   end
 

@@ -305,31 +305,10 @@ defmodule Mimo.Brain.MemoryRouter do
     strategy = Keyword.get(opts, :strategy, :auto)
     limit = Keyword.get(opts, :limit, 10)
     include_working = Keyword.get(opts, :include_working, true)
-    use_llm = Keyword.get(opts, :use_llm, @llm_analysis_enabled)
     use_expansion = Keyword.get(opts, :use_expansion, true)
 
     # Determine routing strategy
-    # ROADMAP Phase 1b P1: Use LLM analysis for better intent detection
-    # ROADMAP Phase 1b P3: Also get expanded_queries for multi-query search
-    {query_type, confidence, expanded_queries} =
-      cond do
-        strategy != :auto ->
-          {strategy, 1.0, []}
-
-        use_llm ->
-          case understand_query_with_llm(query) do
-            {:ok, %{intent: intent, confidence: conf, expanded_queries: expansions}} ->
-              {intent, conf, expansions || []}
-
-            {:error, _} ->
-              {type, conf} = analyze(query)
-              {type, conf, []}
-          end
-
-        true ->
-          {type, conf} = analyze(query)
-          {type, conf, []}
-      end
+    {query_type, confidence, expanded_queries} = determine_query_strategy(query, strategy, opts)
 
     :telemetry.execute(
       [:mimo, :memory, :routing],
@@ -342,20 +321,9 @@ defmodule Mimo.Brain.MemoryRouter do
     )
 
     # Execute appropriate retrieval strategy for PRIMARY query
-    # ROADMAP Phase 1b P1: Added :aggregation for summarization queries
-    primary_results =
-      case query_type do
-        :relational -> graph_route(query, opts)
-        :temporal -> temporal_route(query, opts)
-        :procedural -> procedural_route(query, opts)
-        :factual -> vector_route(query, opts)
-        :aggregation -> aggregation_route(query, opts)
-        :hybrid -> hybrid_route(query, opts)
-        _ -> hybrid_route(query, opts)
-      end
+    primary_results = execute_route_for_type(query_type, query, opts)
 
     # ROADMAP Phase 1b P3: Multi-query expansion
-    # Run additional searches for expanded queries and merge results
     results =
       if use_expansion and expanded_queries != [] do
         expand_and_merge(primary_results, expanded_queries, query_type, opts)
@@ -392,6 +360,39 @@ defmodule Mimo.Brain.MemoryRouter do
       Logger.error("Routing failed: #{Exception.message(e)}")
       {:error, {:routing_failed, e}}
   end
+
+  # Determine the query strategy based on configuration and analysis
+  defp determine_query_strategy(_query, strategy, _opts) when strategy != :auto do
+    {strategy, 1.0, []}
+  end
+
+  defp determine_query_strategy(query, :auto, opts) do
+    use_llm = Keyword.get(opts, :use_llm, @llm_analysis_enabled)
+
+    if use_llm do
+      case understand_query_with_llm(query) do
+        {:ok, %{intent: intent, confidence: conf, expanded_queries: expansions}} ->
+          {intent, conf, expansions || []}
+
+        {:error, _} ->
+          {type, conf} = analyze(query)
+          {type, conf, []}
+      end
+    else
+      {type, conf} = analyze(query)
+      {type, conf, []}
+    end
+  end
+
+  # Execute the appropriate route based on query type
+  # ROADMAP Phase 1b P1: Added :aggregation for summarization queries
+  defp execute_route_for_type(:relational, query, opts), do: graph_route(query, opts)
+  defp execute_route_for_type(:temporal, query, opts), do: temporal_route(query, opts)
+  defp execute_route_for_type(:procedural, query, opts), do: procedural_route(query, opts)
+  defp execute_route_for_type(:factual, query, opts), do: vector_route(query, opts)
+  defp execute_route_for_type(:aggregation, query, opts), do: aggregation_route(query, opts)
+  defp execute_route_for_type(:hybrid, query, opts), do: hybrid_route(query, opts)
+  defp execute_route_for_type(_other, query, opts), do: hybrid_route(query, opts)
 
   @doc """
   Analyze a query to determine its type and routing confidence.

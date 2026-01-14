@@ -106,74 +106,76 @@ defmodule Mimo.Cognitive.Amplifier.ConfidenceGapAnalyzer do
   defp extract_verification_metrics(_), do: {0, 1.0}
 
   defp analyze_gap(certainty, justification, weak_certainty, total_claims, verification_rate) do
-    cond do
-      # Case 1: Strong certainty + no claims = empty verification trap (HIGH risk)
-      certainty and total_claims == 0 and not justification ->
-        %{
-          gap_detected: true,
-          risk_level: :high,
-          certainty_detected: true,
-          has_justification: false,
-          empty_trap: true,
-          reason:
-            "High confidence language with no verifiable claims - potential empty verification trap"
-        }
+    case classify_gap_case(
+           certainty,
+           justification,
+           weak_certainty,
+           total_claims,
+           verification_rate
+         ) do
+      :empty_trap ->
+        build_gap_result(
+          :high,
+          true,
+          false,
+          true,
+          "High confidence language with no verifiable claims - potential empty verification trap"
+        )
 
-      # Case 2: Strong certainty + low verification rate = potential hallucination (HIGH risk)
-      certainty and total_claims > 0 and verification_rate < 0.5 and not justification ->
-        %{
-          gap_detected: true,
-          risk_level: :high,
-          certainty_detected: true,
-          has_justification: false,
-          empty_trap: false,
-          reason:
-            "High confidence with low verification rate (#{Float.round(verification_rate * 100, 1)}%) - claims may be ungrounded"
-        }
+      :ungrounded ->
+        build_gap_result(
+          :high,
+          true,
+          false,
+          false,
+          "High confidence with low verification rate (#{Float.round(verification_rate * 100, 1)}%) - claims may be ungrounded"
+        )
 
-      # Case 3: Certainty without justification but with some verification (MEDIUM risk)
-      certainty and not justification and verification_rate >= 0.5 ->
-        %{
-          gap_detected: true,
-          risk_level: :medium,
-          certainty_detected: true,
-          has_justification: false,
-          empty_trap: false,
-          reason: "Certainty language without explicit justification"
-        }
+      :unjustified ->
+        build_gap_result(
+          :medium,
+          true,
+          false,
+          false,
+          "Certainty language without explicit justification"
+        )
 
-      # Case 4: Weak certainty + no verification (LOW risk)
-      weak_certainty and total_claims == 0 ->
-        %{
-          gap_detected: true,
-          risk_level: :low,
-          certainty_detected: false,
-          has_justification: justification,
-          empty_trap: true,
-          reason: "No verifiable claims to check"
-        }
+      :no_claims ->
+        build_gap_result(:low, false, justification, true, "No verifiable claims to check")
 
-      # Case 5: Certainty with justification - acceptable
-      certainty and justification ->
-        %{
-          gap_detected: false,
-          risk_level: :none,
-          certainty_detected: true,
-          has_justification: true,
-          empty_trap: false,
-          reason: nil
-        }
+      :acceptable ->
+        build_gap_result(:none, true, true, false, nil)
 
-      # Default: No issues detected
-      true ->
-        %{
-          gap_detected: false,
-          risk_level: :none,
-          certainty_detected: certainty,
-          has_justification: justification,
-          empty_trap: false,
-          reason: nil
-        }
+      :no_issues ->
+        build_gap_result(:none, certainty, justification, false, nil)
     end
+  end
+
+  # Classify the gap into a discrete case using pattern matching
+  # Case 1: Strong certainty + no claims + no justification = empty trap
+  defp classify_gap_case(true, false, _weak, 0, _rate), do: :empty_trap
+  # Case 2: Strong certainty + claims + low verification + no justification = ungrounded
+  defp classify_gap_case(true, false, _weak, claims, rate) when claims > 0 and rate < 0.5,
+    do: :ungrounded
+
+  # Case 3: Certainty without justification but with decent verification = unjustified
+  defp classify_gap_case(true, false, _weak, _claims, rate) when rate >= 0.5, do: :unjustified
+  # Case 4: Weak certainty + no claims = no claims to verify
+  defp classify_gap_case(_cert, _just, true, 0, _rate), do: :no_claims
+  # Case 5: Certainty with justification = acceptable
+  defp classify_gap_case(true, true, _weak, _claims, _rate), do: :acceptable
+  # Default: No issues
+  defp classify_gap_case(_cert, _just, _weak, _claims, _rate), do: :no_issues
+
+  # Build the gap result map
+  defp build_gap_result(risk_level, certainty_detected, has_justification, empty_trap, reason) do
+    %{
+      gap_detected: risk_level != :none,
+      risk_level: risk_level,
+      certainty_detected: certainty_detected,
+      has_justification: has_justification,
+      empty_trap: empty_trap,
+      reason: reason
+    }
   end
 end

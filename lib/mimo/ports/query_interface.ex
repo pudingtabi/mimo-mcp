@@ -39,123 +39,7 @@ defmodule Mimo.QueryInterface do
 
     task =
       TaskHelper.async_with_callers(fn ->
-        # Classify the query through Meta-Cognitive Router
-        router_decision = Mimo.MetaCognitiveRouter.classify(query)
-
-        # SPEC-071: Start Active Inference in parallel (proactive context pushing)
-        active_inference_task =
-          Task.async(fn ->
-            Mimo.ActiveInference.infer(query, context: %{context_id: context_id})
-          end)
-
-        # Search memories based on router decision
-        memories = search_by_decision(query, router_decision)
-
-        # Get proactive suggestions from Observer (semantic graph insights)
-        # Extract entity-like patterns from query for Observer
-        entities = extract_entities_from_query(query)
-        proactive_suggestions = get_observer_suggestions(entities, [])
-
-        # Await Active Inference results (ran in parallel with memory search)
-        active_inference =
-          try do
-            case Task.await(active_inference_task, 600) do
-              {:ok, inference} -> inference
-              _ -> nil
-            end
-          rescue
-            _ -> nil
-          catch
-            :exit, _ -> nil
-          end
-
-        # STRICT FAIL-CLOSED: If LLM services are unavailable, return explicit error
-        # We don't want sudden quality drops - quality or nothing
-        if not LLM.available?() or
-             Application.get_env(:mimo_mcp, :skip_external_apis, false) do
-          Logger.error("LLM services not available - failing closed (no degradation)")
-          {:error, :llm_unavailable}
-        else
-          # Call LLM synthesis - fail if it fails
-          llm_timeout = Mimo.TimeoutConfig.llm_synthesis_timeout()
-
-          # Start cross-domain insights in parallel with LLM call (optimization)
-          insights_task = Task.async(fn -> get_cross_domain_insights(query, "") end)
-
-          synthesis_result = safe_llm_synthesis(query, memories.episodic || [], llm_timeout)
-
-          case synthesis_result do
-            {:ok, response} ->
-              # SPEC-065: Check synthesis for contradictions with stored knowledge
-              contradiction_check = check_for_contradictions(response)
-
-              # Await cross-domain insights (ran in parallel with LLM)
-              cross_domain_insights =
-                try do
-                  Task.await(insights_task, 5000)
-                rescue
-                  e ->
-                    Logger.warning(
-                      "[QueryInterface] Cross-domain insights failed: #{Exception.message(e)}"
-                    )
-
-                    nil
-                catch
-                  :exit, reason ->
-                    Logger.warning(
-                      "[QueryInterface] Cross-domain insights task exited: #{inspect(reason)}"
-                    )
-
-                    nil
-                end
-
-              # Record the conversation in memory (async, don't block response)
-              record_conversation(query, response, context_id)
-
-              {:ok,
-               %{
-                 query_id: UUID.uuid4(),
-                 router_decision: router_decision,
-                 results: memories,
-                 synthesis: response,
-                 # FULL QUALITY - the only acceptable outcome
-                 quality_status: :full,
-                 # Add contradiction check results
-                 contradiction_check: contradiction_check,
-                 proactive_suggestions: proactive_suggestions,
-                 # Phase 3: Cross-domain knowledge transfer
-                 cross_domain_insights: cross_domain_insights,
-                 # SPEC-071: Active Inference - proactive context pushing
-                 active_inference: active_inference,
-                 context_id: context_id
-               }}
-
-            {:error, :synthesis_timeout} ->
-              Task.shutdown(insights_task, :brutal_kill)
-              Logger.error("LLM synthesis timed out after #{llm_timeout}ms - failing closed")
-              {:error, {:llm_timeout, llm_timeout}}
-
-            {:error, :no_api_key} ->
-              Task.shutdown(insights_task, :brutal_kill)
-              Logger.error("LLM unavailable (no API key) - failing closed")
-              {:error, :llm_no_api_key}
-
-            {:error, :circuit_breaker_open} ->
-              Task.shutdown(insights_task, :brutal_kill)
-              Logger.error("LLM circuit breaker open - failing closed")
-              {:error, :llm_circuit_breaker_open}
-
-            {:error, :all_providers_unavailable} ->
-              Task.shutdown(insights_task, :brutal_kill)
-              Logger.error("All LLM providers unavailable - failing closed")
-              {:error, :llm_all_providers_unavailable}
-
-            {:error, reason} ->
-              Task.shutdown(insights_task, :brutal_kill)
-              Logger.error("LLM synthesis failed: #{inspect(reason)} - failing closed")
-              {:error, {:llm_synthesis_failed, reason}}
-          end
-        end
+        execute_ask_query(query, context_id)
       end)
 
     case Task.yield(task, timeout_ms) || Task.shutdown(task) do
@@ -165,6 +49,123 @@ defmodule Mimo.QueryInterface do
     end
   rescue
     e -> {:error, Exception.message(e)}
+  end
+
+  # Execute the main ask query logic
+  defp execute_ask_query(query, context_id) do
+    # STRICT FAIL-CLOSED: Check LLM availability first
+    if not LLM.available?() or Application.get_env(:mimo_mcp, :skip_external_apis, false) do
+      Logger.error("LLM services not available - failing closed (no degradation)")
+      {:error, :llm_unavailable}
+    else
+      execute_ask_query_with_llm(query, context_id)
+    end
+  end
+
+  defp execute_ask_query_with_llm(query, context_id) do
+    # Phase 1: Classify and gather context in parallel
+    router_decision = Mimo.MetaCognitiveRouter.classify(query)
+
+    active_inference_task =
+      Task.async(fn -> Mimo.ActiveInference.infer(query, context: %{context_id: context_id}) end)
+
+    # Phase 2: Search memories and gather suggestions
+    memories = search_by_decision(query, router_decision)
+    entities = extract_entities_from_query(query)
+    proactive_suggestions = get_observer_suggestions(entities, [])
+    active_inference = await_active_inference(active_inference_task)
+
+    # Phase 3: LLM synthesis with cross-domain insights
+    llm_timeout = Mimo.TimeoutConfig.llm_synthesis_timeout()
+    insights_task = Task.async(fn -> get_cross_domain_insights(query, "") end)
+    synthesis_result = safe_llm_synthesis(query, memories.episodic || [], llm_timeout)
+
+    handle_synthesis_result(synthesis_result, insights_task, %{
+      query: query,
+      context_id: context_id,
+      router_decision: router_decision,
+      memories: memories,
+      proactive_suggestions: proactive_suggestions,
+      active_inference: active_inference,
+      llm_timeout: llm_timeout
+    })
+  end
+
+  defp await_active_inference(task) do
+    try do
+      case Task.await(task, 600) do
+        {:ok, inference} -> inference
+        _ -> nil
+      end
+    rescue
+      _ -> nil
+    catch
+      :exit, _ -> nil
+    end
+  end
+
+  defp handle_synthesis_result({:ok, response}, insights_task, ctx) do
+    contradiction_check = check_for_contradictions(response)
+    cross_domain_insights = await_cross_domain_insights(insights_task)
+    record_conversation(ctx.query, response, ctx.context_id)
+
+    {:ok,
+     %{
+       query_id: UUID.uuid4(),
+       router_decision: ctx.router_decision,
+       results: ctx.memories,
+       synthesis: response,
+       quality_status: :full,
+       contradiction_check: contradiction_check,
+       proactive_suggestions: ctx.proactive_suggestions,
+       cross_domain_insights: cross_domain_insights,
+       active_inference: ctx.active_inference,
+       context_id: ctx.context_id
+     }}
+  end
+
+  defp handle_synthesis_result({:error, reason}, insights_task, ctx) do
+    Task.shutdown(insights_task, :brutal_kill)
+    log_synthesis_error(reason, ctx.llm_timeout)
+  end
+
+  defp await_cross_domain_insights(task) do
+    try do
+      Task.await(task, 5000)
+    rescue
+      e ->
+        Logger.warning("[QueryInterface] Cross-domain insights failed: #{Exception.message(e)}")
+        nil
+    catch
+      :exit, reason ->
+        Logger.warning("[QueryInterface] Cross-domain insights task exited: #{inspect(reason)}")
+        nil
+    end
+  end
+
+  defp log_synthesis_error(:synthesis_timeout, timeout) do
+    Logger.error("LLM synthesis timed out after #{timeout}ms - failing closed")
+    {:error, {:llm_timeout, timeout}}
+  end
+
+  defp log_synthesis_error(:no_api_key, _) do
+    Logger.error("LLM unavailable (no API key) - failing closed")
+    {:error, :llm_no_api_key}
+  end
+
+  defp log_synthesis_error(:circuit_breaker_open, _) do
+    Logger.error("LLM circuit breaker open - failing closed")
+    {:error, :llm_circuit_breaker_open}
+  end
+
+  defp log_synthesis_error(:all_providers_unavailable, _) do
+    Logger.error("All LLM providers unavailable - failing closed")
+    {:error, :llm_all_providers_unavailable}
+  end
+
+  defp log_synthesis_error(reason, _) do
+    Logger.error("LLM synthesis failed: #{inspect(reason)} - failing closed")
+    {:error, {:llm_synthesis_failed, reason}}
   end
 
   # Wrap LLM synthesis with its own timeout for graceful degradation

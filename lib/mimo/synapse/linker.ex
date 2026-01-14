@@ -383,28 +383,28 @@ defmodule Mimo.Synapse.Linker do
 
     count =
       nodes
-      |> Enum.flat_map(fn node ->
-        # Find matching concepts
-        patterns
-        |> Enum.filter(fn {regex, _concept} -> Regex.match?(regex, node.name) end)
-        |> Enum.map(fn {_regex, concept} ->
-          case create_concept(concept) do
-            {:ok, concept_node} ->
-              case Graph.ensure_edge(node.id, concept_node.id, :implements, %{
-                     source: "auto_categorize"
-                   }) do
-                {:ok, _edge} -> 1
-                _ -> 0
-              end
-
-            {:error, _} ->
-              0
-          end
-        end)
-      end)
+      |> Enum.flat_map(fn node -> categorize_node_with_patterns(node, patterns) end)
       |> Enum.sum()
 
     {:ok, count}
+  end
+
+  # Categorize a single node against all patterns
+  defp categorize_node_with_patterns(node, patterns) do
+    patterns
+    |> Enum.filter(fn {regex, _concept} -> Regex.match?(regex, node.name) end)
+    |> Enum.map(fn {_regex, concept} -> link_node_to_concept(node, concept) end)
+  end
+
+  # Link a node to a concept and return 1 on success, 0 on failure
+  defp link_node_to_concept(node, concept) do
+    with {:ok, concept_node} <- create_concept(concept),
+         {:ok, _edge} <-
+           Graph.ensure_edge(node.id, concept_node.id, :implements, %{source: "auto_categorize"}) do
+      1
+    else
+      _ -> 0
+    end
   end
 
   @doc """
@@ -634,30 +634,16 @@ defmodule Mimo.Synapse.Linker do
     end
   end
 
+  # Prefixes that indicate external/stdlib modules
+  @external_module_prefixes ~w(
+    Enum Map List String File IO Logger GenServer Agent Task
+    Phoenix Ecto Plug Jason Req
+  )
+
   defp external_module?(name) do
-    # Heuristics for detecting external modules
-    cond do
-      # Elixir stdlib/OTP modules
-      String.starts_with?(name, "Enum") -> true
-      String.starts_with?(name, "Map") -> true
-      String.starts_with?(name, "List") -> true
-      String.starts_with?(name, "String") -> true
-      String.starts_with?(name, "File") -> true
-      String.starts_with?(name, "IO") -> true
-      String.starts_with?(name, "Logger") -> true
-      String.starts_with?(name, "GenServer") -> true
-      String.starts_with?(name, "Agent") -> true
-      String.starts_with?(name, "Task") -> true
-      # Erlang modules
-      String.starts_with?(name, ":") -> true
-      # Common external libraries
-      String.starts_with?(name, "Phoenix") -> true
-      String.starts_with?(name, "Ecto") -> true
-      String.starts_with?(name, "Plug") -> true
-      String.starts_with?(name, "Jason") -> true
-      String.starts_with?(name, "Req") -> true
-      true -> false
-    end
+    # Erlang modules start with ":"
+    String.starts_with?(name, ":") or
+      Enum.any?(@external_module_prefixes, &String.starts_with?(name, &1))
   end
 
   # Helper to access fields from both structs and maps

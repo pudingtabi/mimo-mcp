@@ -227,65 +227,92 @@ defmodule Mimo.Cognitive.AdaptiveStrategy do
   """
   @spec recommend_next(map()) :: recommendation()
   def recommend_next(step_result) when is_map(step_result) do
-    # Extract key signals
-    confidence = get_in(step_result, [:confidence, :score]) || 0.5
-    confidence_level = get_in(step_result, [:confidence, :level]) || :medium
-    verification_status = get_in(step_result, [:verification, :status]) || :unverified
-    contradictions = get_in(step_result, [:verification, :contradictions]) || []
-    gaps = get_in(step_result, [:verification, :gaps]) || []
-    accumulated = step_result[:accumulated_context] || %{}
-    evaluation_quality = get_in(step_result, [:evaluation, :quality]) || :good
+    ctx = build_recommendation_context(step_result)
 
-    # Get dynamic thresholds (learned or default)
-    very_low_thresh = very_low_confidence_threshold()
-    low_thresh = low_confidence_threshold()
-
-    # Decision logic (priority order)
-    cond do
-      # Critical: Contradiction detected → backtrack immediately
-      contradictions != [] ->
-        {:ok, :backtrack,
-         "🔙 Contradiction detected: #{inspect(Enum.take(contradictions, 1))} - try different approach"}
-
-      # Verification explicitly failed → reflect on approach
-      verification_status == :failed ->
-        {:ok, :reflect, "🔄 Verification failed - reflect on reasoning approach"}
-
-      # Very low confidence → definitely branch
-      confidence < very_low_thresh ->
-        {:ok, :branch,
-         "🌳 Very low confidence (#{Float.round(confidence, 2)}) - explore alternatives"}
-
-      # Knowledge gaps that need external info
-      has_actionable_gaps?(gaps) ->
-        {:ok, :use_tool, "🔧 Knowledge gap detected - gather external information"}
-
-      # Low confidence → consider branching
-      confidence < low_thresh or confidence_level == :low ->
-        {:ok, :branch,
-         "🌳 Low confidence (#{Float.round(confidence, 2)}) - consider exploring alternatives"}
-
-      # Declining confidence trend → reflect before continuing
-      declining_trend?(accumulated) ->
-        {:ok, :reflect,
-         "📉 Confidence declining over #{@declining_trend_threshold}+ steps - reflect"}
-
-      # Bad evaluation quality → need to improve reasoning
-      evaluation_quality == :bad ->
-        {:ok, :reflect, "⚠️ Reasoning quality poor - reflect and improve approach"}
-
-      # Unverified claims that should be checked
-      has_unverified_claims?(step_result) ->
-        {:ok, :verify_claim, "✓ Unverified claims detected - verify before proceeding"}
-
-      # Default: Continue linear reasoning (CoT)
-      true ->
-        {:ok, :continue,
-         "✅ On track (confidence: #{Float.round(confidence, 2)}) - continue reasoning"}
-    end
+    # Try each recommender in priority order, return first match
+    check_contradiction(ctx) ||
+      check_verification_failed(ctx) ||
+      check_very_low_confidence(ctx) ||
+      check_knowledge_gaps(ctx) ||
+      check_low_confidence(ctx) ||
+      check_declining_trend(ctx) ||
+      check_bad_evaluation(ctx) ||
+      check_unverified_claims(step_result) ||
+      default_continue(ctx)
   end
 
   def recommend_next(_), do: {:ok, :continue, "No step context - continue"}
+
+  # Build context for recommendation checks
+  defp build_recommendation_context(step_result) do
+    confidence = get_in(step_result, [:confidence, :score]) || 0.5
+
+    %{
+      confidence: confidence,
+      confidence_level: get_in(step_result, [:confidence, :level]) || :medium,
+      verification_status: get_in(step_result, [:verification, :status]) || :unverified,
+      contradictions: get_in(step_result, [:verification, :contradictions]) || [],
+      gaps: get_in(step_result, [:verification, :gaps]) || [],
+      accumulated: step_result[:accumulated_context] || %{},
+      evaluation_quality: get_in(step_result, [:evaluation, :quality]) || :good,
+      very_low_thresh: very_low_confidence_threshold(),
+      low_thresh: low_confidence_threshold()
+    }
+  end
+
+  defp check_contradiction(%{contradictions: c}) when c != [] do
+    {:ok, :backtrack,
+     "🔙 Contradiction detected: #{inspect(Enum.take(c, 1))} - try different approach"}
+  end
+
+  defp check_contradiction(_), do: nil
+
+  defp check_verification_failed(%{verification_status: :failed}) do
+    {:ok, :reflect, "🔄 Verification failed - reflect on reasoning approach"}
+  end
+
+  defp check_verification_failed(_), do: nil
+
+  defp check_very_low_confidence(%{confidence: c, very_low_thresh: t}) when c < t do
+    {:ok, :branch, "🌳 Very low confidence (#{Float.round(c, 2)}) - explore alternatives"}
+  end
+
+  defp check_very_low_confidence(_), do: nil
+
+  defp check_knowledge_gaps(%{gaps: gaps}) do
+    if has_actionable_gaps?(gaps) do
+      {:ok, :use_tool, "🔧 Knowledge gap detected - gather external information"}
+    end
+  end
+
+  defp check_low_confidence(%{confidence: c, confidence_level: level, low_thresh: t})
+       when c < t or level == :low do
+    {:ok, :branch, "🌳 Low confidence (#{Float.round(c, 2)}) - consider exploring alternatives"}
+  end
+
+  defp check_low_confidence(_), do: nil
+
+  defp check_declining_trend(%{accumulated: acc}) do
+    if declining_trend?(acc) do
+      {:ok, :reflect, "📉 Confidence declining over #{@declining_trend_threshold}+ steps - reflect"}
+    end
+  end
+
+  defp check_bad_evaluation(%{evaluation_quality: :bad}) do
+    {:ok, :reflect, "⚠️ Reasoning quality poor - reflect and improve approach"}
+  end
+
+  defp check_bad_evaluation(_), do: nil
+
+  defp check_unverified_claims(step_result) do
+    if has_unverified_claims?(step_result) do
+      {:ok, :verify_claim, "✓ Unverified claims detected - verify before proceeding"}
+    end
+  end
+
+  defp default_continue(%{confidence: c}) do
+    {:ok, :continue, "✅ On track (confidence: #{Float.round(c, 2)}) - continue reasoning"}
+  end
 
   @doc """
   Get a human-readable summary of the recommended action.
