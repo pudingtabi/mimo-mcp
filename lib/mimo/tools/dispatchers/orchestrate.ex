@@ -152,36 +152,49 @@ defmodule Mimo.Tools.Dispatchers.Orchestrate do
     plan = Map.get(args, "plan", [])
     timeout = Map.get(args, "timeout", 300_000)
 
-    if plan == [] do
-      {:error, "Plan is required for execute_plan operation"}
-    else
-      # Convert string keys to atoms for steps
-      steps =
-        Enum.map(plan, fn step ->
-          %{
-            tool: Map.get(step, "tool") |> String.to_existing_atom(),
-            operation: Map.get(step, "operation"),
-            args: Map.get(step, "args", %{}),
-            on_error: Map.get(step, "on_error", "halt") |> String.to_existing_atom()
-          }
-        end)
+    cond do
+      plan == [] ->
+        {:error, "Plan is required for execute_plan operation"}
 
-      case Orchestrator.execute_plan(steps, timeout: timeout) do
-        {:ok, result} ->
-          {:ok,
-           %{
-             status: "success",
-             type: "plan_executed",
-             result: result
-           }}
+      not valid_plan_steps?(plan) ->
+        {:error,
+         "Each plan step must have a 'tool' key. Use: file, terminal, code, web, memory, knowledge"}
 
-        {:error, reason} ->
-          {:error, format_error(reason)}
-      end
+      true ->
+        # Convert string keys to atoms for steps
+        steps =
+          Enum.map(plan, fn step ->
+            %{
+              tool: step["tool"] |> String.to_existing_atom(),
+              operation: Map.get(step, "operation"),
+              args: Map.get(step, "args", %{}),
+              on_error: Map.get(step, "on_error", "halt") |> String.to_existing_atom()
+            }
+          end)
+
+        case Orchestrator.execute_plan(steps, timeout: timeout) do
+          {:ok, result} ->
+            {:ok,
+             %{
+               status: "success",
+               type: "plan_executed",
+               result: result
+             }}
+
+          {:error, reason} ->
+            {:error, format_error(reason)}
+        end
     end
   rescue
     ArgumentError ->
       {:error, "Invalid tool name in plan. Use: file, terminal, code, web, memory, knowledge"}
+  end
+
+  # Validate that all plan steps have the required 'tool' key
+  defp valid_plan_steps?(plan) do
+    Enum.all?(plan, fn step ->
+      is_map(step) and is_binary(Map.get(step, "tool"))
+    end)
   end
 
   defp classify(args) do
