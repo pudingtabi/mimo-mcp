@@ -57,6 +57,59 @@
 
 ---
 
+## ⚠️ IMPORTANT: Honest Assessment (Added 2026-01-15)
+
+> **The "100% review" claim below is PARTIALLY MISLEADING and requires context.**
+
+### What This Review Actually Is
+
+| Aspect | Claimed | Reality |
+|--------|---------|---------|
+| **File enumeration** | 100% | ✅ True - All 356 files listed |
+| **Architecture documentation** | 100% | ✅ ~85% - Good descriptions |
+| **Bug-hunting depth** | "ALL EXCELLENT" | ❌ ~15-20% - Limited actual issue detection |
+
+### Bugs Found AFTER This Review (via skeptical spot-checks)
+
+These bugs should have been caught if the review was truly comprehensive:
+
+1. **ErrorPredictor.ex** (commit fc23680)
+   - `extract_error_type/1` crashed on `nil` input from `extract_error_message/1`
+   - `String.contains?/2` doesn't accept `nil`
+   - **Impact:** Runtime crash on certain error scenarios
+
+2. **HebbianLearner tests** (commit 61a491e)
+   - Tests called `:reset_test_state` which doesn't exist as a GenServer message
+   - **Impact:** Test failures
+
+3. **orchestrate.ex** (commit a5e8f04)
+   - `String.to_existing_atom()` called on potentially `nil` tool value
+   - **Impact:** Runtime crash on malformed plan input
+
+4. **error_predictor_learning_test.exs** (commit fc23680)
+   - Tests passed wrong argument types (map instead of string for third arg)
+   - `@spec record_failure(atom(), map(), String.t())` not followed
+
+### Why Everything Was Rated "EXCELLENT"
+
+The review focused on:
+- ✅ File structure and organization
+- ✅ Documentation (moduledoc) presence
+- ✅ SPEC cross-references
+- ✅ General code patterns
+
+The review **DID NOT** thoroughly include:
+- ❌ Type safety checks (nil guards, spec compliance)
+- ❌ Test/implementation alignment verification
+- ❌ Edge case analysis
+- ❌ Error path testing
+
+### Conclusion
+
+This document is valuable as **ARCHITECTURE DOCUMENTATION** but should not be considered a **COMPREHENSIVE BUG AUDIT**. Real bug-hunting reviews find issues—if a review rates everything "EXCELLENT" without finding any problems, that itself is a red flag.
+
+---
+
 ## Table of Contents
 
 1. [Architecture Overview](#1-architecture-overview)
