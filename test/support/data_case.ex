@@ -41,9 +41,16 @@ defmodule Mimo.DataCase do
         start_sandbox_with_retry(attempts - 1)
 
       e in ArgumentError ->
-        # Repo not started yet - wait and retry
-        Process.sleep(100)
-        start_sandbox_with_retry(attempts - 1)
+        cond do
+          # Already started - this is fine, just use the existing owner
+          String.contains?(Exception.message(e), "already started") ->
+            :ok
+
+          # Repo not started yet - wait and retry
+          true ->
+            Process.sleep(100)
+            start_sandbox_with_retry(attempts - 1)
+        end
     end
   end
 

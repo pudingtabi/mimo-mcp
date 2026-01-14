@@ -16,9 +16,10 @@ defmodule Mimo.Brain.HebbianLearnerOutcomeTest do
         nil ->
           {:ok, _} = HebbianLearner.start_link([])
 
-        pid ->
-          # Reset state for clean test
-          :ok = GenServer.call(pid, :reset_test_state, :infinity) |> catch_reset()
+        _pid ->
+          # HebbianLearner doesn't have :reset_test_state, just let it run
+          # The process is already started and state will be accumulated but that's fine for tests
+          :ok
       end
 
       :ok
@@ -73,9 +74,4 @@ defmodule Mimo.Brain.HebbianLearnerOutcomeTest do
       assert is_map(stats)
     end
   end
-
-  # Helper to catch if :reset_test_state is not implemented
-  defp catch_reset(:ok), do: :ok
-  defp catch_reset({:error, _}), do: :ok
-  defp catch_reset(_), do: :ok
 end
