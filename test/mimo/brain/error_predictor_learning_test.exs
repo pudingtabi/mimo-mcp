@@ -29,20 +29,21 @@ defmodule Mimo.Brain.ErrorPredictorLearningTest do
       stats = ErrorPredictor.stats()
 
       assert is_map(stats)
-      assert Map.has_key?(stats, :learned_pattern_count)
-      assert is_integer(stats.learned_pattern_count)
-      assert stats.learned_pattern_count >= 0
+      # The stats map uses :total_learned_patterns key
+      assert Map.has_key?(stats, :total_learned_patterns)
+      assert is_integer(stats.total_learned_patterns)
+      assert stats.total_learned_patterns >= 0
     end
 
     test "record_failure stores failure pattern" do
       initial_stats = ErrorPredictor.stats()
-      initial_count = initial_stats.learned_pattern_count
+      initial_count = initial_stats.total_learned_patterns
 
-      # Record a failure
+      # Record a failure (third arg is error message string, not a map)
       ErrorPredictor.record_failure(
         "file_edit",
-        %{path: "/test/file.ex", error: "permission denied"},
-        %{tool: "file", operation: "edit"}
+        %{path: "/test/file.ex"},
+        "permission denied"
       )
 
       # Give ETS time to update
@@ -51,7 +52,7 @@ defmodule Mimo.Brain.ErrorPredictorLearningTest do
       updated_stats = ErrorPredictor.stats()
 
       # Should have one more pattern
-      assert updated_stats.learned_pattern_count == initial_count + 1
+      assert updated_stats.total_learned_patterns == initial_count + 1
     end
 
     test "record_failure handles nil context gracefully" do
@@ -60,10 +61,10 @@ defmodule Mimo.Brain.ErrorPredictorLearningTest do
     end
 
     test "get_learned_patterns returns patterns for action_type" do
-      # Record some failures
-      ErrorPredictor.record_failure("terminal_execute", %{error: "timeout"}, %{})
-      ErrorPredictor.record_failure("terminal_execute", %{error: "permission"}, %{})
-      ErrorPredictor.record_failure("file_read", %{error: "not found"}, %{})
+      # Record some failures (third arg is error message string)
+      ErrorPredictor.record_failure("terminal_execute", %{command: "ls"}, "timeout error")
+      ErrorPredictor.record_failure("terminal_execute", %{command: "cat"}, "permission denied")
+      ErrorPredictor.record_failure("file_read", %{path: "/test.txt"}, "not found")
 
       Process.sleep(10)
 
@@ -92,10 +93,8 @@ defmodule Mimo.Brain.ErrorPredictorLearningTest do
 
       handler_ids = Enum.map(handlers, & &1.id)
 
-      # Should have our handler attached
-      assert Enum.any?(handler_ids, fn id ->
-               is_tuple(id) and elem(id, 0) == Mimo.Brain.ErrorPredictor
-             end)
+      # Handler is attached with string ID "error-predictor-learning"
+      assert Enum.member?(handler_ids, "error-predictor-learning")
     end
   end
 end

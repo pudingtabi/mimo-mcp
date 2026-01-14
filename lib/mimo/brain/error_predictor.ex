@@ -502,7 +502,7 @@ defmodule Mimo.Brain.ErrorPredictor do
       id: pattern_id,
       action_type: action_type,
       context_keys: Map.keys(context),
-      error_excerpt: String.slice(error_message, 0, 200),
+      error_excerpt: String.slice(error_message || "", 0, 200),
       occurrences: 1,
       created_at: DateTime.utc_now(),
       updated_at: DateTime.utc_now()
@@ -596,7 +596,11 @@ defmodule Mimo.Brain.ErrorPredictor do
     |> String.slice(0, 16)
   end
 
-  defp extract_error_type(error_message) do
+  # Guard against nil error_message (can happen when context has no error info)
+  defp extract_error_type(nil), do: "unknown"
+  defp extract_error_type(""), do: "unknown"
+
+  defp extract_error_type(error_message) when is_binary(error_message) do
     cond do
       String.contains?(error_message, "undefined function") -> "undefined_function"
       String.contains?(error_message, "UndefinedFunctionError") -> "undefined_function"
