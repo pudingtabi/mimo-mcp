@@ -511,7 +511,7 @@ defmodule Mimo.Brain.HybridRetriever do
         category: "knowledge",
         importance: 0.5,
         access_count: 0,
-        inserted_at: NaiveDateTime.utc_now(),
+        inserted_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:microsecond),
         metadata: %{"source" => "graph"}
       }
     ]

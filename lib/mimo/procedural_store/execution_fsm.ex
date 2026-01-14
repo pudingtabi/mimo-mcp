@@ -645,7 +645,7 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
       status: "running",
       current_state: procedure.definition["initial_state"],
       context: context,
-      started_at: NaiveDateTime.utc_now()
+      started_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:microsecond)
     }
 
     %Execution{}
@@ -654,7 +654,7 @@ defmodule Mimo.ProceduralStore.ExecutionFSM do
   end
 
   defp complete_execution(data, status, error) do
-    now = NaiveDateTime.utc_now()
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:microsecond)
     duration = System.monotonic_time(:millisecond) - data.start_time
 
     status_str = to_string(status)

@@ -1063,7 +1063,8 @@ defmodule Mimo.Brain.Memory do
 
           {:ok, embeddings} ->
             # Phase 3: Prepare and batch insert
-            now = NaiveDateTime.utc_now()
+            # SPEC-SQLITE: Use microsecond precision for naive_datetime_usec fields
+            now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:microsecond)
 
             entries =
               memories
@@ -1144,14 +1145,18 @@ defmodule Mimo.Brain.Memory do
     {_embedding_to_store, quantized_attrs} = quantize_embedding_for_storage(embedding)
 
     # Build base entry (without :id which is auto-generated)
+    # Note: inserted_at/updated_at are :naive_datetime (no microseconds)
+    #       last_accessed_at is :naive_datetime_usec (needs microseconds)
+    now_truncated = NaiveDateTime.truncate(now, :second)
+
     base = %{
       content: content,
       category: category,
       importance: importance,
       metadata: metadata,
       last_accessed_at: now,
-      inserted_at: now,
-      updated_at: now
+      inserted_at: now_truncated,
+      updated_at: now_truncated
     }
 
     # Merge quantized attributes
@@ -1219,7 +1224,8 @@ defmodule Mimo.Brain.Memory do
               importance: importance,
               embedding: embedding_to_store,
               metadata: metadata,
-              last_accessed_at: NaiveDateTime.utc_now()
+              # SPEC-SQLITE: Use microsecond precision for naive_datetime_usec fields
+              last_accessed_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:microsecond)
             },
             quantized_attrs
           )
