@@ -21,7 +21,7 @@ MIMO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Set database path to absolute path (required for MCP mode)
 export MIMO_DB_PATH="${MIMO_DB_PATH:-$MIMO_ROOT/priv/mimo_mcp.db}"
-export MIMO_ROOT="${MIMO_ROOT:-$MIMO_ROOT}"
+export MIMO_ROOT
 
 # Change to mimo directory to ensure relative paths work
 cd "$MIMO_ROOT"

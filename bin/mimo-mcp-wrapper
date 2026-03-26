@@ -6,8 +6,9 @@ if [ -f "$HOME/.asdf/asdf.sh" ]; then
   . "$HOME/.asdf/asdf.sh"
 fi
 
-# Change to the mimo-mcp directory
-cd /workspace/mrc-server/mimo-mcp
+# Change to the mimo-mcp directory (resolve from script location)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$(dirname "$SCRIPT_DIR")"
 
 # Set environment
 export MIX_ENV=dev
@@ -24,7 +25,7 @@ export PROMETHEUS_DISABLED=true
 export MIMO_DISABLE_HTTP=true
 
 # Suppress logs for clean stdio (only errors go to stderr)
-export LOGGER_LEVEL=error
+export LOGGER_LEVEL=none
 
 # Run the MCP server in stdio mode
 exec mix run --no-halt --no-compile -e "Mimo.McpServer.Stdio.start()"

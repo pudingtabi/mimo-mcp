@@ -76,30 +76,50 @@ function findElixirPaths() {
   }
 
   // Also check elixir-install (alternative installer)
-  // IMPORTANT: Prefer OTP 27 over OTP 28 to avoid Hex.State errors
+  // Read .tool-versions to select the correct versions
   const elixirInstallDir = path.join(homeDir, '.elixir-install', 'installs');
+
+  // Read target versions from .tool-versions
+  let targetOtp = null;
+  let targetElixir = null;
+  const toolVersionsPath = path.join(MIMO_DIR, '.tool-versions');
+  try {
+    if (fs.existsSync(toolVersionsPath)) {
+      const content = fs.readFileSync(toolVersionsPath, 'utf8');
+      for (const line of content.split('\n')) {
+        const [tool, version] = line.trim().split(/\s+/);
+        if (tool === 'erlang') targetOtp = version;
+        if (tool === 'elixir') targetElixir = version;
+      }
+    }
+  } catch (e) {
+    // Ignore errors reading .tool-versions
+  }
 
   try {
     const elixirDir = path.join(elixirInstallDir, 'elixir');
     const otpDir = path.join(elixirInstallDir, 'otp');
 
-    if (fs.existsSync(elixirDir)) {
-      const versions = fs.readdirSync(elixirDir).sort();
-      // Prefer otp-27 versions over otp-28 (Hex compatibility)
-      const otp27Version = versions.find(v => v.includes('otp-27'));
-      const selectedVersion = otp27Version || versions[0]; // Fallback to first
+    // OTP must come FIRST in PATH
+    if (fs.existsSync(otpDir)) {
+      const versions = fs.readdirSync(otpDir).sort();
+      // Prefer version from .tool-versions, otherwise use latest
+      const matchingVersion = targetOtp ? versions.find(v => v.startsWith(targetOtp.split('.')[0])) : null;
+      const selectedVersion = matchingVersion || versions[versions.length - 1];
       if (selectedVersion) {
-        paths.push(path.join(elixirDir, selectedVersion, 'bin'));
+        paths.push(path.join(otpDir, selectedVersion, 'bin'));
       }
     }
 
-    if (fs.existsSync(otpDir)) {
-      const versions = fs.readdirSync(otpDir).sort();
-      // Prefer OTP 27.x over 28.x
-      const otp27Version = versions.find(v => v.startsWith('27'));
-      const selectedVersion = otp27Version || versions[0]; // Fallback to first
+    // Elixir comes AFTER OTP
+    if (fs.existsSync(elixirDir)) {
+      const versions = fs.readdirSync(elixirDir).sort();
+      // Prefer version from .tool-versions, otherwise use latest
+      const targetOtpSuffix = targetElixir ? targetElixir.match(/otp-\d+/)?.[0] : null;
+      const matchingVersion = targetOtpSuffix ? versions.find(v => v.includes(targetOtpSuffix)) : null;
+      const selectedVersion = matchingVersion || versions[versions.length - 1];
       if (selectedVersion) {
-        paths.push(path.join(otpDir, selectedVersion, 'bin'));
+        paths.push(path.join(elixirDir, selectedVersion, 'bin'));
       }
     }
   } catch (e) {

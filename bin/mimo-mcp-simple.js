@@ -335,12 +335,12 @@ validateEnvironment();
 // Spawn mix directly (no bash)
 
 const elixir = spawn(MIX_PATH, [
-  'run', '--no-halt',
+  'run', '--no-halt', '--no-compile',
   '-e', 'Mimo.McpServer.Stdio.start()'
 ], {
   cwd: MIMO_DIR,
   env: env,
-  stdio: ['pipe', 'pipe', 'ignore']  // stdin/stdout piped, stderr ignored for clean MCP
+  stdio: ['pipe', 'pipe', 'pipe']  // stdin/stdout/stderr all piped
 });
 
 // Forward stdin to Elixir
@@ -370,6 +370,11 @@ elixir.stdout.on('end', () => {
   if (buffer.trim().startsWith('{')) {
     process.stdout.write(buffer + '\n');
   }
+});
+
+// Forward stderr to parent stderr for debugging
+elixir.stderr.on('data', (data) => {
+  process.stderr.write(data);
 });
 
 // Handle errors silently
