@@ -33,6 +33,9 @@ defmodule Mimo.McpServer.Stdio do
   # Timeout for tool execution from centralized config
   @tool_timeout Mimo.TimeoutConfig.mcp_tool_timeout()
 
+  # Read version from mix.exs to avoid drift
+  @version Mix.Project.config()[:version] || "0.0.0"
+
   @doc """
   Starts the Stdio server loop.
   This function blocks until EOF is received on stdin.
@@ -180,7 +183,7 @@ defmodule Mimo.McpServer.Stdio do
       },
       "serverInfo" => %{
         "name" => "mimo-mcp",
-        "version" => "2.9.0"
+        "version" => @version
       }
     })
   end
